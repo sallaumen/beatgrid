@@ -37,10 +37,11 @@ defmodule Beatgrid.Mixing do
        when is_binary(camelot) and is_number(bpm) do
     limit = Keyword.get(opts, :limit, @default_limit)
     tolerance = Keyword.get(opts, :bpm_tolerance, @default_bpm_tolerance)
+    exclude = Keyword.get(opts, :exclude, [])
     neighbors = Camelot.neighbors(camelot)
     max_delta = bpm * tolerance
 
-    track.id
+    [track.id | exclude]
     |> candidates()
     |> Enum.filter(&compatible?(&1.soundcharts_song, neighbors, bpm, max_delta))
     |> Enum.map(&score(&1, camelot, bpm, song.energy, max_delta))
@@ -50,9 +51,9 @@ defmodule Beatgrid.Mixing do
 
   defp rank(_track, _song, _opts), do: []
 
-  defp candidates(track_id) do
+  defp candidates(exclude_ids) do
     Track
-    |> where([t], not is_nil(t.soundcharts_song_id) and t.id != ^track_id)
+    |> where([t], not is_nil(t.soundcharts_song_id) and t.id not in ^exclude_ids)
     |> preload(:soundcharts_song)
     |> Repo.all()
   end

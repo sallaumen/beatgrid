@@ -41,5 +41,16 @@ defmodule Beatgrid.MixingTest do
     test "returns [] when the track has no resolved song" do
       assert Mixing.suggest_next(insert(:track)) == []
     end
+
+    test "excludes the given track ids (used by the set-builder)" do
+      current = track_with("8A", 120.0)
+      keep = track_with("8A", 120.5)
+      skip = track_with("8A", 121.0)
+
+      ids = current |> Mixing.suggest_next(exclude: [skip.id]) |> Enum.map(& &1.track.id)
+
+      assert keep.id in ids
+      refute skip.id in ids
+    end
   end
 end

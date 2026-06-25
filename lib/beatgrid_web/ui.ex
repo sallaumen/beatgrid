@@ -110,6 +110,7 @@ defmodule BeatgridWeb.UI do
           href="/revisao"
           active={@active == :revisao}
         />
+        <.nav_item icon="hero-queue-list" label="Sets" href="/set" active={@active == :sets} />
       </nav>
       <main class="min-w-0 flex-1">{render_slot(@inner_block)}</main>
     </div>
