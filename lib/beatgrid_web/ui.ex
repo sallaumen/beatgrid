@@ -176,6 +176,32 @@ defmodule BeatgridWeb.UI do
     """
   end
 
+  @doc "Interactive 0–10 rating control (emits `set_rating` with `n`)."
+  attr :value, :integer, default: nil
+
+  def rating_control(assigns) do
+    ~H"""
+    <div class="flex gap-1">
+      <button
+        :for={n <- 0..10}
+        type="button"
+        phx-click="set_rating"
+        phx-value-n={n}
+        class="flex-1 rounded-md py-[7px] font-mono text-[12px] font-semibold transition-colors"
+        style={rating_cell_style(n, @value)}
+      >
+        {n}
+      </button>
+    </div>
+    """
+  end
+
+  defp rating_cell_style(n, value) when is_integer(value) and n <= value,
+    do: "background:#{rating_color(value)};color:#0b0c10"
+
+  defp rating_cell_style(_n, _value),
+    do: "background:#15171f;color:#9498a6;border:1px solid rgba(255,255,255,.07)"
+
   @doc "Compact rating badge (table)."
   attr :value, :integer, default: nil
 

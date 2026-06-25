@@ -9,6 +9,7 @@ defmodule Beatgrid.Library.Tracks do
   alias Beatgrid.Repo
 
   defdelegate get(id), to: TrackQuery
+  defdelegate get_with_song(id), to: TrackQuery
   defdelegate get_by_path(rel_path), to: TrackQuery
 
   @spec list_by(keyword()) :: [Track.t()]

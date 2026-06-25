@@ -18,6 +18,7 @@ defmodule BeatgridWeb.Router do
     pipe_through :browser
 
     live "/", LibraryLive, :index
+    live "/track/:id", TrackLive, :show
   end
 
   # Other scopes may use custom stacks.

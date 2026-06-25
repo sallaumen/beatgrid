@@ -200,8 +200,9 @@ defmodule BeatgridWeb.LibraryLive do
         <span class="text-right">Nota</span>
         <span class="text-right">Sinal</span>
       </div>
-      <div
+      <.link
         :for={track <- @tracks}
+        navigate={~p"/track/#{track.id}"}
         class="grid items-center gap-2 rounded-lg px-1.5 py-1.5 hover:bg-surface-2"
         style={grid_cols()}
       >
@@ -218,7 +219,7 @@ defmodule BeatgridWeb.LibraryLive do
         </div>
         <div class="text-right"><.rating_badge value={track.rating} /></div>
         <div class="text-right"><.confidence_chip level={track.sc_match_confidence} /></div>
-      </div>
+      </.link>
     </div>
     """
   end

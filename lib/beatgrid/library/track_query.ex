@@ -24,6 +24,14 @@ defmodule Beatgrid.Library.TrackQuery do
   @spec get(Ecto.UUID.t()) :: Track.t() | nil
   def get(id), do: Repo.get(Track, id)
 
+  @spec get_with_song(Ecto.UUID.t()) :: Track.t() | nil
+  def get_with_song(id) do
+    case Repo.get(Track, id) do
+      nil -> nil
+      track -> Repo.preload(track, :soundcharts_song)
+    end
+  end
+
   @spec get_by_path(String.t()) :: Track.t() | nil
   def get_by_path(rel_path), do: Repo.get_by(Track, rel_path: rel_path)
 
