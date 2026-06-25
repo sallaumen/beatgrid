@@ -37,3 +37,6 @@ config :phoenix,
 
 # Oban: don't run jobs automatically in tests — drive them with perform_job/2.
 config :beatgrid, Oban, testing: :manual
+
+# Integration ports → Mox mocks (see test/support/mocks.ex).
+config :beatgrid, Beatgrid.Audio, adapter: Beatgrid.Audio.Mock

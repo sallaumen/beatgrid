@@ -27,6 +27,9 @@ config :beatgrid, Oban,
   queues: [default: 10, scan: 2, soundcharts: 1, ai: 2],
   plugins: [{Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}]
 
+# Integration ports (ports & adapters). Tests override these with Mox mocks.
+config :beatgrid, Beatgrid.Audio, adapter: Beatgrid.Audio.Ffprobe
+
 # Configure the endpoint
 config :beatgrid, BeatgridWeb.Endpoint,
   url: [host: "localhost"],
