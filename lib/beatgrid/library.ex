@@ -62,6 +62,17 @@ defmodule Beatgrid.Library do
     do_move(track, dest_rel, %{genre_folder: genre_folder})
   end
 
+  @doc """
+  Renames a track's file in place (same directory) to `new_filename`, updating
+  the row's `filename` and `rel_path`. Never overwrites — a colliding name gets
+  a unique " (N)" suffix.
+  """
+  @spec rename(Track.t(), String.t()) :: {:ok, Track.t()} | {:error, term()}
+  def rename(track, new_filename) do
+    dest_rel = Path.join(Path.dirname(track.rel_path), new_filename)
+    do_move(track, dest_rel, %{})
+  end
+
   @doc "Moves a track into `_Quarantine` and flags its status. Never deletes."
   @spec quarantine(Track.t()) :: {:ok, Track.t()} | {:error, term()}
   def quarantine(track) do
@@ -86,7 +97,10 @@ defmodule Beatgrid.Library do
          dest = abs_path(unique_rel),
          :ok <- File.mkdir_p(Path.dirname(dest)),
          :ok <- File.rename(src, dest) do
-      Tracks.update(track, Map.put(extra_attrs, :rel_path, unique_rel))
+      Tracks.update(
+        track,
+        Map.merge(extra_attrs, %{rel_path: unique_rel, filename: Path.basename(unique_rel)})
+      )
     end
   end
 
