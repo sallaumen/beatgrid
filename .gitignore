@@ -17,6 +17,9 @@ erl_crash.dump
 /priv/static/assets/
 /priv/static/cache_manifest.json
 
+# ExUnit `@tag :tmp_dir` scratch dirs
+/tmp/
+
 # Local env / secrets — never commit credentials
 .env
 .env.*
