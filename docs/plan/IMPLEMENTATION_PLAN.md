@@ -13,30 +13,30 @@ Legend: `[ ]` todo · each phase ends with a **Done when** verification gate.
 **Goal:** a booting Phoenix app with Postgres, Oban, the repo wrapper, the quality
 gate, and the genre folders seeded.
 
-- [ ] `mix phx.new beatgrid --no-mailer` (LiveView + Ecto/Postgres; `--no-mailer` —
+- [x] `mix phx.new beatgrid --no-mailer` (LiveView + Ecto/Postgres; `--no-mailer` —
       we add Swoosh only if needed). Move generated tree into the repo root.
-- [ ] `docker-compose.yml` with a Postgres 16 service; `.env.example`; wire
+- [x] `docker-compose.yml` with a Postgres 16 service; `.env.example`; wire
       `config/dev.exs` + `config/test.exs` to it.
-- [ ] Wrap the repo: `Beatgrid.Repo` with `migration_lock: :pg_advisory_lock`,
+- [x] Wrap the repo: `Beatgrid.Repo` with `migration_lock: :pg_advisory_lock`,
       `migration_timestamps: [type: :utc_datetime]`, and stubs for `paginate/2`,
       `inspect_query/1` (fill in as needed).
-- [ ] Add deps: `oban`, `req`, `uniq` (UUID v7), `ex_machina` (test), `mox` (test),
+- [x] Add deps: `oban`, `req`, `uniq` (UUID v7), `ex_machina` (test), `mox` (test),
       `mimic` (test), `credo`, `dialyxir`, `sobelow`, `excoveralls`. (Ask before each
       per AGENTS.md "ask first", then add as a batch.)
-- [ ] Configure Oban (queues: `default`, `scan`, `soundcharts` [`local_limit: 1`],
+- [x] Configure Oban (queues: `default`, `scan`, `soundcharts` [`local_limit: 1`],
       `ai`) in `config/config.exs`; add to the supervision tree.
-- [ ] `Beatgrid.Application` supervision tree in playbook order (Telemetry → Repo →
+- [x] `Beatgrid.Application` supervision tree in playbook order (Telemetry → Repo →
       PubSub → Task.Supervisor → Oban → Endpoint), feature-gated with the `add/2` helper.
-- [ ] `.formatter.exs`, `.credo.exs` (strict), dialyzer PLT config; `mix lint` alias
+- [x] `.formatter.exs`, `.credo.exs` (strict), dialyzer PLT config; `mix lint` alias
       (`format --check-formatted` + `credo --all --strict` + `dialyzer` + `sobelow`).
-- [ ] Test scaffolding: `Beatgrid.DataCase` (sandbox, `oban:`/`properties:` opts),
+- [x] Test scaffolding: `Beatgrid.DataCase` (sandbox, `oban:`/`properties:` opts),
       `Beatgrid.ConnCase`, `Beatgrid.Factory`, `test/support/mocks.ex`, `test_helper.exs`
       (`Mimic.copy` for `Date`/`DateTime`/`Req`).
-- [ ] Migration + schema + seed for `genre_folders` (the 6 folders + the user's
+- [x] Migration + schema + seed for `genre_folders` (the 6 folders + the user's
       rubric descriptions). `Beatgrid.Library.GenreFolder` + `GenreFolderQuery`.
-- [ ] `mix beatgrid.init_library` task: create `~/Music/DJ/` with the 6 folders +
+- [x] `mix beatgrid.init_library` task: create `~/Music/DJ/` with the 6 folders +
       `_Inbox` + `_Quarantine` (idempotent), reading the library root from settings.
-- [ ] GitHub Actions CI: `mix lint` + `mix test` against a Postgres service.
+- [x] GitHub Actions CI: `mix lint` + `mix test` against a Postgres service.
 
 **Done when:** `docker compose up -d db && mix setup && mix phx.server` boots; `mix
 lint` and `mix test` are green; `genre_folders` is seeded; `~/Music/DJ` exists.
