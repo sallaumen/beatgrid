@@ -3,6 +3,8 @@ defmodule Beatgrid.Library.Tracks do
   Context for tracks — the physical audio files in the library. Reads are
   delegated to `Beatgrid.Library.TrackQuery`; mutations live here.
   """
+  import Ecto.Query
+
   alias Beatgrid.Library.{Track, TrackQuery}
   alias Beatgrid.Repo
 
@@ -26,5 +28,21 @@ defmodule Beatgrid.Library.Tracks do
     (existing || %Track{})
     |> Track.changeset(attrs)
     |> Repo.insert_or_update()
+  end
+
+  @doc """
+  Marks every `:present` track whose `rel_path` is not in `scanned_rel_paths`
+  as `:missing` (the file disappeared since the last scan). Returns the count.
+  """
+  @spec mark_missing_except([String.t()]) :: non_neg_integer()
+  def mark_missing_except(scanned_rel_paths) do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    {count, _} =
+      Track
+      |> where([t], t.status == :present and t.rel_path not in ^scanned_rel_paths)
+      |> Repo.update_all(set: [status: :missing, updated_at: now])
+
+    count
   end
 end
