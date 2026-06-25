@@ -8,10 +8,14 @@ defmodule Beatgrid.Library.Tracks do
   alias Beatgrid.Library.{Track, TrackQuery}
   alias Beatgrid.Repo
 
+  defdelegate get(id), to: TrackQuery
   defdelegate get_by_path(rel_path), to: TrackQuery
 
   @spec list_by(keyword()) :: [Track.t()]
   def list_by(opts \\ []), do: TrackQuery.list_by(opts)
+
+  @spec update(Track.t(), map()) :: {:ok, Track.t()} | {:error, Ecto.Changeset.t()}
+  def update(track, attrs), do: track |> Track.changeset(attrs) |> Repo.update()
 
   @spec count(keyword()) :: non_neg_integer()
   def count(opts \\ []), do: TrackQuery.count(opts)

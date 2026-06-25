@@ -20,6 +20,9 @@ defmodule Beatgrid.Library.TrackQuery do
     |> Repo.all()
   end
 
+  @spec get(Ecto.UUID.t()) :: Track.t() | nil
+  def get(id), do: Repo.get(Track, id)
+
   @spec get_by_path(String.t()) :: Track.t() | nil
   def get_by_path(rel_path), do: Repo.get_by(Track, rel_path: rel_path)
 
