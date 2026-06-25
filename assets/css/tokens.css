@@ -1,0 +1,90 @@
+/* Beatgrid — Design tokens como CSS custom properties.
+   Alternativa ao tailwind.config.js para quem prefere CSS variables.
+   Importe uma vez no layout raiz. */
+:root {
+  /* superfícies */
+  --bg-base: #0b0c10;
+  --bg-rail: #0e0f15;
+  --surface: #11131a;
+  --surface-2: #131520;
+  --surface-input: #15171f;
+  --surface-deep: #0d0e14;
+  --surface-pill: #1b1d26;
+
+  /* texto */
+  --text-primary: #eef0f5;
+  --text-secondary: #c4c7d0;
+  --text-muted: #9498a6;
+  --text-faint: #5f636f;
+  --text-disabled: #3a3d48;
+
+  /* bordas */
+  --border-subtle: rgba(255,255,255,.06);
+  --border-soft: rgba(255,255,255,.08);
+  --border-strong: rgba(255,255,255,.10);
+  --focus-ring: rgba(139,123,240,.50);
+
+  /* marca */
+  --primary: #8b7bf0;
+  --primary-deep: #6c5ce7;
+  --primary-soft: #a594f5;
+  --amber: #ffb020;
+  --amber-deep: #e08e00;
+  --green: #5ad1a0;
+  --green-deep: #2f9e76;
+  --blue: #2d9cff;
+  --coral: #ff5d6c;
+  --coral-soft: #ff8d97;
+  --violet-pink: #c08bf0;
+
+  /* confiança do match */
+  --conf-high: #5ad1a0;
+  --conf-mid: #ffb020;
+  --conf-low: #ff5d6c;
+  --conf-none: #7d818c;
+
+  /* status de arquivo */
+  --status-nomatch: #ff5d6c;
+  --status-truncated: #ff8d97;
+  --status-audit: #e08e00;
+  --status-rec: #ff5d6c;
+
+  /* pastas / gênero */
+  --folder-mpb: #8b7bf0;
+  --folder-forro: #ffb020;
+  --folder-classico: #e08e00;
+  --folder-roots: #ff8d97;
+  --folder-light: #2d9cff;
+  --folder-psico: #5ad1a0;
+  --folder-forrompb: #c08bf0;
+
+  /* raios */
+  --radius-xs: 5px;
+  --radius-sm: 7px;
+  --radius-md: 9px;
+  --radius-lg: 11px;
+  --radius-xl: 12px;
+  --radius-2xl: 14px;
+
+  /* sombras */
+  --shadow-elevated: 0 12px 32px rgba(0,0,0,.5);
+  --shadow-primary: 0 4px 14px rgba(139,123,240,.35);
+  --shadow-logo: 0 6px 18px rgba(108,92,231,.45);
+
+  /* fontes */
+  --font-sans: 'Space Grotesk', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+}
+
+/* helper: chip semântico (confiança/status). Defina --c na cor desejada. */
+.bg-token-chip {
+  color: var(--c);
+  background: color-mix(in srgb, var(--c) 11%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c) 30%, transparent);
+}
+/* helper: badge de pasta. Defina --c na cor da pasta. */
+.bg-folder-badge {
+  color: var(--c);
+  background: color-mix(in srgb, var(--c) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c) 23%, transparent);
+}

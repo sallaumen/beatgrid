@@ -105,4 +105,61 @@
 /* Make LiveView wrapper divs transparent for layout */
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 
-/* This file is for your main application CSS */
+/* ── Beatgrid design tokens (from the Claude Design handoff) ───────────────── */
+@import "./tokens.css";
+
+/* Expose the Beatgrid palette / fonts / radii as Tailwind v4 utilities
+   (bg-surface, text-ink-muted, font-mono, rounded-xl, …). */
+@theme {
+  --color-base: #0b0c10;
+  --color-rail: #0e0f15;
+  --color-surface: #11131a;
+  --color-surface-2: #131520;
+  --color-input: #15171f;
+  --color-deep: #0d0e14;
+  --color-pill: #1b1d26;
+
+  --color-ink: #eef0f5;
+  --color-ink-secondary: #c4c7d0;
+  --color-ink-muted: #9498a6;
+  --color-ink-faint: #5f636f;
+  --color-ink-disabled: #3a3d48;
+
+  --color-primary: #8b7bf0;
+  --color-primary-deep: #6c5ce7;
+  --color-primary-soft: #a594f5;
+  --color-amber: #ffb020;
+  --color-amber-deep: #e08e00;
+  --color-green: #5ad1a0;
+  --color-green-deep: #2f9e76;
+  --color-info: #2d9cff;
+  --color-coral: #ff5d6c;
+  --color-coral-soft: #ff8d97;
+  --color-violet: #c08bf0;
+
+  --color-conf-high: #5ad1a0;
+  --color-conf-mid: #ffb020;
+  --color-conf-low: #ff5d6c;
+  --color-conf-none: #7d818c;
+
+  --color-folder-mpb: #8b7bf0;
+  --color-folder-forro: #ffb020;
+  --color-folder-classico: #e08e00;
+  --color-folder-roots: #ff8d97;
+  --color-folder-light: #2d9cff;
+  --color-folder-psico: #5ad1a0;
+  --color-folder-forrompb: #c08bf0;
+
+  --font-sans: "Space Grotesk", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+
+  --radius-xs: 5px;
+  --radius-sm: 7px;
+  --radius-md: 9px;
+  --radius-lg: 11px;
+  --radius-xl: 12px;
+  --radius-2xl: 14px;
+}
+
+/* The app is always the dark, dense Beatgrid theme. */
+html, body { background: var(--bg-base); color: var(--text-primary); font-family: var(--font-sans); }

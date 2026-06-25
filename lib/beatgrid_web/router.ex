@@ -17,7 +17,7 @@ defmodule BeatgridWeb.Router do
   scope "/", BeatgridWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
+    live "/", LibraryLive, :index
   end
 
   # Other scopes may use custom stacks.
