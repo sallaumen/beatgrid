@@ -55,6 +55,8 @@ defmodule Beatgrid.Library.Track do
 
     field :last_scanned_at, :utc_datetime
 
+    belongs_to :soundcharts_song, Beatgrid.Soundcharts.Song, foreign_key: :soundcharts_song_id
+
     timestamps()
   end
 
@@ -63,7 +65,7 @@ defmodule Beatgrid.Library.Track do
                tag_title tag_artist tag_album tag_album_artist tag_year
                tag_track_no tag_isrc tag_genre tag_comment raw_tags
                source_playlist genre_folder status quality_issues
-               rating personal_note last_scanned_at)a
+               rating personal_note last_scanned_at soundcharts_song_id)a
 
   @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   def changeset(track, attrs) do
