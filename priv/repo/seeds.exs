@@ -50,6 +50,16 @@ folders = [
     dir_name: "Forró Psicodélico",
     sort_order: 6,
     description: "Forró with electronic / psychedelic elements."
+  },
+  %{
+    key: "forro_mpb",
+    display_name: "Forró MPB",
+    dir_name: "Forró MPB",
+    sort_order: 7,
+    description:
+      "Forró-MPB crossover — tracks that lean MPB / songwriter but come from a forró " <>
+        "context. The user treats forró-origin tracks as forró, so prefer this over `mpb` " <>
+        "when a track's current folder is already a forró one."
   }
 ]
 
