@@ -80,19 +80,19 @@ picture of the real 393-file collection. All under `mix test` with no network.
 **Goal:** get tracks into the clean library and into the right folders, by rule +
 manual, with full review and undo — before any AI is involved.
 
-- [ ] `Beatgrid.Library.import_from/1` — copy MP3s from a source folder into `_Inbox/`,
+- [x] `Beatgrid.Library.import_from/1` — copy MP3s from a source folder into `_Inbox/`,
       skipping files that duplicate something already in the library (uses Dedup).
       Originals untouched. Records provenance in `source_playlist`.
-- [ ] `move_suggestions` migration + `Beatgrid.Organization.MoveSuggestion` schema + query.
-- [ ] `Beatgrid.Organization.suggest_by_rule/0` — seed suggestions from the
+- [x] `move_suggestions` migration + `Beatgrid.Organization.MoveSuggestion` schema + query.
+- [x] `Beatgrid.Organization.suggest_by_rule/0` — seed suggestions from the
       source-playlist → genre-folder mapping (e.g. `Baile Forrodélico` → `Forró Psicodélico`).
-- [ ] `Beatgrid.Organization.apply_batch/1` — for each approved suggestion, `File.rename`
+- [x] `Beatgrid.Organization.apply_batch/1` — for each approved suggestion, `File.rename`
       within the library inside `Repo.transact`, update `tracks.genre_folder` + the
       suggestion status; collect failures without aborting the batch.
-- [ ] `Beatgrid.Organization.undo/1` — reverse an applied move (rename back, flip status).
-- [ ] `Beatgrid.Library.quarantine/1` — move a track to `_Quarantine/` (bad files,
+- [x] `Beatgrid.Organization.undo/1` — reverse an applied move (rename back, flip status).
+- [x] `Beatgrid.Library.quarantine/1` — move a track to `_Quarantine/` (bad files,
       rejected duplicates); never `File.rm`.
-- [ ] mix tasks: `beatgrid.import <source>`, `beatgrid.suggest`, `beatgrid.apply <batch>`,
+- [x] mix tasks: `beatgrid.import <source>`, `beatgrid.suggest`, `beatgrid.apply <batch>`,
       `beatgrid.undo <batch>` (interim CLI driver until the LiveView UI exists).
 
 **Done when:** importing a source folder copies non-dup MP3s into `_Inbox`; rule
