@@ -30,6 +30,10 @@ config :beatgrid, Oban,
 # Integration ports (ports & adapters). Tests override these with Mox mocks.
 config :beatgrid, Beatgrid.Audio, adapter: Beatgrid.Audio.Ffprobe
 config :beatgrid, Beatgrid.Soundcharts.Client, adapter: Beatgrid.Soundcharts.Http
+config :beatgrid, Beatgrid.AI.Client, adapter: Beatgrid.AI.ClaudeCli
+
+# AI classifier: which `claude` model and how many tracks per classification call.
+config :beatgrid, Beatgrid.AI, model: "sonnet", batch_size: 15
 
 # Soundcharts budget: hard cap on successful API calls + a safety floor below
 # which the client refuses to call (the free tier is ~1,000 requests total).

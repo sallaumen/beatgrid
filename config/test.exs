@@ -41,6 +41,7 @@ config :beatgrid, Oban, testing: :manual
 # Integration ports → Mox mocks (see test/support/mocks.ex).
 config :beatgrid, Beatgrid.Audio, adapter: Beatgrid.Audio.Mock
 config :beatgrid, Beatgrid.Soundcharts.Client, adapter: Beatgrid.Soundcharts.Mock
+config :beatgrid, Beatgrid.AI.Client, adapter: Beatgrid.AI.Mock
 
 # The Http adapter, when exercised directly, routes through Req.Test instead of
 # the network (see test/beatgrid/soundcharts/http_test.exs).
