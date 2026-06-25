@@ -23,6 +23,15 @@ end
 config :beatgrid, BeatgridWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+# Soundcharts HTTP adapter credentials (read from the environment in every env).
+# Tests use the Mox adapter and never read these.
+config :beatgrid, Beatgrid.Soundcharts.Http,
+  base_url: System.get_env("SOUNDCHARTS_BASE_URL", "https://customer.api.soundcharts.com"),
+  token_url: System.get_env("SOUNDCHARTS_TOKEN_URL", "https://account.soundcharts.com/oauth/token"),
+  client_id: System.get_env("SOUNDCHARTS_APP_ID"),
+  client_secret: System.get_env("SOUNDCHARTS_API_KEY"),
+  team_id: System.get_env("SOUNDCHARTS_TEAM_ID")
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||
