@@ -2,7 +2,19 @@
 
 _Adversarial audit (12 parallel auditors + synthesis) over the 337 resolved tracks. Findings are persisted as `[audit:…]` prefixes on each track's pending `RenameSuggestion.reason`. Nothing was applied to disk; everything awaits review in the future UI._
 
-## Synthesis
+## Re-resolution outcome (after the audit)
+
+The audit's root cause — title-only search colliding on artist names / common words —
+was fixed: search now uses **"artist + title"** when an artist tag is present, plus a
+**medley confidence guard** (a `/` / pout-pourri / medley name is capped at `:medium`).
+The **26 `wrong_match`** tracks were re-resolved (`Soundcharts.re_resolve/1`); ~22 became
+**`high` with the correct artist** (Sina → *Djavan*, A Banda → *Chico Buarque*, Azul →
+*Gal Costa*, Ben → *Rubel*, Sabiá → *Jorge Du Peixe*, Swan Lake → *Chico Chagas*), the rest
+dropped to `low`/`medium` (correct but flagged). Library-wide after re-resolution:
+**high 281 · medium 4 · low 52**, 4 no-match, 14 truncated. The `do_not_rename` (medley)
+and `verify` flags below remain pending for review; the wrong-match flags were superseded.
+
+## Synthesis (original audit)
 
 ## Soundcharts match audit — 60 flagged tracks
 
