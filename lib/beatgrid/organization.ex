@@ -64,6 +64,20 @@ defmodule Beatgrid.Organization do
      }}
   end
 
+  @doc "Sets a suggestion's review status (approve/reject/reset)."
+  @spec set_status(MoveSuggestion.t(), atom()) ::
+          {:ok, MoveSuggestion.t()} | {:error, Ecto.Changeset.t()}
+  def set_status(suggestion, status), do: update_status(suggestion, status)
+
+  @doc "Edits the target genre folder and marks the suggestion approved."
+  @spec edit_to(MoveSuggestion.t(), String.t()) ::
+          {:ok, MoveSuggestion.t()} | {:error, Ecto.Changeset.t()}
+  def edit_to(suggestion, to_genre_folder) do
+    suggestion
+    |> MoveSuggestion.changeset(%{to_genre_folder: to_genre_folder, status: :approved})
+    |> Repo.update()
+  end
+
   @doc "Reverses an applied move, returning the track to its original location."
   @spec undo(MoveSuggestion.t()) :: {:ok, MoveSuggestion.t()} | {:error, term()}
   def undo(%MoveSuggestion{status: :applied} = suggestion) do

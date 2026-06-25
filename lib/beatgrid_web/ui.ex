@@ -104,7 +104,12 @@ defmodule BeatgridWeb.UI do
           active={@active == :biblioteca}
         />
         <.nav_item icon="hero-chart-bar" label="Painel" href="#" active={@active == :painel} />
-        <.nav_item icon="hero-check-circle" label="Revisão" href="#" active={@active == :revisao} />
+        <.nav_item
+          icon="hero-check-circle"
+          label="Revisão"
+          href="/revisao"
+          active={@active == :revisao}
+        />
       </nav>
       <main class="min-w-0 flex-1">{render_slot(@inner_block)}</main>
     </div>
@@ -217,6 +222,158 @@ defmodule BeatgridWeb.UI do
     <span :if={!is_integer(@value)} class="text-ink-faint text-[12px]">–</span>
     """
   end
+
+  @doc """
+  Review card for one suggestion (a rename or an AI classification). Presentational:
+  the LiveView maps a suggestion to these attrs and handles the `approve`/`reject`/
+  `edit_start`/`edit_save`/`edit_cancel` events (each carries `id` + `type`).
+  """
+  attr :id, :string, required: true
+  attr :type, :atom, required: true, doc: ":rename | :classification"
+  attr :status, :atom, required: true, doc: ":pending | :approved | :rejected"
+  attr :editing, :boolean, default: false
+  attr :artist, :string, default: nil
+  attr :title, :string, default: nil
+  attr :from, :string, default: nil, doc: "rename: old filename (struck)"
+  attr :to, :string, default: nil, doc: "rename: new filename; classification: target folder key"
+
+  attr :from_folder, :string,
+    default: nil,
+    doc: "classification: current folder key (nil = inbox)"
+
+  attr :confidence_level, :atom, default: nil
+  attr :rationale, :string, default: nil, doc: "classification: AI justification"
+  attr :audit, :string, default: nil, doc: "rename: audit flag text"
+  attr :folders, :list, default: [], doc: "classification: folder options for the edit picker"
+
+  def suggestion_card(assigns) do
+    ~H"""
+    <div
+      id={@id}
+      class={["flex items-start gap-3 rounded-xl px-[14px] py-[13px]", suggestion_card_class(@status)]}
+    >
+      <.cover artist={@artist} size={42} />
+      <div class="min-w-0 flex-1">
+        <p class="truncate text-body font-medium">{@title}</p>
+        <p :if={@artist} class="text-ink-muted truncate text-caption">{@artist}</p>
+
+        <div :if={!@editing} class="mt-1.5 flex items-center gap-2 text-[12px]">
+          <%= if @type == :classification do %>
+            <.folder_badge :if={@from_folder} folder={@from_folder} />
+            <span :if={!@from_folder} class="text-ink-faint">Inbox</span>
+            <span class="text-green">→</span>
+            <.folder_badge folder={@to} />
+          <% else %>
+            <span class="text-coral truncate font-mono line-through">{@from}</span>
+            <span class="text-green">→</span>
+            <span class="text-ink truncate font-mono">{@to}</span>
+          <% end %>
+        </div>
+
+        <form
+          :if={@editing}
+          id={"edit-#{@id}"}
+          phx-submit="edit_save"
+          class="mt-1.5 flex items-center gap-2"
+        >
+          <input type="hidden" name="sid" value={@id} />
+          <input type="hidden" name="type" value={@type} />
+          <select
+            :if={@type == :classification}
+            name="value"
+            class="rounded-md border border-white/8 bg-input px-2 py-1 text-[12px]"
+          >
+            <option :for={f <- @folders} value={f.key} selected={f.key == @to}>
+              {f.display_name}
+            </option>
+          </select>
+          <input
+            :if={@type != :classification}
+            name="value"
+            value={@to}
+            class="flex-1 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-[12px] focus:border-primary/50 focus:outline-none"
+          />
+          <button class="rounded-md bg-primary px-2.5 py-1 text-[12px] font-semibold text-white">
+            Salvar
+          </button>
+          <button
+            type="button"
+            phx-click="edit_cancel"
+            class="text-ink-muted hover:text-ink text-[12px]"
+          >
+            Cancelar
+          </button>
+        </form>
+
+        <div class="mt-1.5 flex items-center gap-2">
+          <.confidence_chip level={@confidence_level} />
+          <span
+            :if={@audit}
+            class="bg-token-chip inline-flex items-center rounded-xs px-[7px] py-[2px] text-[9.5px] font-bold uppercase tracking-wide"
+            style="--c:#ffb020"
+          >
+            ⚠ {@audit}
+          </span>
+        </div>
+
+        <div
+          :if={@rationale}
+          class="text-ink-muted mt-2 rounded-r-[7px] border-l-2 border-primary/60 bg-[#0d0e14] px-2.5 py-1.5 text-[12px]"
+        >
+          <span class="font-semibold text-primary">IA:</span> {@rationale}
+        </div>
+      </div>
+
+      <div class="flex w-[96px] shrink-0 flex-col gap-1.5">
+        <button
+          phx-click="approve"
+          phx-value-id={@id}
+          phx-value-type={@type}
+          class={[
+            "rounded-md px-2 py-1.5 text-[12px] font-semibold transition-colors",
+            approve_btn_class(@status)
+          ]}
+        >
+          Aprovar
+        </button>
+        <div class="flex gap-1.5">
+          <button
+            phx-click="edit_start"
+            phx-value-id={@id}
+            phx-value-type={@type}
+            class={[
+              "flex-1 rounded-md py-1.5 text-[12px] transition-colors",
+              edit_btn_class(@editing)
+            ]}
+          >
+            Editar
+          </button>
+          <button
+            phx-click="reject"
+            phx-value-id={@id}
+            phx-value-type={@type}
+            class={["size-[30px] rounded-md text-[13px] transition-colors", reject_btn_class(@status)]}
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp suggestion_card_class(:approved), do: "border border-green/40 bg-green/5"
+  defp suggestion_card_class(:rejected), do: "border border-coral/35 bg-coral/5 opacity-60"
+  defp suggestion_card_class(_), do: "border border-white/8 bg-surface"
+
+  defp approve_btn_class(:approved), do: "bg-green text-[#0b0c10]"
+  defp approve_btn_class(_), do: "bg-green/12 text-green border border-green/30 hover:bg-green/20"
+
+  defp edit_btn_class(true), do: "border border-primary/50 text-primary"
+  defp edit_btn_class(false), do: "bg-input text-ink-muted hover:text-ink"
+
+  defp reject_btn_class(:rejected), do: "bg-coral text-white"
+  defp reject_btn_class(_), do: "bg-coral/10 text-coral hover:bg-coral/20"
 
   defp initials(nil), do: "♪"
   defp initials(""), do: "♪"

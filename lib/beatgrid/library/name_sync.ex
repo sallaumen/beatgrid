@@ -26,6 +26,9 @@ defmodule Beatgrid.Library.NameSync do
     base <> ext
   end
 
+  @spec get(Ecto.UUID.t()) :: RenameSuggestion.t() | nil
+  def get(id), do: Repo.get(RenameSuggestion, id)
+
   @spec list_by(keyword()) :: [RenameSuggestion.t()]
   def list_by(opts \\ []), do: RenameSuggestionQuery.list_by(opts)
 
@@ -76,6 +79,20 @@ defmodule Beatgrid.Library.NameSync do
        applied: Enum.count(results, &(&1 == :applied)),
        failed: Enum.count(results, &(&1 == :failed))
      }}
+  end
+
+  @doc "Sets a suggestion's review status (approve/reject/reset)."
+  @spec set_status(RenameSuggestion.t(), atom()) ::
+          {:ok, RenameSuggestion.t()} | {:error, Ecto.Changeset.t()}
+  def set_status(suggestion, status), do: update_status(suggestion, status)
+
+  @doc "Edits the proposed file name and marks the suggestion approved."
+  @spec edit_to(RenameSuggestion.t(), String.t()) ::
+          {:ok, RenameSuggestion.t()} | {:error, Ecto.Changeset.t()}
+  def edit_to(suggestion, to_filename) do
+    suggestion
+    |> RenameSuggestion.changeset(%{to_filename: to_filename, status: :approved})
+    |> Repo.update()
   end
 
   @doc "Reverses an applied rename, restoring the original file name."

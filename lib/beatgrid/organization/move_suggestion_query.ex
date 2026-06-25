@@ -7,7 +7,11 @@ defmodule Beatgrid.Organization.MoveSuggestionQuery do
   alias Beatgrid.Repo
 
   @type list_opt ::
-          {:status, atom()} | {:source, atom()} | {:batch_id, Ecto.UUID.t()} | {:preload, list()}
+          {:status, atom()}
+          | {:statuses, [atom()]}
+          | {:source, atom()}
+          | {:batch_id, Ecto.UUID.t()}
+          | {:preload, list()}
 
   @spec list_by([list_opt()]) :: [MoveSuggestion.t()]
   def list_by(opts \\ []) do
@@ -25,6 +29,7 @@ defmodule Beatgrid.Organization.MoveSuggestionQuery do
   end
 
   defp reduce_opt({:status, status}, q), do: where(q, [s], s.status == ^status)
+  defp reduce_opt({:statuses, statuses}, q), do: where(q, [s], s.status in ^statuses)
   defp reduce_opt({:source, source}, q), do: where(q, [s], s.source == ^source)
   defp reduce_opt({:batch_id, batch_id}, q), do: where(q, [s], s.batch_id == ^batch_id)
   defp reduce_opt({:preload, preloads}, q), do: preload(q, ^preloads)

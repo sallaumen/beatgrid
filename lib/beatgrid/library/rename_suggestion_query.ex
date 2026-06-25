@@ -8,7 +8,9 @@ defmodule Beatgrid.Library.RenameSuggestionQuery do
 
   @type list_opt ::
           {:status, atom()}
+          | {:statuses, [atom()]}
           | {:confidence, atom()}
+          | {:preload, list()}
           | {:order_by, term()}
 
   @spec list_by([list_opt()]) :: [RenameSuggestion.t()]
@@ -27,6 +29,8 @@ defmodule Beatgrid.Library.RenameSuggestionQuery do
   end
 
   defp reduce_opt({:status, status}, q), do: where(q, [s], s.status == ^status)
+  defp reduce_opt({:statuses, statuses}, q), do: where(q, [s], s.status in ^statuses)
   defp reduce_opt({:confidence, confidence}, q), do: where(q, [s], s.confidence == ^confidence)
+  defp reduce_opt({:preload, preloads}, q), do: preload(q, ^preloads)
   defp reduce_opt({:order_by, order}, q), do: order_by(q, ^order)
 end

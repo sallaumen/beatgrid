@@ -1,0 +1,149 @@
+defmodule Beatgrid.ReviewTest do
+  # async: false — apply_approved/0 touches disk and overrides :library_root.
+  use Beatgrid.DataCase, async: false
+
+  alias Beatgrid.Library.{NameSync, Tracks}
+  alias Beatgrid.Operations
+  alias Beatgrid.Organization
+  alias Beatgrid.Review
+  alias Beatgrid.Tagging.Mock
+
+  setup tags do
+    if root = tags[:tmp_dir] do
+      File.mkdir_p!(Path.join(root, "_Inbox"))
+      prev = Application.get_env(:beatgrid, :library_root)
+      Application.put_env(:beatgrid, :library_root, root)
+      on_exit(fn -> Application.put_env(:beatgrid, :library_root, prev) end)
+    end
+
+    :ok
+  end
+
+  describe "decisions" do
+    test "approve, reject and edit drive the rename suggestion's status and target" do
+      song = insert(:soundcharts_song, credit_name: "Artist", name: "Song")
+
+      insert(:track,
+        filename: "x.mp3",
+        rel_path: "MPB/x.mp3",
+        soundcharts_song_id: song.id,
+        sc_match_confidence: :medium
+      )
+
+      {:ok, _} = NameSync.propose()
+      [r] = NameSync.list_by(status: :pending)
+
+      assert {:ok, _} = Review.approve(r)
+      assert NameSync.get(r.id).status == :approved
+
+      assert {:ok, _} = Review.reject(NameSync.get(r.id))
+      assert NameSync.get(r.id).status == :rejected
+
+      assert {:ok, _} = Review.edit(NameSync.get(r.id), "Custom - Name.mp3")
+      edited = NameSync.get(r.id)
+      assert edited.to_filename == "Custom - Name.mp3"
+      assert edited.status == :approved
+    end
+
+    test "approve_high_confidence approves only high-confidence pending items per tab" do
+      insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB")
+      t1 = insert(:track, rel_path: "_Inbox/a.mp3", filename: "a.mp3")
+      t2 = insert(:track, rel_path: "_Inbox/b.mp3", filename: "b.mp3")
+
+      {:ok, high} =
+        Organization.create_suggestion(%{
+          track_id: t1.id,
+          from_rel_path: "_Inbox/a.mp3",
+          to_genre_folder: "mpb",
+          source: :claude,
+          confidence: 0.95
+        })
+
+      {:ok, low} =
+        Organization.create_suggestion(%{
+          track_id: t2.id,
+          from_rel_path: "_Inbox/b.mp3",
+          to_genre_folder: "mpb",
+          source: :claude,
+          confidence: 0.4
+        })
+
+      Review.approve_high_confidence(:classifications)
+
+      assert Organization.get(high.id).status == :approved
+      assert Organization.get(low.id).status == :pending
+    end
+  end
+
+  describe "apply_approved/0 + Operations.undo_batch/1" do
+    @tag :tmp_dir
+    test "applies approved rename + classification to disk, tags the genre, all reversible",
+         %{tmp_dir: root} do
+      insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB")
+      stub(Mock, :write_genre, fn _path, _genre -> :ok end)
+
+      # --- approved rename ---
+      File.mkdir_p!(Path.join(root, "MPB"))
+      File.write!(Path.join(root, "MPB/Old.mp3"), "a")
+      song = insert(:soundcharts_song, credit_name: "Artist", name: "New")
+
+      rtrack =
+        insert(:track,
+          rel_path: "MPB/Old.mp3",
+          filename: "Old.mp3",
+          genre_folder: "mpb",
+          soundcharts_song_id: song.id,
+          sc_match_confidence: :high
+        )
+
+      {:ok, _} = NameSync.propose()
+      [rename] = NameSync.list_by(status: :pending)
+      {:ok, _} = Review.approve(rename)
+
+      # --- approved classification ---
+      File.write!(Path.join(root, "_Inbox/song.mp3"), "audio")
+
+      mtrack =
+        insert(:track, rel_path: "_Inbox/song.mp3", filename: "song.mp3", genre_folder: nil)
+
+      {:ok, move} =
+        Organization.create_suggestion(%{
+          track_id: mtrack.id,
+          from_rel_path: "_Inbox/song.mp3",
+          to_genre_folder: "mpb",
+          source: :claude,
+          confidence: 0.9
+        })
+
+      {:ok, _} = Review.approve(move)
+
+      assert {:ok, %{batch_id: batch, applied: 2, failed: 0}} = Review.apply_approved()
+
+      # rename applied on disk
+      assert File.exists?(Path.join(root, "MPB/Artist - New.mp3"))
+      assert Tracks.get(rtrack.id).filename == "Artist - New.mp3"
+
+      # classification applied on disk + genre tag mirrored
+      assert File.exists?(Path.join(root, "MPB/song.mp3"))
+      moved = Tracks.get(mtrack.id)
+      assert moved.genre_folder == "mpb"
+      assert moved.tag_genre == "MPB"
+
+      # three operations logged (rename, move, tag)
+      assert Operations.count(batch_id: batch, status: :applied) == 3
+
+      # --- undo the whole batch ---
+      assert {:ok, %{undone: 3, failed: 0}} = Operations.undo_batch(batch)
+
+      assert File.exists?(Path.join(root, "MPB/Old.mp3"))
+      assert Tracks.get(rtrack.id).filename == "Old.mp3"
+      assert File.exists?(Path.join(root, "_Inbox/song.mp3"))
+
+      reverted = Tracks.get(mtrack.id)
+      assert reverted.rel_path == "_Inbox/song.mp3"
+      assert reverted.tag_genre == nil
+
+      assert Operations.count(batch_id: batch, status: :undone) == 3
+    end
+  end
+end
