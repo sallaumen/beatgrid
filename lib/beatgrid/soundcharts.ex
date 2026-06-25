@@ -22,6 +22,9 @@ defmodule Beatgrid.Soundcharts do
   # A file shorter than this fraction of the cloud duration is a truncated download.
   @truncation_ratio 0.8
 
+  # A medley/compilation title — never trustworthy enough to auto-rename a single file.
+  @medley ~r{/|pout-?pourri|medley}iu
+
   @doc """
   Current request budget. `remaining` is the floor of our own successful-call
   count against the cap and the latest `x-quota-remaining` header — whichever is
@@ -63,7 +66,7 @@ defmodule Beatgrid.Soundcharts do
 
       {:ok, _track} =
         Tracks.update(track, %{
-          sc_match_confidence: confidence,
+          sc_match_confidence: guard_confidence(confidence, song.name),
           quality_issues: quality_issues(track, song)
         })
 
@@ -97,10 +100,27 @@ defmodule Beatgrid.Soundcharts do
          {:ok, _track} <-
            Tracks.update(track, %{
              soundcharts_song_id: song.id,
-             sc_match_confidence: confidence,
+             sc_match_confidence: guard_confidence(confidence, song.name),
              quality_issues: quality_issues(track, song)
            }) do
       {:ok, song}
+    end
+  end
+
+  @doc """
+  Unlinks a track from its current (e.g. wrong) match and resolves it again —
+  used after a search-precision fix. Clears the match-derived `:truncated` flag
+  so it is recomputed against the new match.
+  """
+  @spec re_resolve(Track.t()) :: {:ok, Song.t()} | {:ok, :already_linked} | {:error, atom()}
+  def re_resolve(%Track{} = track) do
+    with {:ok, unlinked} <-
+           Tracks.update(track, %{
+             soundcharts_song_id: nil,
+             sc_match_confidence: nil,
+             quality_issues: (track.quality_issues || []) -- [:truncated]
+           }) do
+      resolve_track(unlinked)
     end
   end
 
@@ -206,6 +226,14 @@ defmodule Beatgrid.Soundcharts do
     end
   end
 
+  # A medley name can match artist+title (→ high) yet must never auto-rename a
+  # single-track file, so cap its confidence at :medium.
+  defp guard_confidence(:high, name) when is_binary(name) do
+    if Regex.match?(@medley, name), do: :medium, else: :high
+  end
+
+  defp guard_confidence(confidence, _name), do: confidence
+
   defp quality_issues(track, song) do
     issues = track.quality_issues || []
     if truncated?(track, song), do: Enum.uniq([:truncated | issues]), else: issues
@@ -224,6 +252,12 @@ defmodule Beatgrid.Soundcharts do
     |> Song.changeset(attrs)
     |> Repo.insert_or_update()
   end
+
+  # Search by "artist title" when an artist tag is present — title-only search
+  # mismatches on common/short titles and on artist-name collisions.
+  defp search_term(%Track{tag_artist: artist, tag_title: title})
+       when is_binary(artist) and artist != "" and is_binary(title) and title != "",
+       do: "#{artist} #{title}"
 
   defp search_term(%Track{tag_title: title}) when is_binary(title) and title != "", do: title
   defp search_term(%Track{filename: filename}), do: Path.rootname(filename)

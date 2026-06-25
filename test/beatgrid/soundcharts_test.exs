@@ -41,7 +41,8 @@ defmodule Beatgrid.SoundchartsTest do
           norm_title: "disritmia"
         )
 
-      expect(Mock, :search_song, fn "Disritmia" ->
+      # artist tag present → search by "artist title" for precision
+      expect(Mock, :search_song, fn "Casuarina Disritmia" ->
         search_response([
           %{uuid: "other", name: "Disritmia", credit_name: "Martinho da Vila", release_date: nil},
           %{uuid: "uuid-1", name: "Disritmia", credit_name: "Casuarina", release_date: nil}
@@ -68,6 +69,85 @@ defmodule Beatgrid.SoundchartsTest do
 
       # No Mox expectations set: any call would fail verify_on_exit!.
       assert {:ok, :already_linked} = Soundcharts.resolve_track(track)
+    end
+
+    test "searches by title alone when the track has no artist tag" do
+      track = insert(:track, tag_title: "Solo", tag_artist: nil, norm_title: "solo")
+
+      expect(Mock, :search_song, fn "Solo" ->
+        search_response([%{uuid: "u1", name: "Solo", credit_name: "X", release_date: nil}])
+      end)
+
+      expect(Mock, :get_song, fn "u1" ->
+        {:ok, %Response{data: song_attrs(%{sc_uuid: "u1"}), quota_remaining: 998, status: 200}}
+      end)
+
+      assert {:ok, _song} = Soundcharts.resolve_track(track)
+    end
+
+    test "demotes a medley match from high to medium so it is never auto-renamed" do
+      track =
+        insert(:track,
+          tag_title: "Besame Mucho",
+          tag_artist: "Maeana",
+          norm_artist: "maeana",
+          norm_title: "besame mucho"
+        )
+
+      expect(Mock, :search_song, fn _term ->
+        search_response([
+          %{uuid: "u1", name: "Besame Mucho", credit_name: "Maeana", release_date: nil}
+        ])
+      end)
+
+      expect(Mock, :get_song, fn "u1" ->
+        {:ok,
+         %Response{
+           data: song_attrs(%{sc_uuid: "u1", name: "Aquelas Coisas / Besame Mucho"}),
+           quota_remaining: 998,
+           status: 200
+         }}
+      end)
+
+      assert {:ok, _song} = Soundcharts.resolve_track(track)
+      # search item title matched (would be :high), but the metadata name is a medley
+      assert Tracks.get(track.id).sc_match_confidence == :medium
+    end
+
+    test "re_resolve/1 unlinks a wrong match and resolves again with the precise search" do
+      old = insert(:soundcharts_song, sc_uuid: "old")
+
+      track =
+        insert(:track,
+          tag_title: "Sina",
+          tag_artist: "Djavan",
+          norm_artist: "djavan",
+          norm_title: "sina",
+          soundcharts_song_id: old.id,
+          sc_match_confidence: :low,
+          quality_issues: [:truncated]
+        )
+
+      expect(Mock, :search_song, fn "Djavan Sina" ->
+        search_response([%{uuid: "new", name: "Sina", credit_name: "Djavan", release_date: nil}])
+      end)
+
+      expect(Mock, :get_song, fn "new" ->
+        {:ok,
+         %Response{
+           data: song_attrs(%{sc_uuid: "new", name: "Sina", credit_name: "Djavan"}),
+           quota_remaining: 998,
+           status: 200
+         }}
+      end)
+
+      assert {:ok, song} = Soundcharts.re_resolve(track)
+      assert song.sc_uuid == "new"
+
+      reloaded = Tracks.get(track.id)
+      assert reloaded.soundcharts_song_id == song.id
+      assert reloaded.sc_match_confidence == :high
+      refute :truncated in reloaded.quality_issues
     end
 
     test "returns :no_match when the search yields nothing" do
