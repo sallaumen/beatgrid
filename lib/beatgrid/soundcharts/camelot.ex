@@ -39,4 +39,48 @@ defmodule Beatgrid.Soundcharts.Camelot do
   def from_key(key, 1) when is_integer(key), do: Map.get(@major, key)
   def from_key(key, 0) when is_integer(key), do: Map.get(@minor, key)
   def from_key(_key, _mode), do: nil
+
+  @doc """
+  Harmonically compatible Camelot codes for `code`: itself, ±1 around the wheel
+  (same letter, wrapping 12↔1), and the relative major/minor (same number, A↔B).
+  Returns `[]` for an invalid code.
+  """
+  @spec neighbors(String.t() | nil) :: [String.t()]
+  def neighbors(code) do
+    case parse(code) do
+      {number, letter} ->
+        Enum.uniq([
+          code,
+          format(wrap(number - 1), letter),
+          format(wrap(number + 1), letter),
+          format(number, flip(letter))
+        ])
+
+      :error ->
+        []
+    end
+  end
+
+  @doc "Whether two Camelot codes mix harmonically."
+  @spec compatible?(String.t() | nil, String.t() | nil) :: boolean()
+  def compatible?(a, b), do: b in neighbors(a)
+
+  defp parse(code) when is_binary(code) do
+    case Regex.run(~r/^(\d{1,2})([AB])$/, code) do
+      [_, number, letter] ->
+        n = String.to_integer(number)
+        if n in 1..12, do: {n, letter}, else: :error
+
+      _ ->
+        :error
+    end
+  end
+
+  defp parse(_code), do: :error
+
+  # 0 → 12, 13 → 1
+  defp wrap(n), do: rem(n - 1 + 12, 12) + 1
+  defp flip("A"), do: "B"
+  defp flip("B"), do: "A"
+  defp format(number, letter), do: "#{number}#{letter}"
 end
