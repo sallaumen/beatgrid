@@ -11,7 +11,7 @@ defmodule Beatgrid.Soundcharts do
 
   alias Beatgrid.Library.{Normalize, Track, Tracks}
   alias Beatgrid.Repo
-  alias Beatgrid.Soundcharts.{ApiCall, Camelot, Response, Song, SongQuery}
+  alias Beatgrid.Soundcharts.{ApiCall, Camelot, Http, Response, Song, SongQuery}
 
   @adapter Application.compile_env(
              :beatgrid,
@@ -45,6 +45,38 @@ defmodule Beatgrid.Soundcharts do
   @doc "Number of cached songs."
   @spec song_count() :: non_neg_integer()
   def song_count, do: SongQuery.count()
+
+  @doc """
+  Re-derives enrichment columns, match confidence and quality flags for every
+  already-resolved track from cached data (`raw` + the linked song). Spends no
+  quota — used to backfill after the schema/parser grows.
+  """
+  @spec backfill() :: %{songs: non_neg_integer(), tracks: non_neg_integer()}
+  def backfill do
+    Track
+    |> where([t], not is_nil(t.soundcharts_song_id))
+    |> preload(:soundcharts_song)
+    |> Repo.all()
+    |> Enum.reduce(%{songs: 0, tracks: 0}, fn track, acc ->
+      {:ok, song} = backfill_song(track.soundcharts_song)
+      {:ok, {_item, confidence}} = pick_match([song_as_item(song)], track)
+
+      {:ok, _track} =
+        Tracks.update(track, %{
+          sc_match_confidence: confidence,
+          quality_issues: quality_issues(track, song)
+        })
+
+      %{acc | songs: acc.songs + 1, tracks: acc.tracks + 1}
+    end)
+  end
+
+  defp backfill_song(song) do
+    song |> Song.changeset(Http.attrs_from_object(song.raw)) |> Repo.update()
+  end
+
+  defp song_as_item(song),
+    do: %{uuid: song.sc_uuid, name: song.name, credit_name: song.credit_name}
 
   @doc """
   Resolves one track against Soundcharts: search → match by artist → fetch

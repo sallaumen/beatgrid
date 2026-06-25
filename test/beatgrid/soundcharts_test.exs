@@ -212,4 +212,51 @@ defmodule Beatgrid.SoundchartsTest do
       refute :truncated in Tracks.get(track.id).quality_issues
     end
   end
+
+  describe "backfill/0" do
+    test "re-derives Lean+ columns, confidence and truncated from cached raw (no API)" do
+      raw = %{
+        "uuid" => "u9",
+        "name" => "Forrózão",
+        "creditName" => "Fulano",
+        "duration" => 200,
+        "languageCode" => "pt-BR",
+        "imageUrl" => "http://i",
+        "genres" => [%{"root" => "latin", "sub" => ["forró"]}],
+        "mainArtists" => [%{"uuid" => "a1", "name" => "Fulano"}],
+        "audio" => %{"tempo" => 120.0, "key" => 0, "mode" => 1, "timeSignature" => 4}
+      }
+
+      song =
+        insert(:soundcharts_song,
+          sc_uuid: "u9",
+          name: "Forrózão",
+          credit_name: "Fulano",
+          raw: raw
+        )
+
+      track =
+        insert(:track,
+          tag_artist: "Fulano",
+          tag_title: "Forrózão",
+          norm_artist: "fulano",
+          norm_title: "forrozao",
+          duration_ms: 60_000,
+          quality_issues: [],
+          soundcharts_song_id: song.id
+        )
+
+      assert %{songs: 1, tracks: 1} = Soundcharts.backfill()
+
+      song = Repo.get!(Beatgrid.Soundcharts.Song, song.id)
+      assert song.duration_seconds == 200
+      assert song.subgenres == ["forró"]
+      assert song.time_signature == 4
+      assert song.sc_artist_uuid == "a1"
+
+      track = Tracks.get(track.id)
+      assert track.sc_match_confidence == :high
+      assert :truncated in track.quality_issues
+    end
+  end
 end

@@ -73,7 +73,15 @@ defmodule Beatgrid.Soundcharts.Http do
 
   defp parse_search(_body), do: []
 
-  defp parse_song(%{"object" => object}) when is_map(object) do
+  defp parse_song(%{"object" => object}) when is_map(object), do: attrs_from_object(object)
+  defp parse_song(_body), do: %{}
+
+  @doc """
+  Maps a Soundcharts song `object` map to `Song` attrs. Public so a backfill can
+  re-derive columns from the cached `raw` object without spending quota.
+  """
+  @spec attrs_from_object(map()) :: map()
+  def attrs_from_object(object) when is_map(object) do
     audio = object["audio"] || %{}
     main_artist = object |> Map.get("mainArtists", []) |> List.first(%{})
 
@@ -107,7 +115,7 @@ defmodule Beatgrid.Soundcharts.Http do
     }
   end
 
-  defp parse_song(_body), do: %{}
+  def attrs_from_object(_object), do: %{}
 
   # Soundcharts genres are `[%{"root" => "latin", "sub" => ["forró", …]}]`.
   defp parse_genres(genres, "root") when is_list(genres) do
