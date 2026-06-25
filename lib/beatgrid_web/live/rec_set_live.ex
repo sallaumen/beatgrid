@@ -69,6 +69,11 @@ defmodule BeatgridWeb.RecSetLive do
     {:noreply, reload(socket)}
   end
 
+  def handle_event("move", %{"track" => track_id, "dir" => dir}, socket) do
+    Sets.move(socket.assigns.set, Tracks.get(track_id), String.to_existing_atom(dir))
+    {:noreply, reload(socket)}
+  end
+
   def handle_event("auto_fill", _params, socket) do
     {:ok, _} = Sets.auto_fill(socket.assigns.set, count: 8)
     {:noreply, reload(socket)}
@@ -193,13 +198,34 @@ defmodule BeatgridWeb.RecSetLive do
                 </div>
                 <.camelot_seal value={camelot(t)} />
                 <span class="w-10 text-right font-mono text-body text-primary">{bpm(t)}</span>
-                <button
-                  phx-click="remove"
-                  phx-value-track={t.id}
-                  class="text-ink-muted hover:text-coral"
-                >
-                  ✕
-                </button>
+                <div class="flex shrink-0 items-center gap-1 text-[12px]">
+                  <button
+                    phx-click="move"
+                    phx-value-track={t.id}
+                    phx-value-dir="up"
+                    class="text-ink-faint hover:text-ink"
+                    title="Subir"
+                  >
+                    ▲
+                  </button>
+                  <button
+                    phx-click="move"
+                    phx-value-track={t.id}
+                    phx-value-dir="down"
+                    class="text-ink-faint hover:text-ink"
+                    title="Descer"
+                  >
+                    ▼
+                  </button>
+                  <button
+                    phx-click="remove"
+                    phx-value-track={t.id}
+                    class="ml-1 text-ink-muted hover:text-coral"
+                    title="Remover"
+                  >
+                    ✕
+                  </button>
+                </div>
               </li>
             </ol>
 

@@ -50,6 +50,26 @@ defmodule Beatgrid.SetsTest do
     refute compat.id in (set |> Sets.next_candidates(limit: 10) |> Enum.map(& &1.track.id))
   end
 
+  test "move reorders a track up and down, clamping at the edges" do
+    {:ok, set} = Sets.create("Reorder")
+    a = track_with("8A", 120.0)
+    b = track_with("8A", 121.0)
+    c = track_with("9A", 122.0)
+    for t <- [a, b, c], do: Sets.append(set, t)
+
+    ids = fn -> Enum.map(Sets.tracks(set), & &1.id) end
+
+    :ok = Sets.move(set, b, :up)
+    assert ids.() == [b.id, a.id, c.id]
+
+    :ok = Sets.move(set, b, :down)
+    assert ids.() == [a.id, b.id, c.id]
+
+    # moving the first one up is a no-op
+    :ok = Sets.move(set, a, :up)
+    assert ids.() == [a.id, b.id, c.id]
+  end
+
   test "auto_fill greedily extends the set harmonically" do
     {:ok, set} = Sets.create("Auto")
     seed = track_with("8A", 120.0)

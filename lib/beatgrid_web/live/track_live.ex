@@ -6,6 +6,7 @@ defmodule BeatgridWeb.TrackLive do
 
   alias Beatgrid.Library.Tracks
   alias Beatgrid.Mixing
+  alias Beatgrid.Sets
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
@@ -46,6 +47,13 @@ defmodule BeatgridWeb.TrackLive do
 
   def handle_event("save_note", %{"note" => note}, socket) do
     {:noreply, save(socket, %{personal_note: note})}
+  end
+
+  def handle_event("start_set", _params, socket) do
+    track = socket.assigns.track
+    {:ok, set} = Sets.create("Set: #{title(track)}")
+    Sets.append(set, track)
+    {:noreply, push_navigate(socket, to: ~p"/set")}
   end
 
   defp save(socket, attrs) do
@@ -141,7 +149,15 @@ defmodule BeatgridWeb.TrackLive do
         </div>
 
         <section class="mt-6 rounded-xl border border-white/6 bg-surface p-4">
-          <.section_label>Próxima faixa ideal (harmônica)</.section_label>
+          <div class="flex items-center justify-between">
+            <.section_label>Próxima faixa ideal (harmônica)</.section_label>
+            <button
+              phx-click="start_set"
+              class="rounded-md bg-primary px-2.5 py-1 text-[12px] font-semibold text-white"
+            >
+              + Começar set
+            </button>
+          </div>
           <div :if={@next != []} class="mt-3 space-y-1">
             <.link
               :for={s <- @next}

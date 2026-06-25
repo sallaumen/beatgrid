@@ -34,6 +34,17 @@ defmodule BeatgridWeb.TrackLiveTest do
     assert Tracks.get(track.id).personal_note == "abertura"
   end
 
+  test "starts a set seeded with this track and navigates to /set", %{conn: conn} do
+    track = insert(:track, status: :present, tag_title: "Sina", tag_artist: "Djavan")
+
+    {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
+    view |> element("button[phx-click=start_set]") |> render_click()
+
+    assert_redirect(view, ~p"/set")
+    assert [set] = Beatgrid.Sets.list()
+    assert Enum.map(Beatgrid.Sets.tracks(set), & &1.id) == [track.id]
+  end
+
   test "redirects to the library when the track is not found", %{conn: conn} do
     assert {:error, {:live_redirect, %{to: "/"}}} = live(conn, ~p"/track/#{Ecto.UUID.generate()}")
   end

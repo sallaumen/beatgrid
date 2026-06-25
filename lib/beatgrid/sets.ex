@@ -56,6 +56,29 @@ defmodule Beatgrid.Sets do
     :ok
   end
 
+  @doc "Moves a track one step up or down in the set (a no-op at the edges)."
+  @spec move(RecSet.t(), Library.Track.t(), :up | :down) :: :ok
+  def move(%RecSet{id: id}, track, direction) do
+    rows = RecSetQuery.rows(id)
+    idx = Enum.find_index(rows, &(&1.track_id == track.id))
+    swap_idx = if idx, do: idx + step(direction)
+
+    if idx && swap_idx in 0..(length(rows) - 1)//1 do
+      swap_positions(Enum.at(rows, idx), Enum.at(rows, swap_idx))
+    end
+
+    :ok
+  end
+
+  defp step(:up), do: -1
+  defp step(:down), do: 1
+
+  defp swap_positions(a, b) do
+    pa = a.position
+    a |> SetTrack.changeset(%{position: b.position}) |> Repo.update()
+    b |> SetTrack.changeset(%{position: pa}) |> Repo.update()
+  end
+
   @doc "Ranked harmonic candidates to append next (from the last track, excluding members)."
   @spec next_candidates(RecSet.t(), keyword()) :: [Mixing.suggestion()]
   def next_candidates(%RecSet{id: id}, opts \\ []) do
