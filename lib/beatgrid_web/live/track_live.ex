@@ -113,7 +113,7 @@ defmodule BeatgridWeb.TrackLive do
                 </span>
                 <span :if={(@track.tags || []) == []} class="text-body-sm text-ink-faint">Sem tags ainda.</span>
               </div>
-              <form phx-submit="add_tag" class="mt-2.5 flex gap-2">
+              <form id="track-add-tag" phx-submit="add_tag" class="mt-2.5 flex gap-2">
                 <input
                   type="text"
                   name="tag"
@@ -127,7 +127,7 @@ defmodule BeatgridWeb.TrackLive do
 
             <section class="rounded-xl border border-white/6 bg-surface p-4">
               <.section_label>Anotação pessoal</.section_label>
-              <form phx-change="save_note" class="mt-3">
+              <form id="track-note" phx-change="save_note" class="mt-3">
                 <textarea
                   name="note"
                   rows="3"

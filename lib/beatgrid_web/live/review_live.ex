@@ -65,6 +65,25 @@ defmodule BeatgridWeb.ReviewLive do
     {:noreply, load(socket)}
   end
 
+  # --- audit-tab actions ---
+
+  def handle_event("dismiss_audit", %{"id" => id}, socket) do
+    socket.assigns.renames |> Enum.find(&(&1.id == id)) |> Review.dismiss_audit()
+    {:noreply, load(socket)}
+  end
+
+  def handle_event("quarantine", %{"id" => id}, socket) do
+    s = Enum.find(socket.assigns.renames, &(&1.id == id))
+
+    toast =
+      case Review.quarantine_track(s) do
+        {:ok, _} -> {:quarantined, %{}}
+        _ -> {:error, :quarantine}
+      end
+
+    {:noreply, socket |> assign(toast: toast) |> load()}
+  end
+
   # --- apply to disk + undo (async so the UI stays responsive) ---
 
   def handle_event("apply", _params, socket) do
@@ -218,7 +237,7 @@ defmodule BeatgridWeb.ReviewLive do
                 folders={@folders}
               />
               <.suggestion_card
-                :if={@tab != :classifications}
+                :if={@tab == :renames}
                 id={s.id}
                 type={:rename}
                 status={s.status}
@@ -230,6 +249,37 @@ defmodule BeatgridWeb.ReviewLive do
                 confidence_level={s.confidence}
                 audit={audit_flag(s.reason)}
               />
+              <.suggestion_card
+                :if={@tab == :auditoria}
+                id={s.id}
+                type={:rename}
+                status={s.status}
+                editing={@editing == s.id}
+                artist={artist_of(s.track)}
+                title={card_title(s.track)}
+                from={s.from_filename}
+                to={s.to_filename}
+                confidence_level={s.confidence}
+                audit={audit_flag(s.reason)}
+              >
+                <:extra>
+                  <button
+                    phx-click="dismiss_audit"
+                    phx-value-id={s.id}
+                    class="rounded-md bg-input px-2.5 py-1 text-[11px] text-ink-muted hover:text-ink"
+                  >
+                    Ignorar flag
+                  </button>
+                  <button
+                    phx-click="quarantine"
+                    phx-value-id={s.id}
+                    data-confirm="Mover esta faixa para _Quarantine no disco?"
+                    class="rounded-md bg-coral/10 px-2.5 py-1 text-[11px] text-coral hover:bg-coral/20"
+                  >
+                    Quarentena
+                  </button>
+                </:extra>
+              </.suggestion_card>
             <% end %>
           </div>
 
@@ -302,7 +352,8 @@ defmodule BeatgridWeb.ReviewLive do
     do: "#{n} aplicadas no disco, #{f} falharam."
 
   defp toast_message({:undone, %{undone: n}}), do: "#{n} alterações desfeitas."
-  defp toast_message({:error, _reason}), do: "Falha ao aplicar. Nada foi alterado."
+  defp toast_message({:quarantined, _}), do: "Faixa movida para _Quarantine."
+  defp toast_message({:error, _reason}), do: "Falha na operação. Nada foi alterado."
 
   defp count_summary(items) do
     n = fn status -> Enum.count(items, &(&1.status == status)) end

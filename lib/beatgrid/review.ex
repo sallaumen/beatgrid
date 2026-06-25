@@ -10,7 +10,8 @@ defmodule Beatgrid.Review do
   Decisions dispatch on the suggestion struct, so callers can hand a
   `RenameSuggestion` or a `MoveSuggestion` to the same function.
   """
-  alias Beatgrid.Library.{NameSync, RenameSuggestion, Tracks}
+  alias Beatgrid.Library
+  alias Beatgrid.Library.{NameSync, RenameSuggestion, Track, Tracks}
   alias Beatgrid.Operations
   alias Beatgrid.Organization
   alias Beatgrid.Organization.MoveSuggestion
@@ -74,6 +75,27 @@ defmodule Beatgrid.Review do
   end
 
   defp high_confidence?(%MoveSuggestion{confidence: c}), do: is_float(c) and c >= @high_confidence
+
+  # ---- audit-tab actions ----
+
+  @doc "Clears the `[audit:...]` flag from a rename's reason (it leaves the Auditoria tab)."
+  @spec dismiss_audit(RenameSuggestion.t()) ::
+          {:ok, RenameSuggestion.t()} | {:error, Ecto.Changeset.t()}
+  def dismiss_audit(%RenameSuggestion{reason: reason} = suggestion) do
+    NameSync.set_reason(suggestion, strip_audit(reason))
+  end
+
+  defp strip_audit(nil), do: nil
+  defp strip_audit(reason), do: Regex.replace(~r/^\[audit:[^\]]+\]\s*/, reason, "")
+
+  @doc "Moves the suggestion's track into `_Quarantine` and rejects the (now moot) suggestion."
+  @spec quarantine_track(RenameSuggestion.t()) :: {:ok, RenameSuggestion.t()} | {:error, term()}
+  def quarantine_track(%RenameSuggestion{} = suggestion) do
+    with %Track{} = track <- Tracks.get(suggestion.track_id),
+         {:ok, _quarantined} <- Library.quarantine(track) do
+      NameSync.set_status(suggestion, :rejected)
+    end
+  end
 
   # ---- apply every approved suggestion to disk, logged & reversible ----
 

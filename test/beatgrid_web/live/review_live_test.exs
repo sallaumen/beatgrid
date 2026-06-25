@@ -92,4 +92,19 @@ defmodule BeatgridWeb.ReviewLiveTest do
     assert html =~ "soa como MPB"
     assert html =~ "IA:"
   end
+
+  test "the auditoria tab lists flagged renames and dismisses a flag", %{conn: conn} do
+    r = pending_rename()
+    {:ok, _} = NameSync.set_reason(r, "[audit:verify/title] soundcharts: Djavan - Sina")
+
+    {:ok, view, _html} = live(conn, ~p"/revisao")
+
+    html = view |> element("button[phx-value-tab=auditoria]") |> render_click()
+    assert html =~ "verify/title"
+
+    view |> element("button[phx-click=dismiss_audit][phx-value-id='#{r.id}']") |> render_click()
+
+    refute NameSync.get(r.id).reason =~ "[audit:"
+    refute render(view) =~ "verify/title"
+  end
 end

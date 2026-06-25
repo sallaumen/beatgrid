@@ -75,6 +75,53 @@ defmodule Beatgrid.ReviewTest do
     end
   end
 
+  describe "audit actions" do
+    test "dismiss_audit strips the [audit:...] flag, keeping it as a normal rename" do
+      song = insert(:soundcharts_song, credit_name: "A", name: "B")
+
+      insert(:track,
+        filename: "x.mp3",
+        rel_path: "MPB/x.mp3",
+        soundcharts_song_id: song.id,
+        sc_match_confidence: :medium
+      )
+
+      {:ok, _} = NameSync.propose()
+      [s] = NameSync.list_by(status: :pending)
+      {:ok, flagged} = NameSync.set_reason(s, "[audit:verify/title] soundcharts: A - B")
+
+      assert {:ok, cleaned} = Review.dismiss_audit(flagged)
+      assert cleaned.reason == "soundcharts: A - B"
+    end
+
+    @tag :tmp_dir
+    test "quarantine_track moves the file to _Quarantine and rejects the suggestion", %{
+      tmp_dir: root
+    } do
+      File.mkdir_p!(Path.join(root, "MPB"))
+      File.write!(Path.join(root, "MPB/bad.mp3"), "x")
+      song = insert(:soundcharts_song, credit_name: "A", name: "B")
+
+      track =
+        insert(:track,
+          rel_path: "MPB/bad.mp3",
+          filename: "bad.mp3",
+          genre_folder: "mpb",
+          soundcharts_song_id: song.id,
+          sc_match_confidence: :low
+        )
+
+      {:ok, _} = NameSync.propose()
+      [s] = NameSync.list_by(status: :pending)
+
+      assert {:ok, _} = Review.quarantine_track(s)
+      assert File.exists?(Path.join(root, "_Quarantine/bad.mp3"))
+      refute File.exists?(Path.join(root, "MPB/bad.mp3"))
+      assert Tracks.get(track.id).status == :quarantined
+      assert NameSync.get(s.id).status == :rejected
+    end
+  end
+
   describe "apply_approved/0 + Operations.undo_batch/1" do
     @tag :tmp_dir
     test "applies approved rename + classification to disk, tags the genre, all reversible",

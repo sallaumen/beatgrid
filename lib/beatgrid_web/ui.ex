@@ -268,6 +268,7 @@ defmodule BeatgridWeb.UI do
   attr :rationale, :string, default: nil, doc: "classification: AI justification"
   attr :audit, :string, default: nil, doc: "rename: audit flag text"
   attr :folders, :list, default: [], doc: "classification: folder options for the edit picker"
+  slot :extra, doc: "optional extra action buttons (e.g. audit-tab actions)"
 
   def suggestion_card(assigns) do
     ~H"""
@@ -344,6 +345,10 @@ defmodule BeatgridWeb.UI do
           class="text-ink-muted mt-2 rounded-r-[7px] border-l-2 border-primary/60 bg-[#0d0e14] px-2.5 py-1.5 text-[12px]"
         >
           <span class="font-semibold text-primary">IA:</span> {@rationale}
+        </div>
+
+        <div :if={@extra != []} class="mt-2 flex flex-wrap gap-1.5">
+          {render_slot(@extra)}
         </div>
       </div>
 

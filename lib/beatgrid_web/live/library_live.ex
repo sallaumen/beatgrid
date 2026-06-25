@@ -68,7 +68,7 @@ defmodule BeatgridWeb.LibraryLive do
             <h2 class="text-[22px] font-semibold">Biblioteca</h2>
             <span class="font-mono text-body-sm text-ink-muted">{length(@tracks)} faixas</span>
           </div>
-          <form phx-change="filter" class="w-72">
+          <form id="library-search" phx-change="filter" class="w-72">
             <input
               type="search"
               name="search"
@@ -142,7 +142,7 @@ defmodule BeatgridWeb.LibraryLive do
       </button>
     </div>
 
-    <form phx-change="filter" class="mt-4 space-y-3">
+    <form id="library-filters" phx-change="filter" class="mt-4 space-y-3">
       <div>
         <p class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
           Nota mínima

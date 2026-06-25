@@ -95,6 +95,13 @@ defmodule Beatgrid.Library.NameSync do
     |> Repo.update()
   end
 
+  @doc "Replaces a suggestion's reason (used to dismiss an audit flag)."
+  @spec set_reason(RenameSuggestion.t(), String.t() | nil) ::
+          {:ok, RenameSuggestion.t()} | {:error, Ecto.Changeset.t()}
+  def set_reason(suggestion, reason) do
+    suggestion |> RenameSuggestion.changeset(%{reason: reason}) |> Repo.update()
+  end
+
   @doc "Reverses an applied rename, restoring the original file name."
   @spec undo(RenameSuggestion.t()) :: {:ok, RenameSuggestion.t()} | {:error, term()}
   def undo(%RenameSuggestion{status: :applied} = suggestion) do
