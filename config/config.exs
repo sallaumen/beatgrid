@@ -31,6 +31,7 @@ config :beatgrid, Oban,
 config :beatgrid, Beatgrid.Audio, adapter: Beatgrid.Audio.Ffprobe
 config :beatgrid, Beatgrid.Soundcharts.Client, adapter: Beatgrid.Soundcharts.Http
 config :beatgrid, Beatgrid.AI.Client, adapter: Beatgrid.AI.ClaudeCli
+config :beatgrid, Beatgrid.Tagging.Writer, adapter: Beatgrid.Tagging.Ffmpeg
 
 # AI classifier: which `claude` model and how many tracks per classification call.
 config :beatgrid, Beatgrid.AI, model: "sonnet", batch_size: 15

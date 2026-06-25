@@ -42,6 +42,7 @@ config :beatgrid, Oban, testing: :manual
 config :beatgrid, Beatgrid.Audio, adapter: Beatgrid.Audio.Mock
 config :beatgrid, Beatgrid.Soundcharts.Client, adapter: Beatgrid.Soundcharts.Mock
 config :beatgrid, Beatgrid.AI.Client, adapter: Beatgrid.AI.Mock
+config :beatgrid, Beatgrid.Tagging.Writer, adapter: Beatgrid.Tagging.Mock
 
 # The Http adapter, when exercised directly, routes through Req.Test instead of
 # the network (see test/beatgrid/soundcharts/http_test.exs).
