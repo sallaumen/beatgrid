@@ -103,7 +103,7 @@ defmodule BeatgridWeb.UI do
           href="/"
           active={@active == :biblioteca}
         />
-        <.nav_item icon="hero-chart-bar" label="Painel" href="#" active={@active == :painel} />
+        <.nav_item icon="hero-chart-bar" label="Painel" href="/painel" active={@active == :painel} />
         <.nav_item
           icon="hero-check-circle"
           label="Revisão"
@@ -220,6 +220,29 @@ defmodule BeatgridWeb.UI do
       {@value}
     </span>
     <span :if={!is_integer(@value)} class="text-ink-faint text-[12px]">–</span>
+    """
+  end
+
+  @doc "Dashboard KPI card (label + big mono value + optional sub)."
+  attr :label, :string, required: true
+  attr :value, :any, required: true
+  attr :sub, :string, default: nil
+  attr :color, :string, default: "#eef0f5"
+  attr :alert, :boolean, default: false
+
+  def kpi_card(assigns) do
+    ~H"""
+    <div class={[
+      "rounded-xl bg-surface px-[15px] py-[13px]",
+      @alert && "border border-coral/25",
+      !@alert && "border border-white/8"
+    ]}>
+      <p class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{@label}</p>
+      <p class="mt-1 font-mono text-[25px] font-semibold leading-none" style={"color:#{@color}"}>
+        {@value}
+      </p>
+      <p :if={@sub} class="mt-1 text-[10.5px] text-ink-faint">{@sub}</p>
+    </div>
     """
   end
 
