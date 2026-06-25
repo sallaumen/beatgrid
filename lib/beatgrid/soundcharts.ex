@@ -19,6 +19,9 @@ defmodule Beatgrid.Soundcharts do
              Beatgrid.Soundcharts.Http
            )
 
+  # A file shorter than this fraction of the cloud duration is a truncated download.
+  @truncation_ratio 0.8
+
   @doc """
   Current request budget. `remaining` is the floor of our own successful-call
   count against the cap and the latest `x-quota-remaining` header — whichever is
@@ -55,11 +58,16 @@ defmodule Beatgrid.Soundcharts do
   def resolve_track(%Track{} = track) do
     with :ok <- check_budget(),
          {:ok, items} <- search(track),
-         {:ok, match} <- pick_match(items, track),
+         {:ok, {match, confidence}} <- pick_match(items, track),
          :ok <- check_budget(),
          {:ok, attrs} <- fetch_song(match.uuid),
          {:ok, song} <- cache_song(attrs),
-         {:ok, _track} <- Tracks.update(track, %{soundcharts_song_id: song.id}) do
+         {:ok, _track} <-
+           Tracks.update(track, %{
+             soundcharts_song_id: song.id,
+             sc_match_confidence: confidence,
+             quality_issues: quality_issues(track, song)
+           }) do
       {:ok, song}
     end
   end
@@ -138,12 +146,44 @@ defmodule Beatgrid.Soundcharts do
   defp pick_match([], _track), do: {:error, :no_match}
 
   defp pick_match(items, track) do
-    match =
-      Enum.find(items, fn item -> Normalize.normalize(item.credit_name) == track.norm_artist end) ||
-        hd(items)
+    artist_known? = track.norm_artist not in [nil, ""]
+    title_known? = track.norm_title not in [nil, ""]
 
-    {:ok, match}
+    scored =
+      Enum.map(items, fn item ->
+        artist? = artist_known? and Normalize.normalize(item.credit_name) == track.norm_artist
+        title? = title_known? and Normalize.normalize(item.name) == track.norm_title
+        {item, artist?, title?}
+      end)
+
+    {:ok, best_match(scored, artist_known?, hd(items))}
   end
+
+  # Prefer artist+title (high), then artist-only (medium), then — only when the
+  # file has no artist tag — title-only (medium). Else the top hit, low confidence.
+  defp best_match(scored, artist_known?, fallback) do
+    high = Enum.find(scored, fn {_item, artist?, title?} -> artist? and title? end)
+    artist = Enum.find(scored, fn {_item, artist?, _title?} -> artist? end)
+    title = Enum.find(scored, fn {_item, _artist?, title?} -> title? end)
+
+    cond do
+      high -> {elem(high, 0), :high}
+      artist -> {elem(artist, 0), :medium}
+      title && not artist_known? -> {elem(title, 0), :medium}
+      true -> {fallback, :low}
+    end
+  end
+
+  defp quality_issues(track, song) do
+    issues = track.quality_issues || []
+    if truncated?(track, song), do: Enum.uniq([:truncated | issues]), else: issues
+  end
+
+  defp truncated?(%{duration_ms: ms}, %{duration_seconds: secs})
+       when is_integer(ms) and is_integer(secs) and secs > 0,
+       do: ms / 1000 < secs * @truncation_ratio
+
+  defp truncated?(_track, _song), do: false
 
   defp cache_song(attrs) do
     attrs = Map.put(attrs, :fetched_at, DateTime.truncate(DateTime.utc_now(), :second))

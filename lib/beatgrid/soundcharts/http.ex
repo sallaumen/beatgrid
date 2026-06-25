@@ -75,6 +75,7 @@ defmodule Beatgrid.Soundcharts.Http do
 
   defp parse_song(%{"object" => object}) when is_map(object) do
     audio = object["audio"] || %{}
+    main_artist = object |> Map.get("mainArtists", []) |> List.first(%{})
 
     %{
       sc_uuid: object["uuid"],
@@ -83,10 +84,17 @@ defmodule Beatgrid.Soundcharts.Http do
       credit_name: object["creditName"],
       release_date: parse_date(object["releaseDate"]),
       label: object |> Map.get("labels", []) |> List.first(%{}) |> Map.get("name"),
-      genres: parse_genres(object["genres"]),
+      genres: parse_genres(object["genres"], "root"),
+      subgenres: parse_genres(object["genres"], "sub"),
+      duration_seconds: object["duration"],
+      language_code: object["languageCode"],
+      image_url: object["imageUrl"],
+      sc_artist_uuid: main_artist["uuid"],
+      sc_artist_name: main_artist["name"],
       tempo_bpm: audio["tempo"],
       music_key: audio["key"],
       music_mode: audio["mode"],
+      time_signature: audio["timeSignature"],
       energy: audio["energy"],
       valence: audio["valence"],
       danceability: audio["danceability"],
@@ -101,13 +109,23 @@ defmodule Beatgrid.Soundcharts.Http do
 
   defp parse_song(_body), do: %{}
 
-  defp parse_genres(genres) when is_list(genres), do: Enum.flat_map(genres, &genre_name/1)
-  defp parse_genres(_genres), do: []
+  # Soundcharts genres are `[%{"root" => "latin", "sub" => ["forró", …]}]`.
+  defp parse_genres(genres, "root") when is_list(genres) do
+    Enum.flat_map(genres, fn
+      %{"root" => root} when is_binary(root) -> [root]
+      name when is_binary(name) -> [name]
+      _other -> []
+    end)
+  end
 
-  defp genre_name(name) when is_binary(name), do: [name]
-  defp genre_name(%{"root" => root}) when is_binary(root), do: [root]
-  defp genre_name(%{"name" => name}) when is_binary(name), do: [name]
-  defp genre_name(_other), do: []
+  defp parse_genres(genres, "sub") when is_list(genres) do
+    Enum.flat_map(genres, fn
+      %{"sub" => subs} when is_list(subs) -> Enum.filter(subs, &is_binary/1)
+      _other -> []
+    end)
+  end
+
+  defp parse_genres(_genres, _key), do: []
 
   defp parse_date(nil), do: nil
 

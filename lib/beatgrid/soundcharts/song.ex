@@ -21,10 +21,18 @@ defmodule Beatgrid.Soundcharts.Song do
     field :release_date, :date
     field :label, :string
     field :genres, {:array, :string}, default: []
+    field :subgenres, {:array, :string}, default: []
+
+    field :duration_seconds, :integer
+    field :language_code, :string
+    field :image_url, :string
+    field :sc_artist_uuid, :string
+    field :sc_artist_name, :string
 
     field :tempo_bpm, :float
     field :music_key, :integer
     field :music_mode, :integer
+    field :time_signature, :integer
     field :camelot, :string
     field :energy, :float
     field :valence, :float
@@ -42,9 +50,10 @@ defmodule Beatgrid.Soundcharts.Song do
     timestamps()
   end
 
-  @castable ~w(sc_uuid isrc name credit_name release_date label genres
-               tempo_bpm music_key music_mode camelot energy valence danceability
-               acousticness instrumentalness liveness loudness speechiness
+  @castable ~w(sc_uuid isrc name credit_name release_date label genres subgenres
+               duration_seconds language_code image_url sc_artist_uuid sc_artist_name
+               tempo_bpm music_key music_mode time_signature camelot energy valence
+               danceability acousticness instrumentalness liveness loudness speechiness
                popularity raw fetched_at)a
 
   @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()

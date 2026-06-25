@@ -98,4 +98,118 @@ defmodule Beatgrid.SoundchartsTest do
       assert Soundcharts.song_count() == 1
     end
   end
+
+  describe "match confidence (tracks.sc_match_confidence)" do
+    defp resolve_with_item(track, item) do
+      expect(Mock, :search_song, fn _term -> search_response([item]) end)
+
+      expect(Mock, :get_song, fn uuid ->
+        {:ok, %Response{data: song_attrs(%{sc_uuid: uuid}), quota_remaining: 998, status: 200}}
+      end)
+
+      assert {:ok, _song} = Soundcharts.resolve_track(track)
+      Tracks.get(track.id).sc_match_confidence
+    end
+
+    test "high when artist and title both match" do
+      track =
+        insert(:track,
+          tag_title: "Disritmia",
+          tag_artist: "Casuarina",
+          norm_artist: "casuarina",
+          norm_title: "disritmia"
+        )
+
+      item = %{uuid: "u1", name: "Disritmia", credit_name: "Casuarina", release_date: nil}
+      assert resolve_with_item(track, item) == :high
+    end
+
+    test "medium when artist matches but the title differs (medley)" do
+      track =
+        insert(:track,
+          tag_title: "Ela Tem",
+          tag_artist: "Mestrinho",
+          norm_artist: "mestrinho",
+          norm_title: "ela tem"
+        )
+
+      item = %{
+        uuid: "u1",
+        name: "Mete um Block / Ela Tem",
+        credit_name: "Mestrinho",
+        release_date: nil
+      }
+
+      assert resolve_with_item(track, item) == :medium
+    end
+
+    test "low when neither artist nor title is confirmed (top-hit fallback)" do
+      track =
+        insert(:track,
+          tag_title: "Baiao",
+          tag_artist: "Somebody",
+          norm_artist: "somebody",
+          norm_title: "baiao"
+        )
+
+      item = %{uuid: "u1", name: "A Medley", credit_name: "Wesley Safadão", release_date: nil}
+      assert resolve_with_item(track, item) == :low
+    end
+  end
+
+  describe "truncated-download detector" do
+    test "flags :truncated when the physical file is much shorter than the cloud duration" do
+      track =
+        insert(:track,
+          tag_title: "X",
+          tag_artist: "Y",
+          norm_artist: "y",
+          duration_ms: 60_000,
+          quality_issues: []
+        )
+
+      expect(Mock, :search_song, fn _ ->
+        search_response([%{uuid: "u1", name: "X", credit_name: "Y", release_date: nil}])
+      end)
+
+      expect(Mock, :get_song, fn "u1" ->
+        {:ok,
+         %Response{
+           data: song_attrs(%{sc_uuid: "u1", duration_seconds: 200}),
+           quota_remaining: 998,
+           status: 200
+         }}
+      end)
+
+      assert {:ok, _song} = Soundcharts.resolve_track(track)
+      assert :truncated in Tracks.get(track.id).quality_issues
+    end
+
+    test "does not flag :truncated when the durations agree" do
+      track =
+        insert(:track,
+          tag_title: "X",
+          tag_artist: "Y",
+          norm_artist: "y",
+          duration_ms: 198_000,
+          quality_issues: []
+        )
+
+      expect(Mock, :search_song, fn _ ->
+        search_response([%{uuid: "u2", name: "X", credit_name: "Y", release_date: nil}])
+      end)
+
+      expect(Mock, :get_song, fn "u2" ->
+        {:ok,
+         %Response{
+           data: song_attrs(%{sc_uuid: "u2", duration_seconds: 200}),
+           quota_remaining: 998,
+           status: 200
+         }}
+      end)
+
+      assert {:ok, _song} = Soundcharts.resolve_track(track)
+      refute :truncated in Tracks.get(track.id).quality_issues
+    end
+  end
 end

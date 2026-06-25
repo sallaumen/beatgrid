@@ -48,7 +48,10 @@ defmodule Beatgrid.Soundcharts.HttpTest do
             "isrc" => %{"value" => "BRKMM0900046"},
             "releaseDate" => "2010-01-05T00:00:00+00:00",
             "duration" => 215,
-            "genres" => [%{"root" => "Samba", "sub" => []}],
+            "languageCode" => "pt-BR",
+            "imageUrl" => "https://img/x.jpg",
+            "mainArtists" => [%{"uuid" => "artist-uuid", "name" => "Casuarina"}],
+            "genres" => [%{"root" => "latin", "sub" => ["forró", "samba"]}],
             "labels" => [%{"name" => "Agente Digital", "type" => "main"}],
             "audio" => %{
               "tempo" => 141.57,
@@ -57,7 +60,8 @@ defmodule Beatgrid.Soundcharts.HttpTest do
               "energy" => 0.63,
               "valence" => 0.87,
               "danceability" => 0.72,
-              "loudness" => -7.2
+              "loudness" => -7.2,
+              "timeSignature" => 4
             }
           }
         })
@@ -70,12 +74,19 @@ defmodule Beatgrid.Soundcharts.HttpTest do
       assert attrs.isrc == "BRKMM0900046"
       assert attrs.release_date == ~D[2010-01-05]
       assert attrs.label == "Agente Digital"
-      assert attrs.genres == ["Samba"]
+      assert attrs.genres == ["latin"]
+      assert attrs.subgenres == ["forró", "samba"]
       assert attrs.tempo_bpm == 141.57
       assert attrs.music_key == 11
       assert attrs.music_mode == 0
       assert attrs.energy == 0.63
       assert attrs.loudness == -7.2
+      assert attrs.duration_seconds == 215
+      assert attrs.time_signature == 4
+      assert attrs.language_code == "pt-BR"
+      assert attrs.image_url == "https://img/x.jpg"
+      assert attrs.sc_artist_uuid == "artist-uuid"
+      assert attrs.sc_artist_name == "Casuarina"
     end
   end
 
