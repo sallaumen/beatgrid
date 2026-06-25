@@ -15,6 +15,7 @@ defmodule Beatgrid.Review do
   alias Beatgrid.Operations
   alias Beatgrid.Organization
   alias Beatgrid.Organization.MoveSuggestion
+  alias Beatgrid.Soundcharts
   alias Beatgrid.Tagging
 
   # A classification confidence at/above this is considered "high".
@@ -94,6 +95,35 @@ defmodule Beatgrid.Review do
     with %Track{} = track <- Tracks.get(suggestion.track_id),
          {:ok, _quarantined} <- Library.quarantine(track) do
       NameSync.set_status(suggestion, :rejected)
+    end
+  end
+
+  @doc """
+  Re-runs Soundcharts matching for a suspect (audit-flagged) rename: rejects the
+  suspect suggestion and, on a fresh match, re-proposes a rename from it. Spends
+  Soundcharts quota. Returns `{:ok, :resolved | :no_match}` or `{:error, term}`.
+  """
+  @spec re_resolve(RenameSuggestion.t()) :: {:ok, :resolved | :no_match} | {:error, term()}
+  def re_resolve(%RenameSuggestion{} = suggestion) do
+    case Tracks.get(suggestion.track_id) do
+      nil -> {:error, :track_not_found}
+      track -> do_re_resolve(suggestion, track)
+    end
+  end
+
+  defp do_re_resolve(suggestion, track) do
+    case Soundcharts.re_resolve(track) do
+      {:ok, _song} ->
+        NameSync.set_status(suggestion, :rejected)
+        NameSync.repropose(Tracks.get(track.id))
+        {:ok, :resolved}
+
+      {:error, :no_match} ->
+        NameSync.set_status(suggestion, :rejected)
+        {:ok, :no_match}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

@@ -102,6 +102,23 @@ defmodule Beatgrid.Library.NameSync do
     suggestion |> RenameSuggestion.changeset(%{reason: reason}) |> Repo.update()
   end
 
+  @doc """
+  Creates a fresh pending suggestion for a single track from its current match
+  (used after a re-resolve). Returns `{:ok, :no_change}` when the file name
+  already matches the canonical or the track has no usable match.
+  """
+  @spec repropose(Track.t()) :: {:ok, RenameSuggestion.t()} | {:ok, :no_change}
+  def repropose(track) do
+    track = Repo.preload(track, :soundcharts_song)
+    canonical = canonical_for(track)
+
+    cond do
+      is_nil(canonical) -> {:ok, :no_change}
+      canonical == track.filename -> {:ok, :no_change}
+      true -> {:ok, create_suggestion(track, canonical, Uniq.UUID.uuid7())}
+    end
+  end
+
   @doc "Reverses an applied rename, restoring the original file name."
   @spec undo(RenameSuggestion.t()) :: {:ok, RenameSuggestion.t()} | {:error, term()}
   def undo(%RenameSuggestion{status: :applied} = suggestion) do

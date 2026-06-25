@@ -6,6 +6,7 @@ defmodule Beatgrid.ReviewTest do
   alias Beatgrid.Operations
   alias Beatgrid.Organization
   alias Beatgrid.Review
+  alias Beatgrid.Soundcharts.Response
   alias Beatgrid.Tagging.Mock
 
   setup tags do
@@ -17,6 +18,28 @@ defmodule Beatgrid.ReviewTest do
     end
 
     :ok
+  end
+
+  defp search_response(items),
+    do: {:ok, %Response{data: items, quota_remaining: 999, status: 200}}
+
+  defp song_attrs do
+    %{
+      sc_uuid: "uuid-1",
+      name: "Disritmia",
+      credit_name: "Casuarina",
+      isrc: "BRKMM0900046",
+      release_date: ~D[2010-01-05],
+      label: "Agente Digital",
+      genres: [],
+      tempo_bpm: 141.57,
+      music_key: 11,
+      music_mode: 0,
+      energy: 0.63,
+      valence: 0.87,
+      danceability: 0.72,
+      raw: %{}
+    }
   end
 
   describe "decisions" do
@@ -119,6 +142,68 @@ defmodule Beatgrid.ReviewTest do
       refute File.exists?(Path.join(root, "MPB/bad.mp3"))
       assert Tracks.get(track.id).status == :quarantined
       assert NameSync.get(s.id).status == :rejected
+    end
+
+    test "re_resolve relinks the track, rejects the suspect rename, and re-proposes" do
+      wrong = insert(:soundcharts_song, credit_name: "Wrong", name: "Song")
+
+      track =
+        insert(:track,
+          tag_title: "Disritmia",
+          tag_artist: "Casuarina",
+          norm_title: "disritmia",
+          norm_artist: "casuarina",
+          filename: "old.mp3",
+          rel_path: "MPB/old.mp3",
+          soundcharts_song_id: wrong.id,
+          sc_match_confidence: :low
+        )
+
+      {:ok, _} = NameSync.propose()
+      [s] = NameSync.list_by(status: :pending)
+      {:ok, flagged} = NameSync.set_reason(s, "[audit:wrong_song] suspect")
+
+      expect(Beatgrid.Soundcharts.Mock, :search_song, fn _term ->
+        search_response([
+          %{uuid: "uuid-1", name: "Disritmia", credit_name: "Casuarina", release_date: nil}
+        ])
+      end)
+
+      expect(Beatgrid.Soundcharts.Mock, :get_song, fn "uuid-1" ->
+        {:ok, %Response{data: song_attrs(), quota_remaining: 998, status: 200}}
+      end)
+
+      assert {:ok, :resolved} = Review.re_resolve(flagged)
+      assert NameSync.get(flagged.id).status == :rejected
+      assert Tracks.get_with_song(track.id).soundcharts_song.credit_name == "Casuarina"
+      assert [fresh] = NameSync.list_by(status: :pending)
+      assert fresh.to_filename == "Casuarina - Disritmia.mp3"
+    end
+
+    test "re_resolve with no match rejects the suspect rename and leaves the track unlinked" do
+      wrong = insert(:soundcharts_song, credit_name: "Wrong", name: "Song")
+
+      track =
+        insert(:track,
+          tag_title: "Obscure",
+          tag_artist: "Nobody",
+          norm_title: "obscure",
+          norm_artist: "nobody",
+          filename: "old.mp3",
+          rel_path: "MPB/old.mp3",
+          soundcharts_song_id: wrong.id,
+          sc_match_confidence: :low
+        )
+
+      {:ok, _} = NameSync.propose()
+      [s] = NameSync.list_by(status: :pending)
+      {:ok, flagged} = NameSync.set_reason(s, "[audit:wrong_song] suspect")
+
+      expect(Beatgrid.Soundcharts.Mock, :search_song, fn _term -> search_response([]) end)
+
+      assert {:ok, :no_match} = Review.re_resolve(flagged)
+      assert NameSync.get(flagged.id).status == :rejected
+      assert Tracks.get(track.id).soundcharts_song_id == nil
     end
   end
 

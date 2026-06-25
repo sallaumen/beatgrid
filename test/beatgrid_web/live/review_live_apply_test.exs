@@ -118,4 +118,38 @@ defmodule BeatgridWeb.ReviewLiveApplyTest do
     assert Tracks.get(track.id).status == :quarantined
     assert NameSync.get(r.id).status == :rejected
   end
+
+  @tag :tmp_dir
+  test "re-resolve from the auditoria tab refreshes the match (no-match path)", %{conn: conn} do
+    wrong = insert(:soundcharts_song, credit_name: "Wrong", name: "Song")
+
+    track =
+      insert(:track,
+        tag_title: "Obscure",
+        tag_artist: "Nobody",
+        norm_title: "obscure",
+        norm_artist: "nobody",
+        filename: "old.mp3",
+        rel_path: "MPB/old.mp3",
+        soundcharts_song_id: wrong.id,
+        sc_match_confidence: :low
+      )
+
+    {:ok, _} = NameSync.propose()
+    [r] = NameSync.list_by(status: :pending)
+    {:ok, _} = NameSync.set_reason(r, "[audit:wrong] suspect")
+
+    stub(Beatgrid.Soundcharts.Mock, :search_song, fn _term ->
+      {:ok, %Beatgrid.Soundcharts.Response{data: [], quota_remaining: 999, status: 200}}
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/revisao")
+    view |> element("button[phx-value-tab=auditoria]") |> render_click()
+    view |> element("button[phx-click=re_resolve][phx-value-id='#{r.id}']") |> render_click()
+    html = render_async(view)
+
+    assert html =~ "Sem novo match"
+    assert NameSync.get(r.id).status == :rejected
+    assert Tracks.get(track.id).soundcharts_song_id == nil
+  end
 end

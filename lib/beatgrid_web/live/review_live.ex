@@ -84,6 +84,15 @@ defmodule BeatgridWeb.ReviewLive do
     {:noreply, socket |> assign(toast: toast) |> load()}
   end
 
+  def handle_event("re_resolve", %{"id" => id}, socket) do
+    s = Enum.find(socket.assigns.renames, &(&1.id == id))
+
+    {:noreply,
+     socket
+     |> assign(toast: {:resolving, %{}})
+     |> start_async(:re_resolve, fn -> Review.re_resolve(s) end)}
+  end
+
   # --- apply to disk + undo (async so the UI stays responsive) ---
 
   def handle_event("apply", _params, socket) do
@@ -109,6 +118,14 @@ defmodule BeatgridWeb.ReviewLive do
 
   def handle_async(:undo, {:ok, {:ok, result}}, socket) do
     {:noreply, socket |> assign(applying?: false, toast: {:undone, result}) |> load()}
+  end
+
+  def handle_async(:re_resolve, {:ok, {:ok, outcome}}, socket) do
+    {:noreply, socket |> assign(toast: {outcome, %{}}) |> load()}
+  end
+
+  def handle_async(:re_resolve, {:ok, {:error, _reason}}, socket) do
+    {:noreply, assign(socket, toast: {:error, :re_resolve})}
   end
 
   def handle_async(_name, {:exit, reason}, socket) do
@@ -264,6 +281,14 @@ defmodule BeatgridWeb.ReviewLive do
               >
                 <:extra>
                   <button
+                    phx-click="re_resolve"
+                    phx-value-id={s.id}
+                    data-confirm="Re-resolver gasta chamadas da cota Soundcharts. Continuar?"
+                    class="rounded-md bg-input px-2.5 py-1 text-[11px] text-ink-muted hover:text-ink"
+                  >
+                    Re-resolver
+                  </button>
+                  <button
                     phx-click="dismiss_audit"
                     phx-value-id={s.id}
                     class="rounded-md bg-input px-2.5 py-1 text-[11px] text-ink-muted hover:text-ink"
@@ -353,6 +378,9 @@ defmodule BeatgridWeb.ReviewLive do
 
   defp toast_message({:undone, %{undone: n}}), do: "#{n} alterações desfeitas."
   defp toast_message({:quarantined, _}), do: "Faixa movida para _Quarantine."
+  defp toast_message({:resolving, _}), do: "Re-resolvendo no Soundcharts…"
+  defp toast_message({:resolved, _}), do: "Re-resolvido — confira a nova sugestão em Renomeações."
+  defp toast_message({:no_match, _}), do: "Sem novo match no Soundcharts."
   defp toast_message({:error, _reason}), do: "Falha na operação. Nada foi alterado."
 
   defp count_summary(items) do
