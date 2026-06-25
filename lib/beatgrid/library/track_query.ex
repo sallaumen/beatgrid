@@ -10,6 +10,7 @@ defmodule Beatgrid.Library.TrackQuery do
           {:status, atom()}
           | {:genre_folder, String.t() | nil}
           | {:with_quality_issues, boolean()}
+          | {:resolved, boolean()}
           | {:order_by, term()}
 
   @spec list_by([list_opt()]) :: [Track.t()]
@@ -38,5 +39,7 @@ defmodule Beatgrid.Library.TrackQuery do
   defp reduce_opt({:genre_folder, folder}, q), do: where(q, [t], t.genre_folder == ^folder)
   defp reduce_opt({:with_quality_issues, true}, q), do: where(q, [t], t.quality_issues != ^[])
   defp reduce_opt({:with_quality_issues, false}, q), do: where(q, [t], t.quality_issues == ^[])
+  defp reduce_opt({:resolved, true}, q), do: where(q, [t], not is_nil(t.soundcharts_song_id))
+  defp reduce_opt({:resolved, false}, q), do: where(q, [t], is_nil(t.soundcharts_song_id))
   defp reduce_opt({:order_by, order}, q), do: order_by(q, ^order)
 end

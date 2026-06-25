@@ -6,6 +6,7 @@ defmodule Beatgrid.Factory do
   use ExMachina.Ecto, repo: Beatgrid.Repo
 
   alias Beatgrid.Library.{GenreFolder, Track}
+  alias Beatgrid.Soundcharts.Song
 
   def genre_folder_factory do
     %GenreFolder{
@@ -23,6 +24,14 @@ defmodule Beatgrid.Factory do
       format: :mp3,
       status: :present,
       quality_issues: []
+    }
+  end
+
+  def soundcharts_song_factory do
+    %Song{
+      sc_uuid: sequence(:sc_uuid, &"sc-uuid-#{&1}"),
+      name: sequence(:sc_name, &"Song #{&1}"),
+      credit_name: "Some Artist"
     }
   end
 end

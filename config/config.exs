@@ -29,6 +29,11 @@ config :beatgrid, Oban,
 
 # Integration ports (ports & adapters). Tests override these with Mox mocks.
 config :beatgrid, Beatgrid.Audio, adapter: Beatgrid.Audio.Ffprobe
+config :beatgrid, Beatgrid.Soundcharts.Client, adapter: Beatgrid.Soundcharts.Http
+
+# Soundcharts budget: hard cap on successful API calls + a safety floor below
+# which the client refuses to call (the free tier is ~1,000 requests total).
+config :beatgrid, Beatgrid.Soundcharts, request_cap: 1000, budget_floor: 50
 
 # Rule-based organization: source playlist (folder name) => genre folder key.
 # Used by `Beatgrid.Organization.suggest_by_rule/1` to seed move suggestions.
