@@ -30,6 +30,18 @@ config :beatgrid, Oban,
 # Integration ports (ports & adapters). Tests override these with Mox mocks.
 config :beatgrid, Beatgrid.Audio, adapter: Beatgrid.Audio.Ffprobe
 
+# Rule-based organization: source playlist (folder name) => genre folder key.
+# Used by `Beatgrid.Organization.suggest_by_rule/1` to seed move suggestions.
+config :beatgrid, :playlist_genre_rules, %{
+  "SpotiDownloader.com - MPBzera" => "mpb",
+  "SpotiDownloader.com - Tá escrito em MPB" => "mpb",
+  "SpotiDownloader.com - Baile Forrodélico" => "forro_psicodelico",
+  "SpotiDownloader.com - Forró in the Light (2)" => "forro_in_the_light",
+  "SpotiDownloader.com - Forró lentinho" => "forro_in_the_light",
+  "SpotiDownloader.com - Grupo de estudo Roots" => "forro_roots",
+  "SpotiDownloader.com - Rooteira boaa" => "forro_roots"
+}
+
 # Configure the endpoint
 config :beatgrid, BeatgridWeb.Endpoint,
   url: [host: "localhost"],

@@ -21,6 +21,34 @@ defmodule Beatgrid.Organization do
   end
 
   @doc """
+  Creates a pending `:rule` suggestion for each inbox track (genre_folder nil)
+  whose `source_playlist` matches a rule (`playlist name => genre key`). Skips
+  tracks that already have a pending suggestion. Returns the batch id and count.
+  """
+  @spec suggest_by_rule(map()) :: {:ok, %{batch_id: Ecto.UUID.t(), created: non_neg_integer()}}
+  def suggest_by_rule(rules \\ playlist_rules()) do
+    batch_id = Uniq.UUID.uuid7()
+    already = MapSet.new(MoveSuggestionQuery.list_by(status: :pending), & &1.track_id)
+
+    created =
+      [status: :present, genre_folder: nil]
+      |> Tracks.list_by()
+      |> Enum.reject(&MapSet.member?(already, &1.id))
+      |> Enum.reduce(0, fn track, count ->
+        case Map.get(rules, track.source_playlist) do
+          nil ->
+            count
+
+          genre_key ->
+            create_rule_suggestion(track, genre_key, batch_id)
+            count + 1
+        end
+      end)
+
+    {:ok, %{batch_id: batch_id, created: created}}
+  end
+
+  @doc """
   Applies each suggestion: moves the track's file into the target genre folder and
   records the outcome on the suggestion. One failure doesn't abort the batch.
   """
@@ -84,4 +112,19 @@ defmodule Beatgrid.Organization do
     |> MoveSuggestion.changeset(Enum.into(extra, %{status: status}))
     |> Repo.update()
   end
+
+  defp create_rule_suggestion(track, genre_key, batch_id) do
+    {:ok, _suggestion} =
+      create_suggestion(%{
+        track_id: track.id,
+        from_rel_path: track.rel_path,
+        to_genre_folder: genre_key,
+        source: :rule,
+        confidence: 0.9,
+        reason: "source playlist #{track.source_playlist} → #{genre_key}",
+        batch_id: batch_id
+      })
+  end
+
+  defp playlist_rules, do: Application.get_env(:beatgrid, :playlist_genre_rules, %{})
 end

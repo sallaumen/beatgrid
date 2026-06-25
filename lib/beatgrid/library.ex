@@ -6,7 +6,7 @@ defmodule Beatgrid.Library do
   reflects and edits it. It owns library initialization and the file-moving
   primitives (relocate, quarantine) that back the organization workflow.
   """
-  alias Beatgrid.Library.{GenreFolders, Track, Tracks}
+  alias Beatgrid.Library.{FileInfo, GenreFolders, Track, Tracks}
 
   @structural_dirs ["_Inbox", "_Quarantine"]
 
@@ -29,6 +29,27 @@ defmodule Beatgrid.Library do
     Enum.each(paths, &File.mkdir_p!/1)
 
     {:ok, paths}
+  end
+
+  @doc """
+  Copies audio files from `source_dir` into `_Inbox`, recording provenance
+  (`source_playlist`). Skips files whose content already exists in the library
+  (exact-hash dedup). Originals are left untouched.
+  """
+  @spec import_from(String.t()) ::
+          {:ok, %{imported: non_neg_integer(), skipped: non_neg_integer()}}
+  def import_from(source_dir) do
+    source_dir = Path.expand(source_dir)
+    File.mkdir_p!(abs_path("_Inbox"))
+
+    {summary, _seen} =
+      source_dir
+      |> FileInfo.audio_files()
+      |> Enum.reduce({%{imported: 0, skipped: 0}, library_hashes()}, fn file, {acc, seen} ->
+        import_one(file, source_dir, acc, seen)
+      end)
+
+    {:ok, summary}
   end
 
   @doc """
@@ -89,5 +110,42 @@ defmodule Beatgrid.Library do
       end
 
     Path.join(dir, "#{stem} (#{next})#{ext}")
+  end
+
+  defp import_one(file, source_dir, acc, seen) do
+    info = FileInfo.read(file)
+    sha = info.content_sha256
+
+    if is_binary(sha) and MapSet.member?(seen, sha) do
+      {Map.update!(acc, :skipped, &(&1 + 1)), seen}
+    else
+      dest_rel = ensure_unique(Path.join("_Inbox", info.filename))
+      File.cp!(file, abs_path(dest_rel))
+
+      attrs =
+        Map.merge(info, %{
+          rel_path: dest_rel,
+          source_playlist: source_playlist(file, source_dir),
+          status: :present,
+          last_scanned_at: DateTime.truncate(DateTime.utc_now(), :second)
+        })
+
+      {:ok, _track} = Tracks.upsert_by_path(attrs)
+      {Map.update!(acc, :imported, &(&1 + 1)), MapSet.put(seen, sha)}
+    end
+  end
+
+  defp library_hashes do
+    Tracks.list_by(status: :present)
+    |> Enum.map(& &1.content_sha256)
+    |> Enum.reject(&is_nil/1)
+    |> MapSet.new()
+  end
+
+  defp source_playlist(file, source_dir) do
+    case file |> Path.relative_to(source_dir) |> Path.split() do
+      [_filename] -> Path.basename(source_dir)
+      [top | _rest] -> top
+    end
   end
 end
