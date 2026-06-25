@@ -39,7 +39,8 @@ file-system change is **proposed first, applied in a batch, and reversible**.
 | **AI classification** | Classifies every track into the right genre folder via the `claude` CLI (structured JSON output), producing reviewable suggestions. |
 | **Harmonic mixing** | "Next ideal track" suggestions using the Camelot wheel (compatible keys + nearby BPM). |
 | **Review & apply** | A LiveView **Central de Revisão**: approve / edit / reject rename, classification, and audit suggestions, then apply the approved batch to disk — with an ID3 genre write and full **undo**. |
-| **Analytics** | Repertoire overview: genre/decade distribution, top artists, BPM histogram, gap analysis. |
+| **Analytics** | A **Painel** dashboard: headline KPIs, genre/decade distribution, top artists, BPM histogram, and AI repertoire-gap suggestions. |
+| **Set-builder (REC SET)** | Assemble a harmonic set — seed track → ranked harmonic candidates → append or auto-fill — and export it as an `.m3u` playlist Serato/VLC read directly. |
 
 ### The review workflow
 
@@ -149,10 +150,11 @@ lib/
     operations.ex           # unified, reversible disk-mutation log
     review.ex               # Central de Revisão orchestration (decide → apply)
     mixing.ex               # Camelot-wheel harmonic next-track
+    sets.ex                 # REC SET set-builder (+ sets/ schemas, M3U export)
     repertoire.ex           # dashboard analytics
     workers/                # Oban background jobs
   beatgrid_web/
-    live/                   # LiveViews: Biblioteca, Detalhe, Central de Revisão
+    live/                   # LiveViews: Biblioteca, Detalhe, Revisão, Painel, REC SET
     ui.ex                   # design-system components (cards, chips, badges)
 priv/repo/migrations/       # schema history
 docs/                       # design specs, plan, and the architecture playbook
@@ -163,8 +165,8 @@ test/                       # ExUnit + Mox + ExMachina factories
 
 ## Status
 
-Library management, de-dup, organization, Soundcharts enrichment, AI
-classification, harmonic mixing, and the **Central de Revisão** review surface are
-in place. Next up: a **Painel** dashboard (KPIs, charts, repertoire gaps).
+The full pipeline is in place: library management, de-dup, organization,
+Soundcharts enrichment, AI classification, the **Central de Revisão** review
+surface, the **Painel** dashboard, and the **REC SET** harmonic set-builder.
 
 A personal project — built for one DJ's bag.
