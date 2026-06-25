@@ -1,0 +1,15 @@
+[
+  # Content-Security-Policy is deferred to Phase 5 (the LiveView UI). Beatgrid is a
+  # local, single-user app bound to 127.0.0.1 with no web surface yet; a real CSP
+  # (with LiveView script nonces) lands together with the UI.
+  #
+  # Traversal findings are NOT globally ignored on purpose — Phase 2 moves files
+  # based on user-influenced data, where traversal matters. The single known
+  # false-positive (Library.init_library/1, paths from config + seeded data) is
+  # handled by a narrow per-function @sobelow_skip instead.
+  ignore: ["Config.CSP"],
+  # Fail the gate on medium+ confidence findings. Low-confidence heuristic findings
+  # (e.g. File.mkdir_p! on a config/seeded path in Library.init_library) still print
+  # for visibility but don't block — they're reviewed, not silenced.
+  exit: "medium"
+]
