@@ -48,24 +48,24 @@ lint` and `mix test` are green; `genre_folders` is seeded; `~/Music/DJ` exists.
 **Goal:** know exactly what we have, what's broken, and what's duplicated — the
 highest-value, zero-cost foundation.
 
-- [ ] `Beatgrid.Audio` port: behaviour + `Beatgrid.Audio.Ffprobe` adapter (`System.cmd
+- [x] `Beatgrid.Audio` port: behaviour + `Beatgrid.Audio.Ffprobe` adapter (`System.cmd
       "ffprobe" ... -print_format json`) returning a typed `Beatgrid.Audio.Metadata`
       struct; `Beatgrid.Audio.Mock` wired in `config/test.exs`.
-- [ ] `tracks` migration + `Beatgrid.Library.Track` schema (all §5 fields, `Ecto.Enum`
+- [x] `tracks` migration + `Beatgrid.Library.Track` schema (all §5 fields, `Ecto.Enum`
       for `format`/`status`, jsonb for `raw_tags`/`quality_issues`) + constraint helpers.
-- [ ] `Beatgrid.Library.TrackQuery` — `list_tracks_by/1`, `get_track_by/1`,
+- [x] `Beatgrid.Library.TrackQuery` — `list_tracks_by/1`, `get_track_by/1`,
       `fetch_track_by/1` (reducer pattern), plus `pg_trgm` search migration.
-- [ ] Normalization: `Beatgrid.Library.Normalize` (downcase, strip accents/punctuation,
+- [x] Normalization: `Beatgrid.Library.Normalize` (downcase, strip accents/punctuation,
       collapse spaces, drop `feat.`/`remaster`/`remix` suffixes) → `norm_artist`/`norm_title`.
       **Property-test it.**
-- [ ] `Beatgrid.Library.scan/1` — walk the library root, hash files, read tags, detect
+- [x] `Beatgrid.Library.scan/1` — walk the library root, hash files, read tags, detect
       `quality_issues` (`:missing_tags`, `:low_bitrate`, `:truncated`, `:corrupt`,
       `:not_audio`, `:too_short`, `:silent`), upsert by `rel_path`, mark missing.
-- [ ] `Beatgrid.Workers.ScanWorker` (`enqueue/1`, unique). Worker test.
-- [ ] `Beatgrid.Dedup`: `duplicate_groups`/`duplicate_members` migrations + schemas +
+- [x] `Beatgrid.Workers.ScanWorker` (`enqueue/1`, unique). Worker test.
+- [x] `Beatgrid.Dedup`: `duplicate_groups`/`duplicate_members` migrations + schemas +
       `Beatgrid.Dedup.detect/0` (exact hash + fuzzy meta) + keeper heuristic. Tests.
-- [ ] `Beatgrid.Workers.DedupWorker`. Worker test.
-- [ ] `mix beatgrid.report` task: prints inventory counts, the bad-file list, and the
+- [x] `Beatgrid.Workers.DedupWorker`. Worker test.
+- [x] `mix beatgrid.report` task: prints inventory counts, the bad-file list, and the
       duplicate groups (run against the real SpotiDownloader folders as a smoke test —
       read-only; no copying yet).
 
