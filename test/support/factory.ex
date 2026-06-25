@@ -5,7 +5,7 @@ defmodule Beatgrid.Factory do
   """
   use ExMachina.Ecto, repo: Beatgrid.Repo
 
-  alias Beatgrid.Library.GenreFolder
+  alias Beatgrid.Library.{GenreFolder, Track}
 
   def genre_folder_factory do
     %GenreFolder{
@@ -13,6 +13,16 @@ defmodule Beatgrid.Factory do
       display_name: sequence(:genre_folder_name, &"Genre #{&1}"),
       dir_name: sequence(:genre_folder_dir, &"Genre #{&1}"),
       sort_order: sequence(:genre_folder_sort, & &1)
+    }
+  end
+
+  def track_factory do
+    %Track{
+      rel_path: sequence(:track_rel_path, &"_Inbox/track-#{&1}.mp3"),
+      filename: sequence(:track_filename, &"track-#{&1}.mp3"),
+      format: :mp3,
+      status: :present,
+      quality_issues: []
     }
   end
 end
