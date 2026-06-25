@@ -116,4 +116,36 @@ defmodule Beatgrid.AITest do
       assert Organization.count(status: :pending, source: :claude) == 1
     end
   end
+
+  describe "suggest_gaps/2" do
+    test "builds a folder-scoped prompt with the artists already owned and returns parsed gaps" do
+      insert(:track, genre_folder: "forro_roots", tag_artist: "Luiz Gonzaga", status: :present)
+
+      expect(Mock, :complete, fn prompt, schema, _opts ->
+        assert prompt =~ "Forró Roots"
+        assert prompt =~ "Luiz Gonzaga"
+        assert schema["properties"]["gaps"]
+
+        {:ok,
+         %{
+           "gaps" => [
+             %{
+               "artist" => "Jackson do Pandeiro",
+               "song" => "Chiclete com Banana",
+               "reason" => "essential canon"
+             }
+           ]
+         }}
+      end)
+
+      assert {:ok, [gap]} = AI.suggest_gaps("forro_roots")
+      assert gap.artist == "Jackson do Pandeiro"
+      assert gap.song == "Chiclete com Banana"
+      assert gap.reason =~ "canon"
+    end
+
+    test "errors for an unknown folder" do
+      assert {:error, :unknown_folder} = AI.suggest_gaps("nope")
+    end
+  end
 end
