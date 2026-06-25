@@ -61,6 +61,17 @@ Computed when picking the best search result:
   and applies in batch (suggest → confirm → apply), with **undo**. Mirrors the
   existing `MoveSuggestion` workflow. Nothing touches disk until approved.
 
+### Operational notes (first run, 2026-06-25)
+
+- The first preview created **11 pending suggestions** but **nothing was applied
+  to disk** — renames are deferred for review (e.g. in the future UI).
+- Two findings from the real preview: (1) confidence measures *string match*, not
+  *correctness* — several `low` proposals were actually correct (multi-artist
+  credit order); (2) a medley/compilation `name` (contains `/`) leaked into
+  `high` (Soundcharts returns the whole medley title). **TODO before auto-applying:**
+  add a medley guard so a `to_filename` containing `/` (pre-sanitization) never
+  auto-renames, regardless of confidence.
+
 ### Serato caveat
 
 Renames change the file path; Serato references files by path. Renaming is safe
