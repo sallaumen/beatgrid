@@ -4,12 +4,12 @@ defmodule BeatgridWeb.DashboardLive do
 
   import BeatgridWeb.UI
 
-  alias Beatgrid.AI
+  alias Beatgrid.{AI, Analysis, Repertoire}
   alias Beatgrid.Library.GenreFolders
-  alias Beatgrid.Repertoire
 
   @impl true
   def mount(_params, _session, socket) do
+    if connected?(socket), do: Analysis.subscribe()
     folders = GenreFolders.list()
 
     {:ok,
@@ -20,6 +20,8 @@ defmodule BeatgridWeb.DashboardLive do
        artists: Repertoire.top_artists(10),
        bpm: Repertoire.bpm_histogram(5) |> Enum.sort_by(fn {b, _} -> b end),
        decades: Repertoire.decade_distribution() |> Enum.sort_by(fn {d, _} -> d end),
+       analysis: Analysis.progress(),
+       analysis_note: nil,
        folders: folders,
        gaps_folder: folders |> List.first() |> then(&(&1 && &1.key)),
        gaps: nil,
@@ -29,6 +31,17 @@ defmodule BeatgridWeb.DashboardLive do
   end
 
   @impl true
+  def handle_event("analyze_library", _params, socket) do
+    {:ok, n} = Analysis.enqueue_pending()
+
+    note =
+      if n > 0,
+        do: "#{n} faixa(s) enfileirada(s) — analisando em segundo plano…",
+        else: "Tudo já analisado. ✔"
+
+    {:noreply, assign(socket, analysis: Analysis.progress(), analysis_note: note)}
+  end
+
   def handle_event("select_folder", %{"folder" => key}, socket) do
     {:noreply, assign(socket, gaps_folder: key, gaps: nil, gaps_error: nil)}
   end
@@ -53,6 +66,11 @@ defmodule BeatgridWeb.DashboardLive do
 
   def handle_async(:gaps, {:exit, reason}, socket) do
     {:noreply, assign(socket, gaps_loading: false, gaps_error: inspect(reason))}
+  end
+
+  @impl true
+  def handle_info({:analysis_tick}, socket) do
+    {:noreply, assign(socket, analysis: Analysis.progress())}
   end
 
   # --- helpers ---
@@ -104,6 +122,36 @@ defmodule BeatgridWeb.DashboardLive do
               color="#ff5d6c"
             />
           </section>
+
+          <.panel title="Operações">
+            <div class="flex items-center justify-between gap-4">
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center justify-between text-body-sm">
+                  <span class="text-ink-secondary">Análise de áudio local (BPM + tom)</span>
+                  <span class="font-mono text-ink-muted">
+                    {@analysis.analyzed}/{@analysis.total} analisadas
+                  </span>
+                </div>
+                <div class="mt-1.5 h-[7px] rounded-full bg-white/5">
+                  <div
+                    class="h-full rounded-full bg-green transition-all"
+                    style={"width:#{pct(@analysis.analyzed, @analysis.total)}%"}
+                  >
+                  </div>
+                </div>
+                <p :if={@analysis_note} class="mt-1.5 text-caption text-ink-muted">
+                  {@analysis_note}
+                </p>
+              </div>
+              <button
+                phx-click="analyze_library"
+                disabled={@analysis.analyzed >= @analysis.total}
+                class="shrink-0 rounded-md bg-primary px-3.5 py-1.5 text-body-sm font-semibold text-white disabled:opacity-40"
+              >
+                Analisar faltantes ({max(@analysis.total - @analysis.analyzed, 0)})
+              </button>
+            </div>
+          </.panel>
 
           <div class="grid grid-cols-1 gap-5 lg:grid-cols-2">
             <.panel title="Distribuição por gênero">
@@ -184,6 +232,14 @@ defmodule BeatgridWeb.DashboardLive do
                 {if @gaps_loading, do: "Consultando a IA…", else: "Buscar lacunas"}
               </button>
             </form>
+
+            <div
+              :if={@gaps_loading}
+              class="mt-3 flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/8 px-3 py-2 text-body-sm text-ink"
+            >
+              <span class="size-2.5 animate-pulse rounded-full bg-primary"></span>
+              Consultando a IA… isso pode levar ~20–30s.
+            </div>
 
             <div
               :if={@gaps_error}

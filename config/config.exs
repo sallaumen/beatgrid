@@ -24,7 +24,7 @@ config :beatgrid, :library_root, Path.expand("~/Music/DJ")
 # `soundcharts` queue is serialized (local_limit 1) to respect the API budget.
 config :beatgrid, Oban,
   repo: Beatgrid.Repo,
-  queues: [default: 10, scan: 2, soundcharts: 1, ai: 2],
+  queues: [default: 10, scan: 2, soundcharts: 1, ai: 2, analysis: 2],
   plugins: [{Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}]
 
 # Integration ports (ports & adapters). Tests override these with Mox mocks.

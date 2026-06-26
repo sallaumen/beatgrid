@@ -8,12 +8,48 @@ defmodule Beatgrid.Analysis do
   alias Beatgrid.Library
   alias Beatgrid.Library.{Track, Tracks}
   alias Beatgrid.Soundcharts.Camelot
+  alias Beatgrid.Workers.AnalyzeWorker
 
   @adapter Application.compile_env(
              :beatgrid,
              [Beatgrid.Audio.Analyzer, :adapter],
              Beatgrid.Audio.LibrosaCli
            )
+
+  @topic "analysis"
+
+  @doc "Subscribe to live analysis progress ticks (broadcast per analyzed track)."
+  @spec subscribe() :: :ok
+  def subscribe, do: Phoenix.PubSub.subscribe(Beatgrid.PubSub, @topic)
+
+  @doc "Broadcast a progress tick so subscribers refresh their counts."
+  @spec broadcast_tick() :: :ok
+  def broadcast_tick, do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @topic, {:analysis_tick})
+
+  @doc "Analyzed-vs-total counts over present tracks (for the progress bar)."
+  @spec progress() :: %{analyzed: non_neg_integer(), total: non_neg_integer()}
+  def progress do
+    %{
+      analyzed: Tracks.count(status: :present, analyzed: true),
+      total: Tracks.count(status: :present)
+    }
+  end
+
+  @doc "Enqueues a background analysis job for every not-yet-analyzed present track."
+  @spec enqueue_pending() :: {:ok, non_neg_integer()}
+  def enqueue_pending do
+    count =
+      [status: :present, analyzed: false]
+      |> Tracks.list_by()
+      |> Enum.reduce(0, fn track, acc ->
+        case Oban.insert(AnalyzeWorker.new(%{track_id: track.id})) do
+          {:ok, _job} -> acc + 1
+          _error -> acc
+        end
+      end)
+
+    {:ok, count}
+  end
 
   @spec analyze_track(Track.t()) :: {:ok, Track.t()} | {:error, term()}
   def analyze_track(%Track{} = track) do

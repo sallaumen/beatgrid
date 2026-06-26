@@ -7,6 +7,8 @@ defmodule BeatgridWeb.DashboardLiveTest do
   import Beatgrid.Factory
   import Mox
 
+  alias Beatgrid.Library.Tracks
+
   setup :set_mox_global
 
   test "shows headline KPIs and the genre / artist distributions", %{conn: conn} do
@@ -53,5 +55,29 @@ defmodule BeatgridWeb.DashboardLiveTest do
     assert html =~ "Elis Regina"
     assert html =~ "Águas de Março"
     assert html =~ "essencial MPB"
+  end
+
+  test "the Operações panel enqueues a library analysis", %{conn: conn} do
+    insert(:track, status: :present)
+
+    {:ok, view, html} = live(conn, ~p"/painel")
+    assert html =~ "Operações"
+    assert html =~ "Análise de áudio local"
+    assert html =~ "0/1 analisadas"
+
+    html = view |> element("button[phx-click=analyze_library]") |> render_click()
+    assert html =~ "enfileirada"
+  end
+
+  test "an analysis tick refreshes the progress counts live", %{conn: conn} do
+    track = insert(:track, status: :present)
+
+    {:ok, view, _html} = live(conn, ~p"/painel")
+    assert render(view) =~ "0/1 analisadas"
+
+    {:ok, _} = Tracks.update(track, %{analyzed_at: ~U[2026-01-01 00:00:00Z]})
+    send(view.pid, {:analysis_tick})
+
+    assert render(view) =~ "1/1 analisadas"
   end
 end
