@@ -6,6 +6,8 @@ defmodule BeatgridWeb.UI do
   """
   use Phoenix.Component
 
+  alias Phoenix.LiveView.JS
+
   @folder_colors %{
     "mpb" => "#8b7bf0",
     "forro" => "#ffb020",
@@ -269,6 +271,7 @@ defmodule BeatgridWeb.UI do
   attr :rationale, :string, default: nil, doc: "classification: AI justification"
   attr :audit, :string, default: nil, doc: "rename: audit flag text"
   attr :folders, :list, default: [], doc: "classification: folder options for the edit picker"
+  attr :audio_src, :string, default: nil, doc: "URL to preview the track (▶ skips to 20s)"
   slot :extra, doc: "optional extra action buttons (e.g. audit-tab actions)"
 
   def suggestion_card(assigns) do
@@ -278,6 +281,15 @@ defmodule BeatgridWeb.UI do
       class={["flex items-start gap-3 rounded-xl px-[14px] py-[13px]", suggestion_card_class(@status)]}
     >
       <.cover artist={@artist} size={42} />
+      <button
+        :if={@audio_src}
+        type="button"
+        phx-click={JS.dispatch("beatgrid:play", to: "#review-player", detail: %{src: @audio_src})}
+        class="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[11px] text-primary hover:bg-primary/25"
+        title="Tocar (a partir dos 20s)"
+      >
+        ▶
+      </button>
       <div class="min-w-0 flex-1">
         <p class="truncate text-body font-medium">{@title}</p>
         <p :if={@artist} class="text-ink-muted truncate text-caption">{@artist}</p>

@@ -41,6 +41,9 @@ defmodule BeatgridWeb.ReviewLiveTest do
     assert html =~ "Classificação"
     assert html =~ "Auditoria"
     assert html =~ "Djavan - Sina.mp3"
+    # preview player + per-card play button
+    assert html =~ ~s(id="review-player")
+    assert html =~ "Tocar (a partir dos 20s)"
   end
 
   test "approve toggles the card into the approved state and lifts the apply count", %{conn: conn} do

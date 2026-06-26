@@ -22,6 +22,8 @@ defmodule BeatgridWeb.Router do
     live "/revisao", ReviewLive, :index
     live "/painel", DashboardLive, :index
     live "/set", RecSetLive, :index
+
+    get "/audio/:id", AudioController, :show
   end
 
   # Other scopes may use custom stacks.

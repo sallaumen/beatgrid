@@ -8,6 +8,9 @@
   # false-positive (Library.init_library/1, paths from config + seeded data) is
   # handled by a narrow per-function @sobelow_skip instead.
   ignore: ["Config.CSP"],
+  # Honor the per-function `@sobelow_skip` attributes (e.g. AudioController.show/2,
+  # which serves a DB-derived, root-fenced path — a reviewed traversal false-positive).
+  skip: true,
   # Fail the gate on medium+ confidence findings. Low-confidence heuristic findings
   # (e.g. File.mkdir_p! on a config/seeded path in Library.init_library) still print
   # for visibility but don't block — they're reviewed, not silenced.

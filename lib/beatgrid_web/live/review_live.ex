@@ -252,6 +252,7 @@ defmodule BeatgridWeb.ReviewLive do
                 confidence_level={move_level(s.confidence)}
                 rationale={s.reason}
                 folders={@folders}
+                audio_src={~p"/audio/#{s.track_id}"}
               />
               <.suggestion_card
                 :if={@tab == :renames}
@@ -265,6 +266,7 @@ defmodule BeatgridWeb.ReviewLive do
                 to={s.to_filename}
                 confidence_level={s.confidence}
                 audit={audit_flag(s.reason)}
+                audio_src={~p"/audio/#{s.track_id}"}
               />
               <.suggestion_card
                 :if={@tab == :auditoria}
@@ -278,6 +280,7 @@ defmodule BeatgridWeb.ReviewLive do
                 to={s.to_filename}
                 confidence_level={s.confidence}
                 audit={audit_flag(s.reason)}
+                audio_src={~p"/audio/#{s.track_id}"}
               >
                 <:extra>
                   <button
@@ -316,7 +319,36 @@ defmodule BeatgridWeb.ReviewLive do
             <p class="text-ink-muted">Nada pendente nesta aba.</p>
           </div>
         </div>
+
+        <div class="shrink-0 border-t border-white/6 bg-rail px-5 py-2">
+          <audio
+            id="review-player"
+            phx-hook=".AudioPlayer"
+            phx-update="ignore"
+            controls
+            preload="none"
+            class="h-9 w-full"
+          ></audio>
+        </div>
       </div>
+
+      <script :type={Phoenix.LiveView.ColocatedHook} name=".AudioPlayer">
+        export default {
+          mounted() {
+            this.el.addEventListener("beatgrid:play", (e) => {
+              const a = this.el
+              a.src = e.detail.src
+              a.load()
+              const seek = () => {
+                a.currentTime = (a.duration && a.duration < 25) ? 0 : 20
+                a.play()
+                a.removeEventListener("loadedmetadata", seek)
+              }
+              a.addEventListener("loadedmetadata", seek)
+            })
+          }
+        }
+      </script>
     </.app_shell>
     """
   end
