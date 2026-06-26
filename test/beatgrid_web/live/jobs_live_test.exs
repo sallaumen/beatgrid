@@ -33,4 +33,37 @@ defmodule BeatgridWeb.JobsLiveTest do
 
     assert Beatgrid.Repo.get(Oban.Job, job.id).state == "available"
   end
+
+  defp insert_failed_job(url, error) do
+    job =
+      %{"url" => url}
+      |> DownloadWorker.new()
+      |> Oban.insert!()
+
+    job
+    |> Ecto.Changeset.change(
+      state: "discarded",
+      errors: [%{"attempt" => 1, "at" => "2026-06-26T00:00:00Z", "error" => error}]
+    )
+    |> Beatgrid.Repo.update!()
+  end
+
+  test "expand/collapse toggle shows full error details", %{conn: conn} do
+    error = "ERRO_INICIO " <> String.duplicate("x", 200) <> " ERRO_FIM_TOKEN"
+    job = insert_failed_job("https://y/expand-test", error)
+
+    {:ok, view, html} = live(conn, ~p"/jobs")
+
+    # Collapsed: long tail token must NOT be visible
+    refute html =~ "ERRO_FIM_TOKEN"
+
+    # Click the toggle button for this job
+    expanded_html =
+      view
+      |> element("button[phx-click='toggle_details'][phx-value-id='#{job.id}']")
+      |> render_click()
+
+    # Expanded: full error must now be visible
+    assert expanded_html =~ "ERRO_FIM_TOKEN"
+  end
 end

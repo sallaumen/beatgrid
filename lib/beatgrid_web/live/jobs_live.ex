@@ -15,7 +15,7 @@ defmodule BeatgridWeb.JobsLive do
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: Process.send_after(self(), :refresh, @refresh_ms)
-    {:ok, assign(socket, filter: nil, jobs: load(nil), states: @states)}
+    {:ok, assign(socket, filter: nil, jobs: load(nil), states: @states, expanded: MapSet.new())}
   end
 
   @impl true
@@ -38,6 +38,18 @@ defmodule BeatgridWeb.JobsLive do
   def handle_event("cancel", %{"id" => id}, socket) do
     Jobs.cancel(String.to_integer(id))
     {:noreply, assign(socket, jobs: load(socket.assigns.filter))}
+  end
+
+  def handle_event("toggle_details", %{"id" => id}, socket) do
+    id = String.to_integer(id)
+    expanded = socket.assigns.expanded
+
+    expanded =
+      if MapSet.member?(expanded, id),
+        do: MapSet.delete(expanded, id),
+        else: MapSet.put(expanded, id)
+
+    {:noreply, assign(socket, expanded: expanded)}
   end
 
   defp load(nil), do: Jobs.list_recent(limit: 100)
@@ -74,37 +86,60 @@ defmodule BeatgridWeb.JobsLive do
         <div class="mt-4 space-y-1">
           <div
             :for={j <- @jobs}
-            class="flex items-center gap-3 rounded-lg border border-white/6 bg-surface px-3 py-2"
+            class="rounded-lg border border-white/6 bg-surface px-3 py-2"
           >
-            <span class={[
-              "rounded-sm px-2 py-0.5 text-[10px] font-bold uppercase",
-              state_class(j.state)
-            ]}>
-              {state_label(j.state)}
-            </span>
-            <div class="min-w-0 flex-1">
-              <p class="truncate text-body-sm font-medium">{worker_name(j.worker)}</p>
-              <p class="text-ink-muted truncate text-caption font-mono">{job_summary(j)}</p>
-              <p :if={last_error(j)} class="text-coral truncate text-caption">{last_error(j)}</p>
+            <div class="flex items-center gap-3">
+              <span class={[
+                "rounded-sm px-2 py-0.5 text-[10px] font-bold uppercase",
+                state_class(j.state)
+              ]}>
+                {state_label(j.state)}
+              </span>
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-body-sm font-medium">{worker_name(j.worker)}</p>
+                <p class="text-ink-muted truncate text-caption font-mono">{job_summary(j)}</p>
+                <p :if={last_error(j)} class="text-coral truncate text-caption">{last_error(j)}</p>
+              </div>
+              <span class="text-ink-faint shrink-0 font-mono text-[11px]">{j.attempt}/{j.max_attempts}</span>
+              <div class="flex shrink-0 items-center gap-1.5">
+                <button
+                  :if={j.errors != []}
+                  type="button"
+                  phx-click="toggle_details"
+                  phx-value-id={j.id}
+                  class="text-ink-faint hover:text-ink text-[11px]"
+                >
+                  {if MapSet.member?(@expanded, j.id), do: "Ocultar", else: "Detalhes"}
+                </button>
+                <button
+                  :if={j.state in ["retryable", "discarded", "cancelled"]}
+                  phx-click="retry"
+                  phx-value-id={j.id}
+                  class="rounded-md bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary hover:bg-primary/25"
+                >
+                  Re-tentar
+                </button>
+                <button
+                  :if={j.state in ["available", "scheduled", "executing", "retryable"]}
+                  phx-click="cancel"
+                  phx-value-id={j.id}
+                  class="rounded-md bg-coral/10 px-2.5 py-1 text-[11px] text-coral hover:bg-coral/20"
+                >
+                  Cancelar
+                </button>
+              </div>
             </div>
-            <span class="text-ink-faint shrink-0 font-mono text-[11px]">{j.attempt}/{j.max_attempts}</span>
-            <div class="flex shrink-0 gap-1.5">
-              <button
-                :if={j.state in ["retryable", "discarded", "cancelled"]}
-                phx-click="retry"
-                phx-value-id={j.id}
-                class="rounded-md bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary hover:bg-primary/25"
+            <div
+              :if={MapSet.member?(@expanded, j.id)}
+              class="mt-1 space-y-1 rounded-md bg-base px-3 py-2"
+            >
+              <p class="text-ink-muted break-all font-mono text-[11px]">{full_url(j)}</p>
+              <p
+                :for={line <- all_errors(j)}
+                class="text-coral break-all whitespace-pre-wrap font-mono text-[11px]"
               >
-                Re-tentar
-              </button>
-              <button
-                :if={j.state in ["available", "scheduled", "executing", "retryable"]}
-                phx-click="cancel"
-                phx-value-id={j.id}
-                class="rounded-md bg-coral/10 px-2.5 py-1 text-[11px] text-coral hover:bg-coral/20"
-              >
-                Cancelar
-              </button>
+                {line}
+              </p>
             </div>
           </div>
           <p :if={@jobs == []} class="text-ink-faint py-12 text-center text-body-sm">
@@ -114,6 +149,16 @@ defmodule BeatgridWeb.JobsLive do
       </div>
     </.app_shell>
     """
+  end
+
+  defp full_url(%Oban.Job{args: args}), do: args["url"] || args["title"] || ""
+
+  defp all_errors(%Oban.Job{errors: errors}) do
+    Enum.map(errors, fn e ->
+      attempt = e["attempt"] || "?"
+      msg = e["error"] || inspect(e)
+      "tentativa #{attempt}: #{msg}"
+    end)
   end
 
   defp worker_name(worker), do: worker |> String.split(".") |> List.last()
