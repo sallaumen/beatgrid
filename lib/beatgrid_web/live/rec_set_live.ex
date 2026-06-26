@@ -8,7 +8,6 @@ defmodule BeatgridWeb.RecSetLive do
   alias Beatgrid.Mixing
   alias Beatgrid.Mixing.StyleAffinity
   alias Beatgrid.Sets
-  alias Phoenix.LiveView.JS
 
   @impl true
   def mount(_params, _session, socket) do
@@ -305,7 +304,12 @@ defmodule BeatgridWeb.RecSetLive do
                 class="flex items-center gap-3 rounded-lg bg-surface px-2.5 py-2"
               >
                 <span class="w-5 shrink-0 text-right font-mono text-[12px] text-ink-faint">{i}</span>
-                <.play src={~p"/audio/#{e.track.id}"} />
+                <.play_button
+                  src={~p"/audio/#{e.track.id}"}
+                  track_id={e.track.id}
+                  preview={true}
+                  size={28}
+                />
                 <.cover src={cover_src(e.track)} artist={e.track.tag_artist} size={34} />
                 <div class="min-w-0 flex-1">
                   <p class="truncate text-body font-medium">{title(e.track)}</p>
@@ -358,33 +362,6 @@ defmodule BeatgridWeb.RecSetLive do
       </div>
 
       <.criteria_modal :if={@show_criteria} folders={@folders} />
-
-      <audio
-        id="set-player"
-        phx-hook=".AudioPlayer"
-        phx-update="ignore"
-        controls
-        preload="none"
-        class="fixed bottom-3 right-3 z-10 h-9 w-72 rounded-md bg-rail shadow-lg"
-      ></audio>
-
-      <script :type={Phoenix.LiveView.ColocatedHook} name=".AudioPlayer">
-        export default {
-          mounted() {
-            this.el.addEventListener("beatgrid:play", (e) => {
-              const a = this.el
-              a.src = e.detail.src
-              a.load()
-              const seek = () => {
-                a.currentTime = (a.duration && a.duration < 25) ? 0 : 20
-                a.play()
-                a.removeEventListener("loadedmetadata", seek)
-              }
-              a.addEventListener("loadedmetadata", seek)
-            })
-          }
-        }
-      </script>
     </.app_shell>
     """
   end
@@ -396,21 +373,6 @@ defmodule BeatgridWeb.RecSetLive do
       <p class="text-ink-muted">Crie um set para começar a montar.</p>
       <button phx-click="new_set" class="text-body-sm text-primary hover:underline">+ Novo set</button>
     </div>
-    """
-  end
-
-  attr :src, :string, required: true
-
-  defp play(assigns) do
-    ~H"""
-    <button
-      type="button"
-      phx-click={JS.dispatch("beatgrid:play", to: "#set-player", detail: %{src: @src})}
-      class="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] text-primary hover:bg-primary/25"
-      title="Tocar (a partir dos 20s)"
-    >
-      ▶
-    </button>
     """
   end
 
@@ -471,7 +433,7 @@ defmodule BeatgridWeb.RecSetLive do
           :for={c <- @candidates}
           class="flex items-center gap-3 rounded-lg border border-white/6 px-2.5 py-2"
         >
-          <.play src={~p"/audio/#{c.track.id}"} />
+          <.play_button src={~p"/audio/#{c.track.id}"} track_id={c.track.id} preview={true} size={28} />
           <.cover src={cover_src(c.track)} artist={c.track.tag_artist} size={30} />
           <div class="min-w-0 flex-1">
             <p class="truncate text-body-sm font-medium">{title(c.track)}</p>
@@ -524,7 +486,7 @@ defmodule BeatgridWeb.RecSetLive do
           :for={t <- @results}
           class="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-surface-2"
         >
-          <.play src={~p"/audio/#{t.id}"} />
+          <.play_button src={~p"/audio/#{t.id}"} track_id={t.id} preview={true} size={28} />
           <.cover src={cover_src(t)} artist={t.tag_artist} size={30} />
           <div class="min-w-0 flex-1">
             <p class="truncate text-body-sm font-medium">{title(t)}</p>

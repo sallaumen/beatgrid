@@ -58,9 +58,9 @@ defmodule BeatgridWeb.RecSetLiveTest do
 
     # search box is STILL present after the set has tracks (the old bug: it vanished)
     assert has_element?(view, "#track-search")
-    # there is an audio player + per-row play buttons
-    assert render(view) =~ ~s(id="set-player")
-    assert render(view) =~ "Tocar (a partir dos 20s)"
+    # play buttons target the global player, not a local one
+    assert render(view) =~ ~s(id="player-audio")
+    refute render(view) =~ ~s(id="set-player")
 
     # the harmonic candidate shows up — append it
     html =
@@ -151,5 +151,23 @@ defmodule BeatgridWeb.RecSetLiveTest do
     assert html =~ "Pico"
     assert html =~ "Abertura"
     assert html =~ "Forró Roots"
+  end
+
+  @tag :tmp_dir
+  test "play controls target the global player, not a local one", %{conn: conn} do
+    seed =
+      track_with("8A", 120.0,
+        tag_title: "GlobalPlayerSeed",
+        tag_artist: "A",
+        norm_title: "globalplayerseed",
+        norm_artist: "a"
+      )
+
+    {:ok, set} = Sets.create("Test set")
+    Sets.append(set, seed)
+
+    {:ok, _view, html} = live(conn, ~p"/set")
+    assert html =~ "player-audio"
+    refute html =~ "set-player"
   end
 end
