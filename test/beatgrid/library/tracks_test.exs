@@ -58,4 +58,19 @@ defmodule Beatgrid.Library.TracksTest do
       assert Tracks.get_by_path("nope.mp3") == nil
     end
   end
+
+  describe "markers" do
+    test "add_marker appends a cue point (sorted by position); remove_marker drops it" do
+      {:ok, track} = Tracks.upsert_by_path(attrs())
+
+      {:ok, t1} = Tracks.add_marker(track, 90_000, "refrão")
+      {:ok, t2} = Tracks.add_marker(t1, 20_000)
+
+      assert Enum.map(t2.cue_points, & &1["ms"]) == [20_000, 90_000]
+      assert Enum.find(t2.cue_points, &(&1["ms"] == 90_000))["label"] == "refrão"
+
+      {:ok, t3} = Tracks.remove_marker(t2, 20_000)
+      assert Enum.map(t3.cue_points, & &1["ms"]) == [90_000]
+    end
+  end
 end

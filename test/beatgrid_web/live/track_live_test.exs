@@ -45,6 +45,21 @@ defmodule BeatgridWeb.TrackLiveTest do
     assert Enum.map(Beatgrid.Sets.tracks(set), & &1.id) == [track.id]
   end
 
+  test "renders the waveform player and adds/removes a marker", %{conn: conn} do
+    track = insert(:track, status: :present, tag_title: "X", tag_artist: "Y")
+
+    {:ok, view, html} = live(conn, ~p"/track/#{track.id}")
+    assert html =~ "track-waveform"
+    assert html =~ ~s(phx-hook="Waveform")
+
+    render_hook(view, "add_marker", %{"ms" => 30_000})
+    assert [%{"ms" => 30_000}] = Tracks.get(track.id).cue_points
+    assert render(view) =~ "0:30"
+
+    view |> element("button[phx-click=remove_marker][phx-value-ms='30000']") |> render_click()
+    assert Tracks.get(track.id).cue_points == []
+  end
+
   test "redirects to the library when the track is not found", %{conn: conn} do
     assert {:error, {:live_redirect, %{to: "/"}}} = live(conn, ~p"/track/#{Ecto.UUID.generate()}")
   end

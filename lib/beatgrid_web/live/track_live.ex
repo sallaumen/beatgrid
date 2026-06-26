@@ -7,6 +7,7 @@ defmodule BeatgridWeb.TrackLive do
   alias Beatgrid.Library.Tracks
   alias Beatgrid.Mixing
   alias Beatgrid.Sets
+  alias Phoenix.LiveView.JS
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
@@ -56,10 +57,26 @@ defmodule BeatgridWeb.TrackLive do
     {:noreply, push_navigate(socket, to: ~p"/set")}
   end
 
+  def handle_event("add_marker", %{"ms" => ms}, socket) do
+    {:ok, _} = Tracks.add_marker(socket.assigns.track, trunc(ms))
+    {:noreply, socket |> reload() |> push_markers()}
+  end
+
+  def handle_event("remove_marker", %{"ms" => ms}, socket) do
+    {:ok, _} = Tracks.remove_marker(socket.assigns.track, String.to_integer(ms))
+    {:noreply, socket |> reload() |> push_markers()}
+  end
+
   defp save(socket, attrs) do
     {:ok, _} = Tracks.update(socket.assigns.track, attrs)
-    assign(socket, track: Tracks.get_with_song(socket.assigns.track.id))
+    reload(socket)
   end
+
+  defp reload(socket),
+    do: assign(socket, track: Tracks.get_with_song(socket.assigns.track.id))
+
+  defp push_markers(socket),
+    do: push_event(socket, "markers", %{markers: socket.assigns.track.cue_points || []})
 
   @impl true
   def render(assigns) do
@@ -86,6 +103,65 @@ defmodule BeatgridWeb.TrackLive do
             </div>
           </div>
         </header>
+
+        <section class="mt-5 rounded-xl border border-white/6 bg-surface p-4">
+          <div class="flex items-center justify-between">
+            <.section_label>Player</.section_label>
+            <div class="flex items-center gap-2">
+              <button
+                id="wf-toggle"
+                phx-click={JS.dispatch("beatgrid:toggle", to: "#track-waveform")}
+                class="flex size-8 items-center justify-center rounded-full bg-primary/15 text-[12px] text-primary hover:bg-primary/25"
+                title="Tocar / pausar"
+              >
+                ▶
+              </button>
+              <button
+                phx-click={JS.dispatch("beatgrid:mark", to: "#track-waveform")}
+                class="rounded-md border border-amber/40 bg-amber/10 px-2.5 py-1 text-[11px] font-semibold text-amber hover:bg-amber/20"
+              >
+                + Marcar aqui
+              </button>
+            </div>
+          </div>
+
+          <div class="relative mt-3">
+            <div
+              id="track-waveform"
+              phx-hook="Waveform"
+              phx-update="ignore"
+              data-audio={~p"/audio/#{@track.id}"}
+              data-markers={Jason.encode!(@track.cue_points || [])}
+            >
+            </div>
+          </div>
+
+          <div :if={(@track.cue_points || []) != []} class="mt-3 flex flex-wrap gap-1.5">
+            <div
+              :for={m <- @track.cue_points}
+              class="inline-flex items-center gap-1.5 rounded-sm border border-amber/40 bg-amber/10 px-2 py-1 text-[11px]"
+            >
+              <button
+                phx-click={
+                  JS.dispatch("beatgrid:seek", to: "#track-waveform", detail: %{ms: m["ms"]})
+                }
+                class="font-mono text-amber hover:underline"
+                title="Pular para este ponto"
+              >
+                {format_ms(m["ms"])}
+              </button>
+              <span :if={m["label"]} class="text-ink-secondary">{m["label"]}</span>
+              <button
+                phx-click="remove_marker"
+                phx-value-ms={m["ms"]}
+                class="text-ink-muted hover:text-coral"
+                title="Remover marcador"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        </section>
 
         <div class="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-2">
           <section class="rounded-xl border border-white/6 bg-surface p-4">
@@ -278,6 +354,9 @@ defmodule BeatgridWeb.TrackLive do
   end
 
   defp format_secs(s), do: "#{div(s, 60)}:#{String.pad_leading(to_string(rem(s, 60)), 2, "0")}"
+
+  defp format_ms(ms) when is_integer(ms), do: format_secs(div(ms, 1000))
+  defp format_ms(_ms), do: "0:00"
 
   defp title(track), do: track.tag_title || track.filename
 

@@ -18,6 +18,23 @@ defmodule Beatgrid.Library.Tracks do
   @spec update(Track.t(), map()) :: {:ok, Track.t()} | {:error, Ecto.Changeset.t()}
   def update(track, attrs), do: track |> Track.changeset(attrs) |> Repo.update()
 
+  @doc "Adds a cue-point marker at `position_ms` (optional label), kept sorted by position."
+  @spec add_marker(Track.t(), non_neg_integer(), String.t() | nil) ::
+          {:ok, Track.t()} | {:error, Ecto.Changeset.t()}
+  def add_marker(track, position_ms, label \\ nil) do
+    marker = %{"ms" => position_ms, "label" => label}
+    save_cues(track, Enum.sort_by((track.cue_points || []) ++ [marker], & &1["ms"]))
+  end
+
+  @doc "Removes the cue-point marker at `position_ms`."
+  @spec remove_marker(Track.t(), non_neg_integer()) ::
+          {:ok, Track.t()} | {:error, Ecto.Changeset.t()}
+  def remove_marker(track, position_ms) do
+    save_cues(track, Enum.reject(track.cue_points || [], &(&1["ms"] == position_ms)))
+  end
+
+  defp save_cues(track, cues), do: track |> Track.changeset(%{cue_points: cues}) |> Repo.update()
+
   @spec count(keyword()) :: non_neg_integer()
   def count(opts \\ []), do: TrackQuery.count(opts)
 

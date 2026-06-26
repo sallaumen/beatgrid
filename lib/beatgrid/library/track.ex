@@ -53,6 +53,7 @@ defmodule Beatgrid.Library.Track do
     field :rating, :integer
     field :personal_note, :string
     field :tags, {:array, :string}, default: []
+    field :cue_points, {:array, :map}, default: []
 
     field :last_scanned_at, :utc_datetime
 
@@ -68,7 +69,7 @@ defmodule Beatgrid.Library.Track do
                tag_title tag_artist tag_album tag_album_artist tag_year
                tag_track_no tag_isrc tag_genre tag_comment raw_tags
                source_playlist genre_folder status quality_issues
-               rating personal_note tags last_scanned_at sc_match_confidence
+               rating personal_note tags cue_points last_scanned_at sc_match_confidence
                soundcharts_song_id)a
 
   @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
