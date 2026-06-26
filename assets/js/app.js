@@ -45,7 +45,10 @@ const Hooks = {
       this.markers = JSON.parse(this.el.dataset.markers || "[]")
 
       this.ws.on("ready", () => this.drawMarkers())
-      this.ws.on("play", () => this.setToggle("⏸"))
+      this.ws.on("play", () => {
+        this.setToggle("⏸")
+        window.dispatchEvent(new CustomEvent("beatgrid:playing", {detail: {source: "waveform"}}))
+      })
       this.ws.on("pause", () => this.setToggle("▶"))
       this.ws.on("finish", () => this.setToggle("▶"))
 
@@ -60,6 +63,10 @@ const Hooks = {
         this.markers = markers
         this.drawMarkers()
       })
+      this._pauseOnOthers = (e) => {
+        if (e.detail.source !== "waveform") this.ws.pause()
+      }
+      window.addEventListener("beatgrid:playing", this._pauseOnOthers)
     },
     setToggle(txt) {
       const b = document.getElementById("wf-toggle")
@@ -80,6 +87,7 @@ const Hooks = {
       })
     },
     destroyed() {
+      window.removeEventListener("beatgrid:playing", this._pauseOnOthers)
       this.ws && this.ws.destroy()
     }
   }
