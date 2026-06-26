@@ -17,18 +17,21 @@ defmodule BeatgridWeb.ConnCase do
 
   use ExUnit.CaseTemplate
 
-  using do
-    quote do
-      # The default endpoint for testing
-      @endpoint BeatgridWeb.Endpoint
+  using opts do
+    [
+      if(Keyword.get(opts, :oban, false), do: quote(do: use(Oban.Testing, repo: Beatgrid.Repo))),
+      quote do
+        # The default endpoint for testing
+        @endpoint BeatgridWeb.Endpoint
 
-      use BeatgridWeb, :verified_routes
+        use BeatgridWeb, :verified_routes
 
-      # Import conveniences for testing with connections
-      import Plug.Conn
-      import Phoenix.ConnTest
-      import BeatgridWeb.ConnCase
-    end
+        # Import conveniences for testing with connections
+        import Plug.Conn
+        import Phoenix.ConnTest
+        import BeatgridWeb.ConnCase
+      end
+    ]
   end
 
   setup tags do
