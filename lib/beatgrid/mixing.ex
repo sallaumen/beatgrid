@@ -2,7 +2,9 @@ defmodule Beatgrid.Mixing do
   @moduledoc """
   Harmonic mixing suggestions. `suggest_next/2` ranks the tracks that mix well
   out of a given track by Camelot compatibility, then BPM closeness, then energy
-  delta. Pure ranking over the resolved library — no AI, no quota.
+  delta. Pure ranking over the library — no AI, no quota. Each track's effective
+  Camelot/BPM is its Soundcharts value, falling back to the locally-detected one
+  (`Beatgrid.Analysis`), so tracks without a Soundcharts match still participate.
   """
   import Ecto.Query
 
@@ -15,7 +17,7 @@ defmodule Beatgrid.Mixing do
 
   @type suggestion :: %{
           track: Track.t(),
-          song: Song.t(),
+          song: Song.t() | nil,
           camelot: String.t(),
           bpm: float(),
           tier: pos_integer(),
@@ -24,16 +26,28 @@ defmodule Beatgrid.Mixing do
 
   @doc """
   Ranked harmonically-compatible next tracks for `track`. Options: `:limit`
-  (default 10) and `:bpm_tolerance` (fraction, default 0.08 = ±8%). Returns `[]`
-  if the track is not resolved or lacks a Camelot/BPM.
+  (default 10), `:bpm_tolerance` (fraction, default 0.08 = ±8%) and `:exclude`
+  (track ids to skip). Returns `[]` if the track has no Camelot/BPM (neither
+  Soundcharts nor detected).
   """
   @spec suggest_next(Track.t(), keyword()) :: [suggestion()]
   def suggest_next(%Track{} = track, opts \\ []) do
     track = Repo.preload(track, :soundcharts_song)
-    rank(track, track.soundcharts_song, opts)
+    rank(track, effective(track), opts)
   end
 
-  defp rank(track, %Song{camelot: camelot, tempo_bpm: bpm} = song, opts)
+  # Effective Camelot/BPM/energy: Soundcharts value, falling back to detected.
+  defp effective(track) do
+    song = track.soundcharts_song
+
+    %{
+      camelot: (song && song.camelot) || track.camelot_detected,
+      bpm: (song && song.tempo_bpm) || track.bpm_detected,
+      energy: song && song.energy
+    }
+  end
+
+  defp rank(track, %{camelot: camelot, bpm: bpm, energy: energy}, opts)
        when is_binary(camelot) and is_number(bpm) do
     limit = Keyword.get(opts, :limit, @default_limit)
     tolerance = Keyword.get(opts, :bpm_tolerance, @default_bpm_tolerance)
@@ -43,41 +57,48 @@ defmodule Beatgrid.Mixing do
 
     [track.id | exclude]
     |> candidates()
-    |> Enum.filter(&compatible?(&1.soundcharts_song, neighbors, bpm, max_delta))
-    |> Enum.map(&score(&1, camelot, bpm, song.energy, max_delta))
+    |> Enum.map(&{&1, effective(&1)})
+    |> Enum.filter(fn {_track, e} -> compatible?(e, neighbors, bpm, max_delta) end)
+    |> Enum.map(fn {track, e} -> score(track, e, camelot, bpm, energy, max_delta) end)
     |> Enum.sort_by(& &1.score, :desc)
     |> Enum.take(limit)
   end
 
-  defp rank(_track, _song, _opts), do: []
+  defp rank(_track, _effective, _opts), do: []
 
   defp candidates(exclude_ids) do
     Track
-    |> where([t], not is_nil(t.soundcharts_song_id) and t.id not in ^exclude_ids)
+    |> where([t], t.id not in ^exclude_ids)
+    |> where([t], not is_nil(t.soundcharts_song_id) or not is_nil(t.camelot_detected))
     |> preload(:soundcharts_song)
     |> Repo.all()
   end
 
-  defp compatible?(%Song{camelot: cam, tempo_bpm: bpm}, neighbors, ref_bpm, max_delta)
+  defp compatible?(%{camelot: cam, bpm: bpm}, neighbors, ref_bpm, max_delta)
        when is_binary(cam) and is_number(bpm) do
     cam in neighbors and abs(bpm - ref_bpm) <= max_delta
   end
 
-  defp compatible?(_song, _neighbors, _ref_bpm, _max_delta), do: false
+  defp compatible?(_effective, _neighbors, _ref_bpm, _max_delta), do: false
 
-  defp score(track, ref_camelot, ref_bpm, ref_energy, max_delta) do
-    song = track.soundcharts_song
-    tier = tier(ref_camelot, song.camelot)
-    bpm_closeness = 1.0 - abs(song.tempo_bpm - ref_bpm) / max_delta
-    energy_closeness = energy_closeness(ref_energy, song.energy)
+  defp score(
+         track,
+         %{camelot: cam, bpm: bpm, energy: energy},
+         ref_camelot,
+         ref_bpm,
+         ref_energy,
+         max_delta
+       ) do
+    tier = tier(ref_camelot, cam)
+    bpm_closeness = 1.0 - abs(bpm - ref_bpm) / max_delta
 
     %{
       track: track,
-      song: song,
-      camelot: song.camelot,
-      bpm: song.tempo_bpm,
+      song: track.soundcharts_song,
+      camelot: cam,
+      bpm: bpm,
       tier: tier,
-      score: tier * 100 + bpm_closeness * 10 + energy_closeness
+      score: tier * 100 + bpm_closeness * 10 + energy_closeness(ref_energy, energy)
     }
   end
 

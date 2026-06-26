@@ -57,6 +57,10 @@ defmodule Beatgrid.Library.Track do
 
     field :last_scanned_at, :utc_datetime
 
+    field :bpm_detected, :float
+    field :camelot_detected, :string
+    field :analyzed_at, :utc_datetime
+
     field :sc_match_confidence, Ecto.Enum, values: [:high, :medium, :low]
 
     belongs_to :soundcharts_song, Beatgrid.Soundcharts.Song, foreign_key: :soundcharts_song_id
@@ -70,7 +74,7 @@ defmodule Beatgrid.Library.Track do
                tag_track_no tag_isrc tag_genre tag_comment raw_tags
                source_playlist genre_folder status quality_issues
                rating personal_note tags cue_points last_scanned_at sc_match_confidence
-               soundcharts_song_id)a
+               bpm_detected camelot_detected analyzed_at soundcharts_song_id)a
 
   @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   def changeset(track, attrs) do

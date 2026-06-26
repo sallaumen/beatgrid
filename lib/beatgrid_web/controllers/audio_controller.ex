@@ -6,6 +6,10 @@ defmodule BeatgridWeb.AudioController do
   """
   use BeatgridWeb, :controller
 
+  # Sobelow reads @sobelow_skip from the AST; persist it so the Elixir compiler
+  # doesn't warn it's an "unused" module attribute.
+  Module.register_attribute(__MODULE__, :sobelow_skip, persist: true)
+
   alias Beatgrid.Library
   alias Beatgrid.Library.Tracks
 

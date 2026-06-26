@@ -52,5 +52,23 @@ defmodule Beatgrid.MixingTest do
       assert keep.id in ids
       refute skip.id in ids
     end
+
+    test "falls back to local (detected) analysis for candidates without Soundcharts" do
+      current = track_with("8A", 120.0)
+
+      detected =
+        insert(:track, soundcharts_song_id: nil, camelot_detected: "8A", bpm_detected: 121.0)
+
+      ids = current |> Mixing.suggest_next() |> Enum.map(& &1.track.id)
+      assert detected.id in ids
+    end
+
+    test "suggests from a seed that only has local (detected) analysis" do
+      seed = insert(:track, soundcharts_song_id: nil, camelot_detected: "8A", bpm_detected: 120.0)
+      match = track_with("8A", 121.0)
+
+      ids = seed |> Mixing.suggest_next() |> Enum.map(& &1.track.id)
+      assert match.id in ids
+    end
   end
 end

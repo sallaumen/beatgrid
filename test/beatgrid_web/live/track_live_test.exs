@@ -14,7 +14,8 @@ defmodule BeatgridWeb.TrackLiveTest do
         status: :present,
         tag_title: "Sina",
         tag_artist: "Djavan",
-        soundcharts_song_id: song.id
+        soundcharts_song_id: song.id,
+        analyzed_at: ~U[2026-01-01 00:00:00Z]
       )
 
     {:ok, view, html} = live(conn, ~p"/track/#{track.id}")
@@ -35,7 +36,13 @@ defmodule BeatgridWeb.TrackLiveTest do
   end
 
   test "starts a set seeded with this track and navigates to /set", %{conn: conn} do
-    track = insert(:track, status: :present, tag_title: "Sina", tag_artist: "Djavan")
+    track =
+      insert(:track,
+        status: :present,
+        tag_title: "Sina",
+        tag_artist: "Djavan",
+        analyzed_at: ~U[2026-01-01 00:00:00Z]
+      )
 
     {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
     view |> element("button[phx-click=start_set]") |> render_click()
@@ -46,7 +53,13 @@ defmodule BeatgridWeb.TrackLiveTest do
   end
 
   test "renders the waveform player and adds/removes a marker", %{conn: conn} do
-    track = insert(:track, status: :present, tag_title: "X", tag_artist: "Y")
+    track =
+      insert(:track,
+        status: :present,
+        tag_title: "X",
+        tag_artist: "Y",
+        analyzed_at: ~U[2026-01-01 00:00:00Z]
+      )
 
     {:ok, view, html} = live(conn, ~p"/track/#{track.id}")
     assert html =~ "track-waveform"

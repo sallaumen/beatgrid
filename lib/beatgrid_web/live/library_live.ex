@@ -246,10 +246,13 @@ defmodule BeatgridWeb.LibraryLive do
 
   defp grid_cols, do: "grid-template-columns:38px 1fr 130px 52px 56px 80px 52px 100px"
 
-  defp bpm(%{soundcharts_song: %{tempo_bpm: bpm}}) when is_number(bpm), do: round(bpm)
+  # Soundcharts value, falling back to the locally-detected one.
+  defp bpm(%{soundcharts_song: %{tempo_bpm: b}}) when is_number(b), do: round(b)
+  defp bpm(%{bpm_detected: b}) when is_number(b), do: round(b)
   defp bpm(_track), do: "—"
 
-  defp camelot(%{soundcharts_song: %{camelot: c}}), do: c
+  defp camelot(%{soundcharts_song: %{camelot: c}}) when is_binary(c), do: c
+  defp camelot(%{camelot_detected: c}) when is_binary(c), do: c
   defp camelot(_track), do: nil
 
   defp energy_pct(%{soundcharts_song: %{energy: e}}) when is_number(e), do: round(e * 100)

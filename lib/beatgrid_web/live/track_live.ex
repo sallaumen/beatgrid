@@ -4,6 +4,7 @@ defmodule BeatgridWeb.TrackLive do
 
   import BeatgridWeb.UI
 
+  alias Beatgrid.Analysis
   alias Beatgrid.Library.Tracks
   alias Beatgrid.Mixing
   alias Beatgrid.Sets
@@ -17,12 +18,29 @@ defmodule BeatgridWeb.TrackLive do
 
       track ->
         {:ok,
-         assign(socket,
+         socket
+         |> assign(
            track: track,
            next: Mixing.suggest_next(track, limit: 8),
            tag_draft: "",
+           analyzing?: false,
            page_title: title(track)
-         )}
+         )
+         |> maybe_auto_analyze()}
+    end
+  end
+
+  # Auto-run local analysis the first time a track is opened without it (connected
+  # mount only, so it runs once over the websocket — not during the dead render).
+  defp maybe_auto_analyze(socket) do
+    track = socket.assigns.track
+
+    if connected?(socket) and is_nil(track.analyzed_at) do
+      socket
+      |> assign(analyzing?: true)
+      |> start_async(:analyze, fn -> Analysis.analyze_track(track) end)
+    else
+      socket
     end
   end
 
@@ -65,6 +83,24 @@ defmodule BeatgridWeb.TrackLive do
   def handle_event("remove_marker", %{"ms" => ms}, socket) do
     {:ok, _} = Tracks.remove_marker(socket.assigns.track, String.to_integer(ms))
     {:noreply, socket |> reload() |> push_markers()}
+  end
+
+  def handle_event("reanalyze", _params, socket) do
+    track = socket.assigns.track
+
+    {:noreply,
+     socket
+     |> assign(analyzing?: true)
+     |> start_async(:analyze, fn -> Analysis.analyze_track(track) end)}
+  end
+
+  @impl true
+  def handle_async(:analyze, {:ok, {:ok, _track}}, socket) do
+    {:noreply, socket |> assign(analyzing?: false) |> reload()}
+  end
+
+  def handle_async(:analyze, _result, socket) do
+    {:noreply, assign(socket, analyzing?: false)}
   end
 
   defp save(socket, attrs) do
@@ -161,6 +197,47 @@ defmodule BeatgridWeb.TrackLive do
               </button>
             </div>
           </div>
+        </section>
+
+        <section class="mt-5 rounded-xl border border-white/6 bg-surface p-4">
+          <div class="flex items-center justify-between">
+            <.section_label>Análise (Soundcharts × local)</.section_label>
+            <button
+              phx-click="reanalyze"
+              disabled={@analyzing?}
+              class="rounded-md border border-white/10 bg-input px-2.5 py-1 text-[11px] text-ink-secondary hover:text-ink disabled:opacity-50"
+            >
+              {if @analyzing?, do: "Analisando…", else: "Re-analisar"}
+            </button>
+          </div>
+          <div class="mt-3 grid grid-cols-2 gap-4">
+            <div>
+              <p class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+                Soundcharts
+              </p>
+              <div class="mt-1 flex items-center gap-2 text-body-sm">
+                <span class="font-mono text-primary">{sc_bpm(@track) || "—"}</span>
+                <span class="text-ink-faint">BPM</span>
+                <.camelot_seal value={sc_camelot(@track)} />
+              </div>
+            </div>
+            <div>
+              <p class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+                Detectado (local)
+              </p>
+              <div class="mt-1 flex items-center gap-2 text-body-sm">
+                <span class="font-mono text-amber">
+                  {(@track.bpm_detected && round(@track.bpm_detected)) ||
+                    if(@analyzing?, do: "…", else: "—")}
+                </span>
+                <span class="text-ink-faint">BPM</span>
+                <.camelot_seal value={@track.camelot_detected} />
+              </div>
+            </div>
+          </div>
+          <p :if={bpm_discrepancy?(@track)} class="mt-2 text-caption text-amber">
+            ⚠ Os BPMs divergem bastante (possível erro de dobro/metade) — confira ouvindo na onda.
+          </p>
         </section>
 
         <div class="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-2">
@@ -360,9 +437,26 @@ defmodule BeatgridWeb.TrackLive do
 
   defp title(track), do: track.tag_title || track.filename
 
-  defp bpm(%{soundcharts_song: %{tempo_bpm: bpm}}) when is_number(bpm), do: round(bpm)
+  # Effective BPM/Tom for the header: Soundcharts value, falling back to detected.
+  defp bpm(%{soundcharts_song: %{tempo_bpm: b}}) when is_number(b), do: round(b)
+  defp bpm(%{bpm_detected: b}) when is_number(b), do: round(b)
   defp bpm(_track), do: "—"
 
-  defp camelot(%{soundcharts_song: %{camelot: c}}), do: c
+  defp camelot(%{soundcharts_song: %{camelot: c}}) when is_binary(c), do: c
+  defp camelot(%{camelot_detected: c}) when is_binary(c), do: c
   defp camelot(_track), do: nil
+
+  # Source-specific values for the analysis breakdown.
+  defp sc_bpm(%{soundcharts_song: %{tempo_bpm: b}}) when is_number(b), do: round(b)
+  defp sc_bpm(_track), do: nil
+
+  defp sc_camelot(%{soundcharts_song: %{camelot: c}}) when is_binary(c), do: c
+  defp sc_camelot(_track), do: nil
+
+  # Flag when Soundcharts and local BPM disagree by more than 10% (incl. half/double).
+  defp bpm_discrepancy?(%{soundcharts_song: %{tempo_bpm: a}, bpm_detected: b})
+       when is_number(a) and is_number(b) and a > 0 and b > 0,
+       do: abs(a - b) / max(a, b) > 0.1
+
+  defp bpm_discrepancy?(_track), do: false
 end
