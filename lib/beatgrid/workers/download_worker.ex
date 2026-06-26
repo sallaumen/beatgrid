@@ -1,9 +1,17 @@
 defmodule Beatgrid.Workers.DownloadWorker do
   @moduledoc """
-  Downloads one YouTube URL (video or playlist) into `_Inbox` and ingests the
-  tracks, broadcasting a progress tick. Retries on transient failures.
+  Downloads one YouTube video into `_Inbox` and ingests the track (with source
+  provenance), broadcasting a progress tick. Retries on transient failures;
+  deduped per video URL while a job for it is in flight.
   """
-  use Oban.Worker, queue: :youtube, max_attempts: 3
+  use Oban.Worker,
+    queue: :youtube,
+    max_attempts: 3,
+    unique: [
+      period: 3600,
+      keys: [:url],
+      states: [:available, :scheduled, :executing, :retryable, :suspended]
+    ]
 
   alias Beatgrid.YouTube
 

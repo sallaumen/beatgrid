@@ -186,4 +186,11 @@ defmodule Beatgrid.YouTubeTest do
     [job] = all_enqueued(worker: DownloadWorker)
     assert job.args["playlist_url"] == nil
   end
+
+  test "expand_and_enqueue surfaces an empty expansion as an error" do
+    expect(Beatgrid.YouTube.DownloaderMock, :list_entries, fn _ -> {:ok, []} end)
+
+    assert {:error, :no_entries} = YouTube.expand_and_enqueue("https://y/empty")
+    assert all_enqueued(worker: Beatgrid.Workers.DownloadWorker) == []
+  end
 end

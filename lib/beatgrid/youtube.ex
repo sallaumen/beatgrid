@@ -1,9 +1,10 @@
 defmodule Beatgrid.YouTube do
   @moduledoc """
-  YouTube ingestion. Downloads audio (one video or a whole playlist) into `_Inbox`
-  and creates a `Track` per file with a best-effort artist/title from the video
-  title — **offline**, spending no metadata-API quota. Enrichment (resolving against
-  Soundcharts, proposing renames/classifications) is a separate, explicit step.
+  YouTube ingestion. `ExpandWorker` lists a submitted URL's videos and fans out
+  one `DownloadWorker` per video; each worker downloads a single video into
+  `_Inbox` and creates a `Track` with a best-effort artist/title — **offline**,
+  spending no metadata-API quota. Enrichment (resolving against Soundcharts,
+  proposing renames/classifications) is a separate, explicit step.
 
   Downloads run as background `DownloadWorker` jobs; the screen follows progress via
   the `"youtube"` PubSub topic.
@@ -51,21 +52,27 @@ defmodule Beatgrid.YouTube do
   @spec expand_and_enqueue(String.t()) :: {:ok, non_neg_integer()} | {:error, term()}
   def expand_and_enqueue(url) do
     with {:ok, entries} <- @adapter.list_entries(url) do
-      playlist_url = if length(entries) > 1, do: url, else: nil
-
-      Enum.each(entries, fn e ->
-        %{url: e.url, video_id: e.id, title: e.title, playlist_url: playlist_url}
-        |> DownloadWorker.new()
-        |> Oban.insert()
-      end)
-
-      broadcast_tick()
-      {:ok, length(entries)}
+      enqueue_entries(url, entries)
     end
   end
 
+  defp enqueue_entries(_url, []), do: {:error, :no_entries}
+
+  defp enqueue_entries(url, entries) do
+    playlist_url = if length(entries) > 1, do: url, else: nil
+
+    Enum.each(entries, fn e ->
+      %{url: e.url, video_id: e.id, title: e.title, playlist_url: playlist_url}
+      |> DownloadWorker.new()
+      |> Oban.insert()
+    end)
+
+    broadcast_tick()
+    {:ok, length(entries)}
+  end
+
   @doc """
-  Downloads a URL (video or playlist) and ingests each resulting file into `_Inbox`.
+  Downloads one video URL and ingests each resulting file into `_Inbox`.
   Returns `{:ok, ingested_count}` or the downloader's `{:error, reason}`.
   """
   @spec download_and_ingest(String.t(), String.t() | nil) ::
