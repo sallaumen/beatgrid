@@ -14,6 +14,8 @@ defmodule Beatgrid.YouTube.YtDlp do
   @default_timeout_ms 600_000
   # Listing is metadata-only (no download) — a short timeout is plenty.
   @list_timeout_ms 60_000
+  # How much of yt-dlp's output to keep in an error (enough to include the real ERROR line).
+  @error_excerpt 1_000
 
   @impl Beatgrid.YouTube.Downloader
   def download(url, dest_dir) do
@@ -34,9 +36,9 @@ defmodule Beatgrid.YouTube.YtDlp do
 
     argv = ["-c", ~s|exec "$@" < /dev/null|, "sh", executable() | cli_args]
 
-    case run(fn -> System.cmd("/bin/sh", argv, stderr_to_stdout: false) end, timeout()) do
+    case run(fn -> System.cmd("/bin/sh", argv, stderr_to_stdout: true) end, timeout()) do
       {:ok, {out, 0}} -> {:ok, parse(out, dest_dir)}
-      {:ok, {out, code}} -> {:error, {:yt_dlp_exit, code, String.slice(out, 0, 500)}}
+      {:ok, {out, code}} -> {:error, {:yt_dlp_exit, code, String.slice(out, 0, @error_excerpt)}}
       {:exit, reason} -> {:error, {:yt_dlp_exception, inspect(reason)}}
       nil -> {:error, :timeout}
     end
@@ -47,9 +49,9 @@ defmodule Beatgrid.YouTube.YtDlp do
     cli_args = ["--flat-playlist", "--print", "%(id)s#{@sep}%(title)s#{@sep}%(url)s", url]
     argv = ["-c", ~s|exec "$@" < /dev/null|, "sh", executable() | cli_args]
 
-    case run(fn -> System.cmd("/bin/sh", argv, stderr_to_stdout: false) end, @list_timeout_ms) do
+    case run(fn -> System.cmd("/bin/sh", argv, stderr_to_stdout: true) end, @list_timeout_ms) do
       {:ok, {out, 0}} -> {:ok, parse_entries(out)}
-      {:ok, {out, code}} -> {:error, {:yt_dlp_exit, code, String.slice(out, 0, 500)}}
+      {:ok, {out, code}} -> {:error, {:yt_dlp_exit, code, String.slice(out, 0, @error_excerpt)}}
       {:exit, reason} -> {:error, {:yt_dlp_exception, inspect(reason)}}
       nil -> {:error, :timeout}
     end
