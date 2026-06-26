@@ -3,6 +3,53 @@ defmodule Beatgrid.AI.ClaudeCliTest do
 
   alias Beatgrid.AI.ClaudeCli
 
+  describe "complete/3" do
+    setup do
+      dir = Path.join(System.tmp_dir!(), "claude_cli_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+      prev = Application.get_env(:beatgrid, ClaudeCli, [])
+
+      on_exit(fn ->
+        Application.put_env(:beatgrid, ClaudeCli, prev)
+        File.rm_rf(dir)
+      end)
+
+      {:ok, dir: dir}
+    end
+
+    defp fake(dir, body, extra_cfg \\ []) do
+      path = Path.join(dir, "fake_claude")
+      File.write!(path, "#!/bin/sh\n" <> body)
+      File.chmod!(path, 0o755)
+      Application.put_env(:beatgrid, ClaudeCli, Keyword.merge([executable: path], extra_cfg))
+      path
+    end
+
+    test "invokes the CLI and returns its structured output", %{dir: dir} do
+      fake(dir, ~s|echo '{"is_error":false,"structured_output":{"gaps":[]}}'\n|)
+
+      assert {:ok, %{"gaps" => []}} =
+               ClaudeCli.complete("p", %{"type" => "object"}, model: "sonnet")
+    end
+
+    test "feeds the CLI an empty stdin so it can't block waiting for input", %{dir: dir} do
+      marker = Path.join(dir, "stdin.bin")
+
+      fake(
+        dir,
+        "cat > #{marker}\n" <> ~s|echo '{"is_error":false,"structured_output":{"ok":true}}'\n|
+      )
+
+      assert {:ok, %{"ok" => true}} = ClaudeCli.complete("p", %{})
+      assert File.read!(marker) == ""
+    end
+
+    test "returns {:error, :timeout} instead of hanging forever", %{dir: dir} do
+      fake(dir, "sleep 5\n", timeout_ms: 200)
+      assert {:error, :timeout} = ClaudeCli.complete("p", %{})
+    end
+  end
+
   describe "parse_output/1" do
     test "extracts structured_output from a successful envelope" do
       envelope =
