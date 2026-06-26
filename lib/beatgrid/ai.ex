@@ -1,9 +1,14 @@
 defmodule Beatgrid.AI do
   @moduledoc """
-  AI-assisted genre classification. Builds a rubric prompt from the genre folders
-  + each track's tags and Soundcharts data, asks the `AI.Client` for a structured
-  verdict, and turns disagreements with the current folder into pending
-  `MoveSuggestion`s (source `:claude`) — reusing the approve → apply → undo flow.
+  AI helpers for the Brazilian-music library. Provides:
+
+    * `classify_tracks/1` / `reclassify/1` — genre-folder classification via the AI
+      client; proposes `MoveSuggestion`s (source `:claude`) when the AI disagrees.
+    * `resolve_names/1` — verifies the canonical "Artist - Title" and whether the
+      linked Soundcharts match is the same recording (no Soundcharts quota).
+    * `suggest_gaps/2` — suggests missing artists/songs for a folder.
+    * `parse_titles/1` — extracts artist/title from raw YouTube titles.
+
   Nothing moves on disk until approved.
   """
   import Ecto.Query
