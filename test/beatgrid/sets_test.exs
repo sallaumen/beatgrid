@@ -70,6 +70,36 @@ defmodule Beatgrid.SetsTest do
     assert ids.() == [a.id, b.id, c.id]
   end
 
+  test "set_target_style anchors the set's style" do
+    {:ok, set} = Sets.create("Roots")
+    assert {:ok, set} = Sets.set_target_style(set, "forro_roots")
+    assert Sets.get(set.id).target_style == "forro_roots"
+  end
+
+  test "suggest_opening ranks tracks for an empty set without a previous track" do
+    {:ok, set} = Sets.create("Opener")
+    a = track_with("8A", 120.0)
+
+    ids = set |> Sets.suggest_opening(limit: 5) |> Enum.map(& &1.track.id)
+    assert a.id in ids
+  end
+
+  test "fill_section appends N tracks tagged with the role, excluding members" do
+    {:ok, set} = Sets.create("Pico")
+    seed = track_with("8A", 120.0)
+    track_with("8A", 120.5)
+    track_with("8A", 121.0)
+    {:ok, _} = Sets.append(set, seed)
+
+    {:ok, _} = Sets.fill_section(set, "pico", 2)
+
+    entries = Sets.entries(set)
+    assert length(entries) == 3
+    appended = Enum.filter(entries, &(&1.track.id != seed.id))
+    assert length(appended) == 2
+    assert Enum.all?(appended, &(&1.role == "pico"))
+  end
+
   test "auto_fill greedily extends the set harmonically" do
     {:ok, set} = Sets.create("Auto")
     seed = track_with("8A", 120.0)

@@ -1,10 +1,10 @@
 defmodule Beatgrid.Sets do
   @moduledoc """
-  Harmonic set-builder. A `RecSet` is a named, ordered chain of tracks the user
-  assembles for a gig. Tracks are appended one at a time from the harmonic
-  candidates (`Mixing.suggest_next`, excluding what's already in the set), or the
-  rest is filled in greedily (`auto_fill/2`). A finished set exports to an `.m3u`
-  playlist under `<library_root>/_Sets` that Serato/VLC read directly.
+  Scored set-builder. A `RecSet` is a named, ordered chain of tracks the user
+  assembles for a gig, anchored on a `target_style`. Tracks are appended from the
+  scored candidates (`Mixing.rank`, excluding members), section by section
+  (`fill_section/3`) or greedily (`auto_fill/2`). A finished set exports to an
+  `.m3u` playlist under `<library_root>/_Sets` that Serato/VLC read directly.
   """
   import Ecto.Query
 
@@ -24,23 +24,42 @@ defmodule Beatgrid.Sets do
   @spec tracks(RecSet.t()) :: [Library.Track.t()]
   def tracks(%RecSet{id: id}), do: RecSetQuery.ordered_tracks(id)
 
+  @doc "The set's entries (track + section role) in order — what the screen renders."
+  @spec entries(RecSet.t()) :: [
+          %{track: Library.Track.t(), role: String.t() | nil, position: integer()}
+        ]
+  def entries(%RecSet{id: id}), do: RecSetQuery.ordered_entries(id)
+
   @spec create(String.t()) :: {:ok, RecSet.t()} | {:error, Ecto.Changeset.t()}
   def create(name), do: %RecSet{} |> RecSet.changeset(%{name: name}) |> Repo.insert()
 
   @spec rename(RecSet.t(), String.t()) :: {:ok, RecSet.t()} | {:error, Ecto.Changeset.t()}
   def rename(set, name), do: set |> RecSet.changeset(%{name: name}) |> Repo.update()
 
+  @doc "Sets the set's target style (genre-folder key) — the anchor for style scoring."
+  @spec set_target_style(RecSet.t(), String.t() | nil) ::
+          {:ok, RecSet.t()} | {:error, Ecto.Changeset.t()}
+  def set_target_style(set, key),
+    do: set |> RecSet.changeset(%{target_style: key}) |> Repo.update()
+
   @spec delete(RecSet.t()) :: {:ok, RecSet.t()} | {:error, Ecto.Changeset.t()}
   def delete(set), do: Repo.delete(set)
 
-  @doc "Appends a track to the end of the set (a no-op if it's already a member)."
-  @spec append(RecSet.t(), Library.Track.t()) :: {:ok, SetTrack.t()} | {:error, term()}
-  def append(%RecSet{id: id}, track) do
+  @doc """
+  Appends a track to the end of the set (a no-op if it's already a member),
+  optionally tagging it with a section `role` (e.g. `"pico"`).
+  """
+  @spec append(RecSet.t(), Library.Track.t(), String.t() | nil) ::
+          {:ok, SetTrack.t()} | {:error, term()}
+  def append(set, track, role \\ nil)
+
+  def append(%RecSet{id: id}, track, role) do
     %SetTrack{}
     |> SetTrack.changeset(%{
       rec_set_id: id,
       track_id: track.id,
-      position: RecSetQuery.count(id) + 1
+      position: RecSetQuery.count(id) + 1,
+      role: role
     })
     |> Repo.insert(on_conflict: :nothing, conflict_target: [:rec_set_id, :track_id])
   end
@@ -79,36 +98,78 @@ defmodule Beatgrid.Sets do
     b |> SetTrack.changeset(%{position: pa}) |> Repo.update()
   end
 
-  @doc "Ranked harmonic candidates to append next (from the last track, excluding members)."
+  @doc """
+  Ranked candidates to append next: scored from the last track (or as an opening
+  when the set is empty), anchored on the set's `target_style` and an optional
+  `:target_intensity` (the active section's energy target). Excludes members.
+  """
   @spec next_candidates(RecSet.t(), keyword()) :: [Mixing.suggestion()]
-  def next_candidates(%RecSet{id: id}, opts \\ []) do
-    members = RecSetQuery.ordered_tracks(id)
-
-    case List.last(members) do
-      nil -> []
-      last -> Mixing.suggest_next(last, Keyword.put(opts, :exclude, Enum.map(members, & &1.id)))
-    end
+  def next_candidates(%RecSet{} = set, opts \\ []) do
+    Mixing.rank(rank_opts(set, opts))
   end
 
-  @doc "Greedily appends up to `:count` (default 8) harmonically compatible tracks."
+  @doc """
+  Opening candidates for an empty set: ranked by style + an opening-strength
+  intensity + rating (no previous track, so no harmony/BPM).
+  """
+  @spec suggest_opening(RecSet.t(), keyword()) :: [Mixing.suggestion()]
+  def suggest_opening(%RecSet{} = set, opts \\ []) do
+    Mixing.rank(
+      prev: nil,
+      target_style: set.target_style,
+      target_intensity:
+        Keyword.get(opts, :target_intensity) || Mixing.target_intensity("abertura"),
+      exclude: member_ids(set),
+      limit: Keyword.get(opts, :limit, 10)
+    )
+  end
+
+  @doc "Greedily appends up to `:count` (default 8) compatible tracks (style + harmony)."
   @spec auto_fill(RecSet.t(), keyword()) :: {:ok, RecSet.t()}
-  def auto_fill(set, opts \\ []) do
-    fill(set, Keyword.get(opts, :count, 8))
-    {:ok, set}
-  end
+  def auto_fill(set, opts \\ []),
+    do: {:ok, greedy_fill(set, Keyword.get(opts, :count, 8), nil, nil)}
 
-  defp fill(_set, remaining) when remaining <= 0, do: :ok
+  @doc """
+  Fills a section: appends `count` tracks targeting the section role's energy,
+  chained from the last track and anchored on the set's style. Each appended track
+  is tagged with `role`. Stops early if no candidate remains.
+  """
+  @spec fill_section(RecSet.t(), String.t(), pos_integer()) :: {:ok, RecSet.t()}
+  def fill_section(%RecSet{} = set, role, count) when is_integer(count) and count > 0,
+    do: {:ok, greedy_fill(set, count, role, Mixing.target_intensity(role))}
 
-  defp fill(set, remaining) do
-    case next_candidates(set, limit: 1) do
+  defp greedy_fill(set, count, _role, _ti) when count <= 0, do: set
+
+  defp greedy_fill(set, count, role, ti) do
+    case Mixing.rank(rank_opts(set, target_intensity: ti, limit: 1)) do
       [%{track: next} | _] ->
-        append(set, next)
-        fill(set, remaining - 1)
+        append(set, next, role)
+        greedy_fill(set, count - 1, role, ti)
 
       [] ->
-        :ok
+        set
     end
   end
+
+  # Common rank options: anchor on the set's style, chain from the last member,
+  # and exclude everything already in the set.
+  defp rank_opts(%RecSet{} = set, opts) do
+    members = RecSetQuery.ordered_tracks(set.id)
+
+    base = [
+      target_style: set.target_style,
+      target_intensity: Keyword.get(opts, :target_intensity),
+      exclude: Enum.map(members, & &1.id),
+      limit: Keyword.get(opts, :limit, 10)
+    ]
+
+    case List.last(members) do
+      nil -> base
+      last -> [{:prev, last} | base]
+    end
+  end
+
+  defp member_ids(%RecSet{id: id}), do: RecSetQuery.ordered_tracks(id) |> Enum.map(& &1.id)
 
   @doc "Writes the set as an `.m3u` playlist under `<library_root>/_Sets`."
   @spec export_m3u(RecSet.t()) :: {:ok, Path.t()} | {:error, term()}

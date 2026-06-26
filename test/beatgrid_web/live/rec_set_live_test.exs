@@ -11,16 +11,28 @@ defmodule BeatgridWeb.RecSetLiveTest do
     prev = Application.get_env(:beatgrid, :library_root)
     Application.put_env(:beatgrid, :library_root, root)
     on_exit(fn -> Application.put_env(:beatgrid, :library_root, prev) end)
+
+    insert(:genre_folder,
+      key: "forro_roots",
+      display_name: "Forró Roots",
+      dir_name: "Forró Roots"
+    )
+
+    insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB")
+    insert(:genre_folder, key: "forro_mpb", display_name: "Forró MPB", dir_name: "Forró MPB")
     :ok
   end
 
   defp track_with(camelot, bpm, attrs) do
     song = insert(:soundcharts_song, camelot: camelot, tempo_bpm: bpm, energy: 0.5)
-    insert(:track, Keyword.merge([soundcharts_song_id: song.id], attrs))
+    insert(:track, Keyword.merge([soundcharts_song_id: song.id, status: :present], attrs))
   end
 
+  defp new_set(view),
+    do: view |> element("button[phx-click=new_set]", "Novo set") |> render_click()
+
   @tag :tmp_dir
-  test "build a set from a seed, append a candidate, then export to M3U", %{
+  test "build a set from search, append, play affordance, then export to M3U", %{
     conn: conn,
     tmp_dir: root
   } do
@@ -35,27 +47,109 @@ defmodule BeatgridWeb.RecSetLiveTest do
     nextt = track_with("8A", 120.5, tag_title: "Nexto", tag_artist: "B")
 
     {:ok, view, _html} = live(conn, ~p"/set")
+    new_set(view)
 
-    view |> element("button[phx-click=new_set]", "Novo set") |> render_click()
+    # search is always available — find and append the seed
+    view |> form("#track-search", %{q: "Seed"}) |> render_change()
 
-    # pick the seed via search, then append it
-    view |> form("#seed-search", %{q: "Seed"}) |> render_change()
-    view |> element("button[phx-click=append][phx-value-track='#{seed.id}']") |> render_click()
+    view
+    |> element("#search-results button[phx-click=append][phx-value-track='#{seed.id}']")
+    |> render_click()
 
-    # the harmonic candidate shows up — append it to the chain
+    # search box is STILL present after the set has tracks (the old bug: it vanished)
+    assert has_element?(view, "#track-search")
+    # there is an audio player + per-row play buttons
+    assert render(view) =~ ~s(id="set-player")
+    assert render(view) =~ "Tocar (a partir dos 20s)"
+
+    # the harmonic candidate shows up — append it
     html =
       view |> element("button[phx-click=append][phx-value-track='#{nextt.id}']") |> render_click()
 
     assert html =~ "Seed"
     assert html =~ "Nexto"
 
-    # the set persisted with both tracks, in order
     [set] = Sets.list()
     assert Enum.map(Sets.tracks(set), & &1.tag_title) == ["Seed", "Nexto"]
 
-    # export writes the .m3u under _Sets
     export_html = view |> element("button[phx-click=export]") |> render_click()
     assert export_html =~ "exportado"
     assert File.exists?(Path.join([root, "_Sets", "Novo set.m3u"]))
+  end
+
+  @tag :tmp_dir
+  test "choosing a target style anchors the set", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/set")
+    new_set(view)
+
+    view |> form("#target-style") |> render_change(%{style: "forro_roots"})
+
+    [set] = Sets.list()
+    assert set.target_style == "forro_roots"
+  end
+
+  @tag :tmp_dir
+  test "filling a section appends tracks tagged with the role", %{conn: conn} do
+    track_with("8A", 120.0, tag_title: "P1")
+    track_with("8A", 120.5, tag_title: "P2")
+    track_with("8A", 121.0, tag_title: "P3")
+
+    {:ok, view, _html} = live(conn, ~p"/set")
+    new_set(view)
+
+    view |> form("#section-fill") |> render_submit(%{role: "pico", count: "2"})
+
+    [set] = Sets.list()
+    entries = Sets.entries(set)
+    assert length(entries) == 2
+    assert Enum.count(entries, &(&1.role == "pico")) == 2
+    # the section label is shown in the list
+    assert render(view) =~ "Pico"
+  end
+
+  @tag :tmp_dir
+  test "changing the section updates the candidate preview live", %{conn: conn} do
+    track_with("8A", 121.0, tag_title: "Pool")
+    {:ok, set} = Sets.create("S")
+    Sets.append(set, track_with("8A", 120.0, tag_title: "Seed"))
+
+    {:ok, view, _html} = live(conn, ~p"/set")
+
+    view |> form("#section-fill") |> render_change(%{role: "pico", count: "4"})
+    assert render(view) =~ "Próxima faixa ideal · Pico"
+
+    view |> form("#section-fill") |> render_change(%{role: "", count: "4"})
+    assert render(view) =~ "Próxima faixa ideal · Automático"
+  end
+
+  @tag :tmp_dir
+  test "search never offers a track already in the set", %{conn: conn} do
+    member = track_with("8A", 120.0, tag_title: "ZZ One", norm_title: "zz one")
+    other = track_with("8A", 121.0, tag_title: "ZZ Two", norm_title: "zz two")
+
+    {:ok, set} = Sets.create("S")
+    Sets.append(set, member)
+
+    {:ok, view, _html} = live(conn, ~p"/set")
+    view |> form("#track-search", %{q: "zz"}) |> render_change()
+
+    refute has_element?(view, "#search-results button[phx-value-track='#{member.id}']")
+    assert has_element?(view, "#search-results button[phx-value-track='#{other.id}']")
+  end
+
+  @tag :tmp_dir
+  test "the Critérios modal reads the scoring config from the backend", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/set")
+    new_set(view)
+
+    html = view |> element("button[phx-click=show_criteria]") |> render_click()
+
+    # weights + section arc + a style-affinity cell, all sourced from the backend
+    assert html =~ "Critérios"
+    assert html =~ "Estilo"
+    assert html =~ "Harmonia"
+    assert html =~ "Pico"
+    assert html =~ "Abertura"
+    assert html =~ "Forró Roots"
   end
 end

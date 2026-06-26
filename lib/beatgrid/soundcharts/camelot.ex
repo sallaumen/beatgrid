@@ -65,6 +65,20 @@ defmodule Beatgrid.Soundcharts.Camelot do
   @spec compatible?(String.t() | nil, String.t() | nil) :: boolean()
   def compatible?(a, b), do: b in neighbors(a)
 
+  @doc """
+  Minimal step distance (0–6) between two codes around the 12-hour wheel, ignoring
+  the A/B letter. `nil` if either code is invalid. (`8A`↔`10B` = 2.)
+  """
+  @spec wheel_distance(String.t() | nil, String.t() | nil) :: non_neg_integer() | nil
+  def wheel_distance(a, b) do
+    with {na, _la} <- parse(a), {nb, _lb} <- parse(b) do
+      d = abs(na - nb)
+      min(d, 12 - d)
+    else
+      _ -> nil
+    end
+  end
+
   defp parse(code) when is_binary(code) do
     case Regex.run(~r/^(\d{1,2})([AB])$/, code) do
       [_, number, letter] ->

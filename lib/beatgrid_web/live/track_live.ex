@@ -21,7 +21,7 @@ defmodule BeatgridWeb.TrackLive do
          socket
          |> assign(
            track: track,
-           next: Mixing.suggest_next(track, limit: 8),
+           next: Mixing.rank(prev: track, exclude: [track.id], limit: 8),
            tag_draft: "",
            analyzing?: false,
            page_title: title(track)

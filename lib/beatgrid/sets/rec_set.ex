@@ -14,6 +14,7 @@ defmodule Beatgrid.Sets.RecSet do
 
   schema "rec_sets" do
     field :name, :string
+    field :target_style, :string
 
     has_many :set_tracks, SetTrack, foreign_key: :rec_set_id
 
@@ -23,7 +24,7 @@ defmodule Beatgrid.Sets.RecSet do
   @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   def changeset(rec_set, attrs) do
     rec_set
-    |> cast(attrs, [:name])
+    |> cast(attrs, [:name, :target_style])
     |> validate_required([:name])
   end
 end

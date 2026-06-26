@@ -1,39 +1,190 @@
 defmodule Beatgrid.Mixing do
   @moduledoc """
-  Harmonic mixing suggestions. `suggest_next/2` ranks the tracks that mix well
-  out of a given track by Camelot compatibility, then BPM closeness, then energy
-  delta. Pure ranking over the library — no AI, no quota. Each track's effective
-  Camelot/BPM is its Soundcharts value, falling back to the locally-detected one
-  (`Beatgrid.Analysis`), so tracks without a Soundcharts match still participate.
+  The set scorer. `rank/1` ranks library tracks as the *next* (or *opening*) track
+  for a set, as a weighted blend of five soft criteria — **style** affinity to the
+  set's target genre, harmonic **proximity** on the Camelot wheel, fit to the
+  section's **intensity** target, **BPM** smoothness, and the user's **rating**.
+
+  Everything is a soft score, not a filter: there's always a ranking, even with no
+  perfect harmonic neighbor — incompatible options just sink. The weights, the
+  energy-arc sections and the style matrix (`StyleAffinity`) live in the backend and
+  are read by the UI's "Critérios" modal, so the screen always mirrors the engine.
+
+  Each track's effective Camelot/BPM/energy is its Soundcharts value, falling back
+  to the locally-detected analysis (`Beatgrid.Analysis`), so tracks without a
+  Soundcharts match still participate.
   """
   import Ecto.Query
 
   alias Beatgrid.Library.Track
+  alias Beatgrid.Mixing.StyleAffinity
   alias Beatgrid.Repo
   alias Beatgrid.Soundcharts.{Camelot, Song}
 
   @default_limit 10
-  @default_bpm_tolerance 0.08
+  @bpm_window 16.0
+  @bpm_floor 90.0
+  @bpm_ceil 160.0
+
+  @weights %{style: 40, harmony: 30, intensity: 20, bpm: 8, rating: 2}
+
+  @sections [
+    %{
+      key: "abertura",
+      label: "Abertura",
+      target_intensity: 0.70,
+      hint: "Entrada forte, com espaço pra crescer"
+    },
+    %{
+      key: "subida",
+      label: "Subida",
+      target_intensity: 0.82,
+      hint: "Energia subindo rumo ao pico"
+    },
+    %{key: "pico", label: "Pico", target_intensity: 0.95, hint: "Auge do set"},
+    %{
+      key: "plato",
+      label: "Platô",
+      target_intensity: 0.75,
+      hint: "Mantém o alto, segura a pista"
+    },
+    %{key: "queda", label: "Queda", target_intensity: 0.45, hint: "Esfria rumo ao encerramento"}
+  ]
+
+  @type breakdown :: %{
+          style: float(),
+          harmony: float(),
+          intensity: float(),
+          bpm: float(),
+          rating: float()
+        }
 
   @type suggestion :: %{
           track: Track.t(),
           song: Song.t() | nil,
-          camelot: String.t(),
-          bpm: float(),
-          tier: pos_integer(),
-          score: float()
+          camelot: String.t() | nil,
+          bpm: float() | nil,
+          intensity: float(),
+          score: float(),
+          breakdown: breakdown()
         }
 
+  # ---- config (read by the UI's "Critérios" modal) ----
+
+  @doc "Scoring weights per criterion."
+  @spec weights() :: %{
+          style: number(),
+          harmony: number(),
+          intensity: number(),
+          bpm: number(),
+          rating: number()
+        }
+  def weights, do: @weights
+
+  @doc "The energy-arc sections with their target intensity (0–1)."
+  @spec sections() :: [
+          %{key: String.t(), label: String.t(), target_intensity: float(), hint: String.t()}
+        ]
+  def sections, do: @sections
+
+  @doc "One section by key, or nil."
+  @spec section(String.t() | nil) :: map() | nil
+  def section(key), do: Enum.find(@sections, &(&1.key == key))
+
+  @doc "Target intensity for a section key, or nil if unknown."
+  @spec target_intensity(String.t() | nil) :: float() | nil
+  def target_intensity(key), do: with(%{target_intensity: ti} <- section(key), do: ti)
+
+  # ---- signals ----
+
+  @doc "Track intensity in [0,1]: Soundcharts energy, else a BPM proxy, else 0.5."
+  @spec intensity(Track.t()) :: float()
+  def intensity(%Track{} = track) do
+    track |> Repo.preload(:soundcharts_song) |> effective() |> intensity_of()
+  end
+
   @doc """
-  Ranked harmonically-compatible next tracks for `track`. Options: `:limit`
-  (default 10), `:bpm_tolerance` (fraction, default 0.08 = ±8%) and `:exclude`
-  (track ids to skip). Returns `[]` if the track has no Camelot/BPM (neither
-  Soundcharts nor detected).
+  Harmonic proximity of two Camelot codes in [0,1]: same key 1.0; relative/±1
+  neighbor 0.8; two wheel-steps 0.4; farther 0.1; unknown 0.5 (neutral).
   """
-  @spec suggest_next(Track.t(), keyword()) :: [suggestion()]
-  def suggest_next(%Track{} = track, opts \\ []) do
-    track = Repo.preload(track, :soundcharts_song)
-    rank(track, effective(track), opts)
+  @spec harmony(String.t() | nil, String.t() | nil) :: float()
+  def harmony(a, b) when is_nil(a) or is_nil(b), do: 0.5
+
+  def harmony(a, b) do
+    cond do
+      a == b -> 1.0
+      Camelot.compatible?(a, b) -> 0.8
+      true -> by_distance(Camelot.wheel_distance(a, b))
+    end
+  end
+
+  defp by_distance(nil), do: 0.5
+  defp by_distance(2), do: 0.4
+  defp by_distance(_), do: 0.1
+
+  # ---- ranking ----
+
+  @doc """
+  Ranks candidate next tracks. Options:
+    * `:prev` — the previous track (`nil` for the opening; harmony/BPM then don't apply)
+    * `:target_style` — the set's genre-folder key (nil = no style preference)
+    * `:target_intensity` — the current section's energy target 0–1 (nil = no preference)
+    * `:exclude` — track ids to skip
+    * `:limit` — max results (default 10)
+  """
+  @spec rank(keyword()) :: [suggestion()]
+  def rank(opts \\ []) do
+    prev = Keyword.get(opts, :prev)
+    target_style = Keyword.get(opts, :target_style)
+    target_intensity = Keyword.get(opts, :target_intensity)
+    exclude = Keyword.get(opts, :exclude, [])
+    limit = Keyword.get(opts, :limit, @default_limit)
+
+    prev_eff = prev && effective(Repo.preload(prev, :soundcharts_song))
+
+    exclude
+    |> candidates()
+    |> Enum.map(&score(&1, prev_eff, target_style, target_intensity))
+    |> Enum.sort_by(& &1.score, :desc)
+    |> Enum.take(limit)
+  end
+
+  defp candidates(exclude) do
+    Track
+    |> where([t], t.status == :present)
+    |> where([t], t.id not in ^exclude)
+    |> where(
+      [t],
+      not is_nil(t.soundcharts_song_id) or not is_nil(t.camelot_detected) or
+        not is_nil(t.bpm_detected)
+    )
+    |> preload(:soundcharts_song)
+    |> Repo.all()
+  end
+
+  defp score(track, prev_eff, target_style, target_intensity) do
+    e = effective(track)
+
+    parts = %{
+      style: StyleAffinity.affinity(target_style, track.genre_folder),
+      harmony: if(prev_eff, do: harmony(prev_eff.camelot, e.camelot), else: 0.0),
+      intensity: intensity_fit(target_intensity, intensity_of(e)),
+      bpm: if(prev_eff, do: bpm_smoothness(prev_eff.bpm, e.bpm), else: 0.0),
+      rating: (track.rating || 0) / 10
+    }
+
+    %{
+      track: track,
+      song: track.soundcharts_song,
+      camelot: e.camelot,
+      bpm: e.bpm,
+      intensity: intensity_of(e),
+      breakdown: parts,
+      score:
+        @weights.style * parts.style + @weights.harmony * parts.harmony +
+          @weights.intensity * parts.intensity + @weights.bpm * parts.bpm +
+          @weights.rating * parts.rating
+    }
   end
 
   # Effective Camelot/BPM/energy: Soundcharts value, falling back to detected.
@@ -47,75 +198,22 @@ defmodule Beatgrid.Mixing do
     }
   end
 
-  defp rank(track, %{camelot: camelot, bpm: bpm, energy: energy}, opts)
-       when is_binary(camelot) and is_number(bpm) do
-    limit = Keyword.get(opts, :limit, @default_limit)
-    tolerance = Keyword.get(opts, :bpm_tolerance, @default_bpm_tolerance)
-    exclude = Keyword.get(opts, :exclude, [])
-    neighbors = Camelot.neighbors(camelot)
-    max_delta = bpm * tolerance
+  defp intensity_of(%{energy: e}) when is_number(e), do: clamp(e)
 
-    [track.id | exclude]
-    |> candidates()
-    |> Enum.map(&{&1, effective(&1)})
-    |> Enum.filter(fn {_track, e} -> compatible?(e, neighbors, bpm, max_delta) end)
-    |> Enum.map(fn {track, e} -> score(track, e, camelot, bpm, energy, max_delta) end)
-    |> Enum.sort_by(& &1.score, :desc)
-    |> Enum.take(limit)
-  end
+  defp intensity_of(%{bpm: bpm}) when is_number(bpm),
+    do: clamp((bpm - @bpm_floor) / (@bpm_ceil - @bpm_floor))
 
-  defp rank(_track, _effective, _opts), do: []
+  defp intensity_of(_), do: 0.5
 
-  defp candidates(exclude_ids) do
-    Track
-    |> where([t], t.id not in ^exclude_ids)
-    |> where([t], not is_nil(t.soundcharts_song_id) or not is_nil(t.camelot_detected))
-    |> preload(:soundcharts_song)
-    |> Repo.all()
-  end
+  defp intensity_fit(nil, _value), do: 0.5
+  defp intensity_fit(target, value), do: max(0.0, 1.0 - abs(target - value))
 
-  defp compatible?(%{camelot: cam, bpm: bpm}, neighbors, ref_bpm, max_delta)
-       when is_binary(cam) and is_number(bpm) do
-    cam in neighbors and abs(bpm - ref_bpm) <= max_delta
-  end
+  defp bpm_smoothness(a, b) when is_number(a) and is_number(b),
+    do: max(0.0, 1.0 - abs(a - b) / @bpm_window)
 
-  defp compatible?(_effective, _neighbors, _ref_bpm, _max_delta), do: false
+  defp bpm_smoothness(_a, _b), do: 0.5
 
-  defp score(
-         track,
-         %{camelot: cam, bpm: bpm, energy: energy},
-         ref_camelot,
-         ref_bpm,
-         ref_energy,
-         max_delta
-       ) do
-    tier = tier(ref_camelot, cam)
-    bpm_closeness = 1.0 - abs(bpm - ref_bpm) / max_delta
-
-    %{
-      track: track,
-      song: track.soundcharts_song,
-      camelot: cam,
-      bpm: bpm,
-      tier: tier,
-      score: tier * 100 + bpm_closeness * 10 + energy_closeness(ref_energy, energy)
-    }
-  end
-
-  # same key (3) > relative major/minor (2) > ±1 neighbor (1)
-  defp tier(reference, candidate) do
-    {ref_n, ref_l} = split(reference)
-    {cand_n, cand_l} = split(candidate)
-
-    cond do
-      candidate == reference -> 3
-      cand_n == ref_n and cand_l != ref_l -> 2
-      true -> 1
-    end
-  end
-
-  defp split(code), do: {String.slice(code, 0, String.length(code) - 1), String.last(code)}
-
-  defp energy_closeness(a, b) when is_number(a) and is_number(b), do: 1.0 - abs(a - b)
-  defp energy_closeness(_a, _b), do: 0.5
+  defp clamp(v) when v < 0.0, do: 0.0
+  defp clamp(v) when v > 1.0, do: 1.0
+  defp clamp(v), do: v
 end

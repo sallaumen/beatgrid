@@ -1,74 +1,113 @@
 defmodule Beatgrid.MixingTest do
   use Beatgrid.DataCase, async: true
 
+  alias Beatgrid.Library.Tracks
   alias Beatgrid.Mixing
 
-  defp track_with(camelot, bpm, energy \\ 0.5) do
-    song = insert(:soundcharts_song, camelot: camelot, tempo_bpm: bpm, energy: energy)
-    insert(:track, soundcharts_song_id: song.id)
+  defp sc_track(attrs) do
+    {song_attrs, track_attrs} = Keyword.split(attrs, [:camelot, :tempo_bpm, :energy])
+
+    song =
+      insert(
+        :soundcharts_song,
+        Keyword.merge([camelot: "8A", tempo_bpm: 120.0, energy: 0.5], song_attrs)
+      )
+
+    insert(:track, Keyword.merge([soundcharts_song_id: song.id, status: :present], track_attrs))
   end
 
-  describe "suggest_next/2" do
-    test "ranks harmonically compatible tracks within BPM tolerance, best first" do
-      current = track_with("8A", 120.0, 0.6)
-      same = track_with("8A", 121.0, 0.6)
-      relative = track_with("8B", 122.0, 0.6)
-      neighbor = track_with("9A", 124.0, 0.6)
-      _wrong_key = track_with("3A", 120.0, 0.6)
-      _far_bpm = track_with("8A", 150.0, 0.6)
-      _unresolved = insert(:track)
-
-      ids = current |> Mixing.suggest_next(limit: 10) |> Enum.map(& &1.track.id)
-
-      assert same.id in ids
-      assert relative.id in ids
-      assert neighbor.id in ids
-      refute current.id in ids
-      # wrong key, far BPM and unresolved are excluded
-      assert length(ids) == 3
-      # same key + closest BPM ranks first; the ±1 neighbor last
-      assert hd(ids) == same.id
-      assert List.last(ids) == neighbor.id
+  describe "config exposed to the UI" do
+    test "weights/0 puts style and harmony above the rest" do
+      w = Mixing.weights()
+      assert w.style >= w.harmony
+      assert w.harmony > w.intensity
+      assert w.bpm > 0 and w.rating > 0
     end
 
-    test "respects the limit" do
-      current = track_with("8A", 120.0)
-      for _ <- 1..5, do: track_with("8A", 120.0)
+    test "sections/0 lists the energy arc, peak being the most intense" do
+      sections = Mixing.sections()
+      pico = Enum.find(sections, &(&1.key == "pico"))
+      abertura = Enum.find(sections, &(&1.key == "abertura"))
+      assert pico.target_intensity == 0.95
+      assert abertura.target_intensity > 0.5
+      assert pico.target_intensity > abertura.target_intensity
+    end
+  end
 
-      assert length(Mixing.suggest_next(current, limit: 2)) == 2
+  describe "intensity/1" do
+    test "uses Soundcharts energy when present" do
+      assert Mixing.intensity(sc_track(energy: 0.9)) == 0.9
     end
 
-    test "returns [] when the track has no resolved song" do
-      assert Mixing.suggest_next(insert(:track)) == []
+    test "falls back to a BPM proxy when only local analysis exists" do
+      local =
+        insert(:track, soundcharts_song_id: nil, bpm_detected: 160.0, camelot_detected: "8A")
+
+      # (160 - 90) / 70 = 1.0
+      assert Mixing.intensity(local) == 1.0
+    end
+  end
+
+  describe "harmony/2" do
+    test "grades from same key down to distant, neutral when unknown" do
+      assert Mixing.harmony("8A", "8A") == 1.0
+      assert Mixing.harmony("8A", "9A") == 0.8
+      assert Mixing.harmony("8A", "8B") == 0.8
+      assert Mixing.harmony("8A", "10A") == 0.4
+      assert Mixing.harmony("8A", "3A") == 0.1
+      assert Mixing.harmony(nil, "8A") == 0.5
+    end
+  end
+
+  describe "rank/1" do
+    test "style affinity orders candidates relative to the set's target style" do
+      compatible = sc_track(energy: 0.7) |> set_folder("forro_classico")
+      incompatible = sc_track(energy: 0.7) |> set_folder("mpb")
+
+      ids =
+        Mixing.rank(target_style: "forro_roots", limit: 10) |> Enum.map(& &1.track.id)
+
+      assert Enum.find_index(ids, &(&1 == compatible.id)) <
+               Enum.find_index(ids, &(&1 == incompatible.id))
     end
 
-    test "excludes the given track ids (used by the set-builder)" do
-      current = track_with("8A", 120.0)
-      keep = track_with("8A", 120.5)
-      skip = track_with("8A", 121.0)
+    test "intensity target pulls the right-energy track to the top of a section" do
+      peak = sc_track(energy: 0.95)
+      chill = sc_track(energy: 0.30)
 
-      ids = current |> Mixing.suggest_next(exclude: [skip.id]) |> Enum.map(& &1.track.id)
+      ids = Mixing.rank(target_intensity: 0.95, limit: 10) |> Enum.map(& &1.track.id)
+      assert Enum.find_index(ids, &(&1 == peak.id)) < Enum.find_index(ids, &(&1 == chill.id))
+    end
 
-      assert keep.id in ids
+    test "opening (no previous track) ranks without harmony and never crashes" do
+      a = sc_track(energy: 0.7)
+      result = Mixing.rank(prev: nil, target_intensity: 0.70, limit: 5)
+      assert a.id in Enum.map(result, & &1.track.id)
+      assert %{breakdown: %{style: _, harmony: _, intensity: _, bpm: _}} = hd(result)
+    end
+
+    test "harmony is soft: still returns candidates with no neighbor of the previous key" do
+      prev = sc_track(camelot: "8A")
+      far = sc_track(camelot: "3B")
+
+      ids = Mixing.rank(prev: prev, exclude: [prev.id], limit: 10) |> Enum.map(& &1.track.id)
+      assert far.id in ids
+    end
+
+    test "respects :exclude and :limit" do
+      keep = sc_track([])
+      skip = sc_track([])
+      for _ <- 1..5, do: sc_track([])
+
+      ids = Mixing.rank(exclude: [skip.id], limit: 3) |> Enum.map(& &1.track.id)
+      assert keep.id not in [skip.id]
       refute skip.id in ids
+      assert length(ids) == 3
     end
+  end
 
-    test "falls back to local (detected) analysis for candidates without Soundcharts" do
-      current = track_with("8A", 120.0)
-
-      detected =
-        insert(:track, soundcharts_song_id: nil, camelot_detected: "8A", bpm_detected: 121.0)
-
-      ids = current |> Mixing.suggest_next() |> Enum.map(& &1.track.id)
-      assert detected.id in ids
-    end
-
-    test "suggests from a seed that only has local (detected) analysis" do
-      seed = insert(:track, soundcharts_song_id: nil, camelot_detected: "8A", bpm_detected: 120.0)
-      match = track_with("8A", 121.0)
-
-      ids = seed |> Mixing.suggest_next() |> Enum.map(& &1.track.id)
-      assert match.id in ids
-    end
+  defp set_folder(track, folder) do
+    {:ok, t} = Tracks.update(track, %{genre_folder: folder})
+    t
   end
 end

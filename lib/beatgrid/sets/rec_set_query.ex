@@ -28,6 +28,19 @@ defmodule Beatgrid.Sets.RecSetQuery do
     |> Enum.map(& &1.track)
   end
 
+  @doc "The set's entries (track + section role) in position order, song preloaded."
+  @spec ordered_entries(Ecto.UUID.t()) :: [
+          %{track: Beatgrid.Library.Track.t(), role: String.t() | nil, position: integer()}
+        ]
+  def ordered_entries(set_id) do
+    SetTrack
+    |> where([st], st.rec_set_id == ^set_id)
+    |> order_by([st], asc: st.position)
+    |> preload(track: :soundcharts_song)
+    |> Repo.all()
+    |> Enum.map(&%{track: &1.track, role: &1.role, position: &1.position})
+  end
+
   @doc "Set-track rows in position order (for reindexing)."
   @spec rows(Ecto.UUID.t()) :: [SetTrack.t()]
   def rows(set_id) do
