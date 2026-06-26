@@ -193,4 +193,50 @@ defmodule Beatgrid.YouTubeTest do
     assert {:error, :no_entries} = YouTube.expand_and_enqueue("https://y/empty")
     assert all_enqueued(worker: Beatgrid.Workers.DownloadWorker) == []
   end
+
+  test "enrich_track resolves one track on demand and creates review suggestions" do
+    insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB", description: "d")
+
+    track =
+      insert(:track,
+        status: :present,
+        genre_folder: nil,
+        soundcharts_song_id: nil,
+        tag_artist: "Casuarina",
+        tag_title: "Disritmia",
+        norm_artist: "casuarina",
+        norm_title: "disritmia",
+        filename: "abc.mp3",
+        rel_path: "_Inbox/abc.mp3"
+      )
+
+    expect(Beatgrid.Soundcharts.Mock, :search_song, fn _term ->
+      {:ok,
+       %Response{
+         data: [%{uuid: "u1", name: "Disritmia", credit_name: "Casuarina", release_date: nil}],
+         quota_remaining: 999,
+         status: 200
+       }}
+    end)
+
+    expect(Beatgrid.Soundcharts.Mock, :get_song, fn "u1" ->
+      {:ok, %Response{data: song_attrs(), quota_remaining: 998, status: 200}}
+    end)
+
+    expect(Beatgrid.AI.Mock, :complete, fn _p, _s, _o ->
+      {:ok,
+       %{
+         "classifications" => [
+           %{"index" => 1, "folder" => "mpb", "confidence" => 0.9, "rationale" => "r"}
+         ]
+       }}
+    end)
+
+    assert {:ok, %{resolved: true}} = YouTube.enrich_track(track.id)
+
+    assert Tracks.get(track.id).soundcharts_song_id
+    assert [_rename] = NameSync.list_by(status: :pending)
+    assert [move] = Organization.list_by(status: :pending, source: :claude)
+    assert move.track_id == track.id
+  end
 end

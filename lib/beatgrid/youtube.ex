@@ -87,6 +87,19 @@ defmodule Beatgrid.YouTube do
   end
 
   @doc """
+  Enriches ONE track on demand: resolves it against Soundcharts (spends quota),
+  re-proposes a rename if it matched, and re-classifies it — so suggestions land in
+  the Central de Revisão. Returns `{:ok, %{resolved: boolean}}`.
+  """
+  @spec enrich_track(binary()) :: {:ok, %{resolved: boolean()}}
+  def enrich_track(id) do
+    id |> Tracks.get() |> Soundcharts.resolve_track()
+    repropose_if_matched(id)
+    AI.reclassify(tracks: [Tracks.get(id)])
+    {:ok, %{resolved: Tracks.get(id).soundcharts_song_id != nil}}
+  end
+
+  @doc """
   Enriches every pending (downloaded-but-unfiled) track: refines ambiguous titles
   with the AI, resolves each against Soundcharts (the only quota-spending step),
   then proposes renames + AI classifications so they land in the Central de Revisão.

@@ -8,6 +8,7 @@ defmodule BeatgridWeb.TrackLive do
   alias Beatgrid.Library.Tracks
   alias Beatgrid.Mixing
   alias Beatgrid.Sets
+  alias Beatgrid.YouTube
   alias Phoenix.LiveView.JS
 
   @impl true
@@ -24,6 +25,8 @@ defmodule BeatgridWeb.TrackLive do
            next: Mixing.rank(prev: track, exclude: [track.id], limit: 8),
            tag_draft: "",
            analyzing?: false,
+           enriching?: false,
+           toast: nil,
            page_title: title(track)
          )
          |> maybe_auto_analyze()}
@@ -94,6 +97,19 @@ defmodule BeatgridWeb.TrackLive do
      |> start_async(:analyze, fn -> Analysis.analyze_track(track) end)}
   end
 
+  def handle_event("enrich_track", _params, socket) do
+    id = socket.assigns.track.id
+
+    {:noreply,
+     socket
+     |> assign(enriching?: true, toast: nil)
+     |> start_async(:enrich, fn -> YouTube.enrich_track(id) end)}
+  end
+
+  def handle_event("dismiss_toast", _params, socket) do
+    {:noreply, assign(socket, toast: nil)}
+  end
+
   @impl true
   def handle_async(:analyze, {:ok, {:ok, _track}}, socket) do
     {:noreply, socket |> assign(analyzing?: false) |> reload()}
@@ -101,6 +117,23 @@ defmodule BeatgridWeb.TrackLive do
 
   def handle_async(:analyze, _result, socket) do
     {:noreply, assign(socket, analyzing?: false)}
+  end
+
+  def handle_async(:enrich, {:ok, {:ok, %{resolved: resolved}}}, socket) do
+    msg =
+      if resolved,
+        do: "Metadados atualizados — revise na Central de Revisão.",
+        else: "Sem match no Soundcharts; classificação atualizada."
+
+    {:noreply,
+     socket
+     |> assign(enriching?: false, toast: {:ok, msg})
+     |> reload()}
+  end
+
+  def handle_async(:enrich, {:exit, _reason}, socket) do
+    {:noreply,
+     assign(socket, enriching?: false, toast: {:error, "Falha ao atualizar metadados."})}
   end
 
   defp save(socket, attrs) do
@@ -123,6 +156,8 @@ defmodule BeatgridWeb.TrackLive do
           ← Biblioteca
         </.link>
 
+        <.enrich_toast :if={@toast} toast={@toast} />
+
         <header class="mt-4 flex gap-5">
           <.cover src={cover_src(@track)} artist={@track.tag_artist} size={84} />
           <div class="min-w-0 flex-1">
@@ -136,6 +171,14 @@ defmodule BeatgridWeb.TrackLive do
                 <.camelot_seal value={camelot(@track)} />
               </div>
               <.confidence_chip level={@track.sc_match_confidence} />
+              <button
+                phx-click="enrich_track"
+                data-confirm="Atualizar metadados consulta o Soundcharts (gasta cota). Continuar?"
+                disabled={@enriching?}
+                class="ml-auto rounded-md border border-primary/40 bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary hover:bg-primary/20 disabled:opacity-50"
+              >
+                {if @enriching?, do: "Atualizando…", else: "Atualizar metadados"}
+              </button>
             </div>
           </div>
         </header>
@@ -247,6 +290,38 @@ defmodule BeatgridWeb.TrackLive do
               <div :for={{k, v} <- meta_rows(@track)} class="flex justify-between gap-4 text-body-sm">
                 <dt class="text-ink-faint">{k}</dt>
                 <dd class="truncate text-right text-ink-secondary">{v}</dd>
+              </div>
+              <div
+                :if={is_binary((@track.raw_tags || %{})["youtube_url"])}
+                class="flex justify-between gap-4 text-body-sm"
+              >
+                <dt class="text-ink-faint">YouTube</dt>
+                <dd class="truncate text-right">
+                  <a
+                    href={@track.raw_tags["youtube_url"]}
+                    target="_blank"
+                    rel="noopener"
+                    class="text-primary hover:underline"
+                  >
+                    Abrir vídeo
+                  </a>
+                </dd>
+              </div>
+              <div
+                :if={is_binary((@track.raw_tags || %{})["youtube_playlist_url"])}
+                class="flex justify-between gap-4 text-body-sm"
+              >
+                <dt class="text-ink-faint">Playlist</dt>
+                <dd class="truncate text-right">
+                  <a
+                    href={@track.raw_tags["youtube_playlist_url"]}
+                    target="_blank"
+                    rel="noopener"
+                    class="text-primary hover:underline"
+                  >
+                    Abrir playlist
+                  </a>
+                </dd>
               </div>
             </dl>
             <.audio_profile :if={@track.soundcharts_song} song={@track.soundcharts_song} />
@@ -459,4 +534,24 @@ defmodule BeatgridWeb.TrackLive do
        do: abs(a - b) / max(a, b) > 0.1
 
   defp bpm_discrepancy?(_track), do: false
+
+  attr :toast, :any, required: true
+
+  defp enrich_toast(assigns) do
+    ~H"""
+    <div class={[
+      "mb-4 flex items-center justify-between gap-4 rounded-lg border px-4 py-2.5",
+      if(match?({:error, _}, @toast),
+        do: "border-coral/30 bg-coral/10",
+        else: "border-green/30 bg-green/10"
+      )
+    ]}>
+      <p class="text-body-sm text-ink">{enrich_toast_message(@toast)}</p>
+      <button phx-click="dismiss_toast" class="text-ink-muted hover:text-ink text-body-sm">✕</button>
+    </div>
+    """
+  end
+
+  defp enrich_toast_message({:ok, msg}), do: msg
+  defp enrich_toast_message({:error, msg}), do: msg
 end
