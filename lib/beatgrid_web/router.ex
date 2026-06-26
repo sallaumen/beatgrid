@@ -17,11 +17,13 @@ defmodule BeatgridWeb.Router do
   scope "/", BeatgridWeb do
     pipe_through :browser
 
-    live "/", LibraryLive, :index
-    live "/track/:id", TrackLive, :show
-    live "/revisao", ReviewLive, :index
-    live "/painel", DashboardLive, :index
-    live "/set", RecSetLive, :index
+    live_session :default do
+      live "/", LibraryLive, :index
+      live "/track/:id", TrackLive, :show
+      live "/revisao", ReviewLive, :index
+      live "/painel", DashboardLive, :index
+      live "/set", RecSetLive, :index
+    end
 
     get "/audio/:id", AudioController, :show
   end
