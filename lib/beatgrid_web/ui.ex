@@ -327,6 +327,7 @@ defmodule BeatgridWeb.UI do
   attr :audit, :string, default: nil, doc: "rename: audit flag text"
   attr :folders, :list, default: [], doc: "classification: folder options for the edit picker"
   attr :audio_src, :string, default: nil, doc: "URL to preview the track (▶ skips to 20s)"
+  attr :track_id, :string, default: nil, doc: "track id for the global player"
   attr :cover_src, :string, default: nil, doc: "album art URL"
   slot :extra, doc: "optional extra action buttons (e.g. audit-tab actions)"
 
@@ -340,15 +341,13 @@ defmodule BeatgridWeb.UI do
       ]}
     >
       <.cover src={@cover_src} artist={@artist} size={42} />
-      <button
-        :if={@audio_src}
-        type="button"
-        phx-click={JS.dispatch("beatgrid:play", to: "#review-player", detail: %{src: @audio_src})}
-        class="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[11px] text-primary hover:bg-primary/25"
-        title="Tocar (a partir dos 20s)"
-      >
-        ▶
-      </button>
+      <.play_button
+        :if={@audio_src && @track_id}
+        src={@audio_src}
+        track_id={@track_id}
+        preview={true}
+        size={32}
+      />
       <div class="min-w-0 flex-1">
         <p class="truncate text-body font-medium">{@title}</p>
         <p :if={@artist} class="text-ink-muted truncate text-caption">{@artist}</p>

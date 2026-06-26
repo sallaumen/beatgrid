@@ -61,9 +61,9 @@ defmodule BeatgridWeb.ReviewLiveTest do
     assert html =~ "Classificação"
     assert html =~ "Auditoria"
     assert html =~ "Djavan - Sina.mp3"
-    # preview player + per-card play button
-    assert html =~ ~s(id="review-player")
-    assert html =~ "Tocar (a partir dos 20s)"
+    # global player present; no local review-player
+    assert html =~ ~s(id="player-audio")
+    refute html =~ ~s(id="review-player")
     # album art on the card
     assert html =~ "https://img.test/cover.jpg"
   end
@@ -144,6 +144,13 @@ defmodule BeatgridWeb.ReviewLiveTest do
     html = view |> element("button[phx-value-tab=classifications]") |> render_click()
     assert html =~ "soa como MPB"
     assert html =~ "IA:"
+  end
+
+  test "card play controls target the global player", %{conn: conn} do
+    pending_rename()
+    {:ok, _view, html} = live(conn, ~p"/revisao")
+    assert html =~ ~s(id="player-audio")
+    refute html =~ ~s(id="review-player")
   end
 
   test "the auditoria tab lists flagged renames and dismisses a flag", %{conn: conn} do
