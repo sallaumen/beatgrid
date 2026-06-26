@@ -142,4 +142,32 @@ defmodule Beatgrid.YouTubeTest do
   test "enrich_pending with nothing to do makes no external calls" do
     assert {:ok, %{enriched: 0, resolved: 0}} = YouTube.enrich_pending()
   end
+
+  test "expand_and_enqueue lists videos and enqueues one DownloadWorker each (playlist)" do
+    expect(Beatgrid.YouTube.DownloaderMock, :list_entries, fn "https://y/playlist" ->
+      {:ok,
+       [
+         %{id: "a", title: "A", url: "https://y/a"},
+         %{id: "b", title: "B", url: "https://y/b"}
+       ]}
+    end)
+
+    assert {:ok, 2} = YouTube.expand_and_enqueue("https://y/playlist")
+
+    jobs = all_enqueued(worker: DownloadWorker)
+    assert length(jobs) == 2
+    a = Enum.find(jobs, &(&1.args["url"] == "https://y/a"))
+    assert a.args["playlist_url"] == "https://y/playlist"
+    assert a.args["video_id"] == "a"
+  end
+
+  test "expand_and_enqueue sets no playlist_url for a single video" do
+    expect(Beatgrid.YouTube.DownloaderMock, :list_entries, fn _ ->
+      {:ok, [%{id: "solo", title: "Solo", url: "https://y/solo"}]}
+    end)
+
+    assert {:ok, 1} = YouTube.expand_and_enqueue("https://y/solo")
+    [job] = all_enqueued(worker: DownloadWorker)
+    assert job.args["playlist_url"] == nil
+  end
 end

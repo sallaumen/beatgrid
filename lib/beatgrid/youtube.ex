@@ -44,6 +44,27 @@ defmodule Beatgrid.YouTube do
   end
 
   @doc """
+  Lists a submitted URL's videos and enqueues one `DownloadWorker` per video,
+  tagging each with the source playlist URL (when the URL expands to many).
+  Returns `{:ok, video_count}` or the downloader's `{:error, reason}`.
+  """
+  @spec expand_and_enqueue(String.t()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def expand_and_enqueue(url) do
+    with {:ok, entries} <- @adapter.list_entries(url) do
+      playlist_url = if length(entries) > 1, do: url, else: nil
+
+      Enum.each(entries, fn e ->
+        %{url: e.url, video_id: e.id, title: e.title, playlist_url: playlist_url}
+        |> DownloadWorker.new()
+        |> Oban.insert()
+      end)
+
+      broadcast_tick()
+      {:ok, length(entries)}
+    end
+  end
+
+  @doc """
   Downloads a URL (video or playlist) and ingests each resulting file into `_Inbox`.
   Returns `{:ok, ingested_count}` or the downloader's `{:error, reason}`.
   """
