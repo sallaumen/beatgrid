@@ -122,6 +122,20 @@ defmodule BeatgridWeb.ReviewLive do
 
   def handle_event("dismiss_toast", _params, socket), do: {:noreply, assign(socket, toast: nil)}
 
+  def handle_event("reevaluate_all", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(toast: {:reevaluating, %{}})
+     |> start_async(:reevaluate, fn -> Review.reevaluate_all_renames() end)}
+  end
+
+  def handle_event("reevaluate_one", %{"id" => id}, socket) do
+    {:noreply,
+     socket
+     |> assign(toast: {:reevaluating, %{}})
+     |> start_async(:reevaluate, fn -> Review.reevaluate_renames([id]) end)}
+  end
+
   @impl true
   def handle_async(:apply, {:ok, {:ok, result}}, socket) do
     {:noreply,
@@ -140,6 +154,14 @@ defmodule BeatgridWeb.ReviewLive do
 
   def handle_async(:re_resolve, {:ok, {:error, _reason}}, socket) do
     {:noreply, assign(socket, toast: {:error, :re_resolve})}
+  end
+
+  def handle_async(:reevaluate, {:ok, {:ok, %{updated: n}}}, socket) do
+    {:noreply, socket |> assign(toast: {:reevaluated, %{updated: n}}) |> load()}
+  end
+
+  def handle_async(:reevaluate, _other, socket) do
+    {:noreply, assign(socket, toast: {:error, :reevaluate})}
   end
 
   def handle_async(_name, {:exit, reason}, socket) do
@@ -220,6 +242,13 @@ defmodule BeatgridWeb.ReviewLive do
                 class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm text-ink-secondary hover:text-ink"
               >
                 Marcar todas
+              </button>
+              <button
+                :if={@tab == :renames}
+                phx-click="reevaluate_all"
+                class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm text-ink-secondary hover:text-ink"
+              >
+                Re-avaliar com IA
               </button>
               <button
                 :if={MapSet.size(@selected) > 0}
@@ -305,7 +334,18 @@ defmodule BeatgridWeb.ReviewLive do
                 audio_src={~p"/audio/#{s.track_id}"}
                 track_id={s.track_id}
                 cover_src={cover_src(s.track)}
-              />
+                rationale={s.rationale}
+              >
+                <:extra>
+                  <button
+                    phx-click="reevaluate_one"
+                    phx-value-id={s.id}
+                    class="rounded-md bg-input px-2.5 py-1 text-[11px] text-ink-muted hover:text-ink"
+                  >
+                    Re-avaliar (IA)
+                  </button>
+                </:extra>
+              </.suggestion_card>
               <.suggestion_card
                 :if={@tab == :auditoria}
                 id={s.id}
@@ -425,6 +465,11 @@ defmodule BeatgridWeb.ReviewLive do
   defp toast_message({:resolving, _}), do: "Re-resolvendo no Soundcharts…"
   defp toast_message({:resolved, _}), do: "Re-resolvido — confira a nova sugestão em Renomeações."
   defp toast_message({:no_match, _}), do: "Sem novo match no Soundcharts."
+  defp toast_message({:reevaluating, _}), do: "Re-avaliando com IA…"
+
+  defp toast_message({:reevaluated, %{updated: n}}),
+    do: "#{n} sugestão(ões) re-avaliada(s) com IA."
+
   defp toast_message({:error, _reason}), do: "Falha na operação. Nada foi alterado."
 
   defp count_summary(items, selected) do

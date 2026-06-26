@@ -1,6 +1,7 @@
 defmodule BeatgridWeb.ReviewLiveTest do
   use BeatgridWeb.ConnCase, async: true
 
+  import Mox
   import Phoenix.LiveViewTest
   import Beatgrid.Factory
 
@@ -167,5 +168,31 @@ defmodule BeatgridWeb.ReviewLiveTest do
 
     refute NameSync.get(r.id).reason =~ "[audit:"
     refute render(view) =~ "verify/title"
+  end
+
+  test "re-avaliar com IA updates a rename suggestion's name", %{conn: conn} do
+    pending_rename()
+
+    stub(Beatgrid.AI.Mock, :complete, fn _p, _s, _o ->
+      {:ok,
+       %{
+         "resolutions" => [
+           %{
+             "index" => 1,
+             "same_recording" => false,
+             "artist" => "Forró In The Dark",
+             "title" => "Cajuína",
+             "confidence" => 0.7,
+             "rationale" => "versão forró"
+           }
+         ]
+       }}
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/revisao")
+    view |> element("button[phx-click='reevaluate_all']") |> render_click()
+    html = render_async(view)
+
+    assert html =~ "Forró In The Dark - Cajuína"
   end
 end
