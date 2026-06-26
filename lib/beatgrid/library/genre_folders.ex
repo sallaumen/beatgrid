@@ -21,4 +21,10 @@ defmodule Beatgrid.Library.GenreFolders do
     |> GenreFolder.changeset(attrs)
     |> Repo.insert_or_update()
   end
+
+  @doc "Updates an existing folder (e.g. its classification description)."
+  @spec update(GenreFolder.t(), map()) :: {:ok, GenreFolder.t()} | {:error, Ecto.Changeset.t()}
+  def update(%GenreFolder{} = folder, attrs) do
+    folder |> GenreFolder.changeset(attrs) |> Repo.update()
+  end
 end

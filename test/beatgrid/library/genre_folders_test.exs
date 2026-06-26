@@ -1,6 +1,8 @@
 defmodule Beatgrid.Library.GenreFoldersTest do
   use Beatgrid.DataCase, async: true
 
+  import Beatgrid.Factory
+
   alias Beatgrid.Library.GenreFolders
 
   describe "upsert/1 and list/0" do
@@ -56,6 +58,24 @@ defmodule Beatgrid.Library.GenreFoldersTest do
       {:ok, _} = GenreFolders.upsert(%{key: "a", display_name: "A", dir_name: "A", sort_order: 1})
 
       assert ["a", "b"] = Enum.map(GenreFolders.list(), & &1.key)
+    end
+  end
+
+  describe "update/2" do
+    test "changes a folder's description" do
+      folder =
+        insert(:genre_folder,
+          key: "mpb",
+          display_name: "MPB",
+          dir_name: "MPB",
+          description: "old"
+        )
+
+      assert {:ok, updated} =
+               GenreFolders.update(folder, %{description: "Songwriter-driven MPB."})
+
+      assert updated.description == "Songwriter-driven MPB."
+      assert GenreFolders.get_by_key("mpb").description == "Songwriter-driven MPB."
     end
   end
 end
