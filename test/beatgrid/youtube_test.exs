@@ -7,7 +7,9 @@ defmodule Beatgrid.YouTubeTest do
   alias Beatgrid.Audio.Metadata
   alias Beatgrid.Library.{NameSync, Tracks}
   alias Beatgrid.Organization
-  alias Beatgrid.Soundcharts.Response
+  alias Beatgrid.Repo
+  alias Beatgrid.Soundcharts
+  alias Beatgrid.Soundcharts.{ApiCall, Response}
   alias Beatgrid.Workers.DownloadWorker
   alias Beatgrid.YouTube
 
@@ -238,5 +240,40 @@ defmodule Beatgrid.YouTubeTest do
     assert [_rename] = NameSync.list_by(status: :pending)
     assert [move] = Organization.list_by(status: :pending, source: :claude)
     assert move.track_id == track.id
+  end
+
+  test "enrich_track returns {:error, :budget_exhausted} and creates no suggestions" do
+    original_sc_config = Application.get_env(:beatgrid, Soundcharts)
+    on_exit(fn -> Application.put_env(:beatgrid, Soundcharts, original_sc_config) end)
+    # Drive budget below floor: cap=3, floor=2, used=2 → remaining=1 ≤ floor
+    Application.put_env(:beatgrid, Soundcharts, request_cap: 3, budget_floor: 2)
+    t0 = DateTime.truncate(DateTime.utc_now(), :second)
+
+    for n <- 1..2 do
+      %ApiCall{}
+      |> ApiCall.changeset(%{
+        provider: "soundcharts",
+        endpoint: "song/get",
+        success: true,
+        quota_remaining: nil,
+        occurred_at: DateTime.add(t0, n)
+      })
+      |> Repo.insert!()
+    end
+
+    track =
+      insert(:track,
+        status: :present,
+        genre_folder: nil,
+        soundcharts_song_id: nil,
+        tag_title: "Anything"
+      )
+
+    # No Mox expectations — if the guard let a call through, Mock would raise.
+    assert {:error, :budget_exhausted} = YouTube.enrich_track(track.id)
+
+    # No suggestions should have been created.
+    assert NameSync.list_by(status: :pending) == []
+    assert Organization.list_by(status: :pending, source: :claude) == []
   end
 end

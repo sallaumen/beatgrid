@@ -131,6 +131,10 @@ defmodule BeatgridWeb.TrackLive do
      |> reload()}
   end
 
+  def handle_async(:enrich, {:ok, {:error, :budget_exhausted}}, socket) do
+    {:noreply, assign(socket, enriching?: false, toast: {:error, "Cota Soundcharts esgotada."})}
+  end
+
   def handle_async(:enrich, {:exit, _reason}, socket) do
     {:noreply,
      assign(socket, enriching?: false, toast: {:error, "Falha ao atualizar metadados."})}
