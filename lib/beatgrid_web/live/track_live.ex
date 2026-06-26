@@ -117,7 +117,7 @@ defmodule BeatgridWeb.TrackLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <.app_shell active={:biblioteca}>
+    <.app_shell active={:biblioteca} socket={@socket}>
       <div class="mx-auto max-w-5xl px-6 py-5">
         <.link navigate={~p"/"} class="text-body-sm text-ink-muted hover:text-ink">
           ← Biblioteca

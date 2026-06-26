@@ -137,7 +137,7 @@ defmodule BeatgridWeb.DashboardLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <.app_shell active={:painel}>
+    <.app_shell active={:painel} socket={@socket}>
       <div class="h-screen overflow-y-auto">
         <header class="border-b border-white/6 bg-rail px-5 py-3">
           <h2 class="text-[22px] font-semibold">Painel</h2>

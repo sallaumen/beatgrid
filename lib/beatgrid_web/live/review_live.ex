@@ -201,7 +201,7 @@ defmodule BeatgridWeb.ReviewLive do
       assign(assigns, items: current_items(assigns.tab, assigns.renames, assigns.classifications))
 
     ~H"""
-    <.app_shell active={:revisao}>
+    <.app_shell active={:revisao} socket={@socket}>
       <div class="flex h-screen flex-col">
         <header class="border-b border-white/6 bg-rail px-5 pt-3">
           <div class="flex items-center justify-between gap-4">

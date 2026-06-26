@@ -102,8 +102,9 @@ defmodule BeatgridWeb.UI do
     """
   end
 
-  @doc "App shell: left nav rail + main content."
+  @doc "App shell: left nav rail + main content + the sticky global player."
   attr :active, :atom, default: :biblioteca
+  attr :socket, Phoenix.LiveView.Socket, required: true
   slot :inner_block, required: true
 
   def app_shell(assigns) do
@@ -129,7 +130,8 @@ defmodule BeatgridWeb.UI do
         />
         <.nav_item icon="hero-queue-list" label="Sets" href="/set" active={@active == :sets} />
       </nav>
-      <main class="min-w-0 flex-1">{render_slot(@inner_block)}</main>
+      <main class="min-w-0 flex-1 pb-16">{render_slot(@inner_block)}</main>
+      {live_render(@socket, BeatgridWeb.PlayerLive, id: "player", sticky: true)}
     </div>
     """
   end
