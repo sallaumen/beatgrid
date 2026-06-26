@@ -43,6 +43,9 @@ defmodule BeatgridWeb.GenresLive do
         <p :if={match?({:saved, _}, @toast)} class="text-green mt-3 text-body-sm">
           Descrição salva.
         </p>
+        <p :if={match?({:error, _}, @toast)} class="text-coral mt-3 text-body-sm">
+          Falha ao salvar. Tente novamente.
+        </p>
 
         <div class="mt-5 space-y-3">
           <form
