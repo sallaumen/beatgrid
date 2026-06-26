@@ -79,7 +79,8 @@ defmodule BeatgridWeb.DashboardLiveTest do
       |> form("#youtube-form")
       |> render_submit(%{urls: "https://y/1\nhttps://y/2"})
 
-    assert html =~ "enfileirado"
+    assert html =~ "na fila"
+    assert html =~ ~s(href="/jobs")
   end
 
   test "enriching pending YouTube imports runs and reports back", %{conn: conn} do

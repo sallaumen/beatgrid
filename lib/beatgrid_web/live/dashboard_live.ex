@@ -54,7 +54,7 @@ defmodule BeatgridWeb.DashboardLive do
 
     note =
       if n > 0,
-        do: "#{n} download(s) enfileirado(s) — baixando em segundo plano…",
+        do: "#{n} na fila — baixando em segundo plano. Acompanhe em Jobs.",
         else: "Cole ao menos uma URL do YouTube."
 
     {:noreply, assign(socket, youtube_note: note)}
@@ -236,6 +236,12 @@ defmodule BeatgridWeb.DashboardLive do
             <p class="mt-1 text-caption text-ink-faint">
               Baixar é offline (não gasta cota). Enriquecer chama o Soundcharts (cota) e gera sugestões na Central de Revisão.
             </p>
+            <.link
+              navigate={~p"/jobs"}
+              class="mt-1 inline-block text-caption text-primary hover:underline"
+            >
+              Ver downloads em andamento em Jobs →
+            </.link>
           </.panel>
 
           <div class="grid grid-cols-1 gap-5 lg:grid-cols-2">
