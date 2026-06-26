@@ -33,7 +33,7 @@ defmodule Beatgrid.YouTube do
   @spec pending_count() :: non_neg_integer()
   def pending_count, do: Tracks.count(status: :present, resolved: false, genre_folder: nil)
 
-  @doc "Enqueues one `DownloadWorker` per non-blank URL (lines or a list). Returns `{:ok, count}`."
+  @doc "Enqueues one `ExpandWorker` per non-blank URL (lines or a list), which fans each out to one `DownloadWorker` per video. Returns `{:ok, count}`."
   @spec enqueue(String.t() | [String.t()]) :: {:ok, non_neg_integer()}
   def enqueue(urls) when is_binary(urls), do: urls |> String.split("\n") |> enqueue()
 
