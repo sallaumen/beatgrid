@@ -24,6 +24,7 @@ defmodule Beatgrid.Library.RenameSuggestion do
     field :to_filename, :string
     field :confidence, Ecto.Enum, values: [:high, :medium, :low]
     field :reason, :string
+    field :rationale, :string
     field :status, Ecto.Enum, values: @statuses, default: :pending
     field :batch_id, Uniq.UUID
     field :applied_at, :utc_datetime
@@ -34,7 +35,7 @@ defmodule Beatgrid.Library.RenameSuggestion do
     timestamps()
   end
 
-  @castable ~w(track_id from_rel_path from_filename to_filename confidence reason
+  @castable ~w(track_id from_rel_path from_filename to_filename confidence reason rationale
                status batch_id applied_at error)a
 
   @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
