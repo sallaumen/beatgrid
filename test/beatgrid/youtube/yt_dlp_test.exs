@@ -18,6 +18,29 @@ defmodule Beatgrid.YouTube.YtDlpTest do
     end
   end
 
+  describe "parse_entries/1" do
+    test "parses flat-playlist tab lines into entries" do
+      out =
+        "abc\tFirst Song\thttps://youtu.be/abc\ndef\tSecond\thttps://www.youtube.com/watch?v=def\n"
+
+      assert YtDlp.parse_entries(out) == [
+               %{id: "abc", title: "First Song", url: "https://youtu.be/abc"},
+               %{id: "def", title: "Second", url: "https://www.youtube.com/watch?v=def"}
+             ]
+    end
+
+    test "falls back to a watch URL when yt-dlp gives no usable url" do
+      out = "abc\tOnly Song\tNA\n"
+
+      assert YtDlp.parse_entries(out) ==
+               [%{id: "abc", title: "Only Song", url: "https://www.youtube.com/watch?v=abc"}]
+    end
+
+    test "skips malformed lines" do
+      assert YtDlp.parse_entries("garbage-without-tabs\n") == []
+    end
+  end
+
   describe "download/2" do
     setup do
       dir = Path.join(System.tmp_dir!(), "ytdlp_#{System.unique_integer([:positive])}")

@@ -4,7 +4,10 @@ defmodule Beatgrid.YouTube.Downloader do
   a whole playlist, so `download/2` returns a list of items (one per track).
   """
   @type item :: %{path: String.t(), title: String.t(), url: String.t()}
+  @type entry :: %{id: String.t(), title: String.t(), url: String.t()}
 
   @callback download(url :: String.t(), dest_dir :: String.t()) ::
               {:ok, [item()]} | {:error, term()}
+
+  @callback list_entries(url :: String.t()) :: {:ok, [entry()]} | {:error, term()}
 end

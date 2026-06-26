@@ -12,6 +12,8 @@ defmodule Beatgrid.YouTube.YtDlp do
   @sep "\t"
   # 10 min: a playlist of several tracks can take a while.
   @default_timeout_ms 600_000
+  # Listing is metadata-only (no download) — a short timeout is plenty.
+  @list_timeout_ms 60_000
 
   @impl Beatgrid.YouTube.Downloader
   def download(url, dest_dir) do
@@ -32,12 +34,44 @@ defmodule Beatgrid.YouTube.YtDlp do
 
     argv = ["-c", ~s|exec "$@" < /dev/null|, "sh", executable() | cli_args]
 
-    case run(fn -> System.cmd("/bin/sh", argv, stderr_to_stdout: false) end) do
+    case run(fn -> System.cmd("/bin/sh", argv, stderr_to_stdout: false) end, timeout()) do
       {:ok, {out, 0}} -> {:ok, parse(out, dest_dir)}
       {:ok, {out, code}} -> {:error, {:yt_dlp_exit, code, String.slice(out, 0, 500)}}
       {:exit, reason} -> {:error, {:yt_dlp_exception, inspect(reason)}}
       nil -> {:error, :timeout}
     end
+  end
+
+  @impl Beatgrid.YouTube.Downloader
+  def list_entries(url) do
+    cli_args = ["--flat-playlist", "--print", "%(id)s#{@sep}%(title)s#{@sep}%(url)s", url]
+    argv = ["-c", ~s|exec "$@" < /dev/null|, "sh", executable() | cli_args]
+
+    case run(fn -> System.cmd("/bin/sh", argv, stderr_to_stdout: false) end, @list_timeout_ms) do
+      {:ok, {out, 0}} -> {:ok, parse_entries(out)}
+      {:ok, {out, code}} -> {:error, {:yt_dlp_exit, code, String.slice(out, 0, 500)}}
+      {:exit, reason} -> {:error, {:yt_dlp_exception, inspect(reason)}}
+      nil -> {:error, :timeout}
+    end
+  end
+
+  @doc "Parses yt-dlp's `--flat-playlist` tab lines into entries (one per video)."
+  @spec parse_entries(String.t()) :: [Beatgrid.YouTube.Downloader.entry()]
+  def parse_entries(output) do
+    output
+    |> String.split("\n", trim: true)
+    |> Enum.flat_map(fn line ->
+      case String.split(line, @sep) do
+        [id, title, url] -> [%{id: id, title: title, url: entry_url(id, url)}]
+        _ -> []
+      end
+    end)
+  end
+
+  defp entry_url(id, url) do
+    if String.starts_with?(url, "http"),
+      do: url,
+      else: "https://www.youtube.com/watch?v=#{id}"
   end
 
   @doc "Parses yt-dlp's tab-separated `--print` lines into downloader items."
@@ -53,9 +87,9 @@ defmodule Beatgrid.YouTube.YtDlp do
     end)
   end
 
-  defp run(fun) do
+  defp run(fun, timeout) do
     task = Task.async(fun)
-    Task.yield(task, timeout()) || Task.shutdown(task, :brutal_kill)
+    Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill)
   end
 
   defp executable, do: config()[:executable] || "yt-dlp"
