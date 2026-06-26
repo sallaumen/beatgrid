@@ -149,7 +149,8 @@ defmodule BeatgridWeb.ReviewLiveTest do
   test "card play controls target the global player", %{conn: conn} do
     pending_rename()
     {:ok, _view, html} = live(conn, ~p"/revisao")
-    assert html =~ ~s(id="player-audio")
+    assert html =~ "beatgrid:play"
+    assert html =~ "#player-audio"
     refute html =~ ~s(id="review-player")
   end
 
