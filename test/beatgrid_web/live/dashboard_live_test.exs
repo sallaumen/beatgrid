@@ -8,6 +8,7 @@ defmodule BeatgridWeb.DashboardLiveTest do
   import Mox
 
   alias Beatgrid.Library.Tracks
+  alias Beatgrid.Soundcharts.Response
 
   setup :set_mox_global
 
@@ -79,6 +80,40 @@ defmodule BeatgridWeb.DashboardLiveTest do
       |> render_submit(%{urls: "https://y/1\nhttps://y/2"})
 
     assert html =~ "enfileirado"
+  end
+
+  test "enriching pending YouTube imports runs and reports back", %{conn: conn} do
+    insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB", description: "d")
+
+    insert(:track,
+      status: :present,
+      genre_folder: nil,
+      soundcharts_song_id: nil,
+      tag_artist: "A",
+      tag_title: "B",
+      norm_artist: "a",
+      norm_title: "b",
+      rel_path: "_Inbox/x.mp3"
+    )
+
+    stub(Beatgrid.Soundcharts.Mock, :search_song, fn _term ->
+      {:ok, %Response{data: [], quota_remaining: 999, status: 200}}
+    end)
+
+    stub(Beatgrid.AI.Mock, :complete, fn _p, _s, _o ->
+      {:ok,
+       %{
+         "classifications" => [
+           %{"index" => 1, "folder" => "mpb", "confidence" => 0.5, "rationale" => "r"}
+         ]
+       }}
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/painel")
+    view |> element("button[phx-click=enrich_youtube]") |> render_click()
+    html = render_async(view)
+
+    assert html =~ "enriquecid"
   end
 
   test "a youtube tick refreshes the pending-enrichment count live", %{conn: conn} do

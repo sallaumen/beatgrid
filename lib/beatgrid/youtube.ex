@@ -8,8 +8,8 @@ defmodule Beatgrid.YouTube do
   Downloads run as background `DownloadWorker` jobs; the screen follows progress via
   the `"youtube"` PubSub topic.
   """
-  alias Beatgrid.Library
-  alias Beatgrid.Library.{FileInfo, Tracks}
+  alias Beatgrid.{AI, Library, Soundcharts}
+  alias Beatgrid.Library.{FileInfo, NameSync, Tracks}
   alias Beatgrid.Workers.DownloadWorker
   alias Beatgrid.YouTube.TitleParser
 
@@ -55,6 +55,53 @@ defmodule Beatgrid.YouTube do
       ingested = items |> Enum.map(&ingest/1) |> Enum.count(&match?({:ok, _}, &1))
       {:ok, ingested}
     end
+  end
+
+  @doc """
+  Enriches every pending (downloaded-but-unfiled) track: refines ambiguous titles
+  with the AI, resolves each against Soundcharts (the only quota-spending step),
+  then proposes renames + AI classifications so they land in the Central de Revisão.
+  Returns `{:ok, %{enriched: n, resolved: m}}`.
+  """
+  @spec enrich_pending() :: {:ok, %{enriched: non_neg_integer(), resolved: non_neg_integer()}}
+  def enrich_pending do
+    ids = pending_ids()
+
+    refine_titles(ids)
+    Enum.each(ids, fn id -> id |> Tracks.get() |> Soundcharts.resolve_track() end)
+    Enum.each(ids, &repropose_if_matched/1)
+    AI.reclassify(tracks: Enum.map(ids, &Tracks.get/1))
+
+    resolved = Enum.count(ids, &(Tracks.get(&1).soundcharts_song_id != nil))
+    {:ok, %{enriched: length(ids), resolved: resolved}}
+  end
+
+  defp pending_ids do
+    [status: :present, resolved: false, genre_folder: nil]
+    |> Tracks.list_by()
+    |> Enum.map(& &1.id)
+  end
+
+  # Ask the AI to extract artist/title for tracks the heuristic couldn't split.
+  defp refine_titles(ids) do
+    ambiguous = ids |> Enum.map(&Tracks.get/1) |> Enum.filter(&ambiguous?/1)
+
+    with [_ | _] <- ambiguous,
+         {:ok, parsed} <- AI.parse_titles(Enum.map(ambiguous, &raw_title/1)) do
+      ambiguous
+      |> Enum.zip(parsed)
+      |> Enum.each(fn {t, p} -> Tracks.update(t, %{tag_artist: p.artist, tag_title: p.title}) end)
+    end
+
+    :ok
+  end
+
+  defp ambiguous?(track), do: is_nil(track.tag_artist) and is_binary(raw_title(track))
+  defp raw_title(track), do: (track.raw_tags || %{})["youtube_title"] || track.tag_title
+
+  defp repropose_if_matched(id) do
+    track = Tracks.get_with_song(id)
+    if track && track.soundcharts_song_id, do: NameSync.repropose(track)
   end
 
   defp ingest(%{path: path, title: title, url: url}) do

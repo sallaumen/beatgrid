@@ -55,8 +55,7 @@ defmodule Beatgrid.AI do
     pending = pending_claude_track_ids()
     acc0 = %{classified: 0, suggested: 0, agreed: 0, errors: 0}
 
-    opts
-    |> present_tracks()
+    (opts[:tracks] || present_tracks(opts))
     |> Enum.chunk_every(batch_size)
     |> Enum.reduce(acc0, fn batch, acc ->
       case classify_tracks(batch) do
@@ -86,6 +85,59 @@ defmodule Beatgrid.AI do
           {:ok, Enum.map(gaps, &%{artist: &1["artist"], song: &1["song"], reason: &1["reason"]})}
         end
     end
+  end
+
+  @doc """
+  Extracts `%{artist, title}` from a list of raw (messy) video titles via the AI —
+  used to refine YouTube imports whose heuristic parse was ambiguous. Returns the
+  list aligned to the input order. No AI call for an empty list.
+  """
+  @spec parse_titles([String.t()]) ::
+          {:ok, [%{artist: String.t() | nil, title: String.t()}]} | {:error, term()}
+  def parse_titles([]), do: {:ok, []}
+
+  def parse_titles(raw_titles) when is_list(raw_titles) do
+    prompt = build_titles_prompt(raw_titles)
+
+    with {:ok, %{"titles" => list}} <- @adapter.complete(prompt, titles_schema(), model: model()) do
+      {:ok, Enum.map(list, &%{artist: &1["artist"], title: &1["title"]})}
+    end
+  end
+
+  defp build_titles_prompt(titles) do
+    lines = titles |> Enum.with_index(1) |> Enum.map_join("\n", fn {t, i} -> "#{i}. #{t}" end)
+
+    """
+    Extract the music artist and song title from each raw YouTube video title below.
+    Drop noise like "(Official Video)", "[HD]", "Lyric Video", "ft.", channel names.
+    Keep the real song title (including meaningful parentheticals). Return one entry
+    per input, in the same order.
+
+    Titles:
+    #{lines}
+    """
+  end
+
+  defp titles_schema do
+    %{
+      "type" => "object",
+      "additionalProperties" => false,
+      "properties" => %{
+        "titles" => %{
+          "type" => "array",
+          "items" => %{
+            "type" => "object",
+            "additionalProperties" => false,
+            "properties" => %{
+              "artist" => %{"type" => "string"},
+              "title" => %{"type" => "string"}
+            },
+            "required" => ["artist", "title"]
+          }
+        }
+      },
+      "required" => ["titles"]
+    }
   end
 
   # --- internals ---

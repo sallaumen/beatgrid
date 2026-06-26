@@ -5,7 +5,9 @@ defmodule Beatgrid.YouTubeTest do
   import Mox
 
   alias Beatgrid.Audio.Metadata
-  alias Beatgrid.Library.Tracks
+  alias Beatgrid.Library.{NameSync, Tracks}
+  alias Beatgrid.Organization
+  alias Beatgrid.Soundcharts.Response
   alias Beatgrid.Workers.DownloadWorker
   alias Beatgrid.YouTube
 
@@ -73,5 +75,71 @@ defmodule Beatgrid.YouTubeTest do
     insert(:track, status: :present, genre_folder: "mpb")
 
     assert YouTube.pending_count() == 1
+  end
+
+  defp song_attrs do
+    %{
+      sc_uuid: "u1",
+      name: "Disritmia",
+      credit_name: "Casuarina",
+      isrc: "BRKMM0900046",
+      release_date: ~D[2010-01-05],
+      genres: [],
+      tempo_bpm: 120.0,
+      music_key: 11,
+      music_mode: 0,
+      energy: 0.6,
+      raw: %{}
+    }
+  end
+
+  test "enrich_pending resolves pending tracks and creates review suggestions" do
+    insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB", description: "d")
+
+    track =
+      insert(:track,
+        status: :present,
+        genre_folder: nil,
+        soundcharts_song_id: nil,
+        tag_artist: "Casuarina",
+        tag_title: "Disritmia",
+        norm_artist: "casuarina",
+        norm_title: "disritmia",
+        filename: "abc.mp3",
+        rel_path: "_Inbox/abc.mp3"
+      )
+
+    expect(Beatgrid.Soundcharts.Mock, :search_song, fn _term ->
+      {:ok,
+       %Response{
+         data: [%{uuid: "u1", name: "Disritmia", credit_name: "Casuarina", release_date: nil}],
+         quota_remaining: 999,
+         status: 200
+       }}
+    end)
+
+    expect(Beatgrid.Soundcharts.Mock, :get_song, fn "u1" ->
+      {:ok, %Response{data: song_attrs(), quota_remaining: 998, status: 200}}
+    end)
+
+    expect(Beatgrid.AI.Mock, :complete, fn _p, _s, _o ->
+      {:ok,
+       %{
+         "classifications" => [
+           %{"index" => 1, "folder" => "mpb", "confidence" => 0.9, "rationale" => "r"}
+         ]
+       }}
+    end)
+
+    assert {:ok, %{enriched: 1, resolved: 1}} = YouTube.enrich_pending()
+
+    assert Tracks.get(track.id).soundcharts_song_id
+    assert [_rename] = NameSync.list_by(status: :pending)
+    assert [move] = Organization.list_by(status: :pending, source: :claude)
+    assert move.track_id == track.id
+  end
+
+  test "enrich_pending with nothing to do makes no external calls" do
+    assert {:ok, %{enriched: 0, resolved: 0}} = YouTube.enrich_pending()
   end
 end

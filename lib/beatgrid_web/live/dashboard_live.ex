@@ -28,6 +28,7 @@ defmodule BeatgridWeb.DashboardLive do
        analysis_note: nil,
        youtube_pending: YouTube.pending_count(),
        youtube_note: nil,
+       enriching?: false,
        folders: folders,
        gaps_folder: folders |> List.first() |> then(&(&1 && &1.key)),
        gaps: nil,
@@ -57,6 +58,13 @@ defmodule BeatgridWeb.DashboardLive do
         else: "Cole ao menos uma URL do YouTube."
 
     {:noreply, assign(socket, youtube_note: note)}
+  end
+
+  def handle_event("enrich_youtube", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(enriching?: true, youtube_note: nil)
+     |> start_async(:enrich, &YouTube.enrich_pending/0)}
   end
 
   def handle_event("select_folder", %{"folder" => key}, socket) do
@@ -92,6 +100,26 @@ defmodule BeatgridWeb.DashboardLive do
 
   def handle_info({:youtube_tick}, socket) do
     {:noreply, assign(socket, youtube_pending: YouTube.pending_count())}
+  end
+
+  @impl true
+  def handle_async(:enrich, {:ok, {:ok, %{enriched: n, resolved: r}}}, socket) do
+    note =
+      if n > 0,
+        do: "#{n} faixa(s) enriquecida(s) (#{r} com match) — revise na Central de Revisão.",
+        else: "Nada pendente para enriquecer."
+
+    {:noreply,
+     assign(socket,
+       enriching?: false,
+       youtube_note: note,
+       youtube_pending: YouTube.pending_count()
+     )}
+  end
+
+  def handle_async(:enrich, {:exit, reason}, socket) do
+    {:noreply,
+     assign(socket, enriching?: false, youtube_note: "Falha ao enriquecer: #{inspect(reason)}")}
   end
 
   # --- helpers ---
@@ -182,18 +210,31 @@ defmodule BeatgridWeb.DashboardLive do
                 placeholder="Cole URLs do YouTube (uma por linha) ou uma URL de playlist…"
                 class="w-full rounded-md border border-white/8 bg-input px-3 py-2 text-body-sm focus:border-primary/50 focus:outline-none"
               ></textarea>
-              <div class="flex items-center justify-between gap-3">
-                <span class="text-caption text-ink-muted">
-                  Pendentes de enriquecimento: {@youtube_pending}
-                </span>
+              <div class="flex justify-end">
                 <button class="rounded-md bg-primary px-3.5 py-1.5 text-body-sm font-semibold text-white">
                   Baixar
                 </button>
               </div>
-              <p :if={@youtube_note} class="text-caption text-ink-muted">{@youtube_note}</p>
             </form>
+
+            <div class="mt-2 flex items-center justify-between gap-3 border-t border-white/6 pt-2">
+              <span class="text-body-sm text-ink-secondary">
+                Pendentes de enriquecimento: {@youtube_pending}
+              </span>
+              <button
+                phx-click="enrich_youtube"
+                disabled={@enriching? or @youtube_pending == 0}
+                class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm text-ink-secondary hover:text-ink disabled:opacity-40"
+              >
+                {if @enriching?,
+                  do: "Enriquecendo…",
+                  else: "Enriquecer pendentes (#{@youtube_pending})"}
+              </button>
+            </div>
+
+            <p :if={@youtube_note} class="mt-1.5 text-caption text-ink-muted">{@youtube_note}</p>
             <p class="mt-1 text-caption text-ink-faint">
-              Baixar é offline (não gasta cota). Depois enriqueça os metadados e revise na Central de Revisão.
+              Baixar é offline (não gasta cota). Enriquecer chama o Soundcharts (cota) e gera sugestões na Central de Revisão.
             </p>
           </.panel>
 

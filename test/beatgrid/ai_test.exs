@@ -117,6 +117,43 @@ defmodule Beatgrid.AITest do
     end
   end
 
+  describe "parse_titles/1" do
+    test "asks the AI to extract artist/title from raw video titles" do
+      expect(Mock, :complete, fn prompt, schema, _opts ->
+        assert prompt =~ "ANAVITÓRIA"
+        assert schema["properties"]["titles"]
+        {:ok, %{"titles" => [%{"artist" => "Anavitória", "title" => "Trevo"}]}}
+      end)
+
+      assert {:ok, [%{artist: "Anavitória", title: "Trevo"}]} =
+               AI.parse_titles(["ANAVITÓRIA - Trevo (Tu) ft. Tiago Iorc | Lyric Video"])
+    end
+
+    test "returns {:ok, []} without calling the AI for an empty list" do
+      assert {:ok, []} = AI.parse_titles([])
+    end
+  end
+
+  describe "reclassify/1 with :tracks" do
+    test "classifies only the given tracks" do
+      inbox = insert(:track, tag_artist: "Djavan", genre_folder: nil, rel_path: "_Inbox/x.mp3")
+      _other = insert(:track, tag_artist: "X", genre_folder: "mpb")
+
+      expect(Mock, :complete, fn _p, _s, _o ->
+        {:ok,
+         %{
+           "classifications" => [
+             %{"index" => 1, "folder" => "mpb", "confidence" => 0.9, "rationale" => "r"}
+           ]
+         }}
+      end)
+
+      assert %{classified: 1, suggested: 1} = AI.reclassify(tracks: [inbox])
+      assert [s] = Organization.list_by(status: :pending, source: :claude)
+      assert s.track_id == inbox.id
+    end
+  end
+
   describe "suggest_gaps/2" do
     test "builds a folder-scoped prompt with the artists already owned and returns parsed gaps" do
       insert(:track, genre_folder: "forro_roots", tag_artist: "Luiz Gonzaga", status: :present)
