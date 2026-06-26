@@ -128,8 +128,9 @@ defmodule BeatgridWeb.UI do
       ]}
       style={"width:#{@size}px;height:#{@size}px;font-size:#{max(round(@size / 2.6), 10)}px"}
       title="Tocar"
+      aria-label="Tocar"
     >
-      ▶
+      <span aria-hidden="true">▶</span>
     </button>
     """
   end
@@ -163,8 +164,9 @@ defmodule BeatgridWeb.UI do
         class="absolute inset-0 hidden items-center justify-center bg-black/55 text-[12px] text-white group-hover/cover:flex"
         style={"border-radius:#{@radius}px"}
         title="Tocar"
+        aria-label="Tocar"
       >
-        ▶
+        <span aria-hidden="true">▶</span>
       </button>
     </div>
     """
