@@ -104,6 +104,131 @@ defmodule Beatgrid.AI do
     end
   end
 
+  @type resolution :: %{
+          track: Track.t(),
+          same_recording: boolean(),
+          artist: String.t(),
+          title: String.t(),
+          confidence: float(),
+          rationale: String.t()
+        }
+
+  @doc """
+  Verifies/derives the canonical "Artist - Title" for each track and whether the
+  linked Soundcharts match is the SAME recording (vs. a cover/original by another
+  artist). Uses the file's own metadata + folder descriptions. Spends no Soundcharts
+  quota (claude only).
+  """
+  @spec resolve_names([Track.t()]) :: {:ok, [resolution()]} | {:error, term()}
+  def resolve_names(tracks) when is_list(tracks) do
+    tracks = Repo.preload(tracks, :soundcharts_song)
+    folders = GenreFolders.list()
+    prompt = build_resolve_prompt(folders, tracks)
+
+    with {:ok, %{"resolutions" => list}} <-
+           @adapter.complete(prompt, resolve_schema(), model: model()) do
+      {:ok, to_resolutions(list, tracks)}
+    end
+  end
+
+  defp build_resolve_prompt(folders, tracks) do
+    rubric = Enum.map_join(folders, "\n", fn f -> "- #{f.display_name}: #{f.description}" end)
+
+    lines =
+      tracks |> Enum.with_index(1) |> Enum.map_join("\n", fn {t, i} -> resolve_line(i, t) end)
+
+    """
+    You verify a DJ's Brazilian-music library metadata. For each track decide the correct
+    canonical "Artist - Title" for THIS specific recording, and whether the Soundcharts match
+    (when present) is the SAME recording — not merely the same song title by the original or a
+    different artist. Covers/versions are common (e.g. a forró cover of an MPB classic is NOT the
+    original). Prefer the file's OWN metadata (tags, filename, YouTube title); only override it
+    with a clear reason. Use the folder context below to judge plausibility.
+
+    Folder context:
+    #{rubric}
+
+    Tracks (one per number):
+    #{lines}
+
+    For each track return {index, same_recording (is the Soundcharts match the same recording? —
+    false when there is no match or it's the original/another artist's version), artist, title,
+    confidence 0.0-1.0, rationale (one short phrase)}.
+    """
+  end
+
+  defp resolve_line(index, track) do
+    song = track.soundcharts_song
+    yt = (track.raw_tags || %{})["youtube_title"]
+
+    "#{index}. file_artist=#{inspect(track.tag_artist)} file_title=#{inspect(track.tag_title)}" <>
+      " filename=#{inspect(track.filename)} youtube_title=#{inspect(yt)}" <>
+      " folder=#{inspect(track.genre_folder)}#{match_signals(song)}"
+  end
+
+  defp match_signals(%{} = song) do
+    year = song.release_date && song.release_date.year
+
+    " | soundcharts_match: artist=#{inspect(song.credit_name)} title=#{inspect(song.name)}" <>
+      " subgenres=#{inspect(song.subgenres)} year=#{inspect(year)}"
+  end
+
+  defp match_signals(_song), do: " | soundcharts_match: none"
+
+  defp resolve_schema do
+    %{
+      "type" => "object",
+      "additionalProperties" => false,
+      "properties" => %{
+        "resolutions" => %{
+          "type" => "array",
+          "items" => %{
+            "type" => "object",
+            "additionalProperties" => false,
+            "properties" => %{
+              "index" => %{"type" => "integer"},
+              "same_recording" => %{"type" => "boolean"},
+              "artist" => %{"type" => "string"},
+              "title" => %{"type" => "string"},
+              "confidence" => %{"type" => "number"},
+              "rationale" => %{"type" => "string"}
+            },
+            "required" => [
+              "index",
+              "same_recording",
+              "artist",
+              "title",
+              "confidence",
+              "rationale"
+            ]
+          }
+        }
+      },
+      "required" => ["resolutions"]
+    }
+  end
+
+  defp to_resolutions(list, tracks) do
+    list
+    |> Enum.map(fn item ->
+      case Enum.at(tracks, (item["index"] || 0) - 1) do
+        nil ->
+          nil
+
+        track ->
+          %{
+            track: track,
+            same_recording: item["same_recording"],
+            artist: item["artist"],
+            title: item["title"],
+            confidence: item["confidence"],
+            rationale: item["rationale"]
+          }
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
   defp build_titles_prompt(titles) do
     lines = titles |> Enum.with_index(1) |> Enum.map_join("\n", fn {t, i} -> "#{i}. #{t}" end)
 
