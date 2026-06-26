@@ -146,7 +146,7 @@ defmodule Beatgrid.Review do
   def reevaluate_renames(ids) when is_list(ids) do
     set = MapSet.new(ids)
 
-    [statuses: @open, preload: [track: :soundcharts_song]]
+    [status: :pending, preload: [track: :soundcharts_song]]
     |> NameSync.list_by()
     |> Enum.filter(&MapSet.member?(set, &1.id))
     |> reevaluate()
@@ -155,7 +155,7 @@ defmodule Beatgrid.Review do
   @doc "Re-evaluates the open rename suggestions of a single track (used after enrich)."
   @spec reevaluate_track(Ecto.UUID.t()) :: {:ok, %{updated: non_neg_integer()}} | {:error, term()}
   def reevaluate_track(track_id) do
-    [statuses: @open, preload: [track: :soundcharts_song]]
+    [status: :pending, preload: [track: :soundcharts_song]]
     |> NameSync.list_by()
     |> Enum.filter(&(&1.track_id == track_id))
     |> reevaluate()
@@ -192,14 +192,17 @@ defmodule Beatgrid.Review do
         do: NameSync.canonical_filename(song.credit_name, song.name, ext),
         else: NameSync.canonical_filename(r.artist, r.title, ext)
 
-    NameSync.refine(suggestion, %{
-      to_filename: to,
-      rationale: r.rationale,
-      confidence: confidence_atom(r.confidence)
-    })
-
-    Tracks.update(suggestion.track, %{sc_art_trusted: r.same_recording})
-    true
+    with {:ok, _} <-
+           NameSync.refine(suggestion, %{
+             to_filename: to,
+             rationale: r.rationale,
+             confidence: confidence_atom(r.confidence)
+           }),
+         {:ok, _} <- Tracks.update(suggestion.track, %{sc_art_trusted: r.same_recording}) do
+      true
+    else
+      _ -> false
+    end
   end
 
   defp confidence_atom(c) when is_number(c) and c >= 0.8, do: :high
