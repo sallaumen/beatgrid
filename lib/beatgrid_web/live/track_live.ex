@@ -71,7 +71,7 @@ defmodule BeatgridWeb.TrackLive do
         </.link>
 
         <header class="mt-4 flex gap-5">
-          <.cover artist={@track.tag_artist} size={84} />
+          <.cover src={cover_src(@track)} artist={@track.tag_artist} size={84} />
           <div class="min-w-0 flex-1">
             <h1 class="truncate text-[23px] font-semibold">{title(@track)}</h1>
             <p class="text-body-lg text-ink-secondary">{@track.tag_artist || "—"}</p>
@@ -164,7 +164,7 @@ defmodule BeatgridWeb.TrackLive do
               navigate={~p"/track/#{s.track.id}"}
               class="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-surface-2"
             >
-              <.cover artist={s.track.tag_artist} size={34} />
+              <.cover src={cover_src(s.track)} artist={s.track.tag_artist} size={34} />
               <div class="min-w-0 flex-1">
                 <p class="truncate text-body font-medium">{title(s.track)}</p>
                 <p class="truncate text-caption text-ink-muted">{s.track.tag_artist || "—"}</p>

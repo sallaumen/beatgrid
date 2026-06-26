@@ -206,7 +206,7 @@ defmodule BeatgridWeb.LibraryLive do
         class="grid items-center gap-2 rounded-lg px-1.5 py-1.5 hover:bg-surface-2"
         style={grid_cols()}
       >
-        <.cover artist={track.tag_artist} size={38} />
+        <.cover src={cover_src(track)} artist={track.tag_artist} size={38} />
         <div class="min-w-0">
           <p class="truncate text-body font-medium">{track.tag_title || track.filename}</p>
           <p class="truncate text-caption text-ink-muted">{track.tag_artist || "—"}</p>

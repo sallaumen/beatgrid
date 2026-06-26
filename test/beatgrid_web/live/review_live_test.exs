@@ -13,7 +13,12 @@ defmodule BeatgridWeb.ReviewLiveTest do
   end
 
   defp pending_rename do
-    song = insert(:soundcharts_song, credit_name: "Djavan", name: "Sina")
+    song =
+      insert(:soundcharts_song,
+        credit_name: "Djavan",
+        name: "Sina",
+        image_url: "https://img.test/cover.jpg"
+      )
 
     insert(:track,
       filename: "old.mp3",
@@ -44,6 +49,8 @@ defmodule BeatgridWeb.ReviewLiveTest do
     # preview player + per-card play button
     assert html =~ ~s(id="review-player")
     assert html =~ "Tocar (a partir dos 20s)"
+    # album art on the card
+    assert html =~ "https://img.test/cover.jpg"
   end
 
   test "approve toggles the card into the approved state and lifts the apply count", %{conn: conn} do

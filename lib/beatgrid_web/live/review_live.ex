@@ -253,6 +253,7 @@ defmodule BeatgridWeb.ReviewLive do
                 rationale={s.reason}
                 folders={@folders}
                 audio_src={~p"/audio/#{s.track_id}"}
+                cover_src={cover_src(s.track)}
               />
               <.suggestion_card
                 :if={@tab == :renames}
@@ -267,6 +268,7 @@ defmodule BeatgridWeb.ReviewLive do
                 confidence_level={s.confidence}
                 audit={audit_flag(s.reason)}
                 audio_src={~p"/audio/#{s.track_id}"}
+                cover_src={cover_src(s.track)}
               />
               <.suggestion_card
                 :if={@tab == :auditoria}
@@ -281,6 +283,7 @@ defmodule BeatgridWeb.ReviewLive do
                 confidence_level={s.confidence}
                 audit={audit_flag(s.reason)}
                 audio_src={~p"/audio/#{s.track_id}"}
+                cover_src={cover_src(s.track)}
               >
                 <:extra>
                   <button

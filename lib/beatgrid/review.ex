@@ -27,11 +27,12 @@ defmodule Beatgrid.Review do
   # ---- listing (track preloaded for the cards) ----
 
   @spec queue_renames() :: [RenameSuggestion.t()]
-  def queue_renames, do: NameSync.list_by(statuses: @open, preload: [:track])
+  def queue_renames, do: NameSync.list_by(statuses: @open, preload: [track: :soundcharts_song])
 
   @spec queue_classifications() :: [MoveSuggestion.t()]
   def queue_classifications,
-    do: Organization.list_by(statuses: @open, source: :claude, preload: [:track])
+    do:
+      Organization.list_by(statuses: @open, source: :claude, preload: [track: :soundcharts_song])
 
   @doc "Pending counts per tab, for the live badges."
   @spec counts() :: %{renames: non_neg_integer(), classifications: non_neg_integer()}

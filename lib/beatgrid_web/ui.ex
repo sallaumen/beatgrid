@@ -37,6 +37,10 @@ defmodule BeatgridWeb.UI do
   def folder_label(nil), do: "—"
   def folder_label(key), do: Map.get(@folder_labels, key, key)
 
+  @doc "Album-art URL for a track (from its Soundcharts song), or nil."
+  def cover_src(%{soundcharts_song: %{image_url: url}}) when is_binary(url) and url != "", do: url
+  def cover_src(_track), do: nil
+
   @doc "Hex color for a rating 0–10."
   def rating_color(n) when is_integer(n) and n >= 9, do: "#8b7bf0"
   def rating_color(n) when is_integer(n) and n >= 7, do: "#5ad1a0"
@@ -62,8 +66,12 @@ defmodule BeatgridWeb.UI do
   def confidence_label(:low), do: "BAIXA"
   def confidence_label(_), do: "SEM MATCH"
 
-  @doc "A stable gradient + initials cover placeholder for a track."
+  @doc """
+  Track cover: the album art (`src`) when available, falling back to a stable
+  gradient + initials placeholder (also shown if the image fails to load).
+  """
   attr :artist, :string, default: nil
+  attr :src, :string, default: nil
   attr :size, :integer, default: 38
 
   def cover(assigns) do
@@ -79,10 +87,17 @@ defmodule BeatgridWeb.UI do
 
     ~H"""
     <div
-      class="flex items-center justify-center font-semibold text-white/90 shrink-0"
+      class="relative flex shrink-0 items-center justify-center overflow-hidden font-semibold text-white/90"
       style={"width:#{@size}px;height:#{@size}px;border-radius:#{@radius}px;font-size:#{max(round(@size / 3.4), 10)}px;background:linear-gradient(135deg,#{@a},#{@b})"}
     >
       {@initials}
+      <img
+        :if={@src}
+        src={@src}
+        loading="lazy"
+        onerror="this.remove()"
+        class="absolute inset-0 h-full w-full object-cover"
+      />
     </div>
     """
   end
@@ -272,6 +287,7 @@ defmodule BeatgridWeb.UI do
   attr :audit, :string, default: nil, doc: "rename: audit flag text"
   attr :folders, :list, default: [], doc: "classification: folder options for the edit picker"
   attr :audio_src, :string, default: nil, doc: "URL to preview the track (▶ skips to 20s)"
+  attr :cover_src, :string, default: nil, doc: "album art URL"
   slot :extra, doc: "optional extra action buttons (e.g. audit-tab actions)"
 
   def suggestion_card(assigns) do
@@ -280,7 +296,7 @@ defmodule BeatgridWeb.UI do
       id={@id}
       class={["flex items-start gap-3 rounded-xl px-[14px] py-[13px]", suggestion_card_class(@status)]}
     >
-      <.cover artist={@artist} size={42} />
+      <.cover src={@cover_src} artist={@artist} size={42} />
       <button
         :if={@audio_src}
         type="button"

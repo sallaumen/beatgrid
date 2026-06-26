@@ -191,7 +191,7 @@ defmodule BeatgridWeb.RecSetLive do
                 class="flex items-center gap-3 rounded-lg bg-surface px-2.5 py-2"
               >
                 <span class="w-5 shrink-0 text-right font-mono text-[12px] text-ink-faint">{i}</span>
-                <.cover artist={t.tag_artist} size={34} />
+                <.cover src={cover_src(t)} artist={t.tag_artist} size={34} />
                 <div class="min-w-0 flex-1">
                   <p class="truncate text-body font-medium">{title(t)}</p>
                   <p class="truncate text-caption text-ink-muted">{t.tag_artist || "—"}</p>
@@ -274,7 +274,7 @@ defmodule BeatgridWeb.RecSetLive do
           phx-value-track={t.id}
           class="flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left hover:bg-surface-2"
         >
-          <.cover artist={t.tag_artist} size={30} />
+          <.cover src={cover_src(t)} artist={t.tag_artist} size={30} />
           <div class="min-w-0 flex-1">
             <p class="truncate text-body-sm font-medium">{title(t)}</p>
             <p class="truncate text-caption text-ink-muted">{t.tag_artist || "—"}</p>
@@ -301,7 +301,7 @@ defmodule BeatgridWeb.RecSetLive do
           phx-value-track={c.track.id}
           class="flex w-full items-center gap-3 rounded-lg border border-white/6 px-2.5 py-2 text-left hover:bg-surface-2"
         >
-          <.cover artist={c.track.tag_artist} size={30} />
+          <.cover src={cover_src(c.track)} artist={c.track.tag_artist} size={30} />
           <div class="min-w-0 flex-1">
             <p class="truncate text-body-sm font-medium">{title(c.track)}</p>
             <p class="truncate text-caption text-ink-muted">{c.track.tag_artist || "—"}</p>
