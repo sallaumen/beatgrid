@@ -200,6 +200,7 @@ defmodule BeatgridWeb.UI do
         />
         <.nav_item icon="hero-queue-list" label="Sets" href="/set" active={@active == :sets} />
         <.nav_item icon="hero-arrow-path" label="Jobs" href="/jobs" active={@active == :jobs} />
+        <.nav_item icon="hero-tag" label="Gêneros" href="/generos" active={@active == :generos} />
       </nav>
       <main class="min-w-0 flex-1 pb-20">{render_slot(@inner_block)}</main>
       {live_render(@socket, BeatgridWeb.PlayerLive, id: "player", sticky: true)}
