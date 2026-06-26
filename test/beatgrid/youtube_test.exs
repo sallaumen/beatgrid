@@ -140,11 +140,21 @@ defmodule Beatgrid.YouTubeTest do
       {:ok, %Response{data: song_attrs(), quota_remaining: 998, status: 200}}
     end)
 
-    expect(Beatgrid.AI.Mock, :complete, fn _p, _s, _o ->
+    stub(Beatgrid.AI.Mock, :complete, fn _p, _s, _o ->
       {:ok,
        %{
          "classifications" => [
            %{"index" => 1, "folder" => "mpb", "confidence" => 0.9, "rationale" => "r"}
+         ],
+         "resolutions" => [
+           %{
+             "index" => 1,
+             "same_recording" => true,
+             "artist" => "Casuarina",
+             "title" => "Disritmia",
+             "confidence" => 0.9,
+             "rationale" => "ok"
+           }
          ]
        }}
     end)
@@ -225,11 +235,21 @@ defmodule Beatgrid.YouTubeTest do
       {:ok, %Response{data: song_attrs(), quota_remaining: 998, status: 200}}
     end)
 
-    expect(Beatgrid.AI.Mock, :complete, fn _p, _s, _o ->
+    stub(Beatgrid.AI.Mock, :complete, fn _p, _s, _o ->
       {:ok,
        %{
          "classifications" => [
            %{"index" => 1, "folder" => "mpb", "confidence" => 0.9, "rationale" => "r"}
+         ],
+         "resolutions" => [
+           %{
+             "index" => 1,
+             "same_recording" => true,
+             "artist" => "Casuarina",
+             "title" => "Disritmia",
+             "confidence" => 0.9,
+             "rationale" => "ok"
+           }
          ]
        }}
     end)

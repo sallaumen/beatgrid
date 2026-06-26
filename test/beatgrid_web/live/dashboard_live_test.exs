@@ -106,6 +106,16 @@ defmodule BeatgridWeb.DashboardLiveTest do
        %{
          "classifications" => [
            %{"index" => 1, "folder" => "mpb", "confidence" => 0.5, "rationale" => "r"}
+         ],
+         "resolutions" => [
+           %{
+             "index" => 1,
+             "same_recording" => true,
+             "artist" => "A",
+             "title" => "B",
+             "confidence" => 0.9,
+             "rationale" => "ok"
+           }
          ]
        }}
     end)
