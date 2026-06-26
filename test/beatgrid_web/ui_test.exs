@@ -17,4 +17,21 @@ defmodule BeatgridWeb.UITest do
       assert html =~ "abc-123"
     end
   end
+
+  describe "cover_play/1" do
+    test "overlays a play button that targets the global player" do
+      html =
+        render_component(&BeatgridWeb.UI.cover_play/1,
+          play_src: "/audio/xyz",
+          track_id: "xyz",
+          artist: "Elis",
+          size: 38
+        )
+
+      assert html =~ "beatgrid:play"
+      assert html =~ "#player-audio"
+      assert html =~ "xyz"
+      assert html =~ "group-hover/cover"
+    end
+  end
 end

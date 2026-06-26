@@ -134,6 +134,42 @@ defmodule BeatgridWeb.UI do
     """
   end
 
+  @doc """
+  Album cover with a hover-reveal ▶ overlay that plays in the global player.
+  The overlay is a sibling button (never wrap it in a navigate link, or the click
+  would also navigate — keep it outside any `<.link>`).
+  """
+  attr :src, :string, default: nil, doc: "cover image URL"
+  attr :artist, :string, default: nil
+  attr :size, :integer, default: 38
+  attr :play_src, :string, required: true, doc: "the /audio/:id URL"
+  attr :track_id, :string, required: true
+  attr :preview, :boolean, default: true
+
+  def cover_play(assigns) do
+    assigns = assign(assigns, :radius, if(assigns.size > 60, do: 14, else: 7))
+
+    ~H"""
+    <div class="group/cover relative shrink-0" style={"width:#{@size}px;height:#{@size}px"}>
+      <.cover src={@src} artist={@artist} size={@size} />
+      <button
+        type="button"
+        phx-click={
+          JS.dispatch("beatgrid:play",
+            to: "#player-audio",
+            detail: %{src: @play_src, id: @track_id, preview: @preview}
+          )
+        }
+        class="absolute inset-0 hidden items-center justify-center bg-black/55 text-[12px] text-white group-hover/cover:flex"
+        style={"border-radius:#{@radius}px"}
+        title="Tocar"
+      >
+        ▶
+      </button>
+    </div>
+    """
+  end
+
   @doc "App shell: left nav rail + main content + the sticky global player."
   attr :active, :atom, default: :biblioteca
   attr :socket, Phoenix.LiveView.Socket, required: true
