@@ -175,8 +175,8 @@ defmodule BeatgridWeb.UI do
 
   defp nav_item(assigns) do
     ~H"""
-    <a
-      href={@href}
+    <.link
+      navigate={@href}
       title={@label}
       class={[
         "flex size-10 items-center justify-center rounded-md transition-colors",
@@ -185,7 +185,7 @@ defmodule BeatgridWeb.UI do
       ]}
     >
       <span class={[@icon, "size-5"]} />
-    </a>
+    </.link>
     """
   end
 
