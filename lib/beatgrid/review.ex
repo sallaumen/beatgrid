@@ -10,6 +10,7 @@ defmodule Beatgrid.Review do
   Decisions dispatch on the suggestion struct, so callers can hand a
   `RenameSuggestion` or a `MoveSuggestion` to the same function.
   """
+  alias Beatgrid.AI
   alias Beatgrid.Library
   alias Beatgrid.Library.{NameSync, RenameSuggestion, Track, Tracks}
   alias Beatgrid.Operations
@@ -20,6 +21,9 @@ defmodule Beatgrid.Review do
 
   # A classification confidence at/above this is considered "high".
   @high_confidence 0.8
+
+  # Batch size for the AI re-evaluation (mirrors AI classification batching).
+  @reevaluate_batch 15
 
   # Suggestions still in the review queue (not yet applied/undone/failed).
   @open ~w(pending approved rejected)a
@@ -129,6 +133,78 @@ defmodule Beatgrid.Review do
   end
 
   # ---- apply every approved suggestion to disk, logged & reversible ----
+
+  @doc "Re-evaluates every pending rename with the AI verifier (quota-free)."
+  @spec reevaluate_all_renames() :: {:ok, %{updated: non_neg_integer()}} | {:error, term()}
+  def reevaluate_all_renames do
+    [status: :pending, preload: [track: :soundcharts_song]] |> NameSync.list_by() |> reevaluate()
+  end
+
+  @doc "Re-evaluates the open rename suggestions whose ids are given."
+  @spec reevaluate_renames([Ecto.UUID.t()]) ::
+          {:ok, %{updated: non_neg_integer()}} | {:error, term()}
+  def reevaluate_renames(ids) when is_list(ids) do
+    set = MapSet.new(ids)
+
+    [statuses: @open, preload: [track: :soundcharts_song]]
+    |> NameSync.list_by()
+    |> Enum.filter(&MapSet.member?(set, &1.id))
+    |> reevaluate()
+  end
+
+  @doc "Re-evaluates the open rename suggestions of a single track (used after enrich)."
+  @spec reevaluate_track(Ecto.UUID.t()) :: {:ok, %{updated: non_neg_integer()}} | {:error, term()}
+  def reevaluate_track(track_id) do
+    [statuses: @open, preload: [track: :soundcharts_song]]
+    |> NameSync.list_by()
+    |> Enum.filter(&(&1.track_id == track_id))
+    |> reevaluate()
+  end
+
+  defp reevaluate([]), do: {:ok, %{updated: 0}}
+
+  defp reevaluate(suggestions) do
+    updated =
+      suggestions
+      |> Enum.chunk_every(@reevaluate_batch)
+      |> Enum.reduce(0, fn chunk, acc ->
+        case AI.resolve_names(Enum.map(chunk, & &1.track)) do
+          {:ok, results} ->
+            by_id = Map.new(results, &{&1.track.id, &1})
+            acc + Enum.count(chunk, &apply_resolution(&1, by_id[&1.track_id]))
+
+          {:error, _reason} ->
+            acc
+        end
+      end)
+
+    {:ok, %{updated: updated}}
+  end
+
+  defp apply_resolution(_suggestion, nil), do: false
+
+  defp apply_resolution(suggestion, r) do
+    ext = Path.extname(suggestion.track.filename)
+    song = suggestion.track.soundcharts_song
+
+    to =
+      if r.same_recording and song,
+        do: NameSync.canonical_filename(song.credit_name, song.name, ext),
+        else: NameSync.canonical_filename(r.artist, r.title, ext)
+
+    NameSync.refine(suggestion, %{
+      to_filename: to,
+      rationale: r.rationale,
+      confidence: confidence_atom(r.confidence)
+    })
+
+    Tracks.update(suggestion.track, %{sc_art_trusted: r.same_recording})
+    true
+  end
+
+  defp confidence_atom(c) when is_number(c) and c >= 0.8, do: :high
+  defp confidence_atom(c) when is_number(c) and c >= 0.5, do: :medium
+  defp confidence_atom(_), do: :low
 
   @doc """
   Applies all approved renames and classifications in one operations batch and

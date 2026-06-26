@@ -95,6 +95,13 @@ defmodule Beatgrid.Library.NameSync do
     |> Repo.update()
   end
 
+  @doc "Updates a pending suggestion's proposed name + AI rationale/confidence (keeps its status)."
+  @spec refine(RenameSuggestion.t(), map()) ::
+          {:ok, RenameSuggestion.t()} | {:error, Ecto.Changeset.t()}
+  def refine(suggestion, attrs) do
+    suggestion |> RenameSuggestion.changeset(attrs) |> Repo.update()
+  end
+
   @doc "Replaces a suggestion's reason (used to dismiss an audit flag)."
   @spec set_reason(RenameSuggestion.t(), String.t() | nil) ::
           {:ok, RenameSuggestion.t()} | {:error, Ecto.Changeset.t()}

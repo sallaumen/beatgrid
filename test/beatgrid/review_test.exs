@@ -2,7 +2,7 @@ defmodule Beatgrid.ReviewTest do
   # async: false — apply_approved/0 touches disk and overrides :library_root.
   use Beatgrid.DataCase, async: false
 
-  alias Beatgrid.Library.{NameSync, Tracks}
+  alias Beatgrid.Library.{NameSync, RenameSuggestion, Tracks}
   alias Beatgrid.Operations
   alias Beatgrid.Organization
   alias Beatgrid.Review
@@ -246,6 +246,66 @@ defmodule Beatgrid.ReviewTest do
       assert NameSync.get(other.id).status == :pending
       assert File.exists?(Path.join(root, "MPB/Art - One.mp3"))
       assert File.exists?(Path.join(root, "MPB/B.mp3"))
+    end
+  end
+
+  describe "reevaluate_renames/1" do
+    test "updates the suggestion + art flag from the AI verdict, no Soundcharts call" do
+      insert(:genre_folder,
+        key: "forro_roots",
+        display_name: "Forró Roots",
+        dir_name: "Forró Roots",
+        description: "raiz"
+      )
+
+      song = insert(:soundcharts_song, credit_name: "Caetano Veloso", name: "Cajuína")
+
+      track =
+        insert(:track,
+          status: :present,
+          genre_folder: "forro_roots",
+          tag_title: "Cajuina",
+          filename: "Cajuina.mp3",
+          rel_path: "_Inbox/Cajuina.mp3",
+          soundcharts_song_id: song.id,
+          sc_match_confidence: :low
+        )
+
+      {:ok, sug} =
+        %RenameSuggestion{}
+        |> RenameSuggestion.changeset(%{
+          track_id: track.id,
+          from_rel_path: track.rel_path,
+          from_filename: track.filename,
+          to_filename: "Caetano Veloso - Cajuína.mp3",
+          confidence: :low,
+          status: :pending
+        })
+        |> Repo.insert()
+
+      expect(Beatgrid.AI.Mock, :complete, fn _p, _s, _o ->
+        {:ok,
+         %{
+           "resolutions" => [
+             %{
+               "index" => 1,
+               "same_recording" => false,
+               "artist" => "Forró In The Dark",
+               "title" => "Cajuína",
+               "confidence" => 0.7,
+               "rationale" => "versão forró"
+             }
+           ]
+         }}
+      end)
+
+      assert {:ok, %{updated: 1}} = Review.reevaluate_renames([sug.id])
+
+      reloaded = Repo.get(RenameSuggestion, sug.id)
+      assert reloaded.to_filename == "Forró In The Dark - Cajuína.mp3"
+      assert reloaded.rationale =~ "forró"
+      assert reloaded.status == :pending
+      assert Tracks.get(track.id).sc_art_trusted == false
     end
   end
 
