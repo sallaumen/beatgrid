@@ -69,6 +69,28 @@ defmodule BeatgridWeb.DashboardLiveTest do
     assert html =~ "enfileirada"
   end
 
+  test "the YouTube panel enqueues downloads from pasted URLs", %{conn: conn} do
+    {:ok, view, html} = live(conn, ~p"/painel")
+    assert html =~ "Importar do YouTube"
+
+    html =
+      view
+      |> form("#youtube-form")
+      |> render_submit(%{urls: "https://y/1\nhttps://y/2"})
+
+    assert html =~ "enfileirado"
+  end
+
+  test "a youtube tick refreshes the pending-enrichment count live", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/painel")
+    assert render(view) =~ "Pendentes de enriquecimento: 0"
+
+    insert(:track, status: :present, genre_folder: nil, soundcharts_song_id: nil)
+    send(view.pid, {:youtube_tick})
+
+    assert render(view) =~ "Pendentes de enriquecimento: 1"
+  end
+
   test "an analysis tick refreshes the progress counts live", %{conn: conn} do
     track = insert(:track, status: :present)
 

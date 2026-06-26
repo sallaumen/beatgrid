@@ -24,7 +24,7 @@ config :beatgrid, :library_root, Path.expand("~/Music/DJ")
 # `soundcharts` queue is serialized (local_limit 1) to respect the API budget.
 config :beatgrid, Oban,
   repo: Beatgrid.Repo,
-  queues: [default: 10, scan: 2, soundcharts: 1, ai: 2, analysis: 2],
+  queues: [default: 10, scan: 2, soundcharts: 1, ai: 2, analysis: 2, youtube: 2],
   plugins: [{Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}]
 
 # Integration ports (ports & adapters). Tests override these with Mox mocks.
@@ -33,6 +33,7 @@ config :beatgrid, Beatgrid.Soundcharts.Client, adapter: Beatgrid.Soundcharts.Htt
 config :beatgrid, Beatgrid.AI.Client, adapter: Beatgrid.AI.ClaudeCli
 config :beatgrid, Beatgrid.Tagging.Writer, adapter: Beatgrid.Tagging.Ffmpeg
 config :beatgrid, Beatgrid.Audio.Analyzer, adapter: Beatgrid.Audio.LibrosaCli
+config :beatgrid, Beatgrid.YouTube.Downloader, adapter: Beatgrid.YouTube.YtDlp
 
 # AI classifier: which `claude` model and how many tracks per classification call.
 config :beatgrid, Beatgrid.AI, model: "sonnet", batch_size: 15

@@ -4,12 +4,16 @@ defmodule BeatgridWeb.DashboardLive do
 
   import BeatgridWeb.UI
 
-  alias Beatgrid.{AI, Analysis, Repertoire}
+  alias Beatgrid.{AI, Analysis, Repertoire, YouTube}
   alias Beatgrid.Library.GenreFolders
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: Analysis.subscribe()
+    if connected?(socket) do
+      Analysis.subscribe()
+      YouTube.subscribe()
+    end
+
     folders = GenreFolders.list()
 
     {:ok,
@@ -22,6 +26,8 @@ defmodule BeatgridWeb.DashboardLive do
        decades: Repertoire.decade_distribution() |> Enum.sort_by(fn {d, _} -> d end),
        analysis: Analysis.progress(),
        analysis_note: nil,
+       youtube_pending: YouTube.pending_count(),
+       youtube_note: nil,
        folders: folders,
        gaps_folder: folders |> List.first() |> then(&(&1 && &1.key)),
        gaps: nil,
@@ -40,6 +46,17 @@ defmodule BeatgridWeb.DashboardLive do
         else: "Tudo já analisado. ✔"
 
     {:noreply, assign(socket, analysis: Analysis.progress(), analysis_note: note)}
+  end
+
+  def handle_event("download_youtube", %{"urls" => urls}, socket) do
+    {:ok, n} = YouTube.enqueue(urls)
+
+    note =
+      if n > 0,
+        do: "#{n} download(s) enfileirado(s) — baixando em segundo plano…",
+        else: "Cole ao menos uma URL do YouTube."
+
+    {:noreply, assign(socket, youtube_note: note)}
   end
 
   def handle_event("select_folder", %{"folder" => key}, socket) do
@@ -71,6 +88,10 @@ defmodule BeatgridWeb.DashboardLive do
   @impl true
   def handle_info({:analysis_tick}, socket) do
     {:noreply, assign(socket, analysis: Analysis.progress())}
+  end
+
+  def handle_info({:youtube_tick}, socket) do
+    {:noreply, assign(socket, youtube_pending: YouTube.pending_count())}
   end
 
   # --- helpers ---
@@ -151,6 +172,29 @@ defmodule BeatgridWeb.DashboardLive do
                 Analisar faltantes ({max(@analysis.total - @analysis.analyzed, 0)})
               </button>
             </div>
+          </.panel>
+
+          <.panel title="Importar do YouTube">
+            <form id="youtube-form" phx-submit="download_youtube" class="space-y-2">
+              <textarea
+                name="urls"
+                rows="3"
+                placeholder="Cole URLs do YouTube (uma por linha) ou uma URL de playlist…"
+                class="w-full rounded-md border border-white/8 bg-input px-3 py-2 text-body-sm focus:border-primary/50 focus:outline-none"
+              ></textarea>
+              <div class="flex items-center justify-between gap-3">
+                <span class="text-caption text-ink-muted">
+                  Pendentes de enriquecimento: {@youtube_pending}
+                </span>
+                <button class="rounded-md bg-primary px-3.5 py-1.5 text-body-sm font-semibold text-white">
+                  Baixar
+                </button>
+              </div>
+              <p :if={@youtube_note} class="text-caption text-ink-muted">{@youtube_note}</p>
+            </form>
+            <p class="mt-1 text-caption text-ink-faint">
+              Baixar é offline (não gasta cota). Depois enriqueça os metadados e revise na Central de Revisão.
+            </p>
           </.panel>
 
           <div class="grid grid-cols-1 gap-5 lg:grid-cols-2">
