@@ -5,8 +5,8 @@ defmodule Beatgrid.JobsTest do
   alias Beatgrid.Workers.DownloadWorker
 
   defp insert_job(args, state \\ "available") do
-    %{}
-    |> DownloadWorker.new(args: args)
+    args
+    |> DownloadWorker.new()
     |> Oban.insert!()
     |> Ecto.Changeset.change(state: state)
     |> Beatgrid.Repo.update!()
@@ -19,6 +19,7 @@ defmodule Beatgrid.JobsTest do
     ids = Jobs.list_recent() |> Enum.map(& &1.id)
     assert hd(ids) == new.id
     assert length(ids) == 2
+    assert Beatgrid.Jobs.list_recent() |> hd() |> Map.fetch!(:args) == %{"url" => "https://y/2"}
   end
 
   test "list_recent filters by state" do
