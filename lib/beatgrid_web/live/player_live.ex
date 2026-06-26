@@ -128,12 +128,15 @@ defmodule BeatgridWeb.PlayerLive do
             a.addEventListener("beatgrid:play", (e) => {
               a.src = e.detail.src
               a.load()
+              if (a._pendingStart) a.removeEventListener("loadedmetadata", a._pendingStart)
               const start = () => {
                 const durMs = (a.duration || 0) * 1000
                 a.currentTime = (e.detail.preview && durMs >= minDur) ? offset / 1000 : 0
                 a.play()
                 a.removeEventListener("loadedmetadata", start)
+                a._pendingStart = null
               }
+              a._pendingStart = start
               a.addEventListener("loadedmetadata", start)
               this.pushEvent("now_playing", {id: e.detail.id})
             })
