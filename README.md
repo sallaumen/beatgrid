@@ -37,10 +37,12 @@ file-system change is **proposed first, applied in a batch, and reversible**.
 | **Enrich (Soundcharts)** | Resolves each track to a Soundcharts song and pulls BPM, musical key (Camelot), energy/valence/danceability, genres, ISRC, label, year. Quota-aware budget guard. |
 | **Name-sync** | Proposes canonical `Artist - Title.mp3` file names from the matched metadata, with a match-confidence level. |
 | **AI classification** | Classifies every track into the right genre folder via the `claude` CLI (structured JSON output), producing reviewable suggestions. |
+| **Local audio analysis** | Offline BPM + musical key (Camelot) per track via a `librosa` script — independent of Soundcharts, so unmatched tracks still get key/BPM and you can sanity-check suspicious API values. Auto-runs on first open of a track. |
+| **YouTube import** | Paste video URLs or a playlist in the Painel to download audio (`yt-dlp`) into `_Inbox`, with a heuristic artist/title parsed from the video title — then enrich + organize through the normal review flow. Downloading is offline (no API quota). |
 | **Harmonic mixing** | "Next ideal track" suggestions using the Camelot wheel (compatible keys + nearby BPM). |
-| **Review & apply** | A LiveView **Central de Revisão**: approve / edit / reject rename, classification, and audit suggestions, then apply the approved batch to disk — with an ID3 genre write and full **undo**. |
-| **Analytics** | A **Painel** dashboard: headline KPIs, genre/decade distribution, top artists, BPM histogram, and AI repertoire-gap suggestions. |
-| **Set-builder (REC SET)** | Assemble a harmonic set — seed track → ranked harmonic candidates → append or auto-fill — and export it as an `.m3u` playlist Serato/VLC read directly. |
+| **Review & apply** | A LiveView **Central de Revisão**: select rename / classification / audit suggestions with checkboxes, then apply the batch to disk — with an ID3 genre write and full **undo**. |
+| **Analytics** | A **Painel** dashboard: headline KPIs, genre/decade distribution, top artists, BPM histogram, AI repertoire-gap suggestions, bulk audio-analysis, and YouTube import. |
+| **Set-builder (REC SET)** | Assemble a **scored** set (style affinity + Camelot harmony + an energy arc of manual sections — abertura → pico → queda), audition tracks inline, and export to an `.m3u` playlist Serato/VLC read directly. A backend-driven "Critérios" modal shows the exact scoring weights and the style-affinity matrix. |
 
 ### The review workflow
 
@@ -78,6 +80,11 @@ Architecture & Quality Playbook in `docs/playbook/`):
   | `Beatgrid.Soundcharts.Client` | `Soundcharts.Http` (Req) | `Soundcharts.Mock` |
   | `Beatgrid.AI.Client` | `AI.ClaudeCli` (`claude` CLI) | `AI.Mock` |
   | `Beatgrid.Tagging.Writer` | `Tagging.Ffmpeg` (ffmpeg `-c copy`) | `Tagging.Mock` |
+  | `Beatgrid.Audio.Analyzer` | `Audio.LibrosaCli` (Python + librosa) | `Audio.AnalyzerMock` |
+  | `Beatgrid.YouTube.Downloader` | `YouTube.YtDlp` (`yt-dlp`) | `YouTube.DownloaderMock` |
+
+  CLI adapters (`claude`, `yt-dlp`) run with stdin from `/dev/null` and a timeout,
+  so a CLI can never hang the caller.
 
 - **Errors as data** — functions return `{:ok, _}` / `{:error, reason}`; batch
   operations report `%{applied: n, failed: m}` and never abort on one failure.
@@ -93,20 +100,34 @@ Architecture & Quality Playbook in `docs/playbook/`):
 
 Elixir 1.19 / OTP 27 · Phoenix 1.8 · Phoenix LiveView 1.2 · Ecto · PostgreSQL ·
 Oban · Tailwind CSS v4 + daisyUI · heroicons · Req · Mox · ExMachina · Credo ·
-Sobelow · Dialyzer. External tools: `ffmpeg`/`ffprobe` (metadata + tagging) and
-the `claude` CLI (AI classification).
+Sobelow · Dialyzer. External tools: `ffmpeg`/`ffprobe` (metadata + tagging),
+the `claude` CLI (AI), `yt-dlp` (YouTube import), and Python + `librosa`
+(offline BPM/key analysis). See **Requirements** below.
 
 ---
 
 ## Getting started
 
-### Prerequisites
+### Requirements
 
-- Elixir 1.19 / Erlang OTP 27 (via asdf — see `.tool-versions`)
-- Docker (Postgres runs via `docker compose`, dev + test on port `5434`)
-- `ffmpeg` / `ffprobe` on your `PATH` (metadata reads + ID3 writes)
-- *(optional)* the `claude` CLI, for AI classification
-- *(optional)* Soundcharts API credentials, for metadata enrichment
+Beatgrid shells out to a few external tools. Only the first three are needed to
+run the app; the rest unlock individual features and the app degrades gracefully
+without them. **Every external tool is mocked in the test suite, so `mix test`
+needs none of them.**
+
+| Tool | Required? | Used for | Install (macOS) |
+| --- | --- | --- | --- |
+| Elixir 1.19 / Erlang OTP 27 | **Required** | the app itself (via asdf — see `.tool-versions`) | `asdf install` |
+| Docker | **Required** | PostgreSQL for dev + test, via `docker compose` (port `5434`) | [docker.com](https://docs.docker.com/get-docker/) |
+| `ffmpeg` / `ffprobe` | **Required** | reading metadata, ID3 genre write-back, audio extraction | `brew install ffmpeg` |
+| `yt-dlp` | Feature | importing tracks from YouTube (download + audio extraction) | `brew install yt-dlp` |
+| Python 3 + `librosa` | Feature | offline BPM + musical-key (Camelot) analysis | `pip install librosa` |
+| `claude` CLI | Feature | AI genre classification, repertoire-gap ideas, YouTube title parsing | [Claude Code](https://claude.com/claude-code) (a Max plan or API key) |
+| Soundcharts API key | Feature | metadata enrichment (BPM, key, energy, genres, year…) | set `SOUNDCHARTS_*` in `.env` |
+
+"Feature" = optional: the app boots and the rest works, but that one feature is
+unavailable until the tool is installed/configured. The `yt-dlp` and Python
+executables are configurable if they aren't on `PATH` (see `config/config.exs`).
 
 ### Setup
 
@@ -114,13 +135,17 @@ the `claude` CLI (AI classification).
 # 1. Start Postgres (dev + test, port 5434)
 docker compose up -d
 
-# 2. Configure secrets (optional — only for enrichment / AI-via-API)
+# 2. Configure secrets (optional — only for enrichment)
 cp .env.example .env   # then fill in SOUNDCHARTS_* if you use enrichment
 
 # 3. Install deps, create + migrate the DB, seed the genre folders, build assets
 mix setup
 
-# 4. Run it
+# 4. (optional) feature tools
+brew install ffmpeg yt-dlp   # ffmpeg required; yt-dlp for YouTube import
+pip install librosa          # offline BPM/key analysis
+
+# 5. Run it
 mix phx.server          # http://localhost:4000
 ```
 
@@ -147,12 +172,15 @@ lib/
     soundcharts/            # enrichment client (port + HTTP adapter)
     ai/                     # AI classification (port + claude-CLI adapter)
     tagging/                # ID3 genre write-back (port + ffmpeg adapter)
+    audio/                  # offline analysis (port + librosa adapter) + ffprobe
+    analysis.ex             # local BPM/key detection orchestration
+    youtube.ex              # YouTube import (+ youtube/: yt-dlp adapter, title parser)
     operations.ex           # unified, reversible disk-mutation log
     review.ex               # Central de Revisão orchestration (decide → apply)
-    mixing.ex               # Camelot-wheel harmonic next-track
+    mixing.ex               # scored set engine (style + harmony + intensity) + style matrix
     sets.ex                 # REC SET set-builder (+ sets/ schemas, M3U export)
     repertoire.ex           # dashboard analytics
-    workers/                # Oban background jobs
+    workers/                # Oban background jobs (scan, soundcharts, ai, analysis, youtube)
   beatgrid_web/
     live/                   # LiveViews: Biblioteca, Detalhe, Revisão, Painel, REC SET
     ui.ex                   # design-system components (cards, chips, badges)
@@ -166,7 +194,9 @@ test/                       # ExUnit + Mox + ExMachina factories
 ## Status
 
 The full pipeline is in place: library management, de-dup, organization,
-Soundcharts enrichment, AI classification, the **Central de Revisão** review
-surface, the **Painel** dashboard, and the **REC SET** harmonic set-builder.
+Soundcharts enrichment, AI classification, offline BPM/key analysis, the
+**Central de Revisão** review surface, the **Painel** dashboard, the **REC SET**
+scored set-builder, and YouTube import (download today; one-click metadata
+enrichment is in progress).
 
 A personal project — built for one DJ's bag.
