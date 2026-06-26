@@ -161,6 +161,18 @@ defmodule Beatgrid.Review do
     |> reevaluate()
   end
 
+  @doc "Re-evaluates the open(pending) rename suggestions of several tracks in one batch."
+  @spec reevaluate_tracks([Ecto.UUID.t()]) ::
+          {:ok, %{updated: non_neg_integer()}} | {:error, term()}
+  def reevaluate_tracks(track_ids) when is_list(track_ids) do
+    set = MapSet.new(track_ids)
+
+    [status: :pending, preload: [track: :soundcharts_song]]
+    |> NameSync.list_by()
+    |> Enum.filter(&MapSet.member?(set, &1.track_id))
+    |> reevaluate()
+  end
+
   defp reevaluate([]), do: {:ok, %{updated: 0}}
 
   defp reevaluate(suggestions) do

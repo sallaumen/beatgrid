@@ -122,7 +122,7 @@ defmodule Beatgrid.YouTube do
     refine_titles(ids)
     Enum.each(ids, fn id -> id |> Tracks.get() |> Soundcharts.resolve_track() end)
     Enum.each(ids, &repropose_if_matched/1)
-    Enum.each(ids, &Review.reevaluate_track/1)
+    Review.reevaluate_tracks(ids)
     AI.reclassify(tracks: Enum.map(ids, &Tracks.get/1))
 
     resolved = Enum.count(ids, &(Tracks.get(&1).soundcharts_song_id != nil))
