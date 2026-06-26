@@ -37,8 +37,15 @@ defmodule BeatgridWeb.UI do
   def folder_label(nil), do: "—"
   def folder_label(key), do: Map.get(@folder_labels, key, key)
 
-  @doc "Album-art URL for a track (from its Soundcharts song), or nil."
-  def cover_src(%{soundcharts_song: %{image_url: url}}) when is_binary(url) and url != "", do: url
+  @doc "Album-art URL for a track — only when the match is trusted (art) and not low-confidence."
+  def cover_src(%{
+        soundcharts_song: %{image_url: url},
+        sc_art_trusted: trusted,
+        sc_match_confidence: conf
+      })
+      when is_binary(url) and url != "" and trusted != false and conf != :low,
+      do: url
+
   def cover_src(_track), do: nil
 
   @doc "Hex color for a rating 0–10."

@@ -18,6 +18,37 @@ defmodule BeatgridWeb.UITest do
     end
   end
 
+  describe "cover_src/1 art trust" do
+    test "shows art only when trusted and confidence isn't low" do
+      song = %{image_url: "https://img/x.jpg"}
+
+      assert BeatgridWeb.UI.cover_src(%{
+               soundcharts_song: song,
+               sc_art_trusted: true,
+               sc_match_confidence: :high
+             }) ==
+               "https://img/x.jpg"
+
+      assert BeatgridWeb.UI.cover_src(%{
+               soundcharts_song: song,
+               sc_art_trusted: false,
+               sc_match_confidence: :high
+             }) == nil
+
+      assert BeatgridWeb.UI.cover_src(%{
+               soundcharts_song: song,
+               sc_art_trusted: true,
+               sc_match_confidence: :low
+             }) == nil
+
+      assert BeatgridWeb.UI.cover_src(%{
+               soundcharts_song: nil,
+               sc_art_trusted: true,
+               sc_match_confidence: :high
+             }) == nil
+    end
+  end
+
   describe "cover_play/1" do
     test "overlays a play button that targets the global player" do
       html =
