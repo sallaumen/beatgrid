@@ -61,11 +61,27 @@ defmodule Beatgrid.YouTubeTest do
     assert Tracks.get_by_path("_Inbox/abc.mp3").tag_artist == "Luiz Gonzaga"
   end
 
-  test "enqueue schedules one job per non-blank URL line" do
+  test "enqueue schedules one ExpandWorker per non-blank URL line" do
     assert {:ok, 2} = YouTube.enqueue("https://y/1\n\n  https://y/2  \n")
 
-    urls = all_enqueued(worker: DownloadWorker) |> Enum.map(& &1.args["url"]) |> Enum.sort()
+    urls =
+      all_enqueued(worker: Beatgrid.Workers.ExpandWorker)
+      |> Enum.map(& &1.args["url"])
+      |> Enum.sort()
+
     assert urls == ["https://y/1", "https://y/2"]
+  end
+
+  @tag :tmp_dir
+  test "download_and_ingest records the source playlist URL when given one" do
+    stub_metadata()
+    expect_download("Djavan - Sina (Official Video)")
+
+    assert {:ok, 1} = YouTube.download_and_ingest("https://y/abc", "https://y/playlist")
+
+    t = Tracks.get_by_path("_Inbox/abc.mp3")
+    assert t.raw_tags["youtube_playlist_url"] == "https://y/playlist"
+    assert t.raw_tags["youtube_url"] == "https://y/abc"
   end
 
   test "pending_count counts only downloaded-but-unenriched tracks" do

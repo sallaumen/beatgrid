@@ -8,8 +8,8 @@ defmodule Beatgrid.Workers.DownloadWorker do
   alias Beatgrid.YouTube
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"url" => url}}) do
-    case YouTube.download_and_ingest(url) do
+  def perform(%Oban.Job{args: %{"url" => url} = args}) do
+    case YouTube.download_and_ingest(url, args["playlist_url"]) do
       {:ok, _count} ->
         YouTube.broadcast_tick()
         :ok

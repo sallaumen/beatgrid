@@ -10,7 +10,7 @@ defmodule Beatgrid.YouTube do
   """
   alias Beatgrid.{AI, Library, Soundcharts}
   alias Beatgrid.Library.{FileInfo, NameSync, Tracks}
-  alias Beatgrid.Workers.DownloadWorker
+  alias Beatgrid.Workers.{DownloadWorker, ExpandWorker}
   alias Beatgrid.YouTube.TitleParser
 
   @adapter Application.compile_env(
@@ -39,7 +39,7 @@ defmodule Beatgrid.YouTube do
 
   def enqueue(urls) when is_list(urls) do
     urls = urls |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
-    Enum.each(urls, fn url -> %{url: url} |> DownloadWorker.new() |> Oban.insert() end)
+    Enum.each(urls, fn url -> %{url: url} |> ExpandWorker.new() |> Oban.insert() end)
     {:ok, length(urls)}
   end
 
@@ -68,12 +68,13 @@ defmodule Beatgrid.YouTube do
   Downloads a URL (video or playlist) and ingests each resulting file into `_Inbox`.
   Returns `{:ok, ingested_count}` or the downloader's `{:error, reason}`.
   """
-  @spec download_and_ingest(String.t()) :: {:ok, non_neg_integer()} | {:error, term()}
-  def download_and_ingest(url) do
+  @spec download_and_ingest(String.t(), String.t() | nil) ::
+          {:ok, non_neg_integer()} | {:error, term()}
+  def download_and_ingest(url, playlist_url \\ nil) do
     dest = Path.join(Library.library_root(), "_Inbox")
 
     with {:ok, items} <- @adapter.download(url, dest) do
-      ingested = items |> Enum.map(&ingest/1) |> Enum.count(&match?({:ok, _}, &1))
+      ingested = items |> Enum.map(&ingest(&1, playlist_url)) |> Enum.count(&match?({:ok, _}, &1))
       {:ok, ingested}
     end
   end
@@ -125,9 +126,12 @@ defmodule Beatgrid.YouTube do
     if track && track.soundcharts_song_id, do: NameSync.repropose(track)
   end
 
-  defp ingest(%{path: path, title: title, url: url}) do
+  defp ingest(%{path: path, title: title, url: url}, playlist_url) do
     parsed = TitleParser.parse(title)
     file = FileInfo.read(path)
+
+    yt = %{"youtube_title" => title, "youtube_url" => url}
+    yt = if playlist_url, do: Map.put(yt, "youtube_playlist_url", playlist_url), else: yt
 
     file
     |> Map.merge(%{
@@ -137,8 +141,7 @@ defmodule Beatgrid.YouTube do
       last_scanned_at: DateTime.truncate(DateTime.utc_now(), :second),
       tag_artist: parsed.artist,
       tag_title: parsed.title,
-      raw_tags:
-        Map.merge(file[:raw_tags] || %{}, %{"youtube_title" => title, "youtube_url" => url})
+      raw_tags: Map.merge(file[:raw_tags] || %{}, yt)
     })
     |> Tracks.upsert_by_path()
   end
