@@ -338,6 +338,7 @@ defmodule BeatgridWeb.ReviewLive do
               >
                 <:extra>
                   <button
+                    :if={s.status == :pending}
                     phx-click="reevaluate_one"
                     phx-value-id={s.id}
                     class="rounded-md bg-input px-2.5 py-1 text-[11px] text-ink-muted hover:text-ink"

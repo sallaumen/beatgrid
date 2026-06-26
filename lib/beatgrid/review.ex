@@ -140,7 +140,7 @@ defmodule Beatgrid.Review do
     [status: :pending, preload: [track: :soundcharts_song]] |> NameSync.list_by() |> reevaluate()
   end
 
-  @doc "Re-evaluates the open rename suggestions whose ids are given."
+  @doc "Re-evaluates the pending rename suggestions whose ids are given."
   @spec reevaluate_renames([Ecto.UUID.t()]) ::
           {:ok, %{updated: non_neg_integer()}} | {:error, term()}
   def reevaluate_renames(ids) when is_list(ids) do
@@ -152,7 +152,7 @@ defmodule Beatgrid.Review do
     |> reevaluate()
   end
 
-  @doc "Re-evaluates the open rename suggestions of a single track (used after enrich)."
+  @doc "Re-evaluates the pending rename suggestions of a single track (used after enrich)."
   @spec reevaluate_track(Ecto.UUID.t()) :: {:ok, %{updated: non_neg_integer()}} | {:error, term()}
   def reevaluate_track(track_id) do
     [status: :pending, preload: [track: :soundcharts_song]]
@@ -161,7 +161,7 @@ defmodule Beatgrid.Review do
     |> reevaluate()
   end
 
-  @doc "Re-evaluates the open(pending) rename suggestions of several tracks in one batch."
+  @doc "Re-evaluates the pending rename suggestions of several tracks in one batch."
   @spec reevaluate_tracks([Ecto.UUID.t()]) ::
           {:ok, %{updated: non_neg_integer()}} | {:error, term()}
   def reevaluate_tracks(track_ids) when is_list(track_ids) do
