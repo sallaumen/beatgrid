@@ -33,9 +33,9 @@ defmodule BeatgridWeb.PlayerLiveTest do
 
   describe "sticky mount" do
     test "the global player is rendered on each page", %{conn: conn} do
-      insert(:track, status: :present)
+      track = insert(:track, status: :present)
 
-      for path <- ["/", "/revisao", "/painel", "/set"] do
+      for path <- ["/", "/revisao", "/painel", "/set", "/track/#{track.id}"] do
         {:ok, _view, html} = live(conn, path)
         assert html =~ ~s(id="player-audio")
       end

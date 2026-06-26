@@ -130,7 +130,7 @@ defmodule BeatgridWeb.UI do
         />
         <.nav_item icon="hero-queue-list" label="Sets" href="/set" active={@active == :sets} />
       </nav>
-      <main class="min-w-0 flex-1 pb-16">{render_slot(@inner_block)}</main>
+      <main class="min-w-0 flex-1 pb-20">{render_slot(@inner_block)}</main>
       {live_render(@socket, BeatgridWeb.PlayerLive, id: "player", sticky: true)}
     </div>
     """
