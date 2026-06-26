@@ -102,6 +102,38 @@ defmodule BeatgridWeb.UI do
     """
   end
 
+  @doc """
+  A round ▶ button that plays a track in the global player (`#player-audio`).
+  `preview` jumps to the backend-configured offset; otherwise it starts at 0.
+  """
+  attr :src, :string, required: true, doc: "the /audio/:id URL"
+  attr :track_id, :string, required: true, doc: "track id, for the now-playing lookup"
+  attr :preview, :boolean, default: false
+  attr :size, :integer, default: 28
+  attr :class, :string, default: nil
+
+  def play_button(assigns) do
+    ~H"""
+    <button
+      type="button"
+      phx-click={
+        JS.dispatch("beatgrid:play",
+          to: "#player-audio",
+          detail: %{src: @src, id: @track_id, preview: @preview}
+        )
+      }
+      class={[
+        "flex shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary hover:bg-primary/25",
+        @class
+      ]}
+      style={"width:#{@size}px;height:#{@size}px;font-size:#{max(round(@size / 2.6), 10)}px"}
+      title="Tocar"
+    >
+      ▶
+    </button>
+    """
+  end
+
   @doc "App shell: left nav rail + main content + the sticky global player."
   attr :active, :atom, default: :biblioteca
   attr :socket, Phoenix.LiveView.Socket, required: true
