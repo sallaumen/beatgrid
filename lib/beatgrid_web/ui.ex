@@ -378,14 +378,16 @@ defmodule BeatgridWeb.UI do
         suggestion_card_class(@selected, @status)
       ]}
     >
-      <.cover src={@cover_src} artist={@artist} size={42} />
-      <.play_button
+      <.cover_play
         :if={@audio_src && @track_id}
-        src={@audio_src}
+        src={@cover_src}
+        artist={@artist}
+        size={42}
+        play_src={@audio_src}
         track_id={@track_id}
         preview={true}
-        size={32}
       />
+      <.cover :if={!(@audio_src && @track_id)} src={@cover_src} artist={@artist} size={42} />
       <div class="min-w-0 flex-1">
         <p class="truncate text-body font-medium">{@title}</p>
         <p :if={@artist} class="text-ink-muted truncate text-caption">{@artist}</p>
