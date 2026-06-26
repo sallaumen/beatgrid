@@ -207,6 +207,48 @@ defmodule Beatgrid.ReviewTest do
     end
   end
 
+  describe "apply_selected/1" do
+    test "with no ids applies nothing" do
+      assert {:ok, %{applied: 0, failed: 0}} = Review.apply_selected([])
+    end
+
+    @tag :tmp_dir
+    test "applies only the chosen suggestions, leaving the rest pending", %{tmp_dir: root} do
+      File.mkdir_p!(Path.join(root, "MPB"))
+      File.write!(Path.join(root, "MPB/A.mp3"), "a")
+      File.write!(Path.join(root, "MPB/B.mp3"), "b")
+
+      s1 = insert(:soundcharts_song, credit_name: "Art", name: "One")
+      s2 = insert(:soundcharts_song, credit_name: "Art", name: "Two")
+
+      insert(:track,
+        rel_path: "MPB/A.mp3",
+        filename: "A.mp3",
+        genre_folder: "mpb",
+        soundcharts_song_id: s1.id,
+        sc_match_confidence: :high
+      )
+
+      insert(:track,
+        rel_path: "MPB/B.mp3",
+        filename: "B.mp3",
+        genre_folder: "mpb",
+        soundcharts_song_id: s2.id,
+        sc_match_confidence: :high
+      )
+
+      {:ok, _} = NameSync.propose()
+      [chosen, other] = NameSync.list_by(status: :pending) |> Enum.sort_by(& &1.from_filename)
+
+      assert {:ok, %{applied: 1, failed: 0}} = Review.apply_selected([chosen.id])
+
+      assert NameSync.get(chosen.id).status == :applied
+      assert NameSync.get(other.id).status == :pending
+      assert File.exists?(Path.join(root, "MPB/Art - One.mp3"))
+      assert File.exists?(Path.join(root, "MPB/B.mp3"))
+    end
+  end
+
   describe "apply_approved/0 + Operations.undo_batch/1" do
     @tag :tmp_dir
     test "applies approved rename + classification to disk, tags the genre, all reversible",

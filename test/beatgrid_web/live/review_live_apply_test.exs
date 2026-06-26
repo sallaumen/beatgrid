@@ -57,10 +57,16 @@ defmodule BeatgridWeb.ReviewLiveApplyTest do
 
     {:ok, view, _html} = live(conn, ~p"/revisao")
 
-    # approve the rename (Renomeações tab), then the classification (Classificação tab)
-    view |> element("button[phx-click=approve][phx-value-id='#{rename.id}']") |> render_click()
+    # mark the rename (Renomeações tab), then the classification (Classificação tab)
+    view
+    |> element("button[phx-click=toggle_select][phx-value-id='#{rename.id}']")
+    |> render_click()
+
     view |> element("button[phx-value-tab=classifications]") |> render_click()
-    view |> element("button[phx-click=approve][phx-value-id='#{move.id}']") |> render_click()
+
+    view
+    |> element("button[phx-click=toggle_select][phx-value-id='#{move.id}']")
+    |> render_click()
 
     # apply to disk (async)
     apply_html =

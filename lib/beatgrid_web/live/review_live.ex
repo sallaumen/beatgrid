@@ -17,6 +17,7 @@ defmodule BeatgridWeb.ReviewLive do
        editing: nil,
        toast: nil,
        applying?: false,
+       selected: MapSet.new(),
        folders: GenreFolders.list()
      )
      |> load()}
@@ -36,18 +37,31 @@ defmodule BeatgridWeb.ReviewLive do
     {:noreply, assign(socket, tab: tab_atom(tab), editing: nil)}
   end
 
-  # --- per-card decisions (toggle back to pending on a repeat click) ---
+  # --- selection (ephemeral; no DB writes, so the list never reorders) ---
 
-  def handle_event("approve", %{"id" => id, "type" => type}, socket) do
-    s = find(socket, id, type)
-    if s.status == :approved, do: Review.reset(s), else: Review.approve(s)
-    {:noreply, load(socket)}
+  def handle_event("toggle_select", %{"id" => id}, socket) do
+    {:noreply, update(socket, :selected, &toggle(&1, id))}
   end
+
+  def handle_event("select_all", _params, socket) do
+    ids = socket.assigns |> tab_items() |> Enum.map(& &1.id)
+    {:noreply, update(socket, :selected, &MapSet.union(&1, MapSet.new(ids)))}
+  end
+
+  def handle_event("select_high", _params, socket) do
+    ids = socket.assigns |> tab_items() |> Enum.filter(&high_confidence?/1) |> Enum.map(& &1.id)
+    {:noreply, update(socket, :selected, &MapSet.union(&1, MapSet.new(ids)))}
+  end
+
+  def handle_event("clear_selection", _params, socket),
+    do: {:noreply, assign(socket, selected: MapSet.new())}
+
+  # --- per-card decisions ---
 
   def handle_event("reject", %{"id" => id, "type" => type}, socket) do
     s = find(socket, id, type)
     if s.status == :rejected, do: Review.reset(s), else: Review.reject(s)
-    {:noreply, load(socket)}
+    {:noreply, socket |> update(:selected, &MapSet.delete(&1, id)) |> load()}
   end
 
   def handle_event("edit_start", %{"id" => id}, socket),
@@ -57,12 +71,7 @@ defmodule BeatgridWeb.ReviewLive do
 
   def handle_event("edit_save", %{"sid" => id, "type" => type, "value" => value}, socket) do
     Review.edit(find(socket, id, type), value)
-    {:noreply, socket |> assign(editing: nil) |> load()}
-  end
-
-  def handle_event("approve_high", _params, socket) do
-    Review.approve_high_confidence(high_tab(socket.assigns.tab))
-    {:noreply, load(socket)}
+    {:noreply, socket |> assign(editing: nil) |> update(:selected, &MapSet.put(&1, id)) |> load()}
   end
 
   # --- audit-tab actions ---
@@ -96,10 +105,12 @@ defmodule BeatgridWeb.ReviewLive do
   # --- apply to disk + undo (async so the UI stays responsive) ---
 
   def handle_event("apply", _params, socket) do
+    ids = MapSet.to_list(socket.assigns.selected)
+
     {:noreply,
      socket
      |> assign(applying?: true, toast: nil)
-     |> start_async(:apply, &Review.apply_approved/0)}
+     |> start_async(:apply, fn -> Review.apply_selected(ids) end)}
   end
 
   def handle_event("undo", %{"batch" => batch}, socket) do
@@ -113,7 +124,10 @@ defmodule BeatgridWeb.ReviewLive do
 
   @impl true
   def handle_async(:apply, {:ok, {:ok, result}}, socket) do
-    {:noreply, socket |> assign(applying?: false, toast: {:applied, result}) |> load()}
+    {:noreply,
+     socket
+     |> assign(applying?: false, selected: MapSet.new(), toast: {:applied, result})
+     |> load()}
   end
 
   def handle_async(:undo, {:ok, {:ok, result}}, socket) do
@@ -143,19 +157,23 @@ defmodule BeatgridWeb.ReviewLive do
   defp tab_atom("auditoria"), do: :auditoria
   defp tab_atom(_), do: :renames
 
-  defp high_tab(:classifications), do: :classifications
-  defp high_tab(_), do: :renames
-
   defp rename_items(:auditoria, renames), do: Enum.filter(renames, &audit_flag(&1.reason))
   defp rename_items(_tab, renames), do: renames
 
   defp current_items(:classifications, _renames, classifications), do: classifications
   defp current_items(tab, renames, _classifications), do: rename_items(tab, renames)
 
-  defp approved_total(renames, classifications) do
-    Enum.count(renames, &(&1.status == :approved)) +
-      Enum.count(classifications, &(&1.status == :approved))
+  defp tab_items(assigns),
+    do: current_items(assigns.tab, assigns.renames, assigns.classifications)
+
+  defp toggle(set, id) do
+    if MapSet.member?(set, id), do: MapSet.delete(set, id), else: MapSet.put(set, id)
   end
+
+  # high-confidence = rename match :high, or classification score >= 0.8
+  defp high_confidence?(%{confidence: :high}), do: true
+  defp high_confidence?(%{confidence: c}) when is_float(c), do: c >= 0.8
+  defp high_confidence?(_), do: false
 
   defp audit_flag(reason) when is_binary(reason) do
     case Regex.run(~r/^\[audit:([^\]]+)\]/, reason) do
@@ -191,19 +209,33 @@ defmodule BeatgridWeb.ReviewLive do
             <div class="flex items-center gap-2">
               <button
                 :if={@tab != :auditoria}
-                phx-click="approve_high"
+                phx-click="select_high"
                 class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm text-ink-secondary hover:text-ink"
               >
-                Aprovar todas de alta confiança
+                Marcar alta confiança
+              </button>
+              <button
+                :if={@tab != :auditoria}
+                phx-click="select_all"
+                class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm text-ink-secondary hover:text-ink"
+              >
+                Marcar todas
+              </button>
+              <button
+                :if={MapSet.size(@selected) > 0}
+                phx-click="clear_selection"
+                class="rounded-md px-2.5 py-1.5 text-body-sm text-ink-muted hover:text-ink"
+              >
+                Limpar
               </button>
               <button
                 phx-click="apply"
-                disabled={@applying? or approved_total(@renames, @classifications) == 0}
+                disabled={@applying? or MapSet.size(@selected) == 0}
                 class="rounded-md bg-primary px-3.5 py-1.5 text-body-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {if @applying?,
                   do: "Aplicando…",
-                  else: "Aplicar #{approved_total(@renames, @classifications)} no disco"}
+                  else: "Aplicar #{MapSet.size(@selected)} no disco"}
               </button>
             </div>
           </div>
@@ -234,7 +266,7 @@ defmodule BeatgridWeb.ReviewLive do
           <.toast :if={@toast} toast={@toast} />
 
           <p class="mb-3 text-caption text-ink-faint">
-            {count_summary(@items)}
+            {count_summary(@items, @selected)}
           </p>
 
           <div :if={@items != []} class="space-y-2.5">
@@ -244,6 +276,7 @@ defmodule BeatgridWeb.ReviewLive do
                 id={s.id}
                 type={:classification}
                 status={s.status}
+                selected={MapSet.member?(@selected, s.id)}
                 editing={@editing == s.id}
                 artist={artist_of(s.track)}
                 title={card_title(s.track)}
@@ -260,6 +293,7 @@ defmodule BeatgridWeb.ReviewLive do
                 id={s.id}
                 type={:rename}
                 status={s.status}
+                selected={MapSet.member?(@selected, s.id)}
                 editing={@editing == s.id}
                 artist={artist_of(s.track)}
                 title={card_title(s.track)}
@@ -275,6 +309,7 @@ defmodule BeatgridWeb.ReviewLive do
                 id={s.id}
                 type={:rename}
                 status={s.status}
+                selectable={false}
                 editing={@editing == s.id}
                 artist={artist_of(s.track)}
                 title={card_title(s.track)}
@@ -418,8 +453,8 @@ defmodule BeatgridWeb.ReviewLive do
   defp toast_message({:no_match, _}), do: "Sem novo match no Soundcharts."
   defp toast_message({:error, _reason}), do: "Falha na operação. Nada foi alterado."
 
-  defp count_summary(items) do
-    n = fn status -> Enum.count(items, &(&1.status == status)) end
-    "#{n.(:pending)} pendentes · #{n.(:approved)} aprovadas · #{n.(:rejected)} rejeitadas"
+  defp count_summary(items, selected) do
+    marked = Enum.count(items, &MapSet.member?(selected, &1.id))
+    "#{length(items)} nesta aba · #{marked} marcada(s)"
   end
 end

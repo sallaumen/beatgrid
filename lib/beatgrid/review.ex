@@ -139,14 +139,38 @@ defmodule Beatgrid.Review do
   @spec apply_approved() ::
           {:ok, %{batch_id: Ecto.UUID.t(), applied: non_neg_integer(), failed: non_neg_integer()}}
   def apply_approved do
+    apply_all(
+      NameSync.list_by(status: :approved),
+      Organization.list_by(status: :approved, source: :claude)
+    )
+  end
+
+  @doc """
+  Applies just the suggestions whose ids are in `ids` (renames and/or
+  classifications), in one reversible operations batch. This backs the review
+  screen's checkbox flow: selection is ephemeral in the UI, so nothing is written
+  until the user applies — the chosen ids are resolved against the open queue here.
+  Same return shape as `apply_approved/0`.
+  """
+  @spec apply_selected([Ecto.UUID.t()]) ::
+          {:ok, %{batch_id: Ecto.UUID.t(), applied: non_neg_integer(), failed: non_neg_integer()}}
+  def apply_selected(ids) when is_list(ids) do
+    selected = MapSet.new(ids)
+
+    apply_all(
+      [statuses: @open] |> NameSync.list_by() |> Enum.filter(&MapSet.member?(selected, &1.id)),
+      [statuses: @open, source: :claude]
+      |> Organization.list_by()
+      |> Enum.filter(&MapSet.member?(selected, &1.id))
+    )
+  end
+
+  defp apply_all(renames, classifications) do
     batch_id = Uniq.UUID.uuid7()
 
     results =
-      Enum.map(NameSync.list_by(status: :approved), &apply_rename(&1, batch_id)) ++
-        Enum.map(
-          Organization.list_by(status: :approved, source: :claude),
-          &apply_classification(&1, batch_id)
-        )
+      Enum.map(renames, &apply_rename(&1, batch_id)) ++
+        Enum.map(classifications, &apply_classification(&1, batch_id))
 
     {:ok,
      %{

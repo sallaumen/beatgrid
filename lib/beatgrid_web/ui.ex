@@ -266,12 +266,18 @@ defmodule BeatgridWeb.UI do
 
   @doc """
   Review card for one suggestion (a rename or an AI classification). Presentational:
-  the LiveView maps a suggestion to these attrs and handles the `approve`/`reject`/
-  `edit_start`/`edit_save`/`edit_cancel` events (each carries `id` + `type`).
+  the LiveView maps a suggestion to these attrs and handles the `toggle_select`/
+  `reject`/`edit_start`/`edit_save`/`edit_cancel` events (each carries `id` + `type`).
+
+  Selection (`selected`) is ephemeral UI state owned by the LiveView — ticking the
+  checkbox never mutates the row, so the list never reorders mid-review. Only the
+  "Aplicar" action writes to disk.
   """
   attr :id, :string, required: true
   attr :type, :atom, required: true, doc: ":rename | :classification"
-  attr :status, :atom, required: true, doc: ":pending | :approved | :rejected"
+  attr :status, :atom, required: true, doc: ":pending | :rejected | :applied …"
+  attr :selected, :boolean, default: false, doc: "checkbox state (queued to apply)"
+  attr :selectable, :boolean, default: true, doc: "false hides the checkbox (e.g. Auditoria)"
   attr :editing, :boolean, default: false
   attr :artist, :string, default: nil
   attr :title, :string, default: nil
@@ -294,7 +300,10 @@ defmodule BeatgridWeb.UI do
     ~H"""
     <div
       id={@id}
-      class={["flex items-start gap-3 rounded-xl px-[14px] py-[13px]", suggestion_card_class(@status)]}
+      class={[
+        "flex items-start gap-3 rounded-xl px-[14px] py-[13px]",
+        suggestion_card_class(@selected, @status)
+      ]}
     >
       <.cover src={@cover_src} artist={@artist} size={42} />
       <button
@@ -381,18 +390,32 @@ defmodule BeatgridWeb.UI do
         </div>
       </div>
 
-      <div class="flex w-[96px] shrink-0 flex-col gap-1.5">
+      <div class="flex w-[112px] shrink-0 flex-col gap-1.5">
         <button
-          phx-click="approve"
+          :if={@selectable and @status != :rejected}
+          type="button"
+          phx-click="toggle_select"
           phx-value-id={@id}
-          phx-value-type={@type}
+          aria-pressed={to_string(@selected)}
           class={[
-            "rounded-md px-2 py-1.5 text-[12px] font-semibold transition-colors",
-            approve_btn_class(@status)
+            "flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[12px] font-semibold transition-colors",
+            select_btn_class(@selected)
           ]}
         >
-          Aprovar
+          <span class={[
+            "flex size-4 items-center justify-center rounded-[4px] border text-[10px] leading-none",
+            checkbox_class(@selected)
+          ]}>
+            <span :if={@selected}>✓</span>
+          </span>
+          {if @selected, do: "Marcada", else: "Marcar"}
         </button>
+        <span
+          :if={@status == :rejected}
+          class="rounded-md bg-coral/10 px-2 py-1.5 text-center text-[11px] font-semibold text-coral"
+        >
+          Rejeitada
+        </span>
         <div class="flex gap-1.5">
           <button
             phx-click="edit_start"
@@ -419,12 +442,19 @@ defmodule BeatgridWeb.UI do
     """
   end
 
-  defp suggestion_card_class(:approved), do: "border border-green/40 bg-green/5"
-  defp suggestion_card_class(:rejected), do: "border border-coral/35 bg-coral/5 opacity-60"
-  defp suggestion_card_class(_), do: "border border-white/8 bg-surface"
+  defp suggestion_card_class(_selected, :rejected),
+    do: "border border-coral/35 bg-coral/5 opacity-60"
 
-  defp approve_btn_class(:approved), do: "bg-green text-[#0b0c10]"
-  defp approve_btn_class(_), do: "bg-green/12 text-green border border-green/30 hover:bg-green/20"
+  defp suggestion_card_class(true, _status), do: "border border-green/40 bg-green/5"
+  defp suggestion_card_class(false, _status), do: "border border-white/8 bg-surface"
+
+  defp select_btn_class(true), do: "bg-green text-[#0b0c10]"
+
+  defp select_btn_class(false),
+    do: "bg-green/12 text-green border border-green/30 hover:bg-green/20"
+
+  defp checkbox_class(true), do: "border-[#0b0c10] bg-[#0b0c10] text-green"
+  defp checkbox_class(false), do: "border-green/45"
 
   defp edit_btn_class(true), do: "border border-primary/50 text-primary"
   defp edit_btn_class(false), do: "bg-input text-ink-muted hover:text-ink"
