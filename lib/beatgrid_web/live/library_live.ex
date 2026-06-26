@@ -200,26 +200,34 @@ defmodule BeatgridWeb.LibraryLive do
         <span class="text-right">Nota</span>
         <span class="text-right">Sinal</span>
       </div>
-      <.link
+      <div
         :for={track <- @tracks}
-        navigate={~p"/track/#{track.id}"}
         class="grid items-center gap-2 rounded-lg px-1.5 py-1.5 hover:bg-surface-2"
         style={grid_cols()}
       >
-        <.cover src={cover_src(track)} artist={track.tag_artist} size={38} />
-        <div class="min-w-0">
-          <p class="truncate text-body font-medium">{track.tag_title || track.filename}</p>
-          <p class="truncate text-caption text-ink-muted">{track.tag_artist || "—"}</p>
-        </div>
-        <div><.folder_badge :if={track.genre_folder} folder={track.genre_folder} /></div>
-        <span class="text-right font-mono text-body text-primary">{bpm(track)}</span>
-        <.camelot_seal value={camelot(track)} />
-        <div class="h-[5px] w-full rounded-full bg-white/5">
-          <div class="h-full rounded-full bg-green" style={"width:#{energy_pct(track)}%"} />
-        </div>
-        <div class="text-right"><.rating_badge value={track.rating} /></div>
-        <div class="text-right"><.confidence_chip level={track.sc_match_confidence} /></div>
-      </.link>
+        <.cover_play
+          src={cover_src(track)}
+          artist={track.tag_artist}
+          size={38}
+          play_src={~p"/audio/#{track.id}"}
+          track_id={track.id}
+          preview={true}
+        />
+        <.link navigate={~p"/track/#{track.id}"} class="contents">
+          <div class="min-w-0">
+            <p class="truncate text-body font-medium">{track.tag_title || track.filename}</p>
+            <p class="truncate text-caption text-ink-muted">{track.tag_artist || "—"}</p>
+          </div>
+          <div><.folder_badge :if={track.genre_folder} folder={track.genre_folder} /></div>
+          <span class="text-right font-mono text-body text-primary">{bpm(track)}</span>
+          <.camelot_seal value={camelot(track)} />
+          <div class="h-[5px] w-full rounded-full bg-white/5">
+            <div class="h-full rounded-full bg-green" style={"width:#{energy_pct(track)}%"} />
+          </div>
+          <div class="text-right"><.rating_badge value={track.rating} /></div>
+          <div class="text-right"><.confidence_chip level={track.sc_match_confidence} /></div>
+        </.link>
+      </div>
     </div>
     """
   end
