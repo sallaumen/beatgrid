@@ -169,5 +169,6 @@ defmodule BeatgridWeb.RecSetLiveTest do
     {:ok, _view, html} = live(conn, ~p"/set")
     assert html =~ ~s(id="player-audio")
     refute html =~ "set-player"
+    assert html =~ "&quot;preview&quot;:false"
   end
 end

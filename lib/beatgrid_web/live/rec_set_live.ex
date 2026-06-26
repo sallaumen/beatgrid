@@ -307,7 +307,7 @@ defmodule BeatgridWeb.RecSetLive do
                 <.play_button
                   src={~p"/audio/#{e.track.id}"}
                   track_id={e.track.id}
-                  preview={true}
+                  preview={false}
                   size={28}
                 />
                 <.cover src={cover_src(e.track)} artist={e.track.tag_artist} size={34} />
