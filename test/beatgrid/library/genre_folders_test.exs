@@ -1,5 +1,8 @@
 defmodule Beatgrid.Library.GenreFoldersTest do
-  use Beatgrid.DataCase, async: true
+  # async: false — these tests insert genre folders with fixed unique keys plus
+  # tracks/suggestions; running concurrently with other folder-inserting async
+  # tests can deadlock on the genre_folders.key unique index.
+  use Beatgrid.DataCase, async: false
 
   import Beatgrid.Factory
 
@@ -76,6 +79,96 @@ defmodule Beatgrid.Library.GenreFoldersTest do
 
       assert updated.description == "Songwriter-driven MPB."
       assert GenreFolders.get_by_key("mpb").description == "Songwriter-driven MPB."
+    end
+  end
+
+  describe "create/1" do
+    test "inserts a new folder" do
+      assert {:ok, folder} =
+               GenreFolders.create(%{
+                 key: "samba",
+                 display_name: "Samba",
+                 dir_name: "Samba",
+                 description: "",
+                 sort_order: 3
+               })
+
+      assert folder.key == "samba"
+      assert GenreFolders.get_by_key("samba")
+    end
+
+    test "returns a changeset error on a duplicate key" do
+      insert(:genre_folder, key: "samba", display_name: "Samba", dir_name: "Samba")
+
+      assert {:error, changeset} =
+               GenreFolders.create(%{key: "samba", display_name: "Samba 2", dir_name: "Samba 2"})
+
+      assert %{key: ["has already been taken"]} = errors_on(changeset)
+    end
+  end
+
+  describe "in_use?/1" do
+    test "false for an empty folder" do
+      folder = insert(:genre_folder, key: "samba", display_name: "Samba", dir_name: "Samba")
+
+      refute GenreFolders.in_use?(folder)
+      refute GenreFolders.in_use?("samba")
+    end
+
+    test "true when a track references the key" do
+      insert(:genre_folder, key: "samba", display_name: "Samba", dir_name: "Samba")
+      insert(:track, genre_folder: "samba", status: :present)
+
+      assert GenreFolders.in_use?("samba")
+    end
+
+    test "true when a pending move suggestion targets the key" do
+      insert(:genre_folder, key: "samba", display_name: "Samba", dir_name: "Samba")
+      track = insert(:track, status: :present)
+
+      {:ok, _} =
+        Beatgrid.Organization.create_suggestion(%{
+          track_id: track.id,
+          from_rel_path: track.rel_path,
+          to_genre_folder: "samba",
+          source: :rule,
+          status: :pending
+        })
+
+      assert GenreFolders.in_use?("samba")
+    end
+
+    test "false when only a non-pending suggestion targets the key" do
+      insert(:genre_folder, key: "samba", display_name: "Samba", dir_name: "Samba")
+      track = insert(:track, status: :present)
+
+      {:ok, _} =
+        Beatgrid.Organization.create_suggestion(%{
+          track_id: track.id,
+          from_rel_path: track.rel_path,
+          to_genre_folder: "samba",
+          source: :rule,
+          status: :rejected
+        })
+
+      refute GenreFolders.in_use?("samba")
+    end
+  end
+
+  describe "delete/1" do
+    test "deletes an empty folder" do
+      folder = insert(:genre_folder, key: "samba", display_name: "Samba", dir_name: "Samba")
+
+      assert {:ok, _} = GenreFolders.delete(folder)
+      assert GenreFolders.get_by_key("samba") == nil
+    end
+
+    test "refuses to delete a folder in use" do
+      folder = insert(:genre_folder, key: "samba", display_name: "Samba", dir_name: "Samba")
+      insert(:track, genre_folder: "samba", status: :present)
+
+      assert {:error, :in_use} = GenreFolders.delete(folder)
+      assert GenreFolders.get_by_key("samba")
     end
   end
 end

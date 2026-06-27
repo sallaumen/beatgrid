@@ -12,6 +12,12 @@ defmodule Beatgrid.Organization do
   def list_by(opts \\ []), do: MoveSuggestionQuery.list_by(opts)
   def count(opts \\ []), do: MoveSuggestionQuery.count(opts)
 
+  @doc "True if any pending suggestion targets the given genre-folder key."
+  @spec pending_to_folder?(String.t()) :: boolean()
+  def pending_to_folder?(folder_key) do
+    MoveSuggestionQuery.count(status: :pending, to_genre_folder: folder_key) > 0
+  end
+
   @spec get(Ecto.UUID.t()) :: MoveSuggestion.t() | nil
   def get(id), do: Repo.get(MoveSuggestion, id)
 

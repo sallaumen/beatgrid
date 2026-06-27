@@ -10,6 +10,12 @@ defmodule Beatgrid.Repertoire.RecommendationAI do
   alias Beatgrid.Library.{GenreFolders, Track}
   alias Beatgrid.Repo
 
+  defmodule Description do
+    @moduledoc "An AI-suggested classification rubric for a genre folder."
+    @type t :: %__MODULE__{}
+    defstruct [:description, :rationale]
+  end
+
   defmodule Gap do
     @moduledoc "A suggested missing artist/song for a folder."
     @type t :: %__MODULE__{}
@@ -29,6 +35,28 @@ defmodule Beatgrid.Repertoire.RecommendationAI do
         with {:ok, %{"gaps" => gaps}} <- AI.complete(prompt, gaps_schema()) do
           {:ok,
            Enum.map(gaps, &%Gap{artist: &1["artist"], song: &1["song"], reason: &1["reason"]})}
+        end
+    end
+  end
+
+  @doc """
+  Suggests a concise classification rubric (description) for a folder, written so
+  the AI classifier can use it to assign tracks and kept distinct from the sibling
+  folders. Returns the suggested text plus a one-phrase rationale for review.
+  """
+  @spec suggest_description(String.t(), keyword()) :: {:ok, Description.t()} | {:error, term()}
+  def suggest_description(folder_key, _opts \\ []) do
+    case GenreFolders.get_by_key(folder_key) do
+      nil ->
+        {:error, :unknown_folder}
+
+      folder ->
+        siblings = Enum.reject(GenreFolders.list(), &(&1.key == folder_key))
+        prompt = build_description_prompt(folder, siblings, artists_in(folder_key))
+
+        with {:ok, %{"description" => d, "rationale" => r}} <-
+               AI.complete(prompt, description_schema()) do
+          {:ok, %Description{description: d, rationale: r}}
         end
     end
   end
@@ -64,6 +92,55 @@ defmodule Beatgrid.Repertoire.RecommendationAI do
 
     For each: artist, song, and a one-line reason it belongs in this folder.
     """
+  end
+
+  defp build_description_prompt(folder, siblings, artists) do
+    current =
+      if folder.description in [nil, ""],
+        do: "(empty — needs a rubric)",
+        else: folder.description
+
+    have = if artists == [], do: "(none yet)", else: Enum.join(artists, ", ")
+
+    sibling_lines =
+      if siblings == [] do
+        "(none)"
+      else
+        Enum.map_join(siblings, "\n", fn s ->
+          "- #{s.display_name}: #{s.description || "(no rubric yet)"}"
+        end)
+      end
+
+    """
+    You are a Brazilian-music curator writing the classification rubric for ONE folder of a DJ's library.
+
+    Folder: #{folder.display_name}
+    Current rubric: #{current}
+
+    Artists already in this folder: #{have}
+
+    Sibling folders (the rubric must stay clearly DISTINCT from these):
+    #{sibling_lines}
+
+    Write a CONCISE classification rubric (2–4 sentences) for THIS folder: what belongs here, the
+    sub-style / era / instrumentation that defines it, and a few representative Brazilian artists.
+    Write it so an AI classifier can use it to assign tracks, and so it does NOT overlap with the
+    sibling folders above. Use proper Brazilian-Portuguese names.
+
+    Return the rubric text plus a one-short-phrase rationale on the choices you made.
+    """
+  end
+
+  defp description_schema do
+    %{
+      "type" => "object",
+      "additionalProperties" => false,
+      "properties" => %{
+        "description" => %{"type" => "string"},
+        "rationale" => %{"type" => "string"}
+      },
+      "required" => ["description", "rationale"]
+    }
   end
 
   defp gaps_schema do
