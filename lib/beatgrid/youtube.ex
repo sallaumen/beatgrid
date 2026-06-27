@@ -114,6 +114,7 @@ defmodule Beatgrid.YouTube do
       result ->
         repropose_if_matched(id)
         Review.reevaluate_track(id)
+        Gold.apply_resolve_result(Tracks.get(id), result)
         if match?({:ok, _}, result), do: :resolved, else: :no_match
     end
   end
@@ -148,7 +149,13 @@ defmodule Beatgrid.YouTube do
     ids = pending_ids()
 
     refine_titles(ids)
-    Enum.each(ids, fn id -> id |> Tracks.get() |> Soundcharts.resolve_track() end)
+
+    Enum.each(ids, fn id ->
+      track = Tracks.get(id)
+      result = Soundcharts.resolve_track(track)
+      Gold.apply_resolve_result(track, result)
+    end)
+
     Enum.each(ids, &repropose_if_matched/1)
     Review.reevaluate_tracks(ids)
     ClassificationAI.reclassify(tracks: Enum.map(ids, &Tracks.get/1))

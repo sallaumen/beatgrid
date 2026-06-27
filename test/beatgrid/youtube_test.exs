@@ -284,6 +284,66 @@ defmodule Beatgrid.YouTubeTest do
     assert move.track_id == track.id
   end
 
+  @tag :tmp_dir
+  test "enrich confirma Ouro quando Soundcharts não acha" do
+    track = insert(:track, tag_artist: "Ninguém", tag_title: "Inédita", norm_artist: "ninguem")
+
+    expect(Beatgrid.Soundcharts.Mock, :search_song, fn _term ->
+      {:ok, %Response{data: [], quota_remaining: 999, status: 200}}
+    end)
+
+    assert :no_match = YouTube.resolve_track_enrich(track.id)
+    assert Tracks.get(track.id).gold_status == :confirmed
+  end
+
+  @tag :tmp_dir
+  test "enrich rebaixa candidato quando Soundcharts acha" do
+    track =
+      insert(:track,
+        gold_status: :candidate,
+        tag_artist: "Casuarina",
+        tag_title: "Disritmia",
+        norm_artist: "casuarina"
+      )
+
+    expect(Beatgrid.Soundcharts.Mock, :search_song, fn _term ->
+      {:ok,
+       %Response{
+         data: [%{uuid: "u1", name: "Disritmia", credit_name: "Casuarina", release_date: nil}],
+         quota_remaining: 999,
+         status: 200
+       }}
+    end)
+
+    expect(Beatgrid.Soundcharts.Mock, :get_song, fn "u1" ->
+      {:ok,
+       %Response{
+         data: song_attrs(),
+         quota_remaining: 998,
+         status: 200
+       }}
+    end)
+
+    stub(Beatgrid.AI.Mock, :complete, fn _p, _s, _o ->
+      {:ok,
+       %{
+         "resolutions" => [
+           %{
+             "index" => 1,
+             "same_recording" => true,
+             "artist" => "Casuarina",
+             "title" => "Disritmia",
+             "confidence" => 0.9,
+             "rationale" => "ok"
+           }
+         ]
+       }}
+    end)
+
+    assert :resolved = YouTube.resolve_track_enrich(track.id)
+    assert is_nil(Tracks.get(track.id).gold_status)
+  end
+
   test "enrich_track returns {:error, :budget_exhausted} and creates no suggestions" do
     # Drive the budget below the floor via the DB header ONLY — NOT a global
     # Application.put_env(:beatgrid, Soundcharts, ...). request_cap/budget_floor are
