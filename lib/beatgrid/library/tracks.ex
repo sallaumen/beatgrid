@@ -5,7 +5,7 @@ defmodule Beatgrid.Library.Tracks do
   """
   import Ecto.Query
 
-  alias Beatgrid.Library.{Track, TrackQuery}
+  alias Beatgrid.Library.{Normalize, Track, TrackQuery, Version}
   alias Beatgrid.Repo
 
   defdelegate get(id), to: TrackQuery
@@ -15,6 +15,44 @@ defmodule Beatgrid.Library.Tracks do
 
   @spec list_by(keyword()) :: [Track.t()]
   def list_by(opts \\ []), do: TrackQuery.list_by(opts)
+
+  @doc """
+  Other present tracks that are *different versions* of the same song — same
+  artist + base title (markers stripped) but a different version rendering. Excludes
+  the track itself and exact-content duplicates (those belong in dedup, not here).
+  Returns each with its `soundcharts_song` preloaded, sorted by title.
+  """
+  @spec versions_of(Track.t()) :: [Track.t()]
+  def versions_of(%Track{} = track) do
+    if present?(track.norm_artist) do
+      base = Version.base_key(track.tag_artist, version_title(track))
+      self_norm = Normalize.normalize(version_title(track))
+
+      Track
+      |> where([t], t.status == :present and t.norm_artist == ^track.norm_artist)
+      |> where([t], t.id != ^track.id)
+      |> preload(:soundcharts_song)
+      |> Repo.all()
+      |> Enum.filter(fn t ->
+        # A "different version" must render differently — compare the SAME
+        # (filename-aware) title source base_key uses, not the tag-only norm_title.
+        Version.base_key(t.tag_artist, version_title(t)) == base and
+          Normalize.normalize(version_title(t)) != self_norm and
+          not exact_dup?(t, track)
+      end)
+      |> Enum.sort_by(&version_title/1)
+    else
+      []
+    end
+  end
+
+  defp version_title(track), do: track.tag_title || Path.rootname(track.filename || "")
+
+  defp exact_dup?(%{content_sha256: a}, %{content_sha256: b})
+       when is_binary(a) and is_binary(b),
+       do: a == b
+
+  defp exact_dup?(_a, _b), do: false
 
   @doc """
   Fuzzy signatures (`"norm_artist|norm_title"`) of every present track that has

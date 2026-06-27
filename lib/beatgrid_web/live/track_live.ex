@@ -34,6 +34,7 @@ defmodule BeatgridWeb.TrackLive do
          socket
          |> assign(
            track: track,
+           versions: Tracks.versions_of(track),
            next: Mixing.rank(prev: track, exclude: [track.id], limit: 8),
            tag_draft: "",
            editing_field: nil,
@@ -225,6 +226,25 @@ defmodule BeatgridWeb.TrackLive do
     {:noreply, assign(socket, toast: nil)}
   end
 
+  # Permanent delete (file + DB row). The `data-confirm` on the button guards it;
+  # there is no undo, so we navigate back to the library afterwards. Re-fetch first
+  # so a double-fire (already deleted) just navigates instead of crashing.
+  def handle_event("delete_track", _params, socket) do
+    case Tracks.get(socket.assigns.track.id) do
+      nil ->
+        {:noreply, push_navigate(socket, to: ~p"/")}
+
+      track ->
+        case Library.hard_delete(track) do
+          {:ok, _} ->
+            {:noreply, socket |> put_flash(:info, "Faixa apagada.") |> push_navigate(to: ~p"/")}
+
+          {:error, _reason} ->
+            {:noreply, assign(socket, toast: {:error, "Não foi possível apagar a faixa."})}
+        end
+    end
+  end
+
   # A background analysis finished (tick is global; reloading this one track is
   # cheap). Clear `analyzing?` once the reloaded track has its `analyzed_at`.
   @impl true
@@ -367,8 +387,10 @@ defmodule BeatgridWeb.TrackLive do
     socket |> reload() |> assign(rename_undo: nil)
   end
 
-  defp reload(socket),
-    do: assign(socket, track: Tracks.get_with_song(socket.assigns.track.id))
+  defp reload(socket) do
+    track = Tracks.get_with_song(socket.assigns.track.id)
+    assign(socket, track: track, versions: Tracks.versions_of(track))
+  end
 
   defp push_markers(socket),
     do: push_event(socket, "markers", %{markers: socket.assigns.track.cue_points || []})
@@ -412,6 +434,14 @@ defmodule BeatgridWeb.TrackLive do
                 class="ml-auto rounded-md border border-primary/40 bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary hover:bg-primary/20 disabled:opacity-50"
               >
                 {if @enriching?, do: "Atualizando…", else: "Atualizar metadados"}
+              </button>
+              <button
+                phx-click="delete_track"
+                data-confirm="Apagar esta faixa de vez? O arquivo sai do disco e não tem volta."
+                class="rounded-md border border-coral/40 px-2.5 py-1 text-[11px] font-semibold text-coral hover:bg-coral/10"
+                title="Apagar faixa"
+              >
+                Apagar
               </button>
             </div>
           </div>
@@ -507,6 +537,32 @@ defmodule BeatgridWeb.TrackLive do
               </button>
             </div>
           </div>
+        </section>
+
+        <section
+          :if={@versions != []}
+          class="mt-5 rounded-xl border border-white/6 bg-surface p-4"
+        >
+          <.section_label>Outras versões ({length(@versions)})</.section_label>
+          <ul class="mt-2 divide-y divide-white/4">
+            <li :for={v <- @versions} class="flex items-center gap-3 py-2">
+              <.link
+                navigate={~p"/track/#{v.id}"}
+                class="min-w-0 flex-1 truncate text-body-sm hover:text-primary"
+              >
+                {title(v)}
+              </.link>
+              <span
+                :if={ver_label(v)}
+                class="shrink-0 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-wide text-ink-muted"
+              >
+                {ver_label(v)}
+              </span>
+              <span :if={ver_dur(v)} class="shrink-0 font-mono text-[11px] text-ink-faint">
+                {ver_dur(v)}
+              </span>
+            </li>
+          </ul>
         </section>
 
         <section class="mt-5 rounded-xl border border-white/6 bg-surface p-4">
@@ -1034,6 +1090,11 @@ defmodule BeatgridWeb.TrackLive do
   defp format_ms(_ms), do: "0:00"
 
   defp title(track), do: track.tag_title || track.filename
+
+  defp ver_label(track), do: Beatgrid.Library.Version.label(track.tag_title || track.filename)
+
+  defp ver_dur(%{duration_ms: ms}) when is_integer(ms) and ms > 0, do: format_secs(div(ms, 1000))
+  defp ver_dur(_track), do: nil
 
   # Effective BPM/Tom for the header: Soundcharts value, falling back to detected.
   defp bpm(%{bpm_manual: b}) when is_number(b), do: round(b)

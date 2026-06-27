@@ -15,9 +15,15 @@ defmodule Beatgrid.Dedup do
   defdelegate list_groups, to: DedupQuery
   defdelegate count_groups, to: DedupQuery
 
-  @doc "Pending (unresolved) duplicate groups, members + tracks + songs preloaded."
+  @doc """
+  Pending (unresolved) duplicate groups, members + tracks + songs preloaded. Groups
+  that dropped below 2 members (e.g. a member was hard-deleted, cascading its row)
+  are degenerate and filtered out — a group of one isn't a duplicate.
+  """
   @spec list_pending() :: [DuplicateGroup.t()]
-  def list_pending, do: DedupQuery.list_pending()
+  def list_pending do
+    DedupQuery.list_pending() |> Enum.filter(&(length(&1.members) >= 2))
+  end
 
   @doc "One duplicate group by id, members + tracks + songs preloaded, or nil."
   @spec get_group(Ecto.UUID.t()) :: DuplicateGroup.t() | nil
@@ -54,10 +60,15 @@ defmodule Beatgrid.Dedup do
     if Enum.any?(members, &(&1.track_id == keeper_track_id)) do
       batch_id = Uniq.UUID.uuid7()
       set_keeper(group, members, keeper_track_id)
+      keeper_isrc = members |> Enum.find(&(&1.track_id == keeper_track_id)) |> member_isrc()
 
       quarantined =
         members
-        |> Enum.reject(&(&1.track_id == keeper_track_id))
+        # Skip the keeper, and never quarantine a DIFFERENT recording (a conflicting
+        # ISRC) — that's a distinct version kept on purpose, not a duplicate.
+        |> Enum.reject(fn m ->
+          m.track_id == keeper_track_id or different_recording?(m, keeper_isrc)
+        end)
         |> Enum.count(&quarantine_member(&1, batch_id))
 
       set_group_status(group, :resolved)
@@ -66,6 +77,34 @@ defmodule Beatgrid.Dedup do
       {:error, :keeper_not_in_group}
     end
   end
+
+  @doc """
+  True when `member` is a different recording than the keeper: it carries an ISRC
+  that differs from the keeper's (including when the keeper has none — an ISRC the
+  keeper lacks is reason enough to spare it). Spares distinct versions (a live or
+  remaster with its own ISRC) from quarantine even when they share a fuzzy title.
+  Also used by the UI to mark such members as kept.
+  """
+  @spec different_recording?(DuplicateMember.t(), String.t() | nil) :: boolean()
+  def different_recording?(member, keeper_isrc) do
+    member_isrc = member_isrc(member)
+    is_binary(member_isrc) and member_isrc != keeper_isrc
+  end
+
+  @doc "The track's ISRC for a member (tag ISRC, else the linked Soundcharts song's), upcased; nil if none."
+  @spec member_isrc(DuplicateMember.t() | nil) :: String.t() | nil
+  def member_isrc(%{track: track}), do: track_isrc(track)
+  def member_isrc(_member), do: nil
+
+  defp track_isrc(%{tag_isrc: isrc}) when is_binary(isrc) and isrc != "",
+    do: normalize_isrc(isrc)
+
+  defp track_isrc(%{soundcharts_song: %{isrc: isrc}}) when is_binary(isrc) and isrc != "",
+    do: normalize_isrc(isrc)
+
+  defp track_isrc(_track), do: nil
+
+  defp normalize_isrc(isrc), do: isrc |> String.trim() |> String.upcase()
 
   @doc "Marks a group `:resolved` without touching any file (the user dismissed it)."
   @spec ignore_group(Ecto.UUID.t()) ::

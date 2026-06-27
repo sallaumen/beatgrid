@@ -82,6 +82,89 @@ defmodule Beatgrid.Library.TracksTest do
     end
   end
 
+  describe "versions_of/1" do
+    test "links different versions of the same song, excluding exact dups + other songs" do
+      studio =
+        insert(:track,
+          status: :present,
+          tag_artist: "Gonzaga",
+          tag_title: "Asa Branca",
+          norm_artist: "gonzaga",
+          norm_title: "asa branca",
+          content_sha256: "aaa"
+        )
+
+      live =
+        insert(:track,
+          status: :present,
+          tag_artist: "Gonzaga",
+          tag_title: "Asa Branca (Ao Vivo)",
+          norm_artist: "gonzaga",
+          norm_title: "asa branca ao vivo",
+          content_sha256: "bbb"
+        )
+
+      # exact-content dup of the studio (same hash) → belongs in dedup, not versions
+      insert(:track,
+        status: :present,
+        tag_artist: "Gonzaga",
+        tag_title: "Asa Branca",
+        norm_artist: "gonzaga",
+        norm_title: "asa branca",
+        content_sha256: "aaa"
+      )
+
+      other =
+        insert(:track,
+          status: :present,
+          tag_artist: "Gonzaga",
+          tag_title: "Qui Nem Jiló",
+          norm_artist: "gonzaga",
+          norm_title: "qui nem jilo"
+        )
+
+      ids = studio |> Tracks.versions_of() |> Enum.map(& &1.id)
+
+      assert live.id in ids
+      refute studio.id in ids
+      refute other.id in ids
+      # the exact dup (same hash + same norm_title) is not a "version"
+      assert length(ids) == 1
+    end
+
+    test "links versions even when the title lives only in the filename (tag_title nil)" do
+      studio =
+        insert(:track,
+          status: :present,
+          tag_artist: "Gonzaga",
+          tag_title: nil,
+          norm_artist: "gonzaga",
+          filename: "Gonzaga - Asa Branca.mp3",
+          content_sha256: "a"
+        )
+
+      live =
+        insert(:track,
+          status: :present,
+          tag_artist: "Gonzaga",
+          tag_title: nil,
+          norm_artist: "gonzaga",
+          filename: "Gonzaga - Asa Branca (Ao Vivo).mp3",
+          content_sha256: "b"
+        )
+
+      assert [%{id: id}] = Tracks.versions_of(studio)
+      assert id == live.id
+    end
+
+    test "returns nothing for a track with no artist (avoids the blank-artist bucket)" do
+      a = insert(:track, status: :present, tag_artist: nil, norm_artist: "", tag_title: "X")
+      insert(:track, status: :present, tag_artist: nil, norm_artist: "", tag_title: "Y")
+
+      assert Tracks.versions_of(a) == []
+    end
+  end
+
   describe "markers" do
     test "add_marker appends a cue point (sorted by position); remove_marker drops it" do
       {:ok, track} = Tracks.upsert_by_path(attrs())

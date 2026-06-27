@@ -126,8 +126,15 @@ defmodule BeatgridWeb.DedupLive do
 
   defp keeper_of(_group), do: nil
 
-  defp non_keeper_count(group, keeper_id),
-    do: Enum.count(group.members, &(&1.track_id != keeper_id))
+  # How many will actually be quarantined: non-keepers MINUS the ones spared as a
+  # different recording (different ISRC), which we keep on purpose.
+  defp non_keeper_count(group, keeper_id) do
+    keeper_isrc = group.members |> Enum.find(&(&1.track_id == keeper_id)) |> Dedup.member_isrc()
+
+    Enum.count(group.members, fn m ->
+      m.track_id != keeper_id and not Dedup.different_recording?(m, keeper_isrc)
+    end)
+  end
 
   defp match_label(:exact_hash), do: "exata"
   defp match_label(:fuzzy_meta), do: "parecida"
@@ -253,9 +260,13 @@ defmodule BeatgridWeb.DedupLive do
   attr :pick, :string, default: nil
 
   defp group_card(assigns) do
+    keeper_id = assigns.pick || keeper_of(assigns.group)
+    keeper = Enum.find(assigns.group.members, &(&1.track_id == keeper_id))
+
     assigns =
       assign(assigns,
-        keeper_id: assigns.pick || keeper_of(assigns.group),
+        keeper_id: keeper_id,
+        keeper_isrc: Dedup.member_isrc(keeper),
         members: assigns.group.members
       )
 
@@ -282,6 +293,9 @@ defmodule BeatgridWeb.DedupLive do
           group_id={@group.id}
           member={member}
           chosen={member.track_id == @keeper_id}
+          different?={
+            member.track_id != @keeper_id and Dedup.different_recording?(member, @keeper_isrc)
+          }
         />
       </div>
 
@@ -308,6 +322,7 @@ defmodule BeatgridWeb.DedupLive do
   attr :group_id, :string, required: true
   attr :member, :map, required: true
   attr :chosen, :boolean, required: true
+  attr :different?, :boolean, default: false
 
   defp member_row(assigns) do
     {artist, title} = artist_title(assigns.member.track)
@@ -354,7 +369,14 @@ defmodule BeatgridWeb.DedupLive do
         manter
       </span>
       <span
-        :if={!@chosen}
+        :if={!@chosen and @different?}
+        class="shrink-0 rounded-sm bg-primary/15 px-2 py-[3px] text-[10px] font-semibold text-primary"
+        title="ISRC diferente — gravação/versão distinta, será mantida"
+      >
+        versão diferente
+      </span>
+      <span
+        :if={!@chosen and not @different?}
         class="shrink-0 rounded-sm bg-amber/12 px-2 py-[3px] text-[10px] font-semibold text-amber"
       >
         → quarentena

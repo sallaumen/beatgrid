@@ -116,6 +116,50 @@ defmodule BeatgridWeb.TrackLiveTest do
     assert Process.alive?(view.pid)
   end
 
+  test "Apagar removes the track and navigates back to the library", %{conn: conn} do
+    track =
+      insert(:track,
+        status: :present,
+        tag_title: "Errada",
+        tag_artist: "X",
+        analyzed_at: ~U[2026-01-01 00:00:00Z]
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
+    view |> element("button[phx-click=delete_track]") |> render_click()
+
+    assert_redirect(view, ~p"/")
+    assert Tracks.get(track.id) == nil
+  end
+
+  test "lists other versions of the same song", %{conn: conn} do
+    studio =
+      insert(:track,
+        status: :present,
+        tag_artist: "Gonzaga",
+        tag_title: "Asa Branca",
+        norm_artist: "gonzaga",
+        norm_title: "asa branca",
+        content_sha256: "a",
+        analyzed_at: ~U[2026-01-01 00:00:00Z]
+      )
+
+    insert(:track,
+      status: :present,
+      tag_artist: "Gonzaga",
+      tag_title: "Asa Branca (Ao Vivo)",
+      norm_artist: "gonzaga",
+      norm_title: "asa branca ao vivo",
+      content_sha256: "b"
+    )
+
+    {:ok, _view, html} = live(conn, ~p"/track/#{studio.id}")
+
+    assert html =~ "Outras versões"
+    assert html =~ "Asa Branca (Ao Vivo)"
+    assert html =~ "ao vivo"
+  end
+
   test "starts a set seeded with this track and navigates to /set", %{conn: conn} do
     track =
       insert(:track,

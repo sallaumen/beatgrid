@@ -102,6 +102,84 @@ defmodule Beatgrid.DedupResolveTest do
       assert non_keeper.track_id == a.id
     end
 
+    @tag :tmp_dir
+    test "keeps a member with a different ISRC — a distinct recording, not a dup", %{
+      tmp_dir: root
+    } do
+      File.mkdir_p!(Path.join(root, "MPB"))
+      File.write!(Path.join(root, "MPB/a.mp3"), "x")
+      File.write!(Path.join(root, "MPB/b.mp3"), "y")
+
+      keep =
+        insert(:track,
+          status: :present,
+          content_sha256: "h1",
+          norm_artist: "luiz gonzaga",
+          norm_title: "asa branca",
+          tag_isrc: "BRAAA0000001",
+          rel_path: "MPB/a.mp3",
+          filename: "a.mp3"
+        )
+
+      # Same fuzzy signature, but a DIFFERENT ISRC → a distinct recording/version.
+      diff =
+        insert(:track,
+          status: :present,
+          content_sha256: "h2",
+          norm_artist: "luiz gonzaga",
+          norm_title: "asa branca",
+          tag_isrc: "BRBBB0000002",
+          rel_path: "MPB/b.mp3",
+          filename: "b.mp3"
+        )
+
+      {:ok, _} = Dedup.detect()
+      [g] = Dedup.list_pending()
+
+      {:ok, %{quarantined: 0}} = Dedup.resolve_group(g.id, keep.id)
+
+      assert Tracks.get(keep.id).status == :present
+      # the different recording is spared on purpose
+      assert Tracks.get(diff.id).status == :present
+    end
+
+    @tag :tmp_dir
+    test "spares a member carrying an ISRC the keeper lacks", %{tmp_dir: root} do
+      File.mkdir_p!(Path.join(root, "MPB"))
+      File.write!(Path.join(root, "MPB/a.mp3"), "x")
+      File.write!(Path.join(root, "MPB/b.mp3"), "y")
+
+      # Keeper has no ISRC (e.g. a YouTube rip); the member is a distinct recording
+      # with its own ISRC → spared, not quarantined.
+      keep =
+        insert(:track,
+          status: :present,
+          content_sha256: "h1",
+          norm_artist: "artist",
+          norm_title: "song",
+          tag_isrc: nil,
+          rel_path: "MPB/a.mp3",
+          filename: "a.mp3"
+        )
+
+      diff =
+        insert(:track,
+          status: :present,
+          content_sha256: "h2",
+          norm_artist: "artist",
+          norm_title: "song",
+          tag_isrc: "BRZZZ0000001",
+          rel_path: "MPB/b.mp3",
+          filename: "b.mp3"
+        )
+
+      {:ok, _} = Dedup.detect()
+      [g] = Dedup.list_pending()
+
+      {:ok, %{quarantined: 0}} = Dedup.resolve_group(g.id, keep.id)
+      assert Tracks.get(diff.id).status == :present
+    end
+
     test "returns an error when the keeper is not in the group" do
       a = insert(:track, content_sha256: "h", rel_path: "MPB/a.mp3")
       _b = insert(:track, content_sha256: "h", rel_path: "MPB/b.mp3")
