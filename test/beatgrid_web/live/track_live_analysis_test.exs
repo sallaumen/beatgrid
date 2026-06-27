@@ -1,13 +1,14 @@
 defmodule BeatgridWeb.TrackLiveAnalysisTest do
-  # async: false — auto-analysis runs an async task that talks to the (globally
-  # stubbed) analyzer mock and the shared sandbox.
-  use BeatgridWeb.ConnCase, async: false
+  # async: false — analysis talks to the (globally stubbed) analyzer mock; the
+  # AnalyzeWorker runs against the shared sandbox via perform_job/2.
+  use BeatgridWeb.ConnCase, async: false, oban: true
 
   import Phoenix.LiveViewTest
   import Beatgrid.Factory
   import Mox
 
   alias Beatgrid.Library.Tracks
+  alias Beatgrid.Workers.AnalyzeWorker
 
   setup :set_mox_global
 
@@ -19,13 +20,18 @@ defmodule BeatgridWeb.TrackLiveAnalysisTest do
     song = insert(:soundcharts_song, camelot: "5A", tempo_bpm: 180.0)
     track = insert(:track, status: :present, soundcharts_song_id: song.id)
 
+    # Opening the track enqueues a background analysis job (it does not run inline).
     {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
-    html = render_async(view)
+    assert_enqueued(worker: AnalyzeWorker, args: %{track_id: track.id})
+
+    # Running the job analyzes the file and broadcasts a tick the LiveView consumes.
+    assert :ok = perform_job(AnalyzeWorker, %{track_id: track.id})
 
     reloaded = Tracks.get(track.id)
     assert reloaded.bpm_detected == 92.0
     assert reloaded.camelot_detected == "8A"
 
+    html = render(view)
     assert html =~ "Detectado (local)"
     assert html =~ "92"
     # 180 (Soundcharts) vs 92 (local) ≈ 2x → discrepancy flagged
@@ -42,7 +48,9 @@ defmodule BeatgridWeb.TrackLiveAnalysisTest do
 
     {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
     view |> element("button[phx-click=reanalyze]") |> render_click()
-    render_async(view)
+    assert_enqueued(worker: AnalyzeWorker, args: %{track_id: track.id})
+
+    assert :ok = perform_job(AnalyzeWorker, %{track_id: track.id})
 
     assert Tracks.get(track.id).bpm_detected == 100.0
   end

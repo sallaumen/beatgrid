@@ -1,10 +1,12 @@
 defmodule BeatgridWeb.TrackLiveTest do
-  use BeatgridWeb.ConnCase, async: true
+  use BeatgridWeb.ConnCase, async: true, oban: true
 
   import Phoenix.LiveViewTest
   import Beatgrid.Factory
 
+  alias Beatgrid.Analysis
   alias Beatgrid.Library.Tracks
+  alias Beatgrid.Workers.AnalyzeWorker
 
   test "shows the detail and updates rating, tags and note", %{conn: conn} do
     song = insert(:soundcharts_song, camelot: "8A", tempo_bpm: 120.0, energy: 0.6)
@@ -125,5 +127,64 @@ defmodule BeatgridWeb.TrackLiveTest do
     {:ok, _view, html} = live(conn, ~p"/track/#{track.id}")
     refute html =~ "Abrir vídeo"
     refute html =~ "Abrir playlist"
+  end
+
+  test "opening an unanalyzed track enqueues an AnalyzeWorker job", %{conn: conn} do
+    track = insert(:track, status: :present, tag_title: "Sina", tag_artist: "Djavan")
+
+    {:ok, _view, _html} = live(conn, ~p"/track/#{track.id}")
+
+    assert_enqueued(worker: AnalyzeWorker, args: %{track_id: track.id})
+  end
+
+  test "opening an already-analyzed track does not enqueue analysis", %{conn: conn} do
+    track =
+      insert(:track,
+        status: :present,
+        tag_title: "Sina",
+        tag_artist: "Djavan",
+        analyzed_at: ~U[2026-01-01 00:00:00Z]
+      )
+
+    {:ok, _view, _html} = live(conn, ~p"/track/#{track.id}")
+
+    refute_enqueued(worker: AnalyzeWorker)
+  end
+
+  test "clicking Re-analisar enqueues an AnalyzeWorker job", %{conn: conn} do
+    track =
+      insert(:track,
+        status: :present,
+        tag_title: "Sina",
+        tag_artist: "Djavan",
+        analyzed_at: ~U[2026-01-01 00:00:00Z]
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
+    refute_enqueued(worker: AnalyzeWorker)
+
+    view |> element("button[phx-click=reanalyze]") |> render_click()
+
+    assert_enqueued(worker: AnalyzeWorker, args: %{track_id: track.id})
+  end
+
+  test "an analysis tick after the track is analyzed clears analyzing? and shows BPM",
+       %{conn: conn} do
+    track = insert(:track, status: :present, tag_title: "Sina", tag_artist: "Djavan")
+
+    {:ok, view, html} = live(conn, ~p"/track/#{track.id}")
+    # Auto-analysis enqueued → the analyzing placeholder is rendered.
+    assert html =~ "Analisando…"
+
+    # Simulate the worker finishing: the track now has BPM + analyzed_at, then a tick.
+    {:ok, _} =
+      Tracks.update(track, %{bpm_detected: 128.0, analyzed_at: ~U[2026-01-02 00:00:00Z]})
+
+    Analysis.broadcast_tick()
+
+    html = render(view)
+    assert html =~ "Re-analisar"
+    refute html =~ "Analisando…"
+    assert html =~ "128"
   end
 end

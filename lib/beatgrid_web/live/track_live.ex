@@ -8,6 +8,7 @@ defmodule BeatgridWeb.TrackLive do
   alias Beatgrid.Library.Tracks
   alias Beatgrid.Mixing
   alias Beatgrid.Sets
+  alias Beatgrid.Workers.AnalyzeWorker
   alias Beatgrid.YouTube
   alias Phoenix.LiveView.JS
 
@@ -33,18 +34,25 @@ defmodule BeatgridWeb.TrackLive do
     end
   end
 
-  # Auto-run local analysis the first time a track is opened without it (connected
-  # mount only, so it runs once over the websocket — not during the dead render).
+  # Auto-run local analysis the first time a track is opened without it. Runs in
+  # the background (AnalyzeWorker), so it survives navigation; the `unique`
+  # constraint dedupes if a job is already in flight. Connected mount only, so we
+  # subscribe + enqueue once over the websocket — not during the dead render.
+  # Subscribe unconditionally on connected mount (cheap) so re-analyze ticks land.
   defp maybe_auto_analyze(socket) do
     track = socket.assigns.track
 
-    if connected?(socket) and is_nil(track.analyzed_at) do
-      socket
-      |> assign(analyzing?: true)
-      |> start_async(:analyze, fn -> Analysis.analyze_track(track) end)
+    if connected?(socket) do
+      Analysis.subscribe()
+      if is_nil(track.analyzed_at), do: enqueue_analyze(socket), else: socket
     else
       socket
     end
+  end
+
+  defp enqueue_analyze(socket) do
+    Oban.insert(AnalyzeWorker.new(%{track_id: socket.assigns.track.id}))
+    assign(socket, analyzing?: true)
   end
 
   @impl true
@@ -89,12 +97,7 @@ defmodule BeatgridWeb.TrackLive do
   end
 
   def handle_event("reanalyze", _params, socket) do
-    track = socket.assigns.track
-
-    {:noreply,
-     socket
-     |> assign(analyzing?: true)
-     |> start_async(:analyze, fn -> Analysis.analyze_track(track) end)}
+    {:noreply, enqueue_analyze(socket)}
   end
 
   def handle_event("enrich_track", _params, socket) do
@@ -111,14 +114,6 @@ defmodule BeatgridWeb.TrackLive do
   end
 
   @impl true
-  def handle_async(:analyze, {:ok, {:ok, _track}}, socket) do
-    {:noreply, socket |> assign(analyzing?: false) |> reload()}
-  end
-
-  def handle_async(:analyze, _result, socket) do
-    {:noreply, assign(socket, analyzing?: false)}
-  end
-
   def handle_async(:enrich, {:ok, {:ok, %{resolved: resolved}}}, socket) do
     msg =
       if resolved,
@@ -138,6 +133,14 @@ defmodule BeatgridWeb.TrackLive do
   def handle_async(:enrich, {:exit, _reason}, socket) do
     {:noreply,
      assign(socket, enriching?: false, toast: {:error, "Falha ao atualizar metadados."})}
+  end
+
+  # A background analysis finished (tick is global; reloading this one track is
+  # cheap). Clear `analyzing?` once the reloaded track has its `analyzed_at`.
+  @impl true
+  def handle_info({:analysis_tick}, socket) do
+    socket = reload(socket)
+    {:noreply, assign(socket, analyzing?: is_nil(socket.assigns.track.analyzed_at))}
   end
 
   defp save(socket, attrs) do
