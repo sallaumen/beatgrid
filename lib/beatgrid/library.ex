@@ -347,12 +347,28 @@ defmodule Beatgrid.Library do
   @doc """
   Renames a track's file in place (same directory) to `new_filename`, updating
   the row's `filename` and `rel_path`. Never overwrites — a colliding name gets
-  a unique " (N)" suffix.
+  a unique " (N)" suffix. `new_filename` must be a bare filename: any path
+  component (slashes, "..", absolute paths) is rejected so a rename can never
+  escape the track's directory.
   """
   @spec rename(Track.t(), String.t()) :: {:ok, Track.t()} | {:error, term()}
   def rename(track, new_filename) do
-    dest_rel = Path.join(Path.dirname(track.rel_path), new_filename)
-    do_move(track, dest_rel, %{})
+    with {:ok, safe} <- safe_filename(new_filename) do
+      dest_rel = Path.join(Path.dirname(track.rel_path), safe)
+      do_move(track, dest_rel, %{})
+    end
+  end
+
+  # A rename target must be a bare filename. `Path.basename/1` collapses any
+  # directory part to the last segment; if that differs from the input the user
+  # typed a path (or "..", or a leading "/") — reject it rather than silently
+  # moving the file somewhere else.
+  defp safe_filename(name) do
+    trimmed = String.trim(name)
+
+    if trimmed in ["", ".", ".."] or Path.basename(trimmed) != trimmed,
+      do: {:error, :invalid_filename},
+      else: {:ok, trimmed}
   end
 
   @doc "Moves a track into `_Quarantine` and flags its status. Never deletes."
@@ -387,6 +403,7 @@ defmodule Beatgrid.Library do
     with :ok <- check_source(src),
          unique_rel = ensure_unique(dest_rel),
          dest = abs_path(unique_rel),
+         :ok <- check_within_root(dest),
          :ok <- File.mkdir_p(Path.dirname(dest)),
          :ok <- File.rename(src, dest) do
       Tracks.update(
@@ -397,6 +414,18 @@ defmodule Beatgrid.Library do
   end
 
   defp check_source(src), do: if(File.exists?(src), do: :ok, else: {:error, :source_missing})
+
+  # Never move a file outside the managed library root, even if a caller hands us
+  # a crafted destination. Compares fully-expanded paths with a trailing-separator
+  # guard so a sibling dir sharing the root's prefix (".../lib-evil") can't pass.
+  defp check_within_root(dest) do
+    root = Path.expand(library_root())
+    expanded = Path.expand(dest)
+
+    if expanded == root or String.starts_with?(expanded, root <> "/"),
+      do: :ok,
+      else: {:error, :outside_root}
+  end
 
   defp abs_path(rel), do: Path.join(library_root(), rel)
 

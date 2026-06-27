@@ -11,6 +11,7 @@ defmodule Beatgrid.Library.Tracks do
   defdelegate get(id), to: TrackQuery
   defdelegate get_with_song(id), to: TrackQuery
   defdelegate get_by_path(rel_path), to: TrackQuery
+  defdelegate all_tags(), to: TrackQuery
 
   @spec list_by(keyword()) :: [Track.t()]
   def list_by(opts \\ []), do: TrackQuery.list_by(opts)

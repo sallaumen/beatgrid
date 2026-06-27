@@ -5,6 +5,7 @@ defmodule BeatgridWeb.TrackLive do
   import BeatgridWeb.UI
 
   alias Beatgrid.Analysis
+  alias Beatgrid.Library
   alias Beatgrid.Library.Tracks
   alias Beatgrid.Loudness
   alias Beatgrid.Mixing
@@ -13,6 +14,14 @@ defmodule BeatgridWeb.TrackLive do
   alias Beatgrid.Workers.{AnalyzeWorker, EnrichWorker, RecommendWorker}
   alias Beatgrid.YouTube
   alias Phoenix.LiveView.JS
+
+  # The only fields the inline pencils may edit. `phx-value-field` is client-supplied,
+  # so edit_field whitelists against this before any String.to_existing_atom.
+  @editable_fields ~w(title artist album year genre bpm key filename)
+
+  # Extensions we treat as a "real" audio extension when the user renames a file —
+  # anything else (or a name with no extension) keeps the original extension.
+  @audio_exts ~w(.mp3 .m4a .flac .wav .aac .ogg)
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
@@ -27,6 +36,9 @@ defmodule BeatgridWeb.TrackLive do
            track: track,
            next: Mixing.rank(prev: track, exclude: [track.id], limit: 8),
            tag_draft: "",
+           editing_field: nil,
+           all_tags: Tracks.all_tags(),
+           rename_undo: nil,
            analyzing?: false,
            enriching?: false,
            recs: load_recs(track.id),
@@ -81,17 +93,69 @@ defmodule BeatgridWeb.TrackLive do
       {:noreply, socket}
     else
       tags = Enum.uniq((socket.assigns.track.tags || []) ++ [tag])
-      {:noreply, socket |> save(%{tags: tags}) |> assign(tag_draft: "")}
+
+      {:noreply,
+       socket |> save(%{tags: tags}) |> assign(tag_draft: "", all_tags: Tracks.all_tags())}
     end
   end
 
   def handle_event("remove_tag", %{"tag" => tag}, socket) do
-    {:noreply, save(socket, %{tags: (socket.assigns.track.tags || []) -- [tag]})}
+    {:noreply,
+     socket
+     |> save(%{tags: (socket.assigns.track.tags || []) -- [tag]})
+     |> assign(all_tags: Tracks.all_tags())}
   end
 
   def handle_event("save_note", %{"note" => note}, socket) do
     {:noreply, save(socket, %{personal_note: note})}
   end
+
+  # --- inline field editing ---
+
+  def handle_event("edit_field", %{"field" => field}, socket) when field in @editable_fields do
+    {:noreply, assign(socket, editing_field: String.to_existing_atom(field))}
+  end
+
+  def handle_event("edit_field", _params, socket), do: {:noreply, socket}
+
+  def handle_event("cancel_edit", _params, socket) do
+    {:noreply, assign(socket, editing_field: nil)}
+  end
+
+  def handle_event("save_field", %{"field" => field, "value" => value}, socket) do
+    {:noreply,
+     socket |> apply_field_edit(field, String.trim(value)) |> assign(editing_field: nil)}
+  end
+
+  def handle_event("undo_rename", _params, socket) do
+    case socket.assigns.rename_undo do
+      nil ->
+        {:noreply, socket}
+
+      old ->
+        case Library.rename(socket.assigns.track, old) do
+          {:ok, %{filename: ^old}} ->
+            {:noreply, socket |> reload() |> assign(rename_undo: nil)}
+
+          {:ok, _suffixed} ->
+            # The original name was taken again in the meantime; rename/2 kept the
+            # file safe with a " (N)" suffix rather than overwriting. Tell the user.
+            {:noreply,
+             socket
+             |> reload()
+             |> assign(
+               rename_undo: nil,
+               toast: {:error, "O nome original já estava em uso; restaurado com sufixo."}
+             )}
+
+          {:error, _reason} ->
+            {:noreply, assign(socket, toast: {:error, "Não foi possível desfazer a renomeação."})}
+        end
+    end
+  end
+
+  def handle_event("dismiss_rename", _params, socket),
+    do: {:noreply, assign(socket, rename_undo: nil)}
 
   def handle_event("start_set", _params, socket) do
     track = socket.assigns.track
@@ -198,9 +262,109 @@ defmodule BeatgridWeb.TrackLive do
 
   defp enrich_done_toast(_p), do: {:ok, "Sem match no Soundcharts; classificação atualizada."}
 
+  # BPM/tom: a manual override (wins over Soundcharts/detected); blank reverts to auto,
+  # invalid is ignored. Metadata: writes the tag_* column and tracks the field in
+  # manual_fields (for the "edited" dot); blank clears it.
+  defp apply_field_edit(socket, "bpm", ""), do: save(socket, %{bpm_manual: nil})
+
+  defp apply_field_edit(socket, "bpm", value) do
+    case Float.parse(value) do
+      {n, _} when n > 0 -> save(socket, %{bpm_manual: Float.round(n, 1)})
+      _ -> socket
+    end
+  end
+
+  defp apply_field_edit(socket, "key", ""), do: save(socket, %{camelot_manual: nil})
+
+  defp apply_field_edit(socket, "key", value) do
+    if value =~ ~r/^(1[0-2]|[1-9])[ab]$/i,
+      do: save(socket, %{camelot_manual: String.upcase(value)}),
+      else: socket
+  end
+
+  defp apply_field_edit(socket, "year", ""),
+    do: save_metadata(socket, "year", :tag_year, nil)
+
+  # A blank year clears it; garbage ("19xx", "abc") is ignored so a typo can't
+  # silently wipe a good year — mirrors the bpm/key override behaviour.
+  defp apply_field_edit(socket, "year", value) do
+    case parse_year(value) do
+      nil -> socket
+      year -> save_metadata(socket, "year", :tag_year, year)
+    end
+  end
+
+  defp apply_field_edit(socket, field, value) when field in ~w(title artist album genre),
+    do: save_metadata(socket, field, String.to_existing_atom("tag_#{field}"), blank_to_nil(value))
+
+  defp apply_field_edit(socket, "filename", ""), do: socket
+
+  defp apply_field_edit(socket, "filename", value) do
+    track = socket.assigns.track
+    old = track.filename
+
+    case Library.rename(track, ensure_ext(value, old)) do
+      {:ok, _renamed} ->
+        socket |> reload() |> assign(rename_undo: old)
+
+      {:error, :invalid_filename} ->
+        assign(socket,
+          toast: {:error, "Nome de arquivo inválido (use apenas um nome, sem barras)."}
+        )
+
+      {:error, _reason} ->
+        assign(socket, toast: {:error, "Não foi possível renomear o arquivo."})
+    end
+  end
+
+  defp apply_field_edit(socket, _field, _value), do: socket
+
+  # Keep the original extension unless the user typed a real audio extension. Can't
+  # rely on `Path.extname == ""` — "Mr. Big - Song" has a non-empty extname (". Big
+  # - Song") yet no real extension, so checking against @audio_exts is what keeps
+  # the file playable.
+  defp ensure_ext(name, fallback) do
+    if String.downcase(Path.extname(name)) in @audio_exts,
+      do: name,
+      else: name <> Path.extname(fallback)
+  end
+
+  defp save_metadata(socket, field, column, value) do
+    track = socket.assigns.track
+    current = track.manual_fields || []
+
+    manual_fields =
+      cond do
+        # Blank clears the override and the "edited" mark.
+        value in [nil, ""] -> List.delete(current, field)
+        # Re-submitting the existing value (e.g. Enter without changes) is not an
+        # edit — don't light up the "•" dot for a no-op.
+        value == Map.get(track, column) -> current
+        true -> Enum.uniq([field | current])
+      end
+
+    save(socket, %{column => value, :manual_fields => manual_fields})
+  end
+
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(value), do: value
+
+  # Require the whole input to be a positive integer — "19xx" must be rejected
+  # (nil), not silently truncated to 19. The "" trailing match enforces that.
+  defp parse_year(value) do
+    case Integer.parse(value) do
+      {y, ""} when y > 0 -> y
+      _ -> nil
+    end
+  end
+
+  defp edited?(track, field), do: field in (track.manual_fields || [])
+
   defp save(socket, attrs) do
     {:ok, _} = Tracks.update(socket.assigns.track, attrs)
-    reload(socket)
+    # Any non-rename edit retires the "Arquivo renomeado · Desfazer" banner so its
+    # one-level undo can't dangle past an unrelated change.
+    socket |> reload() |> assign(rename_undo: nil)
   end
 
   defp reload(socket),
@@ -249,6 +413,98 @@ defmodule BeatgridWeb.TrackLive do
             </div>
           </div>
         </header>
+
+        <section class="mt-5 rounded-xl border border-white/6 bg-surface p-4">
+          <.section_label>Dados (editáveis)</.section_label>
+          <div class="divide-y divide-white/4 mt-2">
+            <.editable_row
+              field={:title}
+              label="Título"
+              value={@track.tag_title}
+              display={@track.tag_title}
+              editing={@editing_field}
+              edited?={edited?(@track, "title")}
+              placeholder={@track.filename}
+            />
+            <.editable_row
+              field={:artist}
+              label="Artista"
+              value={@track.tag_artist}
+              display={@track.tag_artist}
+              editing={@editing_field}
+              edited?={edited?(@track, "artist")}
+            />
+            <.editable_row
+              field={:album}
+              label="Álbum"
+              value={@track.tag_album}
+              display={@track.tag_album}
+              editing={@editing_field}
+              edited?={edited?(@track, "album")}
+            />
+            <.editable_row
+              field={:year}
+              label="Ano"
+              type="number"
+              value={@track.tag_year}
+              display={@track.tag_year}
+              editing={@editing_field}
+              edited?={edited?(@track, "year")}
+            />
+            <.editable_row
+              field={:genre}
+              label="Gênero"
+              value={@track.tag_genre}
+              display={@track.tag_genre}
+              editing={@editing_field}
+              edited?={edited?(@track, "genre")}
+            />
+            <.editable_row
+              field={:bpm}
+              label="BPM"
+              type="number"
+              value={@track.bpm_manual}
+              display={bpm(@track)}
+              editing={@editing_field}
+              edited?={not is_nil(@track.bpm_manual)}
+              placeholder="auto"
+            />
+            <.editable_row
+              field={:key}
+              label="Tom"
+              value={@track.camelot_manual}
+              display={camelot(@track)}
+              editing={@editing_field}
+              edited?={not is_nil(@track.camelot_manual)}
+              placeholder="ex. 8A"
+            />
+            <.editable_row
+              field={:filename}
+              label="Arquivo"
+              value={@track.filename}
+              display={@track.filename}
+              editing={@editing_field}
+            />
+          </div>
+          <div
+            :if={@rename_undo}
+            class="mt-2 flex items-center justify-between gap-3 rounded-lg border border-green/30 bg-green/10 px-3 py-2 text-body-sm"
+          >
+            <span class="truncate">Arquivo renomeado no disco.</span>
+            <div class="flex shrink-0 items-center gap-3">
+              <button phx-click="undo_rename" class="font-semibold text-primary hover:underline">
+                Desfazer
+              </button>
+              <button
+                phx-click="dismiss_rename"
+                class="text-ink-muted hover:text-ink"
+                title="Dispensar"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        </section>
 
         <section class="mt-5 rounded-xl border border-white/6 bg-surface p-4">
           <div class="flex items-center justify-between">
@@ -450,9 +706,13 @@ defmodule BeatgridWeb.TrackLive do
                   type="text"
                   name="tag"
                   value={@tag_draft}
+                  list="tag-suggestions"
                   placeholder="+ nova tag"
                   class="flex-1 rounded-md border border-white/8 bg-input px-2.5 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
                 />
+                <datalist id="tag-suggestions">
+                  <option :for={t <- @all_tags} value={t} />
+                </datalist>
                 <button class="rounded-md bg-primary px-3 py-1.5 text-body-sm font-semibold text-white">Adicionar</button>
               </form>
             </section>
@@ -617,6 +877,68 @@ defmodule BeatgridWeb.TrackLive do
     <div class="flex items-center gap-1.5">
       <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{@label}</span>
       <span class={["font-mono text-body-lg", @class]}>{@value}</span>
+    </div>
+    """
+  end
+
+  attr :field, :atom, required: true
+  attr :label, :string, required: true
+  attr :value, :any, default: nil
+  attr :display, :any, default: nil
+  attr :editing, :atom, default: nil
+  attr :type, :string, default: "text"
+  attr :placeholder, :string, default: ""
+  attr :edited?, :boolean, default: false
+
+  defp editable_row(assigns) do
+    ~H"""
+    <div class="flex items-center gap-2 py-1.5">
+      <span class="w-20 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+        {@label}
+      </span>
+      <form
+        :if={@editing == @field}
+        phx-submit="save_field"
+        class="flex min-w-0 flex-1 items-center gap-1.5"
+      >
+        <input type="hidden" name="field" value={@field} />
+        <input
+          type={@type}
+          name="value"
+          value={@value}
+          placeholder={@placeholder}
+          phx-mounted={JS.focus()}
+          phx-keydown="cancel_edit"
+          phx-key="Escape"
+          class="min-w-0 flex-1 rounded-md border border-primary/50 bg-input px-2 py-1 text-body-sm focus:outline-none"
+        />
+        <button class="text-green text-[13px]" title="Salvar">✓</button>
+        <button
+          type="button"
+          phx-click="cancel_edit"
+          class="text-ink-muted hover:text-ink text-[13px]"
+          title="Cancelar"
+        >
+          ✕
+        </button>
+      </form>
+      <span :if={@editing != @field} class="group/ed flex min-w-0 flex-1 items-center gap-1.5">
+        <span class={["truncate text-body-sm", @display in [nil, ""] && "text-ink-faint"]}>
+          {(@display in [nil, ""] && "—") || @display}
+        </span>
+        <span :if={@edited?} class="shrink-0 text-[11px] text-primary" title="editado manualmente">
+          •
+        </span>
+        <button
+          type="button"
+          phx-click="edit_field"
+          phx-value-field={@field}
+          class="text-ink-faint hover:text-ink shrink-0 opacity-0 transition-opacity group-hover/ed:opacity-100"
+          title="Editar"
+        >
+          <span class="hero-pencil-square size-3.5" />
+        </button>
+      </span>
     </div>
     """
   end

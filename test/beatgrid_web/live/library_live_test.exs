@@ -186,6 +186,32 @@ defmodule BeatgridWeb.LibraryLiveTest do
       refute html =~ "Pricey"
     end
 
+    test "clicking a tag chip narrows to tracks carrying that tag", %{conn: conn} do
+      insert(:track,
+        status: :present,
+        tag_title: "Tagged",
+        tag_artist: "Withtag",
+        norm_artist: "withtag",
+        tags: ["abertura"]
+      )
+
+      insert(:track,
+        status: :present,
+        tag_title: "Plain",
+        tag_artist: "Notag",
+        norm_artist: "notag",
+        tags: []
+      )
+
+      {:ok, view, html} = live(conn, ~p"/")
+      # The chip is rendered because the tag exists in the library.
+      assert html =~ "abertura"
+
+      filtered = view |> element("button[phx-value-tag='abertura']") |> render_click()
+      assert filtered =~ "Tagged"
+      refute filtered =~ "Plain"
+    end
+
     test "the 'só não classificadas' toggle shows only unfiled tracks", %{conn: conn} do
       insert(:track,
         status: :present,
@@ -222,6 +248,26 @@ defmodule BeatgridWeb.LibraryLiveTest do
 
     assert html =~ "now-playing-disc"
     assert html =~ "ring-primary/40"
+  end
+
+  test "the table shows the manual BPM/key override, not the Soundcharts value", %{conn: conn} do
+    song = insert(:soundcharts_song, tempo_bpm: 120.0, camelot: "8A")
+
+    insert(:track,
+      status: :present,
+      tag_artist: "Override",
+      tag_title: "Manual",
+      norm_artist: "override",
+      soundcharts_song_id: song.id,
+      bpm_manual: 132.0,
+      camelot_manual: "11A"
+    )
+
+    {:ok, _view, html} = live(conn, ~p"/")
+    # Each cell renders a single value, so showing 132/11A proves the manual
+    # override clause matched ahead of the Soundcharts 120/8A.
+    assert html =~ "132"
+    assert html =~ "11A"
   end
 
   test "shows the suggested gain in the Vol. column for a measured track", %{conn: conn} do

@@ -101,5 +101,34 @@ defmodule Beatgrid.Library.TrackQueryTest do
 
       assert Enum.map(TrackQuery.library(%{unclassified: true}), & &1.id) == [inbox.id]
     end
+
+    test "a decimal BPM filter value parses instead of crashing" do
+      song = insert(:soundcharts_song, tempo_bpm: 128.0)
+      keep = insert(:track, status: :present, soundcharts_song_id: song.id)
+      slow_song = insert(:soundcharts_song, tempo_bpm: 90.0)
+      insert(:track, status: :present, soundcharts_song_id: slow_song.id)
+
+      ids = TrackQuery.library(%{bpm_min: "100.5"}) |> Enum.map(& &1.id)
+      assert ids == [keep.id]
+    end
+
+    test "an unparseable numeric filter is ignored rather than crashing" do
+      a = insert(:track, status: :present)
+      b = insert(:track, status: :present)
+
+      # "." / "" must not raise; the filter is simply skipped.
+      ids = TrackQuery.library(%{bpm_min: ".", rating_max: "abc"}) |> Enum.map(& &1.id)
+      assert Enum.sort(ids) == Enum.sort([a.id, b.id])
+    end
+  end
+
+  describe "all_tags/0" do
+    test "only includes tags from present tracks" do
+      insert(:track, status: :present, tags: ["live"])
+      insert(:track, status: :quarantined, tags: ["quarantined-only"])
+      insert(:track, status: :missing, tags: ["gone"])
+
+      assert TrackQuery.all_tags() == ["live"]
+    end
   end
 end

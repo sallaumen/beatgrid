@@ -38,6 +38,84 @@ defmodule BeatgridWeb.TrackLiveTest do
     assert Tracks.get(track.id).personal_note == "abertura"
   end
 
+  test "inline-edits a metadata field and a manual BPM override", %{conn: conn} do
+    song = insert(:soundcharts_song, tempo_bpm: 120.0)
+
+    track =
+      insert(:track,
+        status: :present,
+        tag_title: "Velho",
+        soundcharts_song_id: song.id,
+        analyzed_at: ~U[2026-01-01 00:00:00Z]
+      )
+
+    {:ok, view, html} = live(conn, ~p"/track/#{track.id}")
+    assert html =~ "Dados (editáveis)"
+
+    # Edit the title inline (pencil → form → submit).
+    view |> element(~s|button[phx-click=edit_field][phx-value-field=title]|) |> render_click()
+    view |> form("form[phx-submit=save_field]", %{value: "Novo Nome"}) |> render_submit()
+    t = Tracks.get(track.id)
+    assert t.tag_title == "Novo Nome"
+    assert "title" in t.manual_fields
+
+    # Manual BPM override wins over the Soundcharts 120.
+    view |> element(~s|button[phx-click=edit_field][phx-value-field=bpm]|) |> render_click()
+    view |> form("form[phx-submit=save_field]", %{value: "128"}) |> render_submit()
+    assert Tracks.get(track.id).bpm_manual == 128.0
+    assert render(view) =~ "128"
+
+    # Clearing the BPM reverts to the automatic value.
+    view |> element(~s|button[phx-click=edit_field][phx-value-field=bpm]|) |> render_click()
+    view |> form("form[phx-submit=save_field]", %{value: ""}) |> render_submit()
+    assert Tracks.get(track.id).bpm_manual == nil
+  end
+
+  test "an invalid year is ignored instead of wiping the existing one", %{conn: conn} do
+    track =
+      insert(:track,
+        status: :present,
+        tag_title: "X",
+        tag_year: 1998,
+        analyzed_at: ~U[2026-01-01 00:00:00Z]
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
+
+    view |> element(~s|button[phx-click=edit_field][phx-value-field=year]|) |> render_click()
+    view |> form("form[phx-submit=save_field]", %{value: "19xx"}) |> render_submit()
+
+    # Garbage must NOT clear a good year.
+    assert Tracks.get(track.id).tag_year == 1998
+  end
+
+  test "re-submitting an unchanged metadata value does not mark it edited", %{conn: conn} do
+    track =
+      insert(:track,
+        status: :present,
+        tag_title: "Sina",
+        analyzed_at: ~U[2026-01-01 00:00:00Z]
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
+
+    view |> element(~s|button[phx-click=edit_field][phx-value-field=title]|) |> render_click()
+    view |> form("form[phx-submit=save_field]", %{value: "Sina"}) |> render_submit()
+
+    refute "title" in Tracks.get(track.id).manual_fields
+  end
+
+  test "an unknown edit_field is ignored and does not crash the LiveView", %{conn: conn} do
+    track =
+      insert(:track, status: :present, tag_title: "X", analyzed_at: ~U[2026-01-01 00:00:00Z])
+
+    {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
+
+    # phx-value-field is client-controlled; a crafted value must not raise.
+    assert render_hook(view, "edit_field", %{"field" => "totally_unknown_xyz"})
+    assert Process.alive?(view.pid)
+  end
+
   test "starts a set seeded with this track and navigates to /set", %{conn: conn} do
     track =
       insert(:track,

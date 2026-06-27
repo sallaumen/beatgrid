@@ -41,6 +41,22 @@ defmodule Beatgrid.Library.TrackQuery do
   def get_by_path(rel_path), do: Repo.get_by(Track, rel_path: rel_path)
 
   @doc """
+  All distinct, non-blank tags across PRESENT tracks, sorted — for autocomplete +
+  filters. Scoped to `:present` so a tag that only survives on a quarantined/missing
+  track never shows up as a filter chip that matches zero visible rows.
+  """
+  @spec all_tags() :: [String.t()]
+  def all_tags do
+    Track
+    |> where([t], t.status == :present)
+    |> select([t], fragment("unnest(?)", t.tags))
+    |> distinct(true)
+    |> Repo.all()
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.sort()
+  end
+
+  @doc """
   Library browse query: present tracks with the song preloaded, filtered by a map
   of optional filters and sorted by an optional `:sort` `{field, dir}`.
 
@@ -82,29 +98,65 @@ defmodule Beatgrid.Library.TrackQuery do
   end
 
   defp apply_filter(q, :genre_folder, v), do: where(q, [t], t.genre_folder == ^v)
-  defp apply_filter(q, :rating_min, v), do: where(q, [t], t.rating >= ^to_int(v))
-  defp apply_filter(q, :rating_max, v), do: where(q, [t], t.rating <= ^to_int(v))
+
+  defp apply_filter(q, :rating_min, v) do
+    case to_int(v) do
+      nil -> q
+      n -> where(q, [t], t.rating >= ^n)
+    end
+  end
+
+  defp apply_filter(q, :rating_max, v) do
+    case to_int(v) do
+      nil -> q
+      n -> where(q, [t], t.rating <= ^n)
+    end
+  end
+
   defp apply_filter(q, :confidence, v), do: where(q, [t], t.sc_match_confidence == ^to_atom(v))
   defp apply_filter(q, :tag, v), do: where(q, [t], fragment("? = ANY(?)", ^v, t.tags))
 
-  defp apply_filter(q, :bpm_min, v),
-    do:
-      where(
-        q,
-        [t, song: s],
-        fragment("coalesce(?, ?, ?)", t.bpm_manual, s.tempo_bpm, t.bpm_detected) >= ^to_num(v)
-      )
+  defp apply_filter(q, :bpm_min, v) do
+    case to_num(v) do
+      nil ->
+        q
 
-  defp apply_filter(q, :bpm_max, v),
-    do:
-      where(
-        q,
-        [t, song: s],
-        fragment("coalesce(?, ?, ?)", t.bpm_manual, s.tempo_bpm, t.bpm_detected) <= ^to_num(v)
-      )
+      n ->
+        where(
+          q,
+          [t, song: s],
+          fragment("coalesce(?, ?, ?)", t.bpm_manual, s.tempo_bpm, t.bpm_detected) >= ^n
+        )
+    end
+  end
 
-  defp apply_filter(q, :energy_min, v), do: where(q, [song: s], s.energy >= ^(to_num(v) / 100))
-  defp apply_filter(q, :energy_max, v), do: where(q, [song: s], s.energy <= ^(to_num(v) / 100))
+  defp apply_filter(q, :bpm_max, v) do
+    case to_num(v) do
+      nil ->
+        q
+
+      n ->
+        where(
+          q,
+          [t, song: s],
+          fragment("coalesce(?, ?, ?)", t.bpm_manual, s.tempo_bpm, t.bpm_detected) <= ^n
+        )
+    end
+  end
+
+  defp apply_filter(q, :energy_min, v) do
+    case to_num(v) do
+      nil -> q
+      n -> where(q, [song: s], s.energy >= ^(n / 100))
+    end
+  end
+
+  defp apply_filter(q, :energy_max, v) do
+    case to_num(v) do
+      nil -> q
+      n -> where(q, [song: s], s.energy <= ^(n / 100))
+    end
+  end
 
   defp apply_filter(q, :unclassified, _v), do: where(q, [t], is_nil(t.genre_folder))
 
@@ -182,10 +234,26 @@ defmodule Beatgrid.Library.TrackQuery do
   defp nulls(:asc), do: :asc_nulls_last
   defp nulls(:desc), do: :desc_nulls_last
 
+  # Parse user-supplied filter inputs defensively — a `type=number` field can still
+  # post "12.5", ".", or "" and must not crash the LiveView. nil means "skip filter".
   defp to_int(v) when is_integer(v), do: v
-  defp to_int(v) when is_binary(v), do: String.to_integer(v)
+
+  defp to_int(v) when is_binary(v) do
+    case Integer.parse(v) do
+      {n, _} -> n
+      :error -> nil
+    end
+  end
+
   defp to_num(v) when is_number(v), do: v
-  defp to_num(v) when is_binary(v), do: String.to_integer(v)
+
+  defp to_num(v) when is_binary(v) do
+    case Float.parse(v) do
+      {n, _} -> n
+      :error -> nil
+    end
+  end
+
   defp to_atom(v) when is_atom(v), do: v
   defp to_atom(v) when is_binary(v), do: String.to_existing_atom(v)
 
