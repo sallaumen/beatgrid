@@ -13,7 +13,7 @@ defmodule Beatgrid.Operations.Operation do
 
   @type t :: %__MODULE__{}
 
-  @kinds ~w(rename move tag)a
+  @kinds ~w(rename move tag quarantine)a
   @statuses ~w(applied undone failed)a
 
   @primary_key {:id, Uniq.UUID, autogenerate: true, version: 7, type: :uuid}

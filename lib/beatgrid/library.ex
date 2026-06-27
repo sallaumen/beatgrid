@@ -354,6 +354,16 @@ defmodule Beatgrid.Library do
     })
   end
 
+  @doc """
+  Restores a quarantined track back to `dest_rel` (its original path): moves the
+  file out of `_Quarantine`, flips the status back to `:present` and recomputes
+  the genre folder from the destination path. The inverse of `quarantine/1`.
+  """
+  @spec restore_from_quarantine(Track.t(), String.t()) :: {:ok, Track.t()} | {:error, term()}
+  def restore_from_quarantine(track, dest_rel) do
+    do_move(track, dest_rel, %{status: :present, genre_folder: genre_folder_for_rel(dest_rel)})
+  end
+
   @doc "Genre-folder key whose `dir_name` is the top segment of `rel`, or nil."
   @spec genre_folder_for_rel(String.t()) :: String.t() | nil
   def genre_folder_for_rel(rel) do

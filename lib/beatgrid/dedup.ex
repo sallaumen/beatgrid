@@ -7,11 +7,106 @@ defmodule Beatgrid.Dedup do
   `detect/0` is idempotent: it rebuilds all groups from the current tracks.
   """
   alias Beatgrid.Dedup.{DedupQuery, DuplicateGroup, DuplicateMember}
+  alias Beatgrid.{Library, Operations, Repo}
   alias Beatgrid.Library.Tracks
-  alias Beatgrid.Repo
+
+  @topic "dedup"
 
   defdelegate list_groups, to: DedupQuery
   defdelegate count_groups, to: DedupQuery
+
+  @doc "Pending (unresolved) duplicate groups, members + tracks + songs preloaded."
+  @spec list_pending() :: [DuplicateGroup.t()]
+  def list_pending, do: DedupQuery.list_pending()
+
+  @doc "One duplicate group by id, members + tracks + songs preloaded, or nil."
+  @spec get_group(Ecto.UUID.t()) :: DuplicateGroup.t() | nil
+  def get_group(id), do: DedupQuery.get(id)
+
+  @spec set_group_status(DuplicateGroup.t(), atom()) ::
+          {:ok, DuplicateGroup.t()} | {:error, Ecto.Changeset.t()}
+  def set_group_status(group, status),
+    do: group |> DuplicateGroup.changeset(%{status: status}) |> Repo.update()
+
+  @doc "Subscribe to dedup-progress events (`{:dedup_progress, payload}`)."
+  @spec subscribe() :: :ok | {:error, term()}
+  def subscribe, do: Phoenix.PubSub.subscribe(Beatgrid.PubSub, @topic)
+
+  @doc "Broadcast a dedup-progress event."
+  @spec broadcast_progress(map()) :: :ok
+  def broadcast_progress(payload),
+    do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @topic, {:dedup_progress, payload})
+
+  @doc """
+  Resolves a group by keeping `keeper_track_id` and quarantining every other
+  member's track (a reversible move into `_Quarantine`, never a delete). Sets the
+  keeper flags, records one undoable `:quarantine` operation per quarantined track
+  under a shared `batch_id`, and marks the group `:resolved`. Returns
+  `{:ok, %{quarantined: n, batch_id: id}}`, or `{:error, :keeper_not_in_group}`.
+  """
+  @spec resolve_group(Ecto.UUID.t(), Ecto.UUID.t()) ::
+          {:ok, %{quarantined: non_neg_integer(), batch_id: Ecto.UUID.t()}}
+          | {:error, term()}
+  def resolve_group(group_id, keeper_track_id) do
+    group = DedupQuery.get(group_id)
+    members = group.members
+
+    if Enum.any?(members, &(&1.track_id == keeper_track_id)) do
+      batch_id = Uniq.UUID.uuid7()
+      set_keeper(group, members, keeper_track_id)
+
+      quarantined =
+        members
+        |> Enum.reject(&(&1.track_id == keeper_track_id))
+        |> Enum.count(&quarantine_member(&1, batch_id))
+
+      set_group_status(group, :resolved)
+      {:ok, %{quarantined: quarantined, batch_id: batch_id}}
+    else
+      {:error, :keeper_not_in_group}
+    end
+  end
+
+  @doc "Marks a group `:resolved` without touching any file (the user dismissed it)."
+  @spec ignore_group(Ecto.UUID.t()) ::
+          {:ok, DuplicateGroup.t()} | {:error, Ecto.Changeset.t()}
+  def ignore_group(group_id), do: group_id |> DedupQuery.get() |> set_group_status(:resolved)
+
+  # Point the group at the chosen keeper and flip each member's is_keeper flag.
+  defp set_keeper(group, members, keeper_track_id) do
+    {:ok, _} =
+      group |> DuplicateGroup.changeset(%{keeper_track_id: keeper_track_id}) |> Repo.update()
+
+    Enum.each(members, fn member ->
+      member
+      |> DuplicateMember.changeset(%{is_keeper: member.track_id == keeper_track_id})
+      |> Repo.update!()
+    end)
+  end
+
+  # Quarantine one member's track (reversible move) and log a :quarantine op with
+  # the ORIGINAL rel_path captured BEFORE the move, so the undo can restore it.
+  defp quarantine_member(member, batch_id) do
+    track = Tracks.get(member.track_id)
+    orig = track.rel_path
+
+    case Library.quarantine(track) do
+      {:ok, _moved} ->
+        Operations.record(%{
+          track_id: track.id,
+          kind: :quarantine,
+          from: orig,
+          to: "_Quarantine",
+          batch_id: batch_id,
+          suggestion_id: nil
+        })
+
+        true
+
+      _ ->
+        false
+    end
+  end
 
   @spec detect() :: {:ok, %{exact: non_neg_integer(), fuzzy: non_neg_integer()}}
   def detect do

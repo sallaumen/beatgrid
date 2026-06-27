@@ -14,6 +14,22 @@ defmodule Beatgrid.Dedup.DedupQuery do
     |> Repo.all()
   end
 
+  @spec list_pending() :: [DuplicateGroup.t()]
+  def list_pending do
+    DuplicateGroup
+    |> where([g], g.status == :pending)
+    |> order_by([g], asc: g.inserted_at)
+    |> preload(members: [track: :soundcharts_song], keeper_track: [])
+    |> Repo.all()
+  end
+
+  @spec get(Ecto.UUID.t()) :: DuplicateGroup.t() | nil
+  def get(id) do
+    DuplicateGroup
+    |> preload(members: [track: :soundcharts_song], keeper_track: [])
+    |> Repo.get(id)
+  end
+
   @spec count_groups() :: non_neg_integer()
   def count_groups, do: Repo.aggregate(DuplicateGroup, :count, :id)
 end

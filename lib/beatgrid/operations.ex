@@ -68,6 +68,15 @@ defmodule Beatgrid.Operations do
     end
   end
 
+  # A quarantine is reverted by moving the file back out of `_Quarantine` to its
+  # original path (`op.from`) and flipping the track back to `:present`.
+  defp undo_one(%Operation{kind: :quarantine} = op) do
+    case Tracks.get(op.track_id) do
+      nil -> mark_failed(op, :track_not_found)
+      track -> do_undo(op, track, &Library.restore_from_quarantine(&1, op.from))
+    end
+  end
+
   defp do_undo(op, nil, _undo), do: mark_failed(op, :suggestion_not_found)
 
   defp do_undo(op, suggestion, undo) do

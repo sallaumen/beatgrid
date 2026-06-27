@@ -16,4 +16,15 @@ defmodule Beatgrid.Workers.DedupWorkerTest do
     assert {:ok, %Oban.Job{}} = DedupWorker.enqueue()
     assert_enqueued(worker: DedupWorker)
   end
+
+  test "perform/1 broadcasts :running then :done progress" do
+    insert(:track, content_sha256: "abc", rel_path: "a.mp3")
+    insert(:track, content_sha256: "abc", rel_path: "b.mp3")
+
+    :ok = Dedup.subscribe()
+    assert :ok = perform_job(DedupWorker, %{})
+
+    assert_received {:dedup_progress, %{status: :running}}
+    assert_received {:dedup_progress, %{status: :done, groups: 1}}
+  end
 end
