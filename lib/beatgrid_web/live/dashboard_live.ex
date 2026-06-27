@@ -4,8 +4,9 @@ defmodule BeatgridWeb.DashboardLive do
 
   import BeatgridWeb.UI
 
-  alias Beatgrid.{AI, Analysis, Repertoire, YouTube}
+  alias Beatgrid.{Analysis, Repertoire, YouTube}
   alias Beatgrid.Library.GenreFolders
+  alias Beatgrid.Repertoire.RecommendationAI
 
   @impl true
   def mount(_params, _session, socket) do
@@ -77,7 +78,7 @@ defmodule BeatgridWeb.DashboardLive do
     {:noreply,
      socket
      |> assign(gaps_loading: true, gaps: nil, gaps_error: nil)
-     |> start_async(:gaps, fn -> AI.suggest_gaps(folder, count: 8) end)}
+     |> start_async(:gaps, fn -> RecommendationAI.suggest_gaps(folder, count: 8) end)}
   end
 
   @impl true

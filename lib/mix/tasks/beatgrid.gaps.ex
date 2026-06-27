@@ -10,7 +10,7 @@ defmodule Mix.Tasks.Beatgrid.Gaps do
   """
   use Mix.Task
 
-  alias Beatgrid.AI
+  alias Beatgrid.Repertoire.RecommendationAI
 
   @requirements ["app.start"]
 
@@ -28,7 +28,7 @@ defmodule Mix.Tasks.Beatgrid.Gaps do
   end
 
   defp suggest(shell, folder, opts) do
-    case AI.suggest_gaps(folder, opts) do
+    case RecommendationAI.suggest_gaps(folder, opts) do
       {:ok, gaps} ->
         shell.info("Missing classics for #{folder} (#{length(gaps)}):")
 

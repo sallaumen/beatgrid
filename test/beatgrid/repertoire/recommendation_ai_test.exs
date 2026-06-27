@@ -1,17 +1,11 @@
-defmodule Beatgrid.AITest do
+defmodule Beatgrid.Repertoire.RecommendationAITest do
   use Beatgrid.DataCase, async: true
 
-  alias Beatgrid.AI
   alias Beatgrid.AI.Mock
+  alias Beatgrid.Repertoire.RecommendationAI
+  alias Beatgrid.Repertoire.RecommendationAI.Gap
 
   setup do
-    insert(:genre_folder,
-      key: "mpb",
-      display_name: "MPB",
-      dir_name: "MPB",
-      description: "Songwriter Brazilian pop, not forró."
-    )
-
     insert(:genre_folder,
       key: "forro_roots",
       display_name: "Forró Roots",
@@ -43,14 +37,14 @@ defmodule Beatgrid.AITest do
          }}
       end)
 
-      assert {:ok, [gap]} = AI.suggest_gaps("forro_roots")
+      assert {:ok, [%Gap{} = gap]} = RecommendationAI.suggest_gaps("forro_roots")
       assert gap.artist == "Jackson do Pandeiro"
       assert gap.song == "Chiclete com Banana"
       assert gap.reason =~ "canon"
     end
 
     test "errors for an unknown folder" do
-      assert {:error, :unknown_folder} = AI.suggest_gaps("nope")
+      assert {:error, :unknown_folder} = RecommendationAI.suggest_gaps("nope")
     end
   end
 end
