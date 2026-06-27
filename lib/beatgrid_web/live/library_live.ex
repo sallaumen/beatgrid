@@ -5,8 +5,13 @@ defmodule BeatgridWeb.LibraryLive do
   import BeatgridWeb.UI
 
   alias Beatgrid.Library
-  alias Beatgrid.Library.{GenreFolders, TrackQuery}
+  alias Beatgrid.Library.{GenreFolders, TrackQuery, Tracks}
+  alias Beatgrid.Operations
   alias Beatgrid.Workers.ImportWorker
+
+  # "Parecidas" widens the energy window by ±this many points (0–100) around the
+  # reference track's effective energy.
+  @energy_window 12
 
   @confidences [{"alta", :high}, {"média", :medium}, {"baixa", :low}]
 
@@ -24,6 +29,10 @@ defmodule BeatgridWeb.LibraryLive do
        folders: GenreFolders.list(),
        filters: %{},
        sort: {:artist, :asc},
+       selecting?: false,
+       selected: MapSet.new(),
+       row_menu: nil,
+       move_toast: nil,
        import: nil,
        import_progress: nil,
        import_toast: nil
@@ -82,6 +91,112 @@ defmodule BeatgridWeb.LibraryLive do
   def handle_event("clear_filters", _params, socket) do
     {:noreply, socket |> assign(filters: %{}) |> load_tracks()}
   end
+
+  # --- per-row ⋯ menu ---
+
+  def handle_event("row_menu_toggle", %{"id" => id}, socket) do
+    {:noreply, assign(socket, row_menu: toggle(socket.assigns.row_menu, id))}
+  end
+
+  def handle_event("close_row_menu", _params, socket),
+    do: {:noreply, assign(socket, row_menu: nil)}
+
+  def handle_event("move_track", %{"track_id" => id, "to" => folder_key}, socket) do
+    socket = assign(socket, row_menu: nil)
+
+    case Tracks.get(id) do
+      nil ->
+        {:noreply, socket}
+
+      track ->
+        case Library.move_to_folder(track, folder_key) do
+          {:ok, _moved, batch_id} ->
+            {:noreply, socket |> assign(move_toast: {:moved, 1, batch_id}) |> load_tracks()}
+
+          {:error, _reason} ->
+            {:noreply, socket}
+        end
+    end
+  end
+
+  # "Parecidas": reuse the screen by pre-filling filters around the track —
+  # compatible key, an energy window, and the same folder.
+  def handle_event("similar_to", %{"track_id" => id}, socket) do
+    socket = assign(socket, row_menu: nil)
+
+    case Tracks.get_with_song(id) do
+      nil -> {:noreply, socket}
+      track -> {:noreply, socket |> assign(filters: similar_filters(track)) |> load_tracks()}
+    end
+  end
+
+  # --- discrete batch select mode ---
+
+  def handle_event("toggle_select_mode", _params, socket) do
+    selecting? = not socket.assigns.selecting?
+    # leaving select mode clears the pending selection
+    selected = if selecting?, do: socket.assigns.selected, else: MapSet.new()
+    {:noreply, assign(socket, selecting?: selecting?, selected: selected, row_menu: nil)}
+  end
+
+  def handle_event("toggle_select", %{"id" => id}, socket) do
+    selected =
+      if MapSet.member?(socket.assigns.selected, id) do
+        MapSet.delete(socket.assigns.selected, id)
+      else
+        MapSet.put(socket.assigns.selected, id)
+      end
+
+    {:noreply, assign(socket, selected: selected)}
+  end
+
+  def handle_event("select_all", _params, socket) do
+    selected = MapSet.new(socket.assigns.tracks, & &1.id)
+    {:noreply, assign(socket, selected: selected)}
+  end
+
+  def handle_event("clear_selection", _params, socket),
+    do: {:noreply, assign(socket, selected: MapSet.new())}
+
+  def handle_event("move_selected", %{"folder" => folder_key}, socket)
+      when folder_key not in [nil, ""] do
+    ids = MapSet.to_list(socket.assigns.selected)
+    %{moved: moved, batch_id: batch_id} = Library.move_many(ids, folder_key)
+
+    {:noreply,
+     socket
+     |> assign(move_toast: {:moved, moved, batch_id}, selected: MapSet.new())
+     |> load_tracks()}
+  end
+
+  def handle_event("move_selected", _params, socket), do: {:noreply, socket}
+
+  def handle_event("rate_selected", %{"rating" => rating}, socket) do
+    n = String.to_integer(rating)
+
+    Enum.each(socket.assigns.selected, fn id ->
+      case Tracks.get(id) do
+        nil -> :ok
+        track -> Tracks.update(track, %{rating: n})
+      end
+    end)
+
+    {:noreply, socket |> load_tracks()}
+  end
+
+  def handle_event("undo_move", _params, socket) do
+    case socket.assigns.move_toast do
+      {:moved, _n, batch_id} ->
+        Operations.undo_batch(batch_id)
+        {:noreply, socket |> assign(move_toast: nil) |> load_tracks()}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("dismiss_move_toast", _params, socket),
+    do: {:noreply, assign(socket, move_toast: nil)}
 
   # --- import: open/close the modal ---
 
@@ -219,6 +334,33 @@ defmodule BeatgridWeb.LibraryLive do
   defp flip_dir(:asc), do: :desc
   defp flip_dir(:desc), do: :asc
 
+  # Filters that surface tracks "near" the reference: harmonically compatible key,
+  # an energy band around its effective energy, and the same folder.
+  defp similar_filters(track) do
+    eff = Library.effective(track)
+
+    %{}
+    |> maybe_put(:camelot, eff.camelot)
+    |> maybe_put(:camelot_compatible, eff.camelot && true)
+    |> maybe_put(:genre_folder, track.genre_folder)
+    |> energy_band(eff.energy)
+  end
+
+  defp energy_band(filters, energy) when is_number(energy) do
+    center = round(energy * 100)
+
+    filters
+    |> Map.put(:energy_min, clamp(center - @energy_window))
+    |> Map.put(:energy_max, clamp(center + @energy_window))
+  end
+
+  defp energy_band(filters, _energy), do: filters
+
+  defp clamp(n), do: n |> max(0) |> min(100)
+
+  defp maybe_put(filters, _key, nil), do: filters
+  defp maybe_put(filters, key, value), do: Map.put(filters, key, value)
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -237,6 +379,35 @@ defmodule BeatgridWeb.LibraryLive do
           </div>
           <div class="flex items-center gap-3">
             <.import_progress_bar :if={@import_progress} progress={@import_progress} />
+            <%= if @selecting? do %>
+              <div class="flex items-center gap-2">
+                <button
+                  phx-click="select_all"
+                  class="rounded-md border border-white/8 bg-input px-2.5 py-1.5 text-body-sm text-ink-muted hover:text-ink"
+                >
+                  Marcar todas
+                </button>
+                <button
+                  phx-click="clear_selection"
+                  class="rounded-md border border-white/8 bg-input px-2.5 py-1.5 text-body-sm text-ink-muted hover:text-ink"
+                >
+                  Limpar
+                </button>
+                <button
+                  phx-click="toggle_select_mode"
+                  class="rounded-md bg-primary/20 px-2.5 py-1.5 text-body-sm font-semibold text-primary"
+                >
+                  Concluir
+                </button>
+              </div>
+            <% else %>
+              <button
+                phx-click="toggle_select_mode"
+                class="rounded-md border border-white/8 bg-input px-2.5 py-1.5 text-body-sm text-ink-muted hover:text-ink"
+              >
+                Selecionar
+              </button>
+            <% end %>
             <form id="library-search" phx-change="filter" class="w-72">
               <input
                 type="search"
@@ -250,6 +421,7 @@ defmodule BeatgridWeb.LibraryLive do
         </header>
 
         <.import_toast :if={@import_toast} message={@import_toast} />
+        <.move_toast :if={@move_toast} toast={@move_toast} />
 
         <div class="flex min-h-0 flex-1">
           <aside class="w-60 shrink-0 overflow-y-auto border-r border-white/6 bg-rail px-4 py-4">
@@ -257,10 +429,25 @@ defmodule BeatgridWeb.LibraryLive do
           </aside>
 
           <section class="min-w-0 flex-1 overflow-y-auto px-5 py-4">
-            <.track_table :if={@tracks != []} tracks={@tracks} sort={@sort} />
+            <.track_table
+              :if={@tracks != []}
+              tracks={@tracks}
+              sort={@sort}
+              selecting?={@selecting?}
+              selected={@selected}
+              row_menu={@row_menu}
+              folders={@folders}
+            />
             <.empty_state :if={@tracks == []} />
           </section>
         </div>
+
+        <.batch_bar
+          :if={@selecting? and MapSet.size(@selected) > 0}
+          count={MapSet.size(@selected)}
+          folders={@folders}
+          move_toast={@move_toast}
+        />
       </div>
 
       <.import_modal :if={@import && @import.open} import={@import} />
@@ -430,14 +617,19 @@ defmodule BeatgridWeb.LibraryLive do
 
   attr :tracks, :list, required: true
   attr :sort, :any, required: true
+  attr :selecting?, :boolean, required: true
+  attr :selected, :any, required: true
+  attr :row_menu, :string, required: true
+  attr :folders, :list, required: true
 
   defp track_table(assigns) do
     ~H"""
     <div class="space-y-1">
       <div
         class="grid items-center gap-2 px-1.5 pb-2 text-[10px] font-semibold uppercase tracking-wider text-ink-faint"
-        style={grid_cols()}
+        style={grid_cols(@selecting?)}
       >
+        <span :if={@selecting?}></span>
         <span></span>
         <.sort_header field={:artist} label="Faixa" sort={@sort} />
         <.sort_header field={:folder} label="Pasta" sort={@sort} />
@@ -446,12 +638,34 @@ defmodule BeatgridWeb.LibraryLive do
         <.sort_header field={:energy} label="Energia" sort={@sort} />
         <.sort_header field={:rating} label="Nota" sort={@sort} align="right" />
         <.sort_header field={:confidence} label="Sinal" sort={@sort} align="right" />
+        <span></span>
       </div>
       <div
         :for={track <- @tracks}
-        class="grid items-center gap-2 rounded-lg px-1.5 py-1.5 hover:bg-surface-2"
-        style={grid_cols()}
+        class={[
+          "grid items-center gap-2 rounded-lg px-1.5 py-1.5",
+          row_selected?(@selected, track.id) && "bg-primary/10",
+          !row_selected?(@selected, track.id) && "hover:bg-surface-2"
+        ]}
+        style={grid_cols(@selecting?)}
       >
+        <button
+          :if={@selecting?}
+          type="button"
+          phx-click="toggle_select"
+          phx-value-id={track.id}
+          aria-pressed={to_string(row_selected?(@selected, track.id))}
+          class="flex items-center justify-center"
+          title="Selecionar"
+        >
+          <span class={[
+            "flex size-[18px] items-center justify-center rounded-[5px] border text-[11px] leading-none transition-colors",
+            row_selected?(@selected, track.id) && "border-primary bg-primary text-white",
+            !row_selected?(@selected, track.id) && "border-white/20 hover:border-white/40"
+          ]}>
+            <span :if={row_selected?(@selected, track.id)}>✓</span>
+          </span>
+        </button>
         <.cover_play
           src={cover_src(track)}
           artist={track.tag_artist}
@@ -474,7 +688,75 @@ defmodule BeatgridWeb.LibraryLive do
           <div class="text-right"><.rating_badge value={track.rating} /></div>
           <div class="text-right"><.confidence_chip level={track.sc_match_confidence} /></div>
         </.link>
+        <.row_menu track={track} open?={@row_menu == track.id} folders={@folders} />
       </div>
+    </div>
+    """
+  end
+
+  # The per-row ⋯ popover: move-to-folder, "Parecidas", and open. A full-screen
+  # backdrop (rendered only when open) closes it on an outside click.
+  attr :track, :map, required: true
+  attr :open?, :boolean, required: true
+  attr :folders, :list, required: true
+
+  defp row_menu(assigns) do
+    ~H"""
+    <div class="relative flex justify-end">
+      <button
+        type="button"
+        phx-click="row_menu_toggle"
+        phx-value-id={@track.id}
+        aria-haspopup="true"
+        aria-expanded={to_string(@open?)}
+        class={[
+          "flex size-7 items-center justify-center rounded-md text-[15px] leading-none transition-colors",
+          @open? && "bg-white/10 text-ink",
+          !@open? && "text-ink-muted hover:bg-white/8 hover:text-ink"
+        ]}
+        title="Ações"
+        aria-label="Ações"
+      >
+        ⋯
+      </button>
+      <%= if @open? do %>
+        <div class="fixed inset-0 z-30" phx-click="close_row_menu" aria-hidden="true"></div>
+        <div class="absolute right-0 top-8 z-40 w-52 overflow-hidden rounded-lg border border-white/10 bg-surface py-1 shadow-xl shadow-black/40">
+          <p class="px-3 pt-1.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+            Mover para
+          </p>
+          <button
+            :for={folder <- @folders}
+            :if={folder.key != @track.genre_folder}
+            type="button"
+            phx-click="move_track"
+            phx-value-track_id={@track.id}
+            phx-value-to={folder.key}
+            class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-body-sm text-ink-secondary hover:bg-white/6 hover:text-ink"
+          >
+            <span
+              class="size-2 shrink-0 rounded-full"
+              style={"background:#{folder_color(folder.key)}"}
+            />
+            {folder.display_name}
+          </button>
+          <div class="my-1 border-t border-white/8"></div>
+          <button
+            type="button"
+            phx-click="similar_to"
+            phx-value-track_id={@track.id}
+            class="flex w-full items-center px-3 py-1.5 text-left text-body-sm text-ink-secondary hover:bg-white/6 hover:text-ink"
+          >
+            Parecidas
+          </button>
+          <.link
+            navigate={~p"/track/#{@track.id}"}
+            class="flex w-full items-center px-3 py-1.5 text-body-sm text-ink-secondary hover:bg-white/6 hover:text-ink"
+          >
+            Abrir
+          </.link>
+        </div>
+      <% end %>
     </div>
     """
   end
@@ -557,6 +839,95 @@ defmodule BeatgridWeb.LibraryLive do
       <button phx-click="dismiss_import_toast" class="text-body-sm text-ink-muted hover:text-ink">
         ✕
       </button>
+    </div>
+    """
+  end
+
+  # Confirmation bar after a move, carrying the batch_id behind a "Desfazer".
+  attr :toast, :any, required: true
+
+  defp move_toast(assigns) do
+    {:moved, n, _batch_id} = assigns.toast
+    assigns = assign(assigns, :n, n)
+
+    ~H"""
+    <div class="flex items-center justify-between gap-4 border-b border-primary/30 bg-primary/10 px-5 py-2">
+      <p class="text-body-sm text-ink">
+        {move_toast_label(@n)}
+      </p>
+      <div class="flex items-center gap-3">
+        <button
+          :if={@n > 0}
+          phx-click="undo_move"
+          class="rounded-md border border-primary/40 bg-primary/15 px-2.5 py-1 text-body-sm font-semibold text-primary hover:bg-primary/25"
+        >
+          Desfazer
+        </button>
+        <button phx-click="dismiss_move_toast" class="text-body-sm text-ink-muted hover:text-ink">
+          ✕
+        </button>
+      </div>
+    </div>
+    """
+  end
+
+  defp move_toast_label(0), do: "Nada foi movido."
+  defp move_toast_label(1), do: "1 faixa movida."
+  defp move_toast_label(n), do: "#{n} faixas movidas."
+
+  # Bottom action bar for the discrete batch-select mode: move N / rate N / undo.
+  attr :count, :integer, required: true
+  attr :folders, :list, required: true
+  attr :move_toast, :any, required: true
+
+  defp batch_bar(assigns) do
+    ~H"""
+    <div class="border-t border-primary/30 bg-primary/10 px-5 py-2.5 backdrop-blur">
+      <div class="flex flex-wrap items-center gap-x-5 gap-y-2">
+        <span class="text-body-sm font-semibold text-ink">
+          {@count} {if @count == 1, do: "selecionada", else: "selecionadas"}
+        </span>
+
+        <form id="batch-move" phx-change="move_selected" class="flex items-center gap-2">
+          <label class="text-body-sm text-ink-muted">Mover para</label>
+          <select
+            name="folder"
+            class="rounded-md border border-white/10 bg-input px-2 py-1 text-body-sm focus:border-primary/50 focus:outline-none"
+          >
+            <option value="">escolher…</option>
+            <option :for={folder <- @folders} value={folder.key}>{folder.display_name}</option>
+          </select>
+        </form>
+
+        <div class="flex items-center gap-2">
+          <span class="text-body-sm text-ink-muted">Avaliar</span>
+          <div class="flex gap-0.5">
+            <button
+              :for={n <- 0..10}
+              phx-click="rate_selected"
+              phx-value-rating={n}
+              class="flex size-6 items-center justify-center rounded font-mono text-[11px] text-ink-muted transition-colors hover:bg-white/10 hover:text-ink"
+            >
+              {n}
+            </button>
+          </div>
+        </div>
+
+        <button
+          :if={@move_toast}
+          phx-click="undo_move"
+          class="rounded-md border border-primary/40 bg-primary/15 px-2.5 py-1 text-body-sm font-semibold text-primary hover:bg-primary/25"
+        >
+          Desfazer
+        </button>
+
+        <button
+          phx-click="clear_selection"
+          class="ml-auto rounded-md border border-white/10 bg-input px-2.5 py-1 text-body-sm text-ink-muted hover:text-ink"
+        >
+          Limpar
+        </button>
+      </div>
     </div>
     """
   end
@@ -703,7 +1074,14 @@ defmodule BeatgridWeb.LibraryLive do
     ]
   end
 
-  defp grid_cols, do: "grid-template-columns:38px 1fr 130px 52px 56px 80px 52px 100px"
+  # The row grid: an optional leading checkbox column in select mode, the cover,
+  # the data columns, and a trailing ⋯ action column.
+  defp grid_cols(selecting?) do
+    lead = if selecting?, do: "24px ", else: ""
+    "grid-template-columns:#{lead}38px 1fr 130px 52px 56px 80px 52px 100px 28px"
+  end
+
+  defp row_selected?(selected, id), do: MapSet.member?(selected, id)
 
   # Soundcharts value, falling back to the locally-detected one.
   defp bpm(%{soundcharts_song: %{tempo_bpm: b}}) when is_number(b), do: round(b)
