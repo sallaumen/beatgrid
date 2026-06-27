@@ -348,4 +348,23 @@ defmodule BeatgridWeb.RecSetLiveTest do
     assert html =~ "salto"
     assert html =~ "+10.0 LU"
   end
+
+  @tag :tmp_dir
+  test "selo Ouro aparece na tracklist do set", %{conn: conn} do
+    {:ok, set} = Sets.create("Set Ouro")
+
+    track =
+      track_with("8A", 120.0,
+        tag_title: "Pérola",
+        tag_artist: "Luiz Gonzaga",
+        norm_title: "perola",
+        norm_artist: "luiz gonzaga",
+        gold_status: :confirmed
+      )
+
+    Sets.append(set, track)
+
+    {:ok, _view, html} = live(conn, ~p"/set/#{set.id}")
+    assert html =~ "Ouro — não está no Soundcharts"
+  end
 end

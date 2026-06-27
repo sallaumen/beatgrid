@@ -498,7 +498,10 @@ defmodule BeatgridWeb.RecSetLive do
                   />
                   <.cover src={cover_src(e.track)} artist={e.track.tag_artist} size={34} />
                   <div class="min-w-0 flex-1">
-                    <p class="truncate text-body font-medium">{title(e.track)}</p>
+                    <div class="flex min-w-0 items-center gap-1.5">
+                      <p class="truncate text-body font-medium">{title(e.track)}</p>
+                      <.ouro_badge track={e.track} />
+                    </div>
                     <p class="truncate text-caption text-ink-muted">{e.track.tag_artist || "—"}</p>
                   </div>
                   <span
