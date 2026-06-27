@@ -94,16 +94,6 @@ defmodule BeatgridWeb.DashboardLive do
     {:noreply, assign(socket, gaps_loading: false, gaps_error: inspect(reason))}
   end
 
-  @impl true
-  def handle_info({:analysis_tick}, socket) do
-    {:noreply, assign(socket, analysis: Analysis.progress())}
-  end
-
-  def handle_info({:youtube_tick}, socket) do
-    {:noreply, assign(socket, youtube_pending: YouTube.pending_count())}
-  end
-
-  @impl true
   def handle_async(:enrich, {:ok, {:ok, %{enriched: n, resolved: r}}}, socket) do
     note =
       if n > 0,
@@ -121,6 +111,15 @@ defmodule BeatgridWeb.DashboardLive do
   def handle_async(:enrich, {:exit, reason}, socket) do
     {:noreply,
      assign(socket, enriching?: false, youtube_note: "Falha ao enriquecer: #{inspect(reason)}")}
+  end
+
+  @impl true
+  def handle_info({:analysis_tick}, socket) do
+    {:noreply, assign(socket, analysis: Analysis.progress())}
+  end
+
+  def handle_info({:youtube_tick}, socket) do
+    {:noreply, assign(socket, youtube_pending: YouTube.pending_count())}
   end
 
   # --- helpers ---
