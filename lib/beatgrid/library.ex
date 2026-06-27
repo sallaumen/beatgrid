@@ -6,8 +6,8 @@ defmodule Beatgrid.Library do
   reflects and edits it. It owns library initialization and the file-moving
   primitives (relocate, quarantine) that back the organization workflow.
   """
+  alias Beatgrid.{Gold, Operations, Tagging}
   alias Beatgrid.Library.{FileInfo, GenreFolders, MetadataAI, Normalize, Track, Tracks}
-  alias Beatgrid.{Operations, Tagging}
   alias Beatgrid.YouTube.TitleParser
 
   @structural_dirs ["_Inbox", "_Quarantine"]
@@ -258,6 +258,35 @@ defmodule Beatgrid.Library do
       bpm: track.bpm_manual || (song && song.tempo_bpm) || track.bpm_detected,
       energy: song && song.energy
     }
+  end
+
+  @doc "Estado efetivo de Ouro {bool, motivo} — fachada de UI sobre Beatgrid.Gold."
+  defdelegate gold(track), to: Gold, as: :effective
+
+  @doc "Alterna o override manual de Ouro: nil → oposto do efetivo; setado → volta a automático."
+  @spec toggle_gold(Track.t()) :: {:ok, Track.t()} | {:error, Ecto.Changeset.t()}
+  def toggle_gold(%Track{gold_manual: nil} = track) do
+    {is_gold, _} = Gold.effective(track)
+    Tracks.update(track, %{gold_manual: not is_gold})
+  end
+
+  def toggle_gold(%Track{} = track), do: Tracks.update(track, %{gold_manual: nil})
+
+  @doc "Limpa o override manual (volta ao automático)."
+  @spec clear_gold_manual(Track.t()) :: {:ok, Track.t()} | {:error, Ecto.Changeset.t()}
+  def clear_gold_manual(%Track{} = track), do: Tracks.update(track, %{gold_manual: nil})
+
+  @doc """
+  Apaga a faixa de vez: remove o arquivo do disco e o registro. Arquivo ausente
+  (`:enoent`) ainda remove o registro. Único hard-delete do app (só `/importados`).
+  """
+  @spec hard_delete(Track.t()) :: {:ok, Track.t()} | {:error, term()}
+  def hard_delete(%Track{} = track) do
+    case File.rm(abs_path(track.rel_path)) do
+      :ok -> Tracks.delete(track)
+      {:error, :enoent} -> Tracks.delete(track)
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @doc """

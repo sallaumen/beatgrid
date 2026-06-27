@@ -42,6 +42,10 @@ defmodule Beatgrid.Library.Tracks do
   @spec update(Track.t(), map()) :: {:ok, Track.t()} | {:error, Ecto.Changeset.t()}
   def update(track, attrs), do: track |> Track.changeset(attrs) |> Repo.update()
 
+  @doc "Remove permanentemente o REGISTRO da faixa (o arquivo é tratado por Library.hard_delete/1)."
+  @spec delete(Track.t()) :: {:ok, Track.t()} | {:error, Ecto.Changeset.t()}
+  def delete(%Track{} = track), do: Repo.delete(track)
+
   @doc "Adds a cue-point marker at `position_ms` (optional label), kept sorted by position."
   @spec add_marker(Track.t(), non_neg_integer(), String.t() | nil) ::
           {:ok, Track.t()} | {:error, Ecto.Changeset.t()}

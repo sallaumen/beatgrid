@@ -31,8 +31,13 @@ defmodule Beatgrid.GoldTest do
                Gold.effective(%Beatgrid.Library.Track{gold_manual: false, youtube_views: hi})
 
       assert {true, :popular} = Gold.effective(%Beatgrid.Library.Track{youtube_views: hi})
-      assert {true, :raro_confirmado} = Gold.effective(%Beatgrid.Library.Track{gold_status: :confirmed})
-      assert {true, :raro_candidato} = Gold.effective(%Beatgrid.Library.Track{gold_status: :candidate})
+
+      assert {true, :raro_confirmado} =
+               Gold.effective(%Beatgrid.Library.Track{gold_status: :confirmed})
+
+      assert {true, :raro_candidato} =
+               Gold.effective(%Beatgrid.Library.Track{gold_status: :candidate})
+
       assert {false, nil} = Gold.effective(%Beatgrid.Library.Track{})
     end
   end
