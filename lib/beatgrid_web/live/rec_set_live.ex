@@ -24,6 +24,11 @@ defmodule BeatgridWeb.RecSetLive do
        folders: GenreFolders.list(),
        show_criteria: false
      )
+     |> assign(
+       weights: Mixing.weights(),
+       filters: default_filters(),
+       candidate_limit: 12
+     )
      |> assign(sets: sets)
      |> load_set(List.first(sets))}
   end
@@ -36,21 +41,45 @@ defmodule BeatgridWeb.RecSetLive do
 
   defp reload(socket), do: load_set(socket, Sets.get(socket.assigns.set.id))
 
-  # Candidates reflect the active section's energy target, so changing the section
-  # selector updates the preview below live. Automático (nil) = harmony + style only.
+  # Candidates always reflect the live mixing console: the per-dimension weights,
+  # the hard filters, and the active section's energy target. Changing any console
+  # control (or the section selector) re-runs this. Automático (nil section) =
+  # harmony + style only. The empty-set opening pool has no previous track, so the
+  # console's harmony/BPM filters don't apply there — only the limit + energy do.
   defp assign_candidates(socket) do
-    set = socket.assigns.set
+    %{set: set, entries: entries, filters: f, weights: w, candidate_limit: limit} = socket.assigns
     ti = section_target(socket.assigns[:active_section])
 
     candidates =
       cond do
-        is_nil(set) -> []
-        socket.assigns.entries == [] -> Sets.suggest_opening(set, limit: 8, target_intensity: ti)
-        true -> Sets.next_candidates(set, limit: 8, target_intensity: ti)
+        is_nil(set) ->
+          []
+
+        entries == [] ->
+          Sets.suggest_opening(set, limit: limit, target_intensity: ti)
+
+        true ->
+          Sets.next_candidates(set, console_opts(w, f, limit, ti))
       end
 
     assign(socket, candidates: candidates)
   end
+
+  defp console_opts(weights, filters, limit, ti) do
+    [
+      weights: weights,
+      harmonic_only: filters.harmonic_only,
+      bpm_min: filters.bpm_min,
+      bpm_max: filters.bpm_max,
+      min_rating: filters.min_rating,
+      exclude_styles: filters.exclude_styles,
+      limit: limit,
+      target_intensity: ti
+    ]
+  end
+
+  defp default_filters,
+    do: %{harmonic_only: false, bpm_min: nil, bpm_max: nil, min_rating: nil, exclude_styles: []}
 
   defp section_target(nil), do: nil
   defp section_target(role), do: Mixing.target_intensity(role)
@@ -117,6 +146,47 @@ defmodule BeatgridWeb.RecSetLive do
     {:noreply, reload(socket)}
   end
 
+  # --- mixing console (weights + hard filters) ---
+
+  def handle_event("set_weight", %{"dim" => dim, "value" => value}, socket) do
+    key = String.to_existing_atom(dim)
+    weights = Map.put(socket.assigns.weights, key, parse_weight(value))
+    {:noreply, socket |> assign(weights: Mixing.clamp_weights(weights)) |> assign_candidates()}
+  end
+
+  def handle_event("reset_console", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(weights: Mixing.weights(), filters: default_filters())
+     |> assign_candidates()}
+  end
+
+  def handle_event("toggle_harmonic", _params, socket) do
+    filters = Map.update!(socket.assigns.filters, :harmonic_only, &(!&1))
+    {:noreply, socket |> assign(filters: filters) |> assign_candidates()}
+  end
+
+  def handle_event("set_filters", params, socket) do
+    filters = %{
+      socket.assigns.filters
+      | bpm_min: parse_num(params["bpm_min"]),
+        bpm_max: parse_num(params["bpm_max"]),
+        min_rating: parse_int(params["min_rating"])
+    }
+
+    {:noreply, socket |> assign(filters: filters) |> assign_candidates()}
+  end
+
+  def handle_event("toggle_exclude_style", %{"key" => key}, socket) do
+    excluded = socket.assigns.filters.exclude_styles
+    excluded = if key in excluded, do: List.delete(excluded, key), else: [key | excluded]
+
+    {:noreply,
+     socket
+     |> assign(filters: %{socket.assigns.filters | exclude_styles: excluded})
+     |> assign_candidates()}
+  end
+
   # --- search ---
 
   def handle_event("search", %{"q" => q}, socket) do
@@ -161,6 +231,27 @@ defmodule BeatgridWeb.RecSetLive do
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(s), do: s
 
+  defp parse_weight(v) do
+    case v |> to_string() |> Integer.parse() do
+      {n, _} when n >= 0 -> n
+      _ -> 0
+    end
+  end
+
+  defp parse_num(v) do
+    case v |> to_string() |> String.trim() |> Float.parse() do
+      {f, _} when f >= 0 -> f
+      _ -> nil
+    end
+  end
+
+  defp parse_int(v) do
+    case v |> to_string() |> String.trim() |> Integer.parse() do
+      {n, _} when n >= 0 -> n
+      _ -> nil
+    end
+  end
+
   defp to_count(c) do
     case Integer.parse(to_string(c)) do
       {n, _} when n > 0 -> min(n, 20)
@@ -183,8 +274,15 @@ defmodule BeatgridWeb.RecSetLive do
 
   defp title(t), do: t.tag_title || t.filename
 
-  defp pct(v) when is_number(v), do: "#{round(v * 100)}%"
-  defp pct(_), do: "—"
+  defp last_track_title([]), do: nil
+  defp last_track_title(entries), do: entries |> List.last() |> Map.fetch!(:track) |> title()
+
+  defp fader_label(:style), do: "Estilo"
+  defp fader_label(:harmony), do: "Tom"
+  defp fader_label(:bpm), do: "Tempo"
+  defp fader_label(:intensity), do: "Energia"
+  defp fader_label(:rating), do: "Nota"
+
   defp short(name), do: String.slice(name || "", 0, 8)
 
   defp role_label(nil), do: nil
@@ -197,12 +295,6 @@ defmodule BeatgridWeb.RecSetLive do
   defp tier_symbol(:combina), do: "✅"
   defp tier_symbol(:cuidado), do: "⚠️"
   defp tier_symbol(:evitar), do: "❌"
-
-  defp weight_label(:style), do: "Estilo"
-  defp weight_label(:harmony), do: "Harmonia"
-  defp weight_label(:intensity), do: "Intensidade"
-  defp weight_label(:bpm), do: "BPM"
-  defp weight_label(:rating), do: "Sua nota"
 
   @impl true
   def render(assigns) do
@@ -349,13 +441,25 @@ defmodule BeatgridWeb.RecSetLive do
             </ol>
 
             <.section_fill active={@active_section} />
+            <.console_panel
+              weights={@weights}
+              filters={@filters}
+              folders={@folders}
+              from={last_track_title(@entries)}
+            />
             <.candidate_list
               :if={@entries != []}
               candidates={@candidates}
+              weights={@weights}
               empty?={false}
               section={role_label(@active_section)}
             />
-            <.candidate_list :if={@entries == []} candidates={@candidates} empty?={true} />
+            <.candidate_list
+              :if={@entries == []}
+              candidates={@candidates}
+              weights={@weights}
+              empty?={true}
+            />
             <.search_box query={@search_query} results={@search_results} />
           </div>
         </section>
@@ -416,7 +520,118 @@ defmodule BeatgridWeb.RecSetLive do
     """
   end
 
+  @fader_dims [:style, :harmony, :bpm, :intensity, :rating]
+
+  attr :weights, :map, required: true
+  attr :filters, :map, required: true
+  attr :folders, :list, required: true
+  attr :from, :string, default: nil
+
+  defp console_panel(assigns) do
+    assigns = assign(assigns, :dims, @fader_dims)
+
+    ~H"""
+    <section class="mt-5 overflow-hidden rounded-xl border border-white/8 bg-surface">
+      <header class="flex items-center justify-between gap-3 border-b border-white/6 bg-surface-2 px-4 py-2.5">
+        <div class="min-w-0">
+          <h3 class="flex items-center gap-2 text-body-sm font-semibold">
+            <span class="hero-adjustments-vertical size-4 text-primary" /> Mesa de mixagem
+          </h3>
+          <p :if={@from} class="truncate text-caption text-ink-faint">
+            a partir de <span class="text-ink-muted">{@from}</span>
+          </p>
+          <p :if={!@from} class="text-caption text-ink-faint">
+            ajuste o peso de cada critério para a abertura
+          </p>
+        </div>
+        <button
+          phx-click="reset_console"
+          class="shrink-0 rounded-md border border-white/8 px-2.5 py-1 text-[11px] font-semibold text-ink-muted hover:text-ink"
+        >
+          ↺ Resetar
+        </button>
+      </header>
+
+      <div class="flex items-start justify-between gap-4 px-4 py-4">
+        <.fader :for={dim <- @dims} dim={dim} label={fader_label(dim)} value={@weights[dim]} />
+      </div>
+
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-2.5 border-t border-white/6 px-4 py-3">
+        <button
+          phx-click="toggle_harmonic"
+          aria-pressed={to_string(@filters.harmonic_only)}
+          class={[
+            "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-semibold transition-colors",
+            @filters.harmonic_only && "bg-info/15 text-info border border-info/40",
+            !@filters.harmonic_only &&
+              "border border-white/8 text-ink-muted hover:text-ink"
+          ]}
+        >
+          <span aria-hidden="true">{if @filters.harmonic_only, do: "🔒", else: "🔓"}</span> Travar tom
+        </button>
+
+        <form id="console-filters" phx-change="set_filters" class="flex flex-wrap items-center gap-2">
+          <label class="flex items-center gap-1.5 text-caption text-ink-muted">
+            BPM
+            <input
+              type="number"
+              name="bpm_min"
+              value={@filters.bpm_min && round(@filters.bpm_min)}
+              min="0"
+              placeholder="min"
+              phx-debounce="300"
+              class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
+            />
+            <span class="text-ink-faint">–</span>
+            <input
+              type="number"
+              name="bpm_max"
+              value={@filters.bpm_max && round(@filters.bpm_max)}
+              min="0"
+              placeholder="max"
+              phx-debounce="300"
+              class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
+            />
+          </label>
+          <label class="flex items-center gap-1.5 text-caption text-ink-muted">
+            Nota mín.
+            <input
+              type="number"
+              name="min_rating"
+              value={@filters.min_rating}
+              min="0"
+              max="10"
+              placeholder="0"
+              phx-debounce="300"
+              class="w-14 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
+            />
+          </label>
+        </form>
+
+        <div class="flex flex-wrap items-center gap-1.5">
+          <span class="text-caption text-ink-faint">Excluir estilos:</span>
+          <button
+            :for={f <- @folders}
+            phx-click="toggle_exclude_style"
+            phx-value-key={f.key}
+            aria-pressed={to_string(f.key in @filters.exclude_styles)}
+            class={[
+              "rounded-full px-2 py-0.5 text-[11px] font-semibold transition-colors",
+              f.key in @filters.exclude_styles && "bg-coral/15 text-coral border border-coral/40",
+              f.key not in @filters.exclude_styles &&
+                "border border-white/8 text-ink-muted hover:text-ink"
+            ]}
+          >
+            {if f.key in @filters.exclude_styles, do: "✕ ", else: ""}{f.display_name}
+          </button>
+        </div>
+      </div>
+    </section>
+    """
+  end
+
   attr :candidates, :list, required: true
+  attr :weights, :map, required: true
   attr :empty?, :boolean, required: true
   attr :section, :string, default: nil
 
@@ -436,14 +651,19 @@ defmodule BeatgridWeb.RecSetLive do
           <.play_button src={~p"/audio/#{c.track.id}"} track_id={c.track.id} preview={true} size={28} />
           <.cover src={cover_src(c.track)} artist={c.track.tag_artist} size={30} />
           <div class="min-w-0 flex-1">
-            <p class="truncate text-body-sm font-medium">{title(c.track)}</p>
-            <p class="truncate text-caption text-ink-muted">{c.track.tag_artist || "—"}</p>
-            <div class="mt-0.5 flex flex-wrap gap-1.5 text-[10px] text-ink-faint">
-              <span class="rounded bg-white/5 px-1.5 py-px">estilo {pct(c.breakdown.style)}</span>
-              <span class="rounded bg-white/5 px-1.5 py-px">tom {pct(c.breakdown.harmony)}</span>
-              <span class="rounded bg-white/5 px-1.5 py-px">intens. {pct(c.breakdown.intensity)}</span>
+            <div class="flex items-center gap-2">
+              <p class="min-w-0 flex-1 truncate text-body-sm font-medium">{title(c.track)}</p>
+              <.folder_badge :if={c.track.genre_folder} folder={c.track.genre_folder} />
             </div>
+            <p class="truncate text-caption text-ink-muted">{c.track.tag_artist || "—"}</p>
+            <.composition_bar breakdown={c.breakdown} weights={@weights} />
           </div>
+          <span
+            class="w-8 shrink-0 text-right font-mono text-body-sm font-semibold text-ink-secondary"
+            title="Pontuação de compatibilidade"
+          >
+            {round(c.score)}
+          </span>
           <.camelot_seal value={c.camelot} />
           <span class="w-10 text-right font-mono text-body-sm text-primary">{round(c.bpm || 0)}</span>
           <button
@@ -455,8 +675,11 @@ defmodule BeatgridWeb.RecSetLive do
           </button>
         </div>
       </div>
-      <p :if={@candidates == []} class="text-body-sm text-ink-faint">
+      <p :if={@candidates == [] and @empty?} class="text-body-sm text-ink-faint">
         Sem candidatos — comece pela busca abaixo.
+      </p>
+      <p :if={@candidates == [] and not @empty?} class="text-body-sm text-ink-faint">
+        Nenhum candidato com esses filtros — afrouxe os filtros.
       </p>
     </div>
     """
@@ -518,19 +741,9 @@ defmodule BeatgridWeb.RecSetLive do
           <button phx-click="hide_criteria" class="text-ink-muted hover:text-ink">✕</button>
         </div>
         <p class="mb-4 text-caption text-ink-muted">
-          Estes valores vêm do backend — o algoritmo e esta tela usam a mesma fonte.
+          O arco de energia e a afinidade de estilos vêm do backend. Os pesos de cada critério
+          agora se ajustam ao vivo na <span class="text-ink-secondary">Mesa de mixagem</span>.
         </p>
-
-        <p class="mb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Pesos</p>
-        <div class="mb-4 grid grid-cols-2 gap-1.5 sm:grid-cols-5">
-          <div
-            :for={{k, v} <- Enum.sort_by(Map.to_list(Mixing.weights()), fn {_k, v} -> -v end)}
-            class="rounded-lg bg-base px-2.5 py-2 text-center"
-          >
-            <p class="font-mono text-[18px] font-semibold text-primary">{v}</p>
-            <p class="text-caption text-ink-muted">{weight_label(k)}</p>
-          </div>
-        </div>
 
         <p class="mb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
           Seções (arco de energia)

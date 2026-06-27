@@ -144,13 +144,79 @@ defmodule BeatgridWeb.RecSetLiveTest do
 
     html = view |> element("button[phx-click=show_criteria]") |> render_click()
 
-    # weights + section arc + a style-affinity cell, all sourced from the backend
+    # the energy arc + a style-affinity cell, both sourced from the backend (the
+    # per-criterion weights moved to the live "Mesa de mixagem" console)
     assert html =~ "Critérios"
-    assert html =~ "Estilo"
-    assert html =~ "Harmonia"
+    assert html =~ "arco de energia"
     assert html =~ "Pico"
     assert html =~ "Abertura"
     assert html =~ "Forró Roots"
+    assert html =~ "Afinidade de estilos"
+  end
+
+  # --- mixing console (Task 4: state + events) ---
+
+  @tag :tmp_dir
+  test "adjusting a weight fader recomputes candidates (order changes)", %{conn: conn} do
+    prev = track_with("8A", 120.0, tag_title: "Prev", norm_title: "prev")
+    _bpm_match = track_with("11A", 121.0, tag_title: "BpmMatch")
+    _key_match = track_with("8A", 150.0, tag_title: "KeyMatch")
+
+    {:ok, view, _html} = live(conn, ~p"/set")
+    new_set(view)
+    view |> form("#track-search", %{q: "Prev"}) |> render_change()
+
+    view
+    |> element("#search-results button[phx-click=append][phx-value-track='#{prev.id}']")
+    |> render_click()
+
+    before = render(view)
+    view |> render_hook("set_weight", %{"dim" => "bpm", "value" => "100"})
+    after_html = render(view)
+    refute before == after_html
+  end
+
+  @tag :tmp_dir
+  test "reset_console restores default weights", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/set")
+    new_set(view)
+
+    view |> render_hook("set_weight", %{"dim" => "harmony", "value" => "0"})
+    html = view |> element("button[phx-click=reset_console]") |> render_click()
+    # harmony default fader restored to 30
+    assert html =~ ~s(value="30")
+  end
+
+  @tag :tmp_dir
+  test "toggling lock-key filters the candidate list", %{conn: conn} do
+    prev = track_with("8A", 120.0, tag_title: "P2", norm_title: "p2")
+    _compat = track_with("8A", 120.0, tag_title: "Compat2")
+    _far = track_with("3B", 120.0, tag_title: "Far2")
+
+    {:ok, view, _html} = live(conn, ~p"/set")
+    new_set(view)
+    view |> form("#track-search", %{q: "P2"}) |> render_change()
+
+    view
+    |> element("#search-results button[phx-click=append][phx-value-track='#{prev.id}']")
+    |> render_click()
+
+    view |> element("button[phx-click=toggle_harmonic]") |> render_click()
+    html = render(view)
+    assert html =~ "Compat2"
+    refute html =~ "Far2"
+  end
+
+  @tag :tmp_dir
+  test "the console renders faders (with the hook) and composition bars", %{conn: conn} do
+    _t = track_with("8A", 120.0, tag_title: "X")
+    {:ok, view, _html} = live(conn, ~p"/set")
+    new_set(view)
+    html = render(view)
+    # the colocated ".Fader" hook normalizes to its module-qualified name at render
+    assert html =~ ~s(phx-hook="BeatgridWeb.UI.Fader")
+    assert html =~ ~s(data-dim="bpm")
+    assert html =~ "Mesa de mixagem"
   end
 
   @tag :tmp_dir
