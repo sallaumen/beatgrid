@@ -127,26 +127,30 @@ defmodule BeatgridWeb.ReviewLive do
   def handle_event("dismiss_toast", _params, socket), do: {:noreply, assign(socket, toast: nil)}
 
   def handle_event("reevaluate", %{"scope" => scope} = params, socket) do
-    enqueue_reeval(%{"scope" => scope} |> maybe_folder(params))
-    {:noreply, assign(socket, reeval: %{status: :queued})}
+    {:noreply, queue_reeval(socket, %{"scope" => scope} |> maybe_folder(params))}
   end
 
   def handle_event("reevaluate_folder", %{"folder" => ""}, socket), do: {:noreply, socket}
 
   def handle_event("reevaluate_folder", %{"folder" => key}, socket) do
-    enqueue_reeval(%{"scope" => "folder", "folder" => key})
-    {:noreply, assign(socket, reeval: %{status: :queued})}
+    {:noreply, queue_reeval(socket, %{"scope" => "folder", "folder" => key})}
   end
 
   def handle_event("reevaluate_one", %{"id" => id}, socket) do
-    enqueue_reeval(%{"scope" => "one", "id" => id})
-    {:noreply, assign(socket, reeval: %{status: :queued})}
+    {:noreply, queue_reeval(socket, %{"scope" => "one", "id" => id})}
   end
 
   defp maybe_folder(args, %{"folder" => f}) when f not in [nil, ""],
     do: Map.put(args, "folder", f)
 
   defp maybe_folder(args, _params), do: args
+
+  defp queue_reeval(socket, args) do
+    case enqueue_reeval(args) do
+      {:ok, _job} -> assign(socket, reeval: %{status: :queued})
+      _ -> assign(socket, reeval: %{status: :error})
+    end
+  end
 
   defp enqueue_reeval(args) do
     args
@@ -521,6 +525,7 @@ defmodule BeatgridWeb.ReviewLive do
     do:
       "rounded-md border border-white/10 bg-input px-2.5 py-1.5 text-[12px] text-ink-secondary hover:text-ink"
 
+  defp reeval_label(%{status: :error}), do: "Falha ao enfileirar a re-avaliação."
   defp reeval_label(%{status: :queued}), do: "Re-avaliando com IA — na fila…"
 
   defp reeval_label(%{status: :running, done: d, total: t}),
