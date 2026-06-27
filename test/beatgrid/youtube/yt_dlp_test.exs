@@ -35,6 +35,12 @@ defmodule Beatgrid.YouTube.YtDlpTest do
       assert b.views == nil
       assert b.upload_date == nil
     end
+
+    test "views não-numérico vira nil" do
+      out = "abc\tT\thttps://y/abc\t123abc\t20200115\n"
+      assert [item] = YtDlp.parse(out, "/inbox")
+      assert item.views == nil
+    end
   end
 
   describe "parse_entries/1" do

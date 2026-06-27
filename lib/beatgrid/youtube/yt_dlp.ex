@@ -107,7 +107,7 @@ defmodule Beatgrid.YouTube.YtDlp do
 
   defp to_int(s) do
     case Integer.parse(String.trim(s)) do
-      {n, _} -> n
+      {n, ""} -> n
       _ -> nil
     end
   end
