@@ -7,6 +7,7 @@ defmodule BeatgridWeb.LibraryLive do
   alias Beatgrid.Library
   alias Beatgrid.Library.{GenreFolders, TrackQuery, Tracks}
   alias Beatgrid.Operations
+  alias Beatgrid.Playback
   alias Beatgrid.Workers.ImportWorker
 
   # "Parecidas" widens the energy window by ±this many points (0–100) around the
@@ -20,7 +21,12 @@ defmodule BeatgridWeb.LibraryLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: Library.subscribe_import()
+    if connected?(socket) do
+      Library.subscribe_import()
+      Playback.subscribe()
+    end
+
+    np = Playback.now_playing()
 
     {:ok,
      socket
@@ -35,7 +41,8 @@ defmodule BeatgridWeb.LibraryLive do
        move_toast: nil,
        import: nil,
        import_progress: nil,
-       import_toast: nil
+       import_toast: nil,
+       playing_track_id: np.track_id
      )
      |> load_tracks()}
   end
@@ -290,6 +297,10 @@ defmodule BeatgridWeb.LibraryLive do
     {:noreply, assign(socket, import_progress: p)}
   end
 
+  def handle_info({:now_playing, np}, socket) do
+    {:noreply, assign(socket, playing_track_id: np.track_id)}
+  end
+
   # Build the Oban-shaped items from the per-row edited inputs. Only NEW rows are
   # importable; duplicates are previewed greyed-out without inputs, so they never
   # appear in `params["items"]` and are dropped here for good measure.
@@ -437,6 +448,7 @@ defmodule BeatgridWeb.LibraryLive do
               selected={@selected}
               row_menu={@row_menu}
               folders={@folders}
+              playing_id={@playing_track_id}
             />
             <.empty_state :if={@tracks == []} />
           </section>
@@ -621,6 +633,7 @@ defmodule BeatgridWeb.LibraryLive do
   attr :selected, :any, required: true
   attr :row_menu, :string, required: true
   attr :folders, :list, required: true
+  attr :playing_id, :string, default: nil
 
   defp track_table(assigns) do
     ~H"""
@@ -644,8 +657,11 @@ defmodule BeatgridWeb.LibraryLive do
         :for={track <- @tracks}
         class={[
           "grid items-center gap-2 rounded-lg px-1.5 py-1.5",
-          row_selected?(@selected, track.id) && "bg-primary/10",
-          !row_selected?(@selected, track.id) && "hover:bg-surface-2"
+          cond do
+            track.id == @playing_id -> "bg-primary/15 ring-1 ring-primary/40"
+            row_selected?(@selected, track.id) -> "bg-primary/10"
+            true -> "hover:bg-surface-2"
+          end
         ]}
         style={grid_cols(@selecting?)}
       >
@@ -673,6 +689,7 @@ defmodule BeatgridWeb.LibraryLive do
           play_src={~p"/audio/#{track.id}"}
           track_id={track.id}
           preview={true}
+          playing?={track.id == @playing_id}
         />
         <.link navigate={~p"/track/#{track.id}"} class="contents">
           <div class="min-w-0">

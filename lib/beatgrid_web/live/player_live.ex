@@ -208,16 +208,23 @@ defmodule BeatgridWeb.PlayerLive do
             a.addEventListener("beatgrid:toggle", () => a.paused ? a.play() : a.pause())
             a.addEventListener("beatgrid:stop", () => a.pause())
 
+            // Body flag drives the now-playing disc spin (CSS), pause-aware + correct
+            // for pages mounted mid-playback.
+            const setPlaying = (on) => { document.body.dataset.playing = on ? "true" : "false" }
+
             a.addEventListener("play", () => {
               setIcon("⏸")
+              setPlaying(true)
               window.dispatchEvent(new CustomEvent("beatgrid:playing", {detail: {source: "player-audio"}}))
             })
             a.addEventListener("pause", () => {
               setIcon("▶")
+              setPlaying(false)
               window.dispatchEvent(new CustomEvent("beatgrid:paused"))
             })
             a.addEventListener("ended", () => {
               setIcon("▶")
+              setPlaying(false)
               window.dispatchEvent(new CustomEvent("beatgrid:paused"))
               this.pushEvent("track_ended", {})
             })

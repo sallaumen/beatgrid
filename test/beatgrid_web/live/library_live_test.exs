@@ -211,6 +211,19 @@ defmodule BeatgridWeb.LibraryLiveTest do
     end
   end
 
+  test "highlights and shows a spinning disc on the currently-playing track", %{conn: conn} do
+    a = insert(:track, status: :present, tag_artist: "A", tag_title: "Aaa")
+
+    {:ok, view, _html} = live(conn, ~p"/")
+    refute render(view) =~ "now-playing-disc"
+
+    send(view.pid, {:now_playing, %{track_id: a.id, set_id: nil}})
+    html = render(view)
+
+    assert html =~ "now-playing-disc"
+    assert html =~ "ring-primary/40"
+  end
+
   # True if `a` appears before `b` in the rendered HTML.
   defp before?(html, a, b) do
     ia = :binary.match(html, a) |> elem(0)

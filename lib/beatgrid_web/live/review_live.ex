@@ -5,12 +5,17 @@ defmodule BeatgridWeb.ReviewLive do
   import BeatgridWeb.UI
 
   alias Beatgrid.Library.GenreFolders
-  alias Beatgrid.{Operations, Review}
+  alias Beatgrid.{Operations, Playback, Review}
   alias Beatgrid.Workers.{ReevaluateWorker, ReResolveWorker}
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: Review.subscribe()
+    if connected?(socket) do
+      Review.subscribe()
+      Playback.subscribe()
+    end
+
+    np = Playback.now_playing()
 
     {:ok,
      socket
@@ -22,7 +27,8 @@ defmodule BeatgridWeb.ReviewLive do
        applying?: false,
        selected: MapSet.new(),
        folders: GenreFolders.list(),
-       reeval: nil
+       reeval: nil,
+       playing_track_id: np.track_id
      )
      |> load()}
   end
@@ -187,6 +193,10 @@ defmodule BeatgridWeb.ReviewLive do
 
   def handle_info({:re_resolve_done, %{outcome: outcome}}, socket) do
     {:noreply, socket |> assign(toast: re_resolve_toast(outcome)) |> load()}
+  end
+
+  def handle_info({:now_playing, np}, socket) do
+    {:noreply, assign(socket, playing_track_id: np.track_id)}
   end
 
   # --- helpers ---
@@ -361,6 +371,7 @@ defmodule BeatgridWeb.ReviewLive do
                 folders={@folders}
                 audio_src={~p"/audio/#{s.track_id}"}
                 track_id={s.track_id}
+                playing?={s.track_id == @playing_track_id}
                 cover_src={cover_src(s.track)}
               />
               <.suggestion_card
@@ -378,6 +389,7 @@ defmodule BeatgridWeb.ReviewLive do
                 audit={audit_flag(s.reason)}
                 audio_src={~p"/audio/#{s.track_id}"}
                 track_id={s.track_id}
+                playing?={s.track_id == @playing_track_id}
                 cover_src={cover_src(s.track)}
                 rationale={s.rationale}
               >
@@ -407,6 +419,7 @@ defmodule BeatgridWeb.ReviewLive do
                 audit={audit_flag(s.reason)}
                 audio_src={~p"/audio/#{s.track_id}"}
                 track_id={s.track_id}
+                playing?={s.track_id == @playing_track_id}
                 cover_src={cover_src(s.track)}
               >
                 <:extra>

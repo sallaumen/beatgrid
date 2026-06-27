@@ -291,4 +291,24 @@ defmodule BeatgridWeb.RecSetLiveTest do
     # the set id flows into the play dispatch (so playback enters set-mode)
     assert html =~ ~s(&quot;set_id&quot;:&quot;#{set.id}&quot;)
   end
+
+  @tag :tmp_dir
+  test "highlights the currently-playing track in the set", %{conn: conn} do
+    seed =
+      track_with("8A", 120.0,
+        tag_title: "NowSeed",
+        tag_artist: "A",
+        norm_title: "nowseed",
+        norm_artist: "a"
+      )
+
+    {:ok, set} = Sets.create("NowPlaying")
+    Sets.append(set, seed)
+
+    {:ok, view, _html} = live(conn, ~p"/set/#{set.id}")
+    refute render(view) =~ "now-playing-disc"
+
+    send(view.pid, {:now_playing, %{track_id: seed.id, set_id: set.id}})
+    assert render(view) =~ "now-playing-disc"
+  end
 end

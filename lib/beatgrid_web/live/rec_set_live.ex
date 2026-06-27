@@ -7,12 +7,15 @@ defmodule BeatgridWeb.RecSetLive do
   alias Beatgrid.Library.{GenreFolders, TrackQuery, Tracks}
   alias Beatgrid.Mixing
   alias Beatgrid.Mixing.StyleAffinity
+  alias Beatgrid.Playback
   alias Beatgrid.Sets
   alias Phoenix.LiveView.JS
 
   @impl true
   def mount(_params, _session, socket) do
+    if connected?(socket), do: Playback.subscribe()
     sets = Sets.list()
+    np = Playback.now_playing()
 
     {:ok,
      socket
@@ -23,7 +26,9 @@ defmodule BeatgridWeb.RecSetLive do
        search_results: [],
        active_section: nil,
        folders: GenreFolders.list(),
-       show_criteria: false
+       show_criteria: false,
+       playing_track_id: np.track_id,
+       playing_set_id: np.set_id
      )
      |> assign(
        weights: Mixing.weights(),
@@ -48,6 +53,11 @@ defmodule BeatgridWeb.RecSetLive do
   end
 
   def handle_params(_params, _uri, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_info({:now_playing, np}, socket) do
+    {:noreply, assign(socket, playing_track_id: np.track_id, playing_set_id: np.set_id)}
+  end
 
   defp load_set(socket, nil), do: assign(socket, set: nil, entries: [], candidates: [])
 
@@ -440,7 +450,11 @@ defmodule BeatgridWeb.RecSetLive do
             <ol class="mt-4 space-y-1">
               <li
                 :for={{e, i} <- Enum.with_index(@entries, 1)}
-                class="flex items-center gap-3 rounded-lg bg-surface px-2.5 py-2"
+                class={[
+                  "flex items-center gap-3 rounded-lg px-2.5 py-2",
+                  (e.track.id == @playing_track_id && "bg-primary/15 ring-1 ring-primary/40") ||
+                    "bg-surface"
+                ]}
               >
                 <span class="w-5 shrink-0 text-right font-mono text-[12px] text-ink-faint">{i}</span>
                 <.play_button
@@ -449,6 +463,7 @@ defmodule BeatgridWeb.RecSetLive do
                   preview={false}
                   size={28}
                   set_id={@set.id}
+                  playing?={e.track.id == @playing_track_id}
                 />
                 <.cover src={cover_src(e.track)} artist={e.track.tag_artist} size={34} />
                 <div class="min-w-0 flex-1">
@@ -505,14 +520,20 @@ defmodule BeatgridWeb.RecSetLive do
               weights={@weights}
               empty?={false}
               section={role_label(@active_section)}
+              playing_id={@playing_track_id}
             />
             <.candidate_list
               :if={@entries == []}
               candidates={@candidates}
               weights={@weights}
               empty?={true}
+              playing_id={@playing_track_id}
             />
-            <.search_box query={@search_query} results={@search_results} />
+            <.search_box
+              query={@search_query}
+              results={@search_results}
+              playing_id={@playing_track_id}
+            />
           </aside>
         </div>
       </div>
@@ -712,6 +733,7 @@ defmodule BeatgridWeb.RecSetLive do
   attr :weights, :map, required: true
   attr :empty?, :boolean, required: true
   attr :section, :string, default: nil
+  attr :playing_id, :string, default: nil
 
   defp candidate_list(assigns) do
     assigns = assign(assigns, :header, candidate_header(assigns.empty?, assigns.section))
@@ -724,9 +746,18 @@ defmodule BeatgridWeb.RecSetLive do
       <div :if={@candidates != []} class="space-y-1">
         <div
           :for={c <- @candidates}
-          class="flex items-center gap-3 rounded-lg border border-white/6 px-2.5 py-2"
+          class={[
+            "flex items-center gap-3 rounded-lg border px-2.5 py-2",
+            (c.track.id == @playing_id && "border-primary/40 bg-primary/15") || "border-white/6"
+          ]}
         >
-          <.play_button src={~p"/audio/#{c.track.id}"} track_id={c.track.id} preview={true} size={28} />
+          <.play_button
+            src={~p"/audio/#{c.track.id}"}
+            track_id={c.track.id}
+            preview={true}
+            size={28}
+            playing?={c.track.id == @playing_id}
+          />
           <.cover src={cover_src(c.track)} artist={c.track.tag_artist} size={30} />
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
@@ -765,6 +796,7 @@ defmodule BeatgridWeb.RecSetLive do
 
   attr :query, :string, required: true
   attr :results, :list, required: true
+  attr :playing_id, :string, default: nil
 
   defp search_box(assigns) do
     ~H"""
@@ -787,7 +819,13 @@ defmodule BeatgridWeb.RecSetLive do
           :for={t <- @results}
           class="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-surface-2"
         >
-          <.play_button src={~p"/audio/#{t.id}"} track_id={t.id} preview={true} size={28} />
+          <.play_button
+            src={~p"/audio/#{t.id}"}
+            track_id={t.id}
+            preview={true}
+            size={28}
+            playing?={t.id == @playing_id}
+          />
           <.cover src={cover_src(t)} artist={t.tag_artist} size={30} />
           <div class="min-w-0 flex-1">
             <p class="truncate text-body-sm font-medium">{title(t)}</p>

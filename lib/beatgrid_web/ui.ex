@@ -144,26 +144,50 @@ defmodule BeatgridWeb.UI do
     default: nil,
     doc: "when set, plays in set-mode (auto-advance) from this track"
 
+  attr :playing?, :boolean,
+    default: false,
+    doc: "true when this is the current track: shows a spinning disc; click toggles play/pause"
+
   def play_button(assigns) do
     ~H"""
     <button
       type="button"
       phx-click={
-        JS.dispatch("beatgrid:play",
-          to: "#player-audio",
-          detail: %{src: @src, id: @track_id, preview: @preview, set_id: @set_id}
-        )
+        if @playing?,
+          do: JS.dispatch("beatgrid:toggle", to: "#player-audio"),
+          else:
+            JS.dispatch("beatgrid:play",
+              to: "#player-audio",
+              detail: %{src: @src, id: @track_id, preview: @preview, set_id: @set_id}
+            )
       }
       class={[
-        "flex shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary hover:bg-primary/25",
+        "flex shrink-0 items-center justify-center rounded-full",
+        !@playing? && "bg-primary/15 text-primary hover:bg-primary/25",
         @class
       ]}
       style={"width:#{@size}px;height:#{@size}px;font-size:#{max(round(@size / 2.6), 10)}px"}
-      title="Tocar"
-      aria-label="Tocar"
+      title={if @playing?, do: "Tocando — clique para pausar", else: "Tocar"}
+      aria-label={if @playing?, do: "Pausar", else: "Tocar"}
     >
-      <span aria-hidden="true">▶</span>
+      <.vinyl :if={@playing?} size={@size} />
+      <span :if={!@playing?} aria-hidden="true">▶</span>
     </button>
+    """
+  end
+
+  @doc "Spinning vinyl indicator for the currently-playing track (spin gated by CSS)."
+  attr :size, :integer, default: 28
+
+  def vinyl(assigns) do
+    ~H"""
+    <span
+      class="now-playing-disc flex shrink-0 animate-spin items-center justify-center rounded-full"
+      style={"width:#{@size}px;height:#{@size}px;background:radial-gradient(circle,#0c0c0f 30%,#3a3a44 33%,#0c0c0f 37%,#3a3a44 46%,#0c0c0f 50%)"}
+      aria-hidden="true"
+    >
+      <span class="block rounded-full bg-primary" style="width:34%;height:34%"></span>
+    </span>
     """
   end
 
@@ -179,6 +203,10 @@ defmodule BeatgridWeb.UI do
   attr :track_id, :string, required: true
   attr :preview, :boolean, default: true
 
+  attr :playing?, :boolean,
+    default: false,
+    doc: "true when this is the current track: a persistent spinning disc; click toggles"
+
   def cover_play(assigns) do
     assigns = assign(assigns, :radius, if(assigns.size > 60, do: 14, else: 7))
 
@@ -188,17 +216,25 @@ defmodule BeatgridWeb.UI do
       <button
         type="button"
         phx-click={
-          JS.dispatch("beatgrid:play",
-            to: "#player-audio",
-            detail: %{src: @play_src, id: @track_id, preview: @preview}
-          )
+          if @playing?,
+            do: JS.dispatch("beatgrid:toggle", to: "#player-audio"),
+            else:
+              JS.dispatch("beatgrid:play",
+                to: "#player-audio",
+                detail: %{src: @play_src, id: @track_id, preview: @preview}
+              )
         }
-        class="absolute inset-0 hidden items-center justify-center bg-black/55 text-[12px] text-white group-hover/cover:flex"
+        class={[
+          "absolute inset-0 items-center justify-center text-[12px] text-white",
+          @playing? && "flex bg-black/40",
+          !@playing? && "hidden bg-black/55 group-hover/cover:flex"
+        ]}
         style={"border-radius:#{@radius}px"}
-        title="Tocar"
-        aria-label="Tocar"
+        title={if @playing?, do: "Tocando — clique para pausar", else: "Tocar"}
+        aria-label={if @playing?, do: "Pausar", else: "Tocar"}
       >
-        <span aria-hidden="true">▶</span>
+        <.vinyl :if={@playing?} size={max(trunc(@size * 0.5), 16)} />
+        <span :if={!@playing?} aria-hidden="true">▶</span>
       </button>
     </div>
     """
@@ -546,6 +582,7 @@ defmodule BeatgridWeb.UI do
   attr :audio_src, :string, default: nil, doc: "URL to preview the track (▶ skips to 20s)"
   attr :track_id, :string, default: nil, doc: "track id for the global player"
   attr :cover_src, :string, default: nil, doc: "album art URL"
+  attr :playing?, :boolean, default: false, doc: "true when this card's track is the current one"
   slot :extra, doc: "optional extra action buttons (e.g. audit-tab actions)"
 
   def suggestion_card(assigns) do
@@ -554,7 +591,8 @@ defmodule BeatgridWeb.UI do
       id={@id}
       class={[
         "flex items-start gap-3 rounded-xl px-[14px] py-[13px]",
-        suggestion_card_class(@selected, @status)
+        suggestion_card_class(@selected, @status),
+        @playing? && "ring-1 ring-primary/50"
       ]}
     >
       <.cover_play
@@ -565,6 +603,7 @@ defmodule BeatgridWeb.UI do
         play_src={@audio_src}
         track_id={@track_id}
         preview={true}
+        playing?={@playing?}
       />
       <.cover :if={!(@audio_src && @track_id)} src={@cover_src} artist={@artist} size={42} />
       <div class="min-w-0 flex-1">
