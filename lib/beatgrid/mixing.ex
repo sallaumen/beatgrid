@@ -81,6 +81,25 @@ defmodule Beatgrid.Mixing do
         }
   def weights, do: @weights
 
+  @doc "Coerces a partial/dirty weights map into a full, safe map (numbers ≥ 0; missing keys use defaults)."
+  @spec clamp_weights(map() | nil) :: map()
+  def clamp_weights(nil), do: @weights
+
+  def clamp_weights(w) when is_map(w) do
+    Map.new(@weights, fn {k, default} -> {k, coerce_weight(Map.get(w, k, default), default)} end)
+  end
+
+  defp coerce_weight(v, _default) when is_number(v) and v >= 0, do: v
+
+  defp coerce_weight(v, default) when is_binary(v) do
+    case Float.parse(v) do
+      {f, _} when f >= 0 -> f
+      _ -> default
+    end
+  end
+
+  defp coerce_weight(_v, default), do: default
+
   @doc "The energy-arc sections with their target intensity (0–1)."
   @spec sections() :: [
           %{key: String.t(), label: String.t(), target_intensity: float(), hint: String.t()}
@@ -139,17 +158,18 @@ defmodule Beatgrid.Mixing do
     target_intensity = Keyword.get(opts, :target_intensity)
     exclude = Keyword.get(opts, :exclude, [])
     limit = Keyword.get(opts, :limit, @default_limit)
+    weights = opts |> Keyword.get(:weights) |> clamp_weights()
 
     prev_eff = prev && effective(Repo.preload(prev, :soundcharts_song))
 
     exclude
-    |> candidates()
-    |> Enum.map(&score(&1, prev_eff, target_style, target_intensity))
+    |> candidates(prev_eff, opts)
+    |> Enum.map(&score(&1, prev_eff, target_style, target_intensity, weights))
     |> Enum.sort_by(& &1.score, :desc)
     |> Enum.take(limit)
   end
 
-  defp candidates(exclude) do
+  defp candidates(exclude, _prev_eff, _opts) do
     Track
     |> where([t], t.status == :present)
     |> where([t], t.id not in ^exclude)
@@ -162,7 +182,7 @@ defmodule Beatgrid.Mixing do
     |> Repo.all()
   end
 
-  defp score(track, prev_eff, target_style, target_intensity) do
+  defp score(track, prev_eff, target_style, target_intensity, weights) do
     e = effective(track)
 
     parts = %{
@@ -181,9 +201,9 @@ defmodule Beatgrid.Mixing do
       intensity: intensity_of(e),
       breakdown: parts,
       score:
-        @weights.style * parts.style + @weights.harmony * parts.harmony +
-          @weights.intensity * parts.intensity + @weights.bpm * parts.bpm +
-          @weights.rating * parts.rating
+        weights.style * parts.style + weights.harmony * parts.harmony +
+          weights.intensity * parts.intensity + weights.bpm * parts.bpm +
+          weights.rating * parts.rating
     }
   end
 

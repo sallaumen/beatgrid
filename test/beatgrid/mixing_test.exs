@@ -104,6 +104,40 @@ defmodule Beatgrid.MixingTest do
       refute skip.id in ids
       assert length(ids) == 3
     end
+
+    test "weights override re-orders candidates (bpm-heavy surfaces the bpm-closest track)" do
+      prev = sc_track(camelot: "8A", tempo_bpm: 120.0, tag_title: "Prev")
+      bpm_match = sc_track(camelot: "11A", tempo_bpm: 121.0, tag_title: "BpmMatch")
+      key_match = sc_track(camelot: "8A", tempo_bpm: 150.0, tag_title: "KeyMatch")
+
+      bpm_heavy = %{style: 0, harmony: 0, intensity: 0, bpm: 100, rating: 0}
+
+      ids =
+        Mixing.rank(prev: prev, weights: bpm_heavy, exclude: [prev.id], limit: 10)
+        |> Enum.map(& &1.track.id)
+
+      assert Enum.find_index(ids, &(&1 == bpm_match.id)) <
+               Enum.find_index(ids, &(&1 == key_match.id))
+    end
+
+    test "default weights (no :weights opt) reproduce the harmony-led order" do
+      prev = sc_track(camelot: "8A", tempo_bpm: 120.0, tag_title: "Prev")
+      bpm_match = sc_track(camelot: "11A", tempo_bpm: 121.0, tag_title: "BpmMatch2")
+      key_match = sc_track(camelot: "8A", tempo_bpm: 150.0, tag_title: "KeyMatch2")
+
+      ids =
+        Mixing.rank(prev: prev, exclude: [prev.id], limit: 10) |> Enum.map(& &1.track.id)
+
+      assert Enum.find_index(ids, &(&1 == key_match.id)) <
+               Enum.find_index(ids, &(&1 == bpm_match.id))
+    end
+
+    test "clamp_weights coerces strings, drops negatives/unknowns, fills missing from defaults" do
+      assert %{style: 12.0, harmony: 30, bpm: 8} =
+               Mixing.clamp_weights(%{style: "12", harmony: -5})
+
+      assert Mixing.clamp_weights(nil) == Mixing.weights()
+    end
   end
 
   defp set_folder(track, folder) do
