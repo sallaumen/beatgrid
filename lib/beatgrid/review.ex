@@ -10,8 +10,8 @@ defmodule Beatgrid.Review do
   Decisions dispatch on the suggestion struct, so callers can hand a
   `RenameSuggestion` or a `MoveSuggestion` to the same function.
   """
-  alias Beatgrid.AI
   alias Beatgrid.Library
+  alias Beatgrid.Library.MetadataAI
   alias Beatgrid.Library.{NameSync, RenameSuggestion, Track, Tracks}
   alias Beatgrid.Operations
   alias Beatgrid.Organization
@@ -174,7 +174,7 @@ defmodule Beatgrid.Review do
   def reevaluate_chunk([]), do: 0
 
   def reevaluate_chunk(suggestions) do
-    case AI.resolve_names(Enum.map(suggestions, & &1.track)) do
+    case MetadataAI.resolve_names(Enum.map(suggestions, & &1.track)) do
       {:ok, results} ->
         by_id = Map.new(results, &{&1.track.id, &1})
         Enum.count(suggestions, &apply_resolution(&1, by_id[&1.track_id]))

@@ -11,6 +11,7 @@ defmodule Beatgrid.YouTube do
   """
   alias Beatgrid.{AI, Library, Review, Soundcharts}
   alias Beatgrid.Library.{FileInfo, NameSync, Tracks}
+  alias Beatgrid.Library.MetadataAI
   alias Beatgrid.Workers.{DownloadWorker, ExpandWorker}
   alias Beatgrid.YouTube.TitleParser
 
@@ -140,7 +141,7 @@ defmodule Beatgrid.YouTube do
     ambiguous = ids |> Enum.map(&Tracks.get/1) |> Enum.filter(&ambiguous?/1)
 
     with [_ | _] <- ambiguous,
-         {:ok, parsed} <- AI.parse_titles(Enum.map(ambiguous, &raw_title/1)) do
+         {:ok, parsed} <- MetadataAI.parse_titles(Enum.map(ambiguous, &raw_title/1)) do
       ambiguous
       |> Enum.zip(parsed)
       |> Enum.each(fn {t, p} -> Tracks.update(t, %{tag_artist: p.artist, tag_title: p.title}) end)

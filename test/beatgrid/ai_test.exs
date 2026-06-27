@@ -117,23 +117,6 @@ defmodule Beatgrid.AITest do
     end
   end
 
-  describe "parse_titles/1" do
-    test "asks the AI to extract artist/title from raw video titles" do
-      expect(Mock, :complete, fn prompt, schema, _opts ->
-        assert prompt =~ "ANAVITÓRIA"
-        assert schema["properties"]["titles"]
-        {:ok, %{"titles" => [%{"artist" => "Anavitória", "title" => "Trevo"}]}}
-      end)
-
-      assert {:ok, [%{artist: "Anavitória", title: "Trevo"}]} =
-               AI.parse_titles(["ANAVITÓRIA - Trevo (Tu) ft. Tiago Iorc | Lyric Video"])
-    end
-
-    test "returns {:ok, []} without calling the AI for an empty list" do
-      assert {:ok, []} = AI.parse_titles([])
-    end
-  end
-
   describe "reclassify/1 with :tracks" do
     test "classifies only the given tracks" do
       inbox = insert(:track, tag_artist: "Djavan", genre_folder: nil, rel_path: "_Inbox/x.mp3")
