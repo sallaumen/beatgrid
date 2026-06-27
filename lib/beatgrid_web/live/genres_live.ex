@@ -110,13 +110,15 @@ defmodule BeatgridWeb.GenresLive do
   def render(assigns) do
     ~H"""
     <.app_shell active={:generos} socket={@socket}>
-      <div class="mx-auto max-w-3xl px-6 py-8">
-        <h1 class="text-[22px] font-semibold">Gêneros</h1>
-        <p class="text-ink-muted mt-1 text-body-sm">
+      <header class="border-b border-white/6 bg-rail px-6 py-3">
+        <h2 class="text-[22px] font-semibold">Gêneros</h2>
+        <p class="text-ink-muted text-body-sm">
           A descrição de cada pasta é o contexto que a IA usa pra classificar e pra verificar os
           renomes. Quanto melhor a descrição, mais espertas as sugestões.
         </p>
+      </header>
 
+      <div class="mx-auto max-w-[1600px] px-6 py-6">
         <.toast toast={@toast} />
 
         <form
@@ -147,12 +149,12 @@ defmodule BeatgridWeb.GenresLive do
           </button>
         </form>
 
-        <div class="mt-5 space-y-3">
+        <div class="mt-5 grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
           <form
             :for={f <- @folders}
             id={"folder-#{f.key}"}
             phx-submit="save_description"
-            class="rounded-xl border border-white/8 bg-surface p-4"
+            class="flex flex-col rounded-xl border border-white/8 bg-surface p-4"
           >
             <input type="hidden" name="key" value={f.key} />
             <div class="mb-2 flex items-center gap-2">
@@ -190,8 +192,8 @@ defmodule BeatgridWeb.GenresLive do
             </div>
             <textarea
               name="description"
-              rows="3"
-              class="w-full rounded-md border border-white/8 bg-input px-3 py-2 text-body-sm focus:border-primary/50 focus:outline-none"
+              rows="4"
+              class="w-full flex-1 rounded-md border border-white/8 bg-input px-3 py-2 text-body-sm focus:border-primary/50 focus:outline-none"
               placeholder="Descreva o que define esta pasta (estilo, época, instrumentação)…"
             >{Map.get(@ai_fill, f.key, f.description)}</textarea>
             <div class="mt-2 flex justify-end">
