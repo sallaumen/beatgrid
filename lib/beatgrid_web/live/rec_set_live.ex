@@ -339,9 +339,12 @@ defmodule BeatgridWeb.RecSetLive do
           </button>
         </aside>
 
-        <section class="min-w-0 flex-1 overflow-y-auto">
-          <.empty_state :if={is_nil(@set)} />
-          <div :if={@set} class="mx-auto max-w-3xl px-6 py-5">
+        <div :if={is_nil(@set)} class="flex-1">
+          <.empty_state />
+        </div>
+
+        <div :if={@set} class="flex min-w-0 flex-1">
+          <section class="min-w-0 flex-1 overflow-y-auto px-6 py-5">
             <header class="flex items-center justify-between gap-3">
               <form id="set-name" phx-change="rename" class="flex-1">
                 <input
@@ -444,7 +447,9 @@ defmodule BeatgridWeb.RecSetLive do
                 </div>
               </li>
             </ol>
+          </section>
 
+          <aside class="flex w-[420px] shrink-0 flex-col overflow-y-auto border-l border-white/6 bg-rail px-4 py-5">
             <.section_fill active={@active_section} />
             <.console_panel
               weights={@weights}
@@ -467,8 +472,8 @@ defmodule BeatgridWeb.RecSetLive do
               empty?={true}
             />
             <.search_box query={@search_query} results={@search_results} />
-          </div>
-        </section>
+          </aside>
+        </div>
       </div>
 
       <.criteria_modal :if={@show_criteria} folders={@folders} />
