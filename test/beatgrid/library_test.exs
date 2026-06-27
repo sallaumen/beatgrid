@@ -77,6 +77,7 @@ defmodule Beatgrid.LibraryTest do
 
       assert {:ok, t} = Library.clear_gold_manual(%{t | gold_manual: true})
       assert is_nil(t.gold_manual)
+      assert is_nil(Beatgrid.Library.Tracks.get(t.id).gold_manual)
     end
   end
 

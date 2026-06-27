@@ -56,6 +56,12 @@ defmodule Beatgrid.GoldTest do
       assert :ok = Gold.apply_resolve_result(cand3, {:error, :budget_exhausted})
       assert Tracks.get(cand3.id).gold_status == :candidate
     end
+
+    test "already_linked é no-op" do
+      linked = insert(:track, gold_status: :candidate)
+      assert {:ok, ^linked} = Gold.apply_resolve_result(linked, {:ok, :already_linked})
+      assert Tracks.get(linked.id).gold_status == :candidate
+    end
   end
 
   describe "maybe_mark_candidate/1" do
