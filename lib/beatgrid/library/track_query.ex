@@ -58,7 +58,9 @@ defmodule Beatgrid.Library.TrackQuery do
 
   @doc """
   Library browse query: present tracks with the song preloaded, filtered by a map
-  of optional filters and sorted by an optional `:sort` `{field, dir}`.
+  of optional filters and sorted by an optional `:sort` `{field, dir}`. Paginated
+  with optional `:limit` + `:offset` (the Biblioteca loads 100 at a time and
+  appends on scroll).
 
   Filters: `genre_folder`, `rating_min`, `rating_max`, `confidence`, `tag`,
   `bpm_min`/`bpm_max` and `energy_min`/`energy_max` (both ranges over the effective
@@ -69,6 +71,29 @@ defmodule Beatgrid.Library.TrackQuery do
   """
   @spec library(map()) :: [Track.t()]
   def library(filters \\ %{}) do
+    filters
+    |> library_base()
+    |> sorted(filters)
+    |> paginate(filters)
+    |> preload([song: s], soundcharts_song: s)
+    |> Repo.all()
+  end
+
+  @doc "Total present tracks matching the same filters (ignores limit/offset) — for the header count + has-more."
+  @spec count_library(map()) :: non_neg_integer()
+  def count_library(filters \\ %{}) do
+    filters |> library_base() |> Repo.aggregate(:count, :id)
+  end
+
+  @doc "Every present track id matching the filters (ignores limit/offset) — powers \"Marcar todas\" across pages."
+  @spec library_ids(map()) :: [Ecto.UUID.t()]
+  def library_ids(filters \\ %{}) do
+    filters |> library_base() |> select([t], t.id) |> Repo.all()
+  end
+
+  # The shared filtered base (join + WHERE chain), without sort/pagination/preload —
+  # so list, count, and ids all share one filter definition.
+  defp library_base(filters) do
     Track
     |> join(:left, [t], s in assoc(t, :soundcharts_song), as: :song)
     |> where([t], t.status == :present)
@@ -84,9 +109,13 @@ defmodule Beatgrid.Library.TrackQuery do
     |> camelot_filter(filters)
     |> filter(:unclassified, filters)
     |> filter(:search, filters)
-    |> sorted(filters)
-    |> preload([song: s], soundcharts_song: s)
-    |> Repo.all()
+  end
+
+  defp paginate(query, filters) do
+    case filters[:limit] do
+      limit when is_integer(limit) -> query |> limit(^limit) |> offset(^(filters[:offset] || 0))
+      _ -> query
+    end
   end
 
   defp filter(query, key, filters) do

@@ -20,6 +20,9 @@ defmodule BeatgridWeb.LibraryLive do
   # The 24 Camelot wheel codes, 1A..12B, for the Tom filter <select>.
   @camelot_codes for n <- 1..12, letter <- ["A", "B"], do: "#{n}#{letter}"
 
+  # Rows loaded per DB page; the rest stream in on scroll (no load-everything query).
+  @per_page 100
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
@@ -166,8 +169,34 @@ defmodule BeatgridWeb.LibraryLive do
     {:noreply, assign(socket, selected: selected)}
   end
 
+  # Scroll reached the bottom — append the next DB page (guarded so it no-ops once
+  # everything matching the filters is loaded). Events are processed sequentially,
+  # so a rapid double-fire just loads consecutive pages, never duplicates.
+  def handle_event("load_more", _params, socket) do
+    if socket.assigns.has_more? do
+      page = socket.assigns.page + 1
+
+      more =
+        TrackQuery.library(
+          Map.merge(base_filters(socket), %{limit: @per_page, offset: (page - 1) * @per_page})
+        )
+
+      tracks = socket.assigns.tracks ++ more
+
+      {:noreply,
+       assign(socket,
+         tracks: tracks,
+         page: page,
+         has_more?: length(tracks) < socket.assigns.total
+       )}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_event("select_all", _params, socket) do
-    selected = MapSet.new(socket.assigns.tracks, & &1.id)
+    # All ids matching the current filters (across every page), not just the loaded rows.
+    selected = MapSet.new(TrackQuery.library_ids(base_filters(socket)))
     {:noreply, assign(socket, selected: selected)}
   end
 
@@ -332,12 +361,25 @@ defmodule BeatgridWeb.LibraryLive do
   defp import_summary(%{imported: n}) when n > 0, do: "#{n} faixa(s) importada(s)."
   defp import_summary(_p), do: "Nada novo para importar."
 
+  # Resets to the first page — used after any filter/sort/move change. Loads page 1
+  # (100 rows) + the total count so the header and has-more? are accurate.
   defp load_tracks(socket) do
-    filters = Map.put(socket.assigns.filters, :sort, socket.assigns.sort)
-    # Recompute the tag chips alongside the rows so newly added/removed tags
-    # (here or on the track page) appear/disappear without a full page reload.
-    assign(socket, tracks: TrackQuery.library(filters), all_tags: Tracks.all_tags())
+    filters = base_filters(socket)
+    total = TrackQuery.count_library(filters)
+    tracks = TrackQuery.library(Map.merge(filters, %{limit: @per_page, offset: 0}))
+
+    assign(socket,
+      tracks: tracks,
+      total: total,
+      page: 1,
+      has_more?: length(tracks) < total,
+      # Recompute the tag chips alongside the rows so newly added/removed tags
+      # (here or on the track page) appear/disappear without a full page reload.
+      all_tags: Tracks.all_tags()
+    )
   end
+
+  defp base_filters(socket), do: Map.put(socket.assigns.filters, :sort, socket.assigns.sort)
 
   defp update_filter(socket, key, nil),
     do: assign(socket, filters: Map.delete(socket.assigns.filters, key))
@@ -391,7 +433,7 @@ defmodule BeatgridWeb.LibraryLive do
         <header class="flex items-center justify-between gap-4 border-b border-white/6 bg-rail px-5 py-3">
           <div class="flex items-baseline gap-3">
             <h2 class="text-[22px] font-semibold">Biblioteca</h2>
-            <span class="font-mono text-body-sm text-ink-muted">{length(@tracks)} faixas</span>
+            <span class="font-mono text-body-sm text-ink-muted">{@total} faixas</span>
             <button
               phx-click="show_import"
               class="rounded-md bg-primary px-3 py-1.5 text-body-sm font-semibold text-white"
@@ -450,7 +492,7 @@ defmodule BeatgridWeb.LibraryLive do
             <.filters_panel filters={@filters} folders={@folders} tags={@all_tags} />
           </aside>
 
-          <section class="min-w-0 flex-1 overflow-y-auto px-5 py-4">
+          <section id="library-rows" class="min-w-0 flex-1 overflow-y-auto px-5 py-4">
             <.track_table
               :if={@tracks != []}
               tracks={@tracks}
@@ -461,8 +503,31 @@ defmodule BeatgridWeb.LibraryLive do
               folders={@folders}
               playing_id={@playing_track_id}
             />
+            <p
+              :if={@has_more?}
+              id="library-sentinel"
+              phx-hook=".InfiniteScroll"
+              phx-click="load_more"
+              class="cursor-pointer py-4 text-center font-mono text-[11px] text-ink-faint hover:text-ink-muted"
+            >
+              carregando mais…
+            </p>
             <.empty_state :if={@tracks == []} />
           </section>
+          <script :type={Phoenix.LiveView.ColocatedHook} name=".InfiniteScroll">
+            export default {
+              mounted() {
+                const root = this.el.closest("#library-rows");
+                this.observer = new IntersectionObserver((entries) => {
+                  if (entries.some((e) => e.isIntersecting)) this.pushEvent("load_more", {});
+                }, { root, rootMargin: "400px" });
+                this.observer.observe(this.el);
+              },
+              destroyed() {
+                if (this.observer) this.observer.disconnect();
+              }
+            }
+          </script>
         </div>
 
         <.batch_bar
