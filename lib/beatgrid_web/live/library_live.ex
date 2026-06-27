@@ -100,6 +100,11 @@ defmodule BeatgridWeb.LibraryLive do
     {:noreply, socket |> assign(filters: %{}) |> load_tracks()}
   end
 
+  def handle_event("toggle_gold_filter", _params, socket) do
+    current = socket.assigns.filters[:gold]
+    {:noreply, socket |> update_filter(:gold, if(current, do: nil, else: true)) |> load_tracks()}
+  end
+
   # --- per-row ⋯ menu ---
 
   def handle_event("row_menu_toggle", %{"id" => id}, socket) do
@@ -486,6 +491,16 @@ defmodule BeatgridWeb.LibraryLive do
       </button>
     </div>
 
+    <div class="mt-3 mb-3">
+      <button
+        phx-click="toggle_gold_filter"
+        class={chip_class(@filters[:gold] == true)}
+        title="Só faixas Ouro"
+      >
+        ★ Ouro
+      </button>
+    </div>
+
     <div class="mt-4 mb-1.5 flex items-center justify-between">
       <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Pasta</span>
       <button
@@ -695,7 +710,10 @@ defmodule BeatgridWeb.LibraryLive do
         />
         <.link navigate={~p"/track/#{track.id}"} class="contents">
           <div class="min-w-0">
-            <p class="truncate text-body font-medium">{track.tag_title || track.filename}</p>
+            <div class="flex min-w-0 items-center gap-1.5">
+              <p class="truncate text-body font-medium">{track.tag_title || track.filename}</p>
+              <.ouro_badge track={track} />
+            </div>
             <p class="truncate text-caption text-ink-muted">{track.tag_artist || "—"}</p>
           </div>
           <div><.folder_badge :if={track.genre_folder} folder={track.genre_folder} /></div>

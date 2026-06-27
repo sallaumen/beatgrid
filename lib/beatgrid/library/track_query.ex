@@ -66,6 +66,7 @@ defmodule Beatgrid.Library.TrackQuery do
     |> filter(:energy_min, filters)
     |> filter(:energy_max, filters)
     |> camelot_filter(filters)
+    |> gold_filter(filters)
     |> filter(:unclassified, filters)
     |> filter(:search, filters)
     |> sorted(filters)
@@ -134,6 +135,24 @@ defmodule Beatgrid.Library.TrackQuery do
           [t, song: s],
           fragment("coalesce(?, ?, ?)", t.camelot_manual, s.camelot, t.camelot_detected) in ^codes
         )
+    end
+  end
+
+  @gold_view_threshold Beatgrid.Gold.view_threshold()
+
+  # Selo Ouro = manual true OU (sem override manual E (eixo raro setado OU views >= limiar)),
+  # sempre excluindo manual=false. Espelha Beatgrid.Gold.effective/1.
+  defp gold_filter(q, filters) do
+    if truthy(filters[:gold] || filters["gold"]) do
+      where(
+        q,
+        [t],
+        t.gold_manual == true or
+          (is_nil(t.gold_manual) and
+             (not is_nil(t.gold_status) or t.youtube_views >= ^@gold_view_threshold))
+      )
+    else
+      q
     end
   end
 

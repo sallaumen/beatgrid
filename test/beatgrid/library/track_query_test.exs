@@ -102,4 +102,22 @@ defmodule Beatgrid.Library.TrackQueryTest do
       assert Enum.map(TrackQuery.library(%{unclassified: true}), & &1.id) == [inbox.id]
     end
   end
+
+  describe "library/1 filtro :gold" do
+    test "pega manual/popular/raro e exclui gold_manual false" do
+      hi = Beatgrid.Gold.view_threshold() + 1
+      manual = insert(:track, status: :present, gold_manual: true)
+      popular = insert(:track, status: :present, youtube_views: hi)
+      raro = insert(:track, status: :present, gold_status: :confirmed)
+      rejeitado = insert(:track, status: :present, gold_manual: false, youtube_views: hi)
+      comum = insert(:track, status: :present)
+
+      ids = TrackQuery.library(%{gold: true}) |> Enum.map(& &1.id) |> MapSet.new()
+      assert manual.id in ids
+      assert popular.id in ids
+      assert raro.id in ids
+      refute rejeitado.id in ids
+      refute comum.id in ids
+    end
+  end
 end
