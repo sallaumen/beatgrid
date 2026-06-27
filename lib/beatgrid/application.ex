@@ -12,6 +12,7 @@ defmodule Beatgrid.Application do
       Beatgrid.Repo,
       {DNSCluster, query: Application.get_env(:beatgrid, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Beatgrid.PubSub},
+      Beatgrid.Playback.NowPlaying,
       {Task.Supervisor, name: Beatgrid.TaskSupervisor},
       {Oban, Application.fetch_env!(:beatgrid, Oban)},
       # Start to serve requests, typically the last entry

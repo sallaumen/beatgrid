@@ -30,6 +30,31 @@ defmodule Beatgrid.Sets do
         ]
   def entries(%RecSet{id: id}), do: RecSetQuery.ordered_entries(id)
 
+  @doc "The set's opening track (position order), or nil if empty — for \"Tocar set\"."
+  @spec first_track(RecSet.t() | Ecto.UUID.t()) :: Library.Track.t() | nil
+  def first_track(%RecSet{id: id}), do: first_track(id)
+
+  def first_track(set_id) when is_binary(set_id),
+    do: set_id |> RecSetQuery.ordered_tracks() |> List.first()
+
+  @doc """
+  The track right after `current_track_id` in the set's current order, or nil if it
+  is the last track or not a member. Queries the order fresh each call, so the player
+  only needs to hold the pointer `(set_id, current_track_id)` — a reorder is honored
+  automatically with no re-sync.
+  """
+  @spec next_after(RecSet.t() | Ecto.UUID.t(), Ecto.UUID.t()) :: Library.Track.t() | nil
+  def next_after(%RecSet{id: id}, current_track_id), do: next_after(id, current_track_id)
+
+  def next_after(set_id, current_track_id) when is_binary(set_id) do
+    tracks = RecSetQuery.ordered_tracks(set_id)
+
+    case Enum.find_index(tracks, &(&1.id == current_track_id)) do
+      nil -> nil
+      idx -> Enum.at(tracks, idx + 1)
+    end
+  end
+
   @spec create(String.t()) :: {:ok, RecSet.t()} | {:error, Ecto.Changeset.t()}
   def create(name), do: %RecSet{} |> RecSet.changeset(%{name: name}) |> Repo.insert()
 

@@ -36,6 +36,41 @@ defmodule Beatgrid.SetsTest do
     assert [%{name: "Sunset"}] = Sets.list()
   end
 
+  test "next_after returns the next ordered track and is reorder-safe (the set pointer)" do
+    {:ok, set} = Sets.create("Chain")
+    a = track_with("8A", 120.0)
+    b = track_with("8A", 121.0)
+    c = track_with("9A", 122.0)
+    {:ok, _} = Sets.append(set, a)
+    {:ok, _} = Sets.append(set, b)
+    {:ok, _} = Sets.append(set, c)
+
+    assert Sets.next_after(set, a.id).id == b.id
+    assert Sets.next_after(set, b.id).id == c.id
+    assert Sets.next_after(set, c.id) == nil
+    assert Sets.next_after(set, "not-a-member") == nil
+
+    # Reorder (c up → a, c, b): next_after reflects the new order with no re-sync.
+    :ok = Sets.move(set, c, :up)
+    assert Sets.next_after(set, a.id).id == c.id
+    assert Sets.next_after(set, c.id).id == b.id
+
+    # Accepts a raw set id too (what the player holds).
+    assert Sets.next_after(set.id, a.id).id == c.id
+  end
+
+  test "first_track returns the opening track or nil when empty" do
+    {:ok, set} = Sets.create("First")
+    assert Sets.first_track(set) == nil
+
+    a = track_with("8A", 120.0)
+    b = track_with("8A", 121.0)
+    {:ok, _} = Sets.append(set, a)
+    {:ok, _} = Sets.append(set, b)
+
+    assert Sets.first_track(set).id == a.id
+  end
+
   test "next_candidates suggests compatible tracks not already in the set" do
     {:ok, set} = Sets.create("X")
     seed = track_with("8A", 120.0)
