@@ -327,6 +327,137 @@ defmodule BeatgridWeb.UI do
   defp rating_cell_style(_n, _value),
     do: "background:#15171f;color:#9498a6;border:1px solid rgba(255,255,255,.07)"
 
+  # ── Mixing console (REC SET) ───────────────────────────────────────────────
+
+  @dimension_colors %{
+    style: "#8b7bf0",
+    harmony: "#2d9cff",
+    intensity: "#5ad1a0",
+    bpm: "#ffb020",
+    rating: "#ff5d6c"
+  }
+
+  @doc "Hex color for a scoring dimension (matches the fader colors)."
+  def dimension_color(key), do: Map.get(@dimension_colors, key, "#9498a6")
+
+  @doc """
+  A vertical weight fader — one channel of the REC SET mixing console. The native
+  range is rotated (`writing-mode: vertical-lr; direction: rtl`) so dragging up =
+  more weight; a colocated `.Fader` hook pushes `set_weight` on slider *release*
+  (the native `change` event). The recessed track shows a fill in the dimension's
+  color so the channel reads at a glance.
+  """
+  attr :dim, :atom, required: true, doc: ":style | :harmony | :intensity | :bpm | :rating"
+  attr :label, :string, required: true
+  attr :value, :integer, required: true
+
+  def fader(assigns) do
+    assigns =
+      assign(assigns,
+        color: dimension_color(assigns.dim),
+        dim_str: Atom.to_string(assigns.dim),
+        id: "fader-#{assigns.dim}",
+        fill: max(min(assigns.value, 100), 0)
+      )
+
+    ~H"""
+    <div class="flex w-12 shrink-0 flex-col items-center gap-2">
+      <span class="font-mono text-[13px] font-semibold tabular-nums" style={"color:#{@color}"}>
+        {@value}
+      </span>
+      <div
+        class="relative flex h-36 w-7 items-end justify-center overflow-hidden rounded-md border border-white/8 bg-deep"
+        style="box-shadow:inset 0 1px 3px rgba(0,0,0,.6)"
+      >
+        <div
+          class="pointer-events-none absolute inset-x-0 bottom-0 rounded-b-md"
+          style={"height:#{@fill}%;background:linear-gradient(180deg,color-mix(in srgb,#{@color} 70%,transparent),color-mix(in srgb,#{@color} 22%,transparent))"}
+        >
+        </div>
+        <span
+          class="pointer-events-none absolute inset-x-1 top-1/2 h-px -translate-y-1/2 bg-white/8"
+          aria-hidden="true"
+        ></span>
+        <input
+          id={@id}
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          value={@value}
+          phx-hook=".Fader"
+          data-dim={@dim_str}
+          aria-label={"Peso: #{@label}"}
+          class="relative h-32 w-7 cursor-pointer appearance-none bg-transparent"
+          style={"writing-mode:vertical-lr;direction:rtl;accent-color:#{@color}"}
+        />
+      </div>
+      <span class="text-[10px] font-semibold uppercase tracking-wide text-ink-muted">{@label}</span>
+    </div>
+
+    <script :type={Phoenix.LiveView.ColocatedHook} name=".Fader">
+      export default {
+        mounted() {
+          this.el.addEventListener("change", () => {
+            this.pushEvent("set_weight", { dim: this.el.dataset.dim, value: this.el.value })
+          })
+        }
+      }
+    </script>
+    """
+  end
+
+  @doc """
+  Score-composition bar for one candidate: five inline segments whose widths are
+  each dimension's contribution (`weight × breakdown[dim]`) normalized to the row
+  total, colored by `dimension_color/1`. Reads as "what's driving this match".
+  """
+  attr :breakdown, :map, required: true
+  attr :weights, :map, required: true
+
+  def composition_bar(assigns) do
+    assigns = assign(assigns, :segments, composition_segments(assigns.breakdown, assigns.weights))
+
+    ~H"""
+    <div class="flex h-1.5 w-full overflow-hidden rounded-full bg-white/6" aria-hidden="true">
+      <span
+        :for={{dim, pct} <- @segments}
+        :if={pct > 0}
+        class="h-full first:rounded-l-full last:rounded-r-full"
+        style={"width:#{pct}%;background:#{dimension_color(dim)}"}
+        title={"#{dimension_label(dim)} #{Float.round(pct, 0) |> trunc()}%"}
+      ></span>
+    </div>
+    """
+  end
+
+  @composition_dims [:style, :harmony, :intensity, :bpm, :rating]
+
+  defp composition_segments(breakdown, weights) do
+    contributions =
+      Map.new(@composition_dims, fn dim ->
+        weight = Map.get(weights, dim, 0)
+        part = Map.get(breakdown, dim, 0.0) || 0.0
+        {dim, weight * part}
+      end)
+
+    total = contributions |> Map.values() |> Enum.sum()
+
+    if total > 0 do
+      Enum.map(@composition_dims, fn dim ->
+        {dim, Map.fetch!(contributions, dim) / total * 100}
+      end)
+    else
+      Enum.map(@composition_dims, fn dim -> {dim, 0.0} end)
+    end
+  end
+
+  defp dimension_label(:style), do: "Estilo"
+  defp dimension_label(:harmony), do: "Tom"
+  defp dimension_label(:intensity), do: "Energia"
+  defp dimension_label(:bpm), do: "Tempo"
+  defp dimension_label(:rating), do: "Nota"
+
   @doc "Compact rating badge (table)."
   attr :value, :integer, default: nil
 
