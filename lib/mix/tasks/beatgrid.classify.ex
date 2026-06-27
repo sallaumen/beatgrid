@@ -12,8 +12,8 @@ defmodule Mix.Tasks.Beatgrid.Classify do
   """
   use Mix.Task
 
-  alias Beatgrid.AI
   alias Beatgrid.Library.Tracks
+  alias Beatgrid.Organization.ClassificationAI
 
   @requirements ["app.start"]
 
@@ -42,7 +42,7 @@ defmodule Mix.Tasks.Beatgrid.Classify do
   end
 
   defp run_batch(shell, opts) do
-    summary = AI.reclassify(opts)
+    summary = ClassificationAI.reclassify(opts)
 
     shell.info("\n== Done ==")
     shell.info("  classified: #{summary.classified}")

@@ -9,9 +9,10 @@ defmodule Beatgrid.YouTube do
   Downloads run as background `DownloadWorker` jobs; the screen follows progress via
   the `"youtube"` PubSub topic.
   """
-  alias Beatgrid.{AI, Library, Review, Soundcharts}
+  alias Beatgrid.{Library, Review, Soundcharts}
   alias Beatgrid.Library.{FileInfo, NameSync, Tracks}
   alias Beatgrid.Library.MetadataAI
+  alias Beatgrid.Organization.ClassificationAI
   alias Beatgrid.Workers.{DownloadWorker, ExpandWorker}
   alias Beatgrid.YouTube.TitleParser
 
@@ -105,7 +106,7 @@ defmodule Beatgrid.YouTube do
       _ ->
         repropose_if_matched(id)
         Review.reevaluate_track(id)
-        AI.reclassify(tracks: [Tracks.get(id)])
+        ClassificationAI.reclassify(tracks: [Tracks.get(id)])
         {:ok, %{resolved: match?({:ok, _}, result)}}
     end
   end
@@ -124,7 +125,7 @@ defmodule Beatgrid.YouTube do
     Enum.each(ids, fn id -> id |> Tracks.get() |> Soundcharts.resolve_track() end)
     Enum.each(ids, &repropose_if_matched/1)
     Review.reevaluate_tracks(ids)
-    AI.reclassify(tracks: Enum.map(ids, &Tracks.get/1))
+    ClassificationAI.reclassify(tracks: Enum.map(ids, &Tracks.get/1))
 
     resolved = Enum.count(ids, &(Tracks.get(&1).soundcharts_song_id != nil))
     {:ok, %{enriched: length(ids), resolved: resolved}}
