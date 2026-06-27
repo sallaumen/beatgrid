@@ -2,52 +2,75 @@ defmodule Beatgrid.Soundcharts.Http do
   @moduledoc """
   Real Soundcharts adapter (Req). Authenticates with the legacy
   `x-app-id` / `x-api-key` headers and normalizes the wire shapes into the
-  `Response` the context expects. Credentials and `base_url` come from
-  `config :beatgrid, #{inspect(__MODULE__)}` (set in `runtime.exs`).
+  `Response` the context expects. Credentials come from the active account
+  (`Beatgrid.Soundcharts.Accounts`), so calls fail over across accounts; `base_url`
+  / `req_options` come from `config :beatgrid, #{inspect(__MODULE__)}` (runtime.exs).
   """
   @behaviour Beatgrid.Soundcharts.Client
 
-  alias Beatgrid.Soundcharts.Response
+  alias Beatgrid.Soundcharts.{Accounts, Response}
 
   @search_path "/api/v2/song/search/"
   @song_path "/api/v2.25/song/"
 
   @impl true
   def search_song(term) do
-    client()
-    |> Req.get(url: @search_path <> URI.encode(term), params: [offset: 0, limit: 20])
-    |> handle(&parse_search/1)
+    with_account(fn account ->
+      account
+      |> client()
+      |> Req.get(url: @search_path <> URI.encode(term), params: [offset: 0, limit: 20])
+      |> handle(account, &parse_search/1)
+    end)
   end
 
   @impl true
   def get_song(uuid) do
-    client()
-    |> Req.get(url: @song_path <> uuid)
-    |> handle(&parse_song/1)
+    with_account(fn account ->
+      account
+      |> client()
+      |> Req.get(url: @song_path <> uuid)
+      |> handle(account, &parse_song/1)
+    end)
   end
 
   # --- request plumbing ---
 
-  defp client do
-    [base_url: config(:base_url), headers: headers()]
+  # Use the active account's credentials. The context already guards the budget,
+  # so a nil here only happens when every account is exhausted.
+  defp with_account(fun) do
+    case Accounts.active() do
+      nil -> {:error, :budget_exhausted}
+      account -> fun.(account)
+    end
+  end
+
+  defp client(account) do
+    [base_url: Accounts.base_url(), headers: headers(account)]
     |> Keyword.merge(config(:req_options) || [])
     |> Req.new()
   end
 
-  defp headers do
-    [{"x-app-id", config(:app_id)}, {"x-api-key", config(:api_key)}]
+  defp headers(account) do
+    [{"x-app-id", account.app_id}, {"x-api-key", account.api_key}]
     |> Enum.reject(fn {_k, v} -> is_nil(v) end)
   end
 
-  defp handle({:ok, %Req.Response{status: status} = resp}, parser) when status in 200..299 do
-    {:ok, %Response{data: parser.(resp.body), quota_remaining: quota(resp), status: status}}
+  defp handle({:ok, %Req.Response{status: status} = resp}, account, parser)
+       when status in 200..299 do
+    {:ok,
+     %Response{
+       data: parser.(resp.body),
+       quota_remaining: quota(resp),
+       status: status,
+       account: account.id
+     }}
   end
 
-  defp handle({:ok, %Req.Response{status: status, body: body}}, _parser) do
+  defp handle({:ok, %Req.Response{status: status, body: body}}, _account, _parser) do
     {:error, {:http_error, status, body}}
   end
 
-  defp handle({:error, reason}, _parser), do: {:error, reason}
+  defp handle({:error, reason}, _account, _parser), do: {:error, reason}
 
   defp quota(resp) do
     with [value | _] <- Req.Response.get_header(resp, "x-quota-remaining"),

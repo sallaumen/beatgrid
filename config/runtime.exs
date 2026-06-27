@@ -25,10 +25,26 @@ config :beatgrid, BeatgridWeb.Endpoint,
 
 # Soundcharts HTTP adapter credentials (read from the environment in every env).
 # Tests use the Mox adapter and never read these.
+#
+# Multiple accounts enable automatic failover across limited free quotas: calls go
+# to the first account that still has quota; when it runs out, the next takes over
+# (see Beatgrid.Soundcharts.Accounts). Add a 2nd account by setting SOUNDCHARTS_APP_ID_2
+# + SOUNDCHARTS_API_KEY_2 in the (gitignored) .env. Accounts missing credentials are
+# ignored, so an unset 2nd account is simply skipped.
 config :beatgrid, Beatgrid.Soundcharts.Http,
   base_url: System.get_env("SOUNDCHARTS_BASE_URL", "https://customer.api.soundcharts.com"),
-  app_id: System.get_env("SOUNDCHARTS_APP_ID"),
-  api_key: System.get_env("SOUNDCHARTS_API_KEY")
+  accounts: [
+    %{
+      id: "1",
+      app_id: System.get_env("SOUNDCHARTS_APP_ID"),
+      api_key: System.get_env("SOUNDCHARTS_API_KEY")
+    },
+    %{
+      id: "2",
+      app_id: System.get_env("SOUNDCHARTS_APP_ID_2"),
+      api_key: System.get_env("SOUNDCHARTS_API_KEY_2")
+    }
+  ]
 
 if config_env() == :prod do
   database_url =

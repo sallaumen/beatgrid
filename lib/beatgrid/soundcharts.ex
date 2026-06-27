@@ -11,7 +11,7 @@ defmodule Beatgrid.Soundcharts do
 
   alias Beatgrid.Library.{Normalize, Track, Tracks}
   alias Beatgrid.Repo
-  alias Beatgrid.Soundcharts.{ApiCall, Camelot, Http, Response, Song, SongQuery}
+  alias Beatgrid.Soundcharts.{Accounts, ApiCall, Camelot, Http, Response, Song, SongQuery}
 
   @adapter Application.compile_env(
              :beatgrid,
@@ -26,24 +26,19 @@ defmodule Beatgrid.Soundcharts do
   @medley ~r{/|pout-?pourri|medley}iu
 
   @doc """
-  Current request budget. `remaining` is the floor of our own successful-call
-  count against the cap and the latest `x-quota-remaining` header — whichever is
-  more conservative, so a misbehaving header can never let us overspend.
+  Current request budget, aggregated across all configured accounts. Per-account
+  `remaining` is the floor of our own successful-call count against the cap and the
+  latest `x-quota-remaining` header — whichever is more conservative — and the
+  `:accounts` key breaks it down per account. See `Beatgrid.Soundcharts.Accounts`.
   """
   @spec budget() :: %{
           cap: integer(),
           used: non_neg_integer(),
           header_remaining: integer() | nil,
-          remaining: integer()
+          remaining: integer(),
+          accounts: [map()]
         }
-  def budget do
-    cap = config(:request_cap, 1000)
-    used = Repo.aggregate(from(c in ApiCall, where: c.success == true), :count, :id)
-    header = latest_quota()
-    base = cap - used
-    remaining = if is_integer(header), do: min(base, header), else: base
-    %{cap: cap, used: used, header_remaining: header, remaining: remaining}
-  end
+  defdelegate budget, to: Accounts
 
   @doc "Number of cached songs."
   @spec song_count() :: non_neg_integer()
@@ -150,8 +145,10 @@ defmodule Beatgrid.Soundcharts do
 
   # --- internals ---
 
+  # OK while some account still has quota above the floor; failover happens inside
+  # `Accounts.active/0`, which the adapter also uses to pick the calling credentials.
   defp check_budget do
-    if budget().remaining > config(:budget_floor, 50), do: :ok, else: {:error, :budget_exhausted}
+    if Accounts.active(), do: :ok, else: {:error, :budget_exhausted}
   end
 
   defp search(track) do
@@ -166,23 +163,47 @@ defmodule Beatgrid.Soundcharts do
   end
 
   defp call(endpoint, params, fun) do
+    # The account is resolved here for logging; the adapter resolves the same one
+    # for credentials (the queue is serial, so the ledger can't shift between).
+    account = Accounts.active() || %{id: "1"}
     occurred_at = DateTime.truncate(DateTime.utc_now(), :second)
 
     case fun.() do
       {:ok, %Response{} = r} ->
-        log_call(endpoint, params, r.status, r.quota_remaining, true, nil, occurred_at)
+        log_call(
+          endpoint,
+          params,
+          r.account || account.id,
+          r.status,
+          r.quota_remaining,
+          true,
+          nil,
+          occurred_at
+        )
+
         {:ok, r.data}
 
       {:error, reason} ->
-        log_call(endpoint, params, nil, nil, false, %{reason: inspect(reason)}, occurred_at)
+        log_call(
+          endpoint,
+          params,
+          account.id,
+          nil,
+          nil,
+          false,
+          %{reason: inspect(reason)},
+          occurred_at
+        )
+
         {:error, reason}
     end
   end
 
-  defp log_call(endpoint, params, status, quota, success?, error, occurred_at) do
+  defp log_call(endpoint, params, account, status, quota, success?, error, occurred_at) do
     %ApiCall{}
     |> ApiCall.changeset(%{
       provider: "soundcharts",
+      account: account,
       endpoint: endpoint,
       method: "GET",
       request_params: params,
@@ -261,18 +282,4 @@ defmodule Beatgrid.Soundcharts do
 
   defp search_term(%Track{tag_title: title}) when is_binary(title) and title != "", do: title
   defp search_term(%Track{filename: filename}), do: Path.rootname(filename)
-
-  defp latest_quota do
-    from(c in ApiCall,
-      where: not is_nil(c.quota_remaining),
-      order_by: [desc: c.occurred_at, desc: c.inserted_at],
-      limit: 1,
-      select: c.quota_remaining
-    )
-    |> Repo.one()
-  end
-
-  defp config(key, default) do
-    :beatgrid |> Application.get_env(__MODULE__, []) |> Keyword.get(key, default)
-  end
 end

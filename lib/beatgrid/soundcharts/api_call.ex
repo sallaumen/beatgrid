@@ -15,6 +15,7 @@ defmodule Beatgrid.Soundcharts.ApiCall do
 
   schema "api_calls" do
     field :provider, :string, default: "soundcharts"
+    field :account, :string, default: "1"
     field :endpoint, :string
     field :method, :string, default: "GET"
     field :request_params, :map, default: %{}
@@ -28,7 +29,7 @@ defmodule Beatgrid.Soundcharts.ApiCall do
     timestamps()
   end
 
-  @castable ~w(provider endpoint method request_params http_status quota_remaining
+  @castable ~w(provider account endpoint method request_params http_status quota_remaining
                success error duration_ms occurred_at)a
 
   @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()

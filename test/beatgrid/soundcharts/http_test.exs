@@ -1,5 +1,7 @@
 defmodule Beatgrid.Soundcharts.HttpTest do
-  use ExUnit.Case, async: true
+  # DataCase (sandboxed DB) because the real adapter resolves the active account
+  # from the `api_calls` ledger before each call.
+  use Beatgrid.DataCase, async: true
 
   alias Beatgrid.Soundcharts.{Http, Response}
 
