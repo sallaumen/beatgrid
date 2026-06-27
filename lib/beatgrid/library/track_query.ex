@@ -5,6 +5,7 @@ defmodule Beatgrid.Library.TrackQuery do
 
   alias Beatgrid.Library.Track
   alias Beatgrid.Repo
+  alias Beatgrid.Soundcharts.Camelot
 
   @type list_opt ::
           {:status, atom()}
@@ -38,8 +39,14 @@ defmodule Beatgrid.Library.TrackQuery do
 
   @doc """
   Library browse query: present tracks with the song preloaded, filtered by a map
-  of optional filters (`genre_folder`, `rating_min`, `confidence`, `tag`,
-  `bpm_min`, `bpm_max`, `search`). Used by the Biblioteca screen.
+  of optional filters and sorted by an optional `:sort` `{field, dir}`.
+
+  Filters: `genre_folder`, `rating_min`, `rating_max`, `confidence`, `tag`,
+  `bpm_min`/`bpm_max` and `energy_min`/`energy_max` (both ranges over the effective
+  value — Soundcharts, falling back to detected for bpm; energy is Soundcharts-only
+  and the UI sends 0–100), `camelot` (+ `camelot_compatible` to widen to the
+  harmonic neighbors), `unclassified` (no genre folder), `search`. Used by the
+  Biblioteca screen.
   """
   @spec library(map()) :: [Track.t()]
   def library(filters \\ %{}) do
@@ -48,12 +55,17 @@ defmodule Beatgrid.Library.TrackQuery do
     |> where([t], t.status == :present)
     |> filter(:genre_folder, filters)
     |> filter(:rating_min, filters)
+    |> filter(:rating_max, filters)
     |> filter(:confidence, filters)
     |> filter(:tag, filters)
     |> filter(:bpm_min, filters)
     |> filter(:bpm_max, filters)
+    |> filter(:energy_min, filters)
+    |> filter(:energy_max, filters)
+    |> camelot_filter(filters)
+    |> filter(:unclassified, filters)
     |> filter(:search, filters)
-    |> order_by([t], asc: t.norm_artist, asc: t.norm_title)
+    |> sorted(filters)
     |> preload([song: s], soundcharts_song: s)
     |> Repo.all()
   end
@@ -68,15 +80,91 @@ defmodule Beatgrid.Library.TrackQuery do
 
   defp apply_filter(q, :genre_folder, v), do: where(q, [t], t.genre_folder == ^v)
   defp apply_filter(q, :rating_min, v), do: where(q, [t], t.rating >= ^to_int(v))
+  defp apply_filter(q, :rating_max, v), do: where(q, [t], t.rating <= ^to_int(v))
   defp apply_filter(q, :confidence, v), do: where(q, [t], t.sc_match_confidence == ^to_atom(v))
   defp apply_filter(q, :tag, v), do: where(q, [t], fragment("? = ANY(?)", ^v, t.tags))
-  defp apply_filter(q, :bpm_min, v), do: where(q, [song: s], s.tempo_bpm >= ^to_num(v))
-  defp apply_filter(q, :bpm_max, v), do: where(q, [song: s], s.tempo_bpm <= ^to_num(v))
+
+  defp apply_filter(q, :bpm_min, v),
+    do:
+      where(
+        q,
+        [t, song: s],
+        fragment("coalesce(?, ?)", s.tempo_bpm, t.bpm_detected) >= ^to_num(v)
+      )
+
+  defp apply_filter(q, :bpm_max, v),
+    do:
+      where(
+        q,
+        [t, song: s],
+        fragment("coalesce(?, ?)", s.tempo_bpm, t.bpm_detected) <= ^to_num(v)
+      )
+
+  defp apply_filter(q, :energy_min, v), do: where(q, [song: s], s.energy >= ^(to_num(v) / 100))
+  defp apply_filter(q, :energy_max, v), do: where(q, [song: s], s.energy <= ^(to_num(v) / 100))
+
+  defp apply_filter(q, :unclassified, _v), do: where(q, [t], is_nil(t.genre_folder))
 
   defp apply_filter(q, :search, v) do
     like = "%#{v}%"
     where(q, [t], ilike(t.norm_artist, ^like) or ilike(t.norm_title, ^like))
   end
+
+  # Camelot needs BOTH keys (`:camelot` + `:camelot_compatible`), so it gets a
+  # dedicated step rather than the generic single-key `filter/2`.
+  defp camelot_filter(q, filters) do
+    case filters[:camelot] || filters["camelot"] do
+      nil ->
+        q
+
+      "" ->
+        q
+
+      code ->
+        codes =
+          if truthy(filters[:camelot_compatible] || filters["camelot_compatible"]),
+            do: Camelot.neighbors(code),
+            else: [code]
+
+        where(
+          q,
+          [t, song: s],
+          fragment("coalesce(?, ?)", s.camelot, t.camelot_detected) in ^codes
+        )
+    end
+  end
+
+  defp truthy(v), do: v in [true, "true", "on", "1"]
+
+  defp sorted(q, filters) do
+    case filters[:sort] || filters["sort"] do
+      {field, dir} -> order_by(q, ^order_terms(field, dir))
+      _ -> order_by(q, [t], asc: t.norm_artist, asc: t.norm_title)
+    end
+  end
+
+  defp order_terms(:artist, d),
+    do: [{d, dynamic([t], t.norm_artist)}, {d, dynamic([t], t.norm_title)}]
+
+  defp order_terms(:folder, d), do: [{nulls(d), dynamic([t], t.genre_folder)}]
+  defp order_terms(:rating, d), do: [{nulls(d), dynamic([t], t.rating)}]
+  defp order_terms(:confidence, d), do: [{nulls(d), dynamic([t], t.sc_match_confidence)}]
+  defp order_terms(:energy, d), do: [{nulls(d), dynamic([_t, song: s], s.energy)}]
+
+  defp order_terms(:bpm, d),
+    do: [
+      {nulls(d), dynamic([t, song: s], fragment("coalesce(?, ?)", s.tempo_bpm, t.bpm_detected))}
+    ]
+
+  defp order_terms(:key, d),
+    do: [
+      {nulls(d), dynamic([t, song: s], fragment("coalesce(?, ?)", s.camelot, t.camelot_detected))}
+    ]
+
+  defp order_terms(_other, d), do: order_terms(:artist, d)
+
+  defp nulls(:asc), do: :asc_nulls_last
+  defp nulls(:desc), do: :desc_nulls_last
 
   defp to_int(v) when is_integer(v), do: v
   defp to_int(v) when is_binary(v), do: String.to_integer(v)
