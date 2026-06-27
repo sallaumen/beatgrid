@@ -3,7 +3,7 @@ defmodule BeatgridWeb.JobsLiveTest do
 
   import Phoenix.LiveViewTest
 
-  alias Beatgrid.Workers.DownloadWorker
+  alias Beatgrid.Workers.{DownloadWorker, EnrichWorker}
 
   defp insert_job(args, state) do
     args
@@ -19,7 +19,9 @@ defmodule BeatgridWeb.JobsLiveTest do
     {:ok, _view, html} = live(conn, ~p"/jobs")
 
     assert html =~ "Jobs"
-    assert html =~ "DownloadWorker"
+    # Worker module is rendered with a friendly PT label, not the bare name.
+    assert html =~ "Baixar"
+    refute html =~ "DownloadWorker"
     assert html =~ "https://y/bad"
     assert html =~ "Descartada"
     assert html =~ ~s(phx-click="retry")
@@ -46,6 +48,17 @@ defmodule BeatgridWeb.JobsLiveTest do
       errors: [%{"attempt" => 1, "at" => "2026-06-26T00:00:00Z", "error" => error}]
     )
     |> Beatgrid.Repo.update!()
+  end
+
+  test "renders friendly PT labels for known workers", %{conn: conn} do
+    %{"scope" => "pending", "batch_id" => "b1"}
+    |> EnrichWorker.new()
+    |> Oban.insert!()
+
+    {:ok, _view, html} = live(conn, ~p"/jobs")
+
+    assert html =~ "Enriquecer"
+    refute html =~ "EnrichWorker"
   end
 
   test "expand/collapse toggle shows full error details", %{conn: conn} do

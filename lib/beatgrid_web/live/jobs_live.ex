@@ -96,7 +96,7 @@ defmodule BeatgridWeb.JobsLive do
                 {state_label(j.state)}
               </span>
               <div class="min-w-0 flex-1">
-                <p class="truncate text-body-sm font-medium">{worker_name(j.worker)}</p>
+                <p class="truncate text-body-sm font-medium">{worker_label(j.worker)}</p>
                 <p class="text-ink-muted truncate text-caption font-mono">{job_summary(j)}</p>
                 <p :if={last_error(j)} class="text-coral truncate text-caption">{last_error(j)}</p>
               </div>
@@ -162,6 +162,25 @@ defmodule BeatgridWeb.JobsLive do
   end
 
   defp worker_name(worker), do: worker |> String.split(".") |> List.last()
+
+  # Friendly PT-BR labels per worker; falls back to the bare module segment so a
+  # newly-added worker still renders something readable without editing this map.
+  @worker_labels %{
+    "EnrichWorker" => "Enriquecer",
+    "AnalyzeWorker" => "Analisar",
+    "ReResolveWorker" => "Re-resolver",
+    "DownloadWorker" => "Baixar",
+    "ReevaluateWorker" => "Re-avaliar",
+    "ResolveSongWorker" => "Resolver",
+    "ScanWorker" => "Escanear",
+    "DedupWorker" => "Dedup",
+    "ExpandWorker" => "Expandir"
+  }
+
+  defp worker_label(worker) do
+    name = worker_name(worker)
+    Map.get(@worker_labels, name, name)
+  end
 
   defp job_summary(%Oban.Job{args: args}) do
     args["url"] || args["title"] || args |> Map.keys() |> Enum.join(", ")
