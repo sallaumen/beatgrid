@@ -11,6 +11,17 @@ defmodule Beatgrid.Library do
 
   @structural_dirs ["_Inbox", "_Quarantine"]
 
+  @import_topic "import"
+
+  @doc "Subscribe to import-progress events (`{:import_progress, payload}`)."
+  @spec subscribe_import() :: :ok | {:error, term()}
+  def subscribe_import, do: Phoenix.PubSub.subscribe(Beatgrid.PubSub, @import_topic)
+
+  @doc "Broadcast an import-progress event."
+  @spec broadcast_import(map()) :: :ok
+  def broadcast_import(payload),
+    do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @import_topic, {:import_progress, payload})
+
   @doc "The on-disk library root (the source of truth)."
   @spec library_root() :: String.t()
   def library_root, do: Application.fetch_env!(:beatgrid, :library_root)
@@ -52,6 +63,88 @@ defmodule Beatgrid.Library do
 
     {:ok, summary}
   end
+
+  @doc """
+  Commits a reviewed import: for each `{source_path, overrides}` item, copies the
+  file into `_Inbox` (skipping content-hash duplicates) and creates a track with
+  the reviewed artist/title overlaid onto the file's own tags. Broadcasts
+  `{:import_progress, …}` per item so the LiveView shows live progress.
+
+  `items` is a list of string-keyed maps (Oban-arg shaped):
+  `%{"source_path" => abs, "artist" => a, "title" => t}` — `artist`/`title` may be
+  blank (then the file's tags stand). Returns `%{imported: n, skipped: m}`.
+  """
+  @spec import_files([map()], String.t(), keyword()) ::
+          %{imported: non_neg_integer(), skipped: non_neg_integer()}
+  def import_files(items, batch_id, _opts \\ []) do
+    File.mkdir_p!(abs_path("_Inbox"))
+    seen = library_hashes()
+    total = length(items)
+
+    broadcast_import(%{batch_id: batch_id, status: :running, done: 0, total: total, imported: 0})
+
+    {summary, _seen, _done} =
+      Enum.reduce(items, {%{imported: 0, skipped: 0}, seen, 0}, fn item, {acc, seen, done} ->
+        {acc, seen} = import_one_override(item, acc, seen)
+        done = done + 1
+
+        broadcast_import(%{
+          batch_id: batch_id,
+          status: :running,
+          done: done,
+          total: total,
+          imported: acc.imported
+        })
+
+        {acc, seen, done}
+      end)
+
+    broadcast_import(%{
+      batch_id: batch_id,
+      status: :done,
+      done: total,
+      total: total,
+      imported: summary.imported,
+      skipped: summary.skipped
+    })
+
+    summary
+  end
+
+  defp import_one_override(%{"source_path" => src} = item, acc, seen) do
+    info = FileInfo.read(src)
+    sha = info[:content_sha256]
+
+    if is_binary(sha) and MapSet.member?(seen, sha) do
+      {Map.update!(acc, :skipped, &(&1 + 1)), seen}
+    else
+      dest_rel = ensure_unique(Path.join("_Inbox", info.filename))
+      File.cp!(src, abs_path(dest_rel))
+
+      attrs =
+        info
+        |> Map.merge(%{
+          rel_path: dest_rel,
+          source_playlist: "import",
+          status: :present,
+          last_scanned_at: DateTime.truncate(DateTime.utc_now(), :second)
+        })
+        |> overlay_names(item)
+
+      {:ok, _track} = Tracks.upsert_by_path(attrs)
+      {Map.update!(acc, :imported, &(&1 + 1)), MapSet.put(seen, sha)}
+    end
+  end
+
+  # Overlay the reviewed artist/title onto the file's tags, ignoring blanks.
+  defp overlay_names(attrs, item) do
+    attrs
+    |> maybe_put(:tag_artist, item["artist"])
+    |> maybe_put(:tag_title, item["title"])
+  end
+
+  defp maybe_put(attrs, _key, value) when value in [nil, ""], do: attrs
+  defp maybe_put(attrs, key, value), do: Map.put(attrs, key, value)
 
   @doc """
   Read-only enrich-before-import dry run: previews what an import of `source`
