@@ -6,8 +6,7 @@ defmodule BeatgridWeb.DashboardLive do
 
   alias Beatgrid.{Analysis, Repertoire, YouTube}
   alias Beatgrid.Library.GenreFolders
-  alias Beatgrid.Repertoire.RecommendationAI
-  alias Beatgrid.Workers.EnrichWorker
+  alias Beatgrid.Workers.{EnrichWorker, RecommendWorker}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -15,9 +14,11 @@ defmodule BeatgridWeb.DashboardLive do
       Analysis.subscribe()
       YouTube.subscribe()
       YouTube.subscribe_enrich()
+      Repertoire.subscribe()
     end
 
     folders = GenreFolders.list()
+    gaps_folder = folders |> List.first() |> then(&(&1 && &1.key))
 
     {:ok,
      assign(socket,
@@ -33,12 +34,21 @@ defmodule BeatgridWeb.DashboardLive do
        youtube_note: nil,
        enrich: nil,
        folders: folders,
-       gaps_folder: folders |> List.first() |> then(&(&1 && &1.key)),
-       gaps: nil,
-       gaps_loading: false,
-       gaps_error: nil
+       gaps_folder: gaps_folder,
+       recs: load_recs(gaps_folder),
+       recommending?: false
      )}
   end
+
+  defp load_recs(nil), do: []
+
+  defp load_recs(folder),
+    do:
+      Repertoire.list_recommendations(
+        genre_folder: folder,
+        source: :gaps,
+        statuses: [:new, :imported]
+      )
 
   @impl true
   def handle_event("analyze_library", _params, socket) do
@@ -70,29 +80,45 @@ defmodule BeatgridWeb.DashboardLive do
   end
 
   def handle_event("select_folder", %{"folder" => key}, socket) do
-    {:noreply, assign(socket, gaps_folder: key, gaps: nil, gaps_error: nil)}
+    {:noreply, assign(socket, gaps_folder: key, recs: load_recs(key))}
   end
 
   def handle_event("fetch_gaps", _params, socket) do
     folder = socket.assigns.gaps_folder
 
-    {:noreply,
-     socket
-     |> assign(gaps_loading: true, gaps: nil, gaps_error: nil)
-     |> start_async(:gaps, fn -> RecommendationAI.suggest_gaps(folder, count: 8) end)}
+    Oban.insert(
+      RecommendWorker.new(%{
+        "scope" => "folder",
+        "folder" => folder,
+        "batch_id" => Uniq.UUID.uuid7()
+      })
+    )
+
+    {:noreply, assign(socket, recommending?: true)}
   end
 
-  @impl true
-  def handle_async(:gaps, {:ok, {:ok, gaps}}, socket) do
-    {:noreply, assign(socket, gaps_loading: false, gaps: gaps)}
+  def handle_event("download_rec", %{"id" => id}, socket) do
+    note =
+      case Repertoire.get_recommendation(id) do
+        nil ->
+          socket.assigns.youtube_note
+
+        rec ->
+          YouTube.enqueue("ytsearch1:" <> (rec.youtube_query || ""))
+          Repertoire.set_recommendation_status(rec, :imported)
+          "#{rec.artist} — #{rec.song}: na fila — veja em Jobs."
+      end
+
+    {:noreply, assign(socket, recs: load_recs(socket.assigns.gaps_folder), youtube_note: note)}
   end
 
-  def handle_async(:gaps, {:ok, {:error, reason}}, socket) do
-    {:noreply, assign(socket, gaps_loading: false, gaps_error: inspect(reason))}
-  end
+  def handle_event("dismiss_rec", %{"id" => id}, socket) do
+    case Repertoire.get_recommendation(id) do
+      nil -> :ok
+      rec -> Repertoire.set_recommendation_status(rec, :dismissed)
+    end
 
-  def handle_async(:gaps, {:exit, reason}, socket) do
-    {:noreply, assign(socket, gaps_loading: false, gaps_error: inspect(reason))}
+    {:noreply, assign(socket, recs: load_recs(socket.assigns.gaps_folder))}
   end
 
   @impl true
@@ -119,6 +145,20 @@ defmodule BeatgridWeb.DashboardLive do
   end
 
   def handle_info({:enrich_progress, _payload}, socket), do: {:noreply, socket}
+
+  # Folder recommendation finished generating. Reload the persisted gaps and clear
+  # the "Gerando…" state — but only for the folder currently on screen. Other
+  # folders' ticks just clear the spinner.
+  def handle_info({:recommend_progress, %{scope: "folder", key: key, status: status}}, socket)
+      when status in [:done, :error] do
+    if key == socket.assigns.gaps_folder do
+      {:noreply, assign(socket, recommending?: false, recs: load_recs(key))}
+    else
+      {:noreply, assign(socket, recommending?: false)}
+    end
+  end
+
+  def handle_info({:recommend_progress, _payload}, socket), do: {:noreply, socket}
 
   defp enrich_summary(%{done: 0}), do: "Nada pendente para enriquecer."
 
@@ -338,54 +378,55 @@ defmodule BeatgridWeb.DashboardLive do
           </div>
 
           <.panel title="Lacunas no repertório (IA)">
-            <form id="gaps-form" phx-change="select_folder" class="flex items-center gap-2">
-              <select
-                name="folder"
-                class="rounded-md border border-white/8 bg-input px-2.5 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
-              >
-                <option :for={f <- @folders} value={f.key} selected={f.key == @gaps_folder}>
-                  {f.display_name}
-                </option>
-              </select>
+            <div class="flex flex-wrap items-center gap-2">
+              <form id="gaps-form" phx-change="select_folder" class="min-w-0 flex-1">
+                <label class="sr-only" for="gaps-folder">Pasta</label>
+                <select
+                  id="gaps-folder"
+                  name="folder"
+                  class="w-full rounded-md border border-white/8 bg-input px-2.5 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none sm:max-w-[220px]"
+                >
+                  <option :for={f <- @folders} value={f.key} selected={f.key == @gaps_folder}>
+                    {f.display_name}
+                  </option>
+                </select>
+              </form>
               <button
                 type="button"
                 phx-click="fetch_gaps"
-                disabled={@gaps_loading or is_nil(@gaps_folder)}
-                class="rounded-md bg-primary px-3.5 py-1.5 text-body-sm font-semibold text-white disabled:opacity-40"
+                disabled={@recommending? or is_nil(@gaps_folder)}
+                class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-1.5 text-body-sm font-semibold text-white transition-opacity disabled:opacity-50"
               >
-                {if @gaps_loading, do: "Consultando a IA…", else: "Buscar lacunas"}
+                <span
+                  :if={@recommending?}
+                  class="size-2 animate-pulse rounded-full bg-white/90"
+                  aria-hidden="true"
+                ></span>
+                {if @recommending?, do: "Gerando…", else: "Buscar lacunas (IA)"}
               </button>
-            </form>
+            </div>
 
-            <div
-              :if={@gaps_loading}
-              class="mt-3 flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/8 px-3 py-2 text-body-sm text-ink"
-            >
-              <span class="size-2.5 animate-pulse rounded-full bg-primary"></span>
-              Consultando a IA… isso pode levar ~20–30s.
+            <p class="mt-2 text-caption text-ink-faint">
+              Sugestões de faixas que faltam nesta pasta, geradas pela IA (não gasta cota). Ficam salvas aqui até você baixar ou dispensar.
+            </p>
+
+            <div :if={@recs != []} class="mt-3 space-y-1.5">
+              <.rec_row :for={rec <- @recs} rec={rec} />
             </div>
 
             <div
-              :if={@gaps_error}
-              class="mt-3 rounded-lg border border-coral/25 bg-coral/8 px-3 py-2 text-body-sm text-ink"
+              :if={@recs == [] and @recommending?}
+              class="mt-3 flex items-center gap-2 rounded-lg border border-primary/25 bg-primary/8 px-3 py-3 text-body-sm text-ink-secondary"
             >
-              ⚠ Falha ao consultar a IA: {@gaps_error}
+              <span class="size-2.5 animate-pulse rounded-full bg-primary" aria-hidden="true"></span>
+              Gerando sugestões com a IA… isso pode levar alguns segundos.
             </div>
 
-            <div :if={@gaps && @gaps != []} class="mt-3 space-y-1.5">
-              <div
-                :for={g <- @gaps}
-                class="rounded-lg border border-white/6 bg-base px-3 py-2"
-              >
-                <p class="text-body font-medium">
-                  {g.artist} <span class="text-ink-faint">—</span> {g.song}
-                </p>
-                <p class="mt-0.5 text-caption text-ink-muted">{g.reason}</p>
-              </div>
-            </div>
-
-            <p :if={@gaps == []} class="mt-3 text-body-sm text-ink-faint">
-              Nenhuma lacuna sugerida para esta pasta.
+            <p
+              :if={@recs == [] and not @recommending?}
+              class="mt-3 rounded-lg border border-dashed border-white/8 px-3 py-4 text-center text-body-sm text-ink-faint"
+            >
+              Nenhuma sugestão salva para esta pasta. Clique em <span class="text-ink-secondary">Buscar lacunas (IA)</span>.
             </p>
           </.panel>
         </div>
@@ -403,6 +444,68 @@ defmodule BeatgridWeb.DashboardLive do
       <p class="mb-3 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{@title}</p>
       {render_slot(@inner_block)}
     </section>
+    """
+  end
+
+  @doc """
+  One persisted AI recommendation (a folder gap or a track match): `artist — song`,
+  the AI's reason, and the YouTube search / download / dismiss actions. Imported
+  rows wear a subtle "baixada" tag so the history reads at a glance.
+  """
+  attr :rec, :map, required: true
+
+  def rec_row(assigns) do
+    ~H"""
+    <div class={[
+      "group rounded-lg border px-3 py-2.5 transition-colors",
+      if(@rec.status == :imported,
+        do: "border-green/25 bg-green/5",
+        else: "border-white/6 bg-base hover:border-white/12"
+      )
+    ]}>
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-body font-medium">
+            {@rec.artist} <span class="text-ink-faint">—</span> {@rec.song}
+          </p>
+          <p :if={@rec.reason} class="mt-0.5 text-caption text-ink-muted">{@rec.reason}</p>
+        </div>
+        <span
+          :if={@rec.status == :imported}
+          class="bg-token-chip inline-flex shrink-0 items-center gap-1 rounded-xs px-[7px] py-[2px] text-[9.5px] font-bold uppercase tracking-wide"
+          style="--c:#5ad1a0"
+        >
+          ✓ baixada
+        </span>
+      </div>
+
+      <div class="mt-2 flex flex-wrap items-center gap-1.5">
+        <a
+          href={Repertoire.youtube_search_url(@rec)}
+          target="_blank"
+          rel="noopener"
+          class="inline-flex items-center gap-1 rounded-md border border-white/10 bg-input px-2.5 py-1 text-[11px] text-ink-secondary transition-colors hover:text-ink"
+        >
+          Buscar no YouTube <span class="text-ink-faint" aria-hidden="true">↗</span>
+        </a>
+        <button
+          type="button"
+          phx-click="download_rec"
+          phx-value-id={@rec.id}
+          class="inline-flex items-center gap-1 rounded-md bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/25"
+        >
+          ↓ {if @rec.status == :imported, do: "Baixar de novo", else: "Baixar"}
+        </button>
+        <button
+          type="button"
+          phx-click="dismiss_rec"
+          phx-value-id={@rec.id}
+          class="ml-auto rounded-md px-2.5 py-1 text-[11px] text-ink-muted transition-colors hover:text-coral"
+        >
+          Dispensar
+        </button>
+      </div>
+    </div>
     """
   end
 

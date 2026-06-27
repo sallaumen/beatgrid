@@ -1,5 +1,5 @@
 defmodule BeatgridWeb.DashboardLiveTest do
-  # async: false — the gaps flow runs an async task that talks to the (globally
+  # async: false — the gaps flow enqueues a worker that talks to the (globally
   # stubbed) AI mock and the shared sandbox.
   use BeatgridWeb.ConnCase, async: false, oban: true
 
@@ -8,7 +8,8 @@ defmodule BeatgridWeb.DashboardLiveTest do
   import Mox
 
   alias Beatgrid.Library.Tracks
-  alias Beatgrid.Workers.EnrichWorker
+  alias Beatgrid.Repertoire
+  alias Beatgrid.Workers.{EnrichWorker, ExpandWorker, RecommendWorker}
 
   setup :set_mox_global
 
@@ -36,26 +37,101 @@ defmodule BeatgridWeb.DashboardLiveTest do
     assert html =~ "1970s"
   end
 
-  test "fetching repertoire gaps renders the AI suggestions", %{conn: conn} do
+  test "renders persisted repertoire gaps for the selected folder on mount", %{conn: conn} do
     insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB")
 
-    stub(Beatgrid.AI.Mock, :complete, fn _prompt, _schema, _opts ->
-      {:ok,
-       %{
-         "gaps" => [
-           %{"artist" => "Elis Regina", "song" => "Águas de Março", "reason" => "essencial MPB"}
-         ]
-       }}
-    end)
+    insert(:recommendation,
+      artist: "Elis Regina",
+      song: "Águas de Março",
+      reason: "essencial MPB",
+      genre_folder: "mpb",
+      source: :gaps,
+      status: :new
+    )
 
-    {:ok, view, _html} = live(conn, ~p"/painel")
+    {:ok, _view, html} = live(conn, ~p"/painel")
 
-    view |> element("button[phx-click=fetch_gaps]") |> render_click()
-    html = render_async(view)
-
+    assert html =~ "Lacunas no repertório (IA)"
     assert html =~ "Elis Regina"
     assert html =~ "Águas de Março"
     assert html =~ "essencial MPB"
+  end
+
+  test "clicking Buscar lacunas enqueues a folder RecommendWorker", %{conn: conn} do
+    insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB")
+
+    {:ok, view, _html} = live(conn, ~p"/painel")
+    html = view |> element("button[phx-click=fetch_gaps]") |> render_click()
+
+    assert_enqueued(worker: RecommendWorker, args: %{scope: "folder", folder: "mpb"})
+    assert html =~ "Gerando…"
+  end
+
+  test "a recommend-progress :done event reloads the persisted gaps live", %{conn: conn} do
+    insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB")
+
+    {:ok, view, _html} = live(conn, ~p"/painel")
+    refute render(view) =~ "Gilberto Gil"
+
+    insert(:recommendation,
+      artist: "Gilberto Gil",
+      song: "Aquele Abraço",
+      reason: "mesmo período",
+      genre_folder: "mpb",
+      source: :gaps,
+      status: :new
+    )
+
+    send(
+      view.pid,
+      {:recommend_progress,
+       %{batch_id: "b1", scope: "folder", key: "mpb", status: :done, count: 1}}
+    )
+
+    assert render(view) =~ "Gilberto Gil"
+  end
+
+  test "Baixar enqueues a YouTube download and marks the gap imported", %{conn: conn} do
+    insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB")
+
+    rec =
+      insert(:recommendation,
+        artist: "Tim Maia",
+        song: "Azul da Cor do Mar",
+        youtube_query: "Tim Maia Azul da Cor do Mar",
+        genre_folder: "mpb",
+        source: :gaps,
+        status: :new
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/painel")
+    view |> element("button[phx-click=download_rec][phx-value-id='#{rec.id}']") |> render_click()
+
+    assert_enqueued(worker: ExpandWorker)
+    assert Repertoire.get_recommendation(rec.id).status == :imported
+    assert render(view) =~ "baixada"
+  end
+
+  test "Dispensar hides a gap and marks it dismissed", %{conn: conn} do
+    insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB")
+
+    rec =
+      insert(:recommendation,
+        artist: "Cartola",
+        song: "O Mundo é um Moinho",
+        genre_folder: "mpb",
+        source: :gaps,
+        status: :new
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/painel")
+    assert render(view) =~ "Cartola"
+
+    view |> element("button[phx-click=dismiss_rec][phx-value-id='#{rec.id}']") |> render_click()
+
+    html = render(view)
+    refute html =~ "Cartola"
+    assert Repertoire.get_recommendation(rec.id).status == :dismissed
   end
 
   test "the Operações panel enqueues a library analysis", %{conn: conn} do
