@@ -66,6 +66,24 @@ defmodule BeatgridWeb.UITest do
     end
   end
 
+  describe "format_views/1" do
+    test "formata views em pt-BR" do
+      assert BeatgridWeb.UI.format_views(nil) == "—"
+      assert BeatgridWeb.UI.format_views(950) == "950"
+      assert BeatgridWeb.UI.format_views(12_000) == "12 mil"
+      assert BeatgridWeb.UI.format_views(2_300_000) == "2,3 mi"
+    end
+  end
+
+  describe "format_age/1" do
+    test "formata idade da publicação" do
+      assert BeatgridWeb.UI.format_age(nil) == "—"
+      today = Date.utc_today()
+      assert BeatgridWeb.UI.format_age(today) == "este ano"
+      assert BeatgridWeb.UI.format_age(Date.add(today, -800)) =~ "há 2 anos"
+    end
+  end
+
   describe "folder_color/1 and folder_label/1 DB fallback" do
     test "uses the hardcoded fast path for seeded keys" do
       assert BeatgridWeb.UI.folder_color("mpb") == "#8b7bf0"
