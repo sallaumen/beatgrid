@@ -69,6 +69,11 @@ defmodule Beatgrid.Library.Track do
     field :camelot_manual, :string
     field :manual_fields, {:array, :string}, default: []
 
+    field :gold_status, Ecto.Enum, values: [:candidate, :confirmed]
+    field :gold_manual, :boolean
+    field :youtube_views, :integer
+    field :youtube_published_at, :date
+
     field :sc_match_confidence, Ecto.Enum, values: [:high, :medium, :low]
     field :sc_art_trusted, :boolean, default: true
 
@@ -85,7 +90,9 @@ defmodule Beatgrid.Library.Track do
                rating personal_note tags cue_points last_scanned_at sc_match_confidence
                sc_art_trusted bpm_detected camelot_detected analyzed_at
                loudness_lufs true_peak_dbtp loudness_attempted_at
-               bpm_manual camelot_manual manual_fields soundcharts_song_id)a
+               bpm_manual camelot_manual manual_fields
+               gold_status gold_manual youtube_views youtube_published_at
+               soundcharts_song_id)a
 
   @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   def changeset(track, attrs) do
