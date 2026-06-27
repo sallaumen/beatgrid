@@ -4,6 +4,8 @@ defmodule Beatgrid.Library.MetadataAI do
   Soundcharts match is the same recording (`resolve_names/1`), and parsing artist/title
   out of raw YouTube titles (`parse_titles/1`). Claude only — no Soundcharts quota.
   """
+  require Logger
+
   alias Beatgrid.AI
   alias Beatgrid.Library.{GenreFolders, Track}
   alias Beatgrid.Repo
@@ -35,15 +37,37 @@ defmodule Beatgrid.Library.MetadataAI do
     end
   end
 
-  @doc "Extracts `%ParsedTitle{}` from raw video titles (aligned to input order). `[]` → `{:ok, []}`."
-  @spec parse_titles([String.t()]) :: {:ok, [ParsedTitle.t()]} | {:error, term()}
+  @doc """
+  Extracts `%ParsedTitle{}` from raw video titles, aligned to input order. Runs in
+  batches (one AI call each) so a big list can't blow up a single prompt; a batch
+  that fails or comes back misaligned is logged and yields nil-field placeholders
+  (callers skip those), so one bad batch never derails the rest. Always `{:ok, list}`.
+  """
+  @spec parse_titles([String.t()]) :: {:ok, [ParsedTitle.t()]}
   def parse_titles([]), do: {:ok, []}
 
   def parse_titles(raw_titles) when is_list(raw_titles) do
-    prompt = build_titles_prompt(raw_titles)
+    parsed =
+      raw_titles
+      |> Enum.chunk_every(AI.batch_size())
+      |> Enum.flat_map(&parse_titles_chunk/1)
 
-    with {:ok, %{"titles" => list}} <- AI.complete(prompt, titles_schema()) do
-      {:ok, Enum.map(list, &%ParsedTitle{artist: &1["artist"], title: &1["title"]})}
+    {:ok, parsed}
+  end
+
+  defp parse_titles_chunk(chunk) do
+    prompt = build_titles_prompt(chunk)
+
+    case AI.complete(prompt, titles_schema()) do
+      {:ok, %{"titles" => list}} when length(list) == length(chunk) ->
+        Enum.map(list, &%ParsedTitle{artist: &1["artist"], title: &1["title"]})
+
+      other ->
+        Logger.warning(
+          "MetadataAI.parse_titles: batch of #{length(chunk)} failed: #{inspect(other)}"
+        )
+
+        Enum.map(chunk, fn _ -> %ParsedTitle{artist: nil, title: nil} end)
     end
   end
 

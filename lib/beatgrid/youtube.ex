@@ -9,6 +9,8 @@ defmodule Beatgrid.YouTube do
   Downloads run as background `DownloadWorker` jobs; the screen follows progress via
   the `"youtube"` PubSub topic.
   """
+  require Logger
+
   alias Beatgrid.{Gold, Library, Review, Soundcharts}
   alias Beatgrid.Library.{FileInfo, NameSync, Tracks}
   alias Beatgrid.Library.MetadataAI
@@ -112,6 +114,16 @@ defmodule Beatgrid.YouTube do
         :budget_exhausted
 
       result ->
+        # Surface real failures (HTTP/timeout) instead of silently calling them
+        # "no match" — :no_match is a legitimate outcome, other errors are not.
+        case result do
+          {:error, reason} when reason != :no_match ->
+            Logger.warning("enrich: Soundcharts falhou na faixa #{id}: #{inspect(reason)}")
+
+          _ ->
+            :ok
+        end
+
         repropose_if_matched(id)
         Review.reevaluate_track(id)
         Gold.apply_resolve_result(Tracks.get(id), result)
@@ -176,12 +188,21 @@ defmodule Beatgrid.YouTube do
   @spec refine_titles([binary()]) :: :ok
   def refine_titles(ids) do
     ambiguous = ids |> Enum.map(&Tracks.get/1) |> Enum.filter(&ambiguous?/1)
+    Logger.info("YouTube.refine_titles: #{length(ambiguous)} ambíguos de #{length(ids)} faixas")
 
     with [_ | _] <- ambiguous,
          {:ok, parsed} <- MetadataAI.parse_titles(Enum.map(ambiguous, &raw_title/1)) do
-      ambiguous
-      |> Enum.zip(parsed)
-      |> Enum.each(fn {t, p} -> Tracks.update(t, %{tag_artist: p.artist, tag_title: p.title}) end)
+      refined =
+        ambiguous
+        |> Enum.zip(parsed)
+        # Skip placeholders (a failed AI batch yields nil fields) so we never wipe a
+        # title with nothing.
+        |> Enum.count(fn {t, p} ->
+          p.artist &&
+            match?({:ok, _}, Tracks.update(t, %{tag_artist: p.artist, tag_title: p.title}))
+        end)
+
+      Logger.info("YouTube.refine_titles: #{refined} título(s) refinado(s) pela IA")
     end
 
     :ok

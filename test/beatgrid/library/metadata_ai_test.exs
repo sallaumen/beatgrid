@@ -80,5 +80,24 @@ defmodule Beatgrid.Library.MetadataAITest do
     test "returns {:ok, []} without calling the AI for an empty list" do
       assert {:ok, []} = MetadataAI.parse_titles([])
     end
+
+    test "batches large lists into multiple AI calls, aligned to the input" do
+      titles = for i <- 1..30, do: "Artist#{i} - Song#{i}"
+
+      # 30 titles / batch_size 15 → exactly 2 AI calls.
+      Mox.expect(Beatgrid.AI.Mock, :complete, 2, fn _p, _s, _o ->
+        {:ok, %{"titles" => for(_ <- 1..15, do: %{"artist" => "A", "title" => "T"})}}
+      end)
+
+      assert {:ok, parsed} = MetadataAI.parse_titles(titles)
+      assert length(parsed) == 30
+      assert Enum.all?(parsed, &(&1.artist == "A"))
+    end
+
+    test "a failed/misaligned AI batch yields nil placeholders instead of crashing" do
+      Mox.expect(Beatgrid.AI.Mock, :complete, fn _p, _s, _o -> {:error, :timeout} end)
+
+      assert {:ok, [%ParsedTitle{artist: nil, title: nil}]} = MetadataAI.parse_titles(["X - Y"])
+    end
   end
 end

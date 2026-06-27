@@ -93,8 +93,20 @@ defmodule BeatgridWeb.DashboardLive do
 
   def handle_event("enrich_youtube", _params, socket) do
     bid = Uniq.UUID.uuid7()
-    Oban.insert(EnrichWorker.new(%{"scope" => "pending", "batch_id" => bid}))
-    {:noreply, assign(socket, enrich: %{status: :queued}, youtube_note: nil)}
+
+    # The worker is `unique` per scope, so a click while one is already running is a
+    # no-op (conflict) — surface that instead of faking a fresh "queued" progress.
+    case Oban.insert(EnrichWorker.new(%{"scope" => "pending", "batch_id" => bid})) do
+      {:ok, %Oban.Job{conflict?: true}} ->
+        {:noreply,
+         assign(socket, youtube_note: "Já existe um enriquecimento em andamento — veja em Jobs.")}
+
+      {:ok, _job} ->
+        {:noreply, assign(socket, enrich: %{status: :queued}, youtube_note: nil)}
+
+      {:error, _reason} ->
+        {:noreply, assign(socket, youtube_note: "Não foi possível iniciar o enriquecimento.")}
+    end
   end
 
   def handle_event("select_folder", %{"folder" => key}, socket) do

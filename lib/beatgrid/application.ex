@@ -7,6 +7,11 @@ defmodule Beatgrid.Application do
 
   @impl true
   def start(_type, _args) do
+    # Structured logs for every Oban job (start/stop/exception, with worker, queue,
+    # duration and the full error + stacktrace on failure). Without this, failed or
+    # crashed background jobs are invisible. Idempotent — safe across hot restarts.
+    Oban.Telemetry.attach_default_logger(level: :info)
+
     children = [
       BeatgridWeb.Telemetry,
       Beatgrid.Repo,
