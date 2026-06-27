@@ -51,6 +51,25 @@ defmodule Beatgrid.Repertoire.RecommendationAITest do
     end
   end
 
+  describe "suggest_matches/2" do
+    test "returns Gaps that pair with a track" do
+      track = insert(:track, tag_artist: "Djavan", tag_title: "Sina", genre_folder: "mpb")
+
+      expect(Mock, :complete, fn prompt, _schema, _opts ->
+        assert prompt =~ "Djavan"
+
+        {:ok,
+         %{
+           "matches" => [
+             %{"artist" => "Gilberto Gil", "song" => "Aquele Abraço", "reason" => "same era"}
+           ]
+         }}
+      end)
+
+      assert {:ok, [%Gap{artist: "Gilberto Gil"}]} = RecommendationAI.suggest_matches(track)
+    end
+  end
+
   describe "suggest_description/2" do
     test "builds a prompt with the folder + a sibling and returns a parsed rubric" do
       insert(:genre_folder,

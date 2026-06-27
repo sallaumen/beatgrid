@@ -1,8 +1,9 @@
 defmodule Beatgrid.Repertoire.RecommendationAI do
   @moduledoc """
   AI curation/recommendation: artists/songs a genre folder is likely MISSING
-  (`suggest_gaps/2`). Pure analysis — no disk, no Soundcharts quota. (Future home for
-  "songs that match this one" and "fill a genre rubric with AI".)
+  (`suggest_gaps/2`), songs that pair well with a given track (`suggest_matches/2`),
+  and a classification rubric for a folder (`suggest_description/2`). Pure analysis —
+  no disk, no Soundcharts quota.
   """
   import Ecto.Query
 
@@ -36,6 +37,17 @@ defmodule Beatgrid.Repertoire.RecommendationAI do
           {:ok,
            Enum.map(gaps, &%Gap{artist: &1["artist"], song: &1["song"], reason: &1["reason"]})}
         end
+    end
+  end
+
+  @doc "Suggests songs that pair well with a track (same vibe/era), as `%Gap{}`s. `opts`: `:count` (default 8)."
+  @spec suggest_matches(Track.t(), keyword()) :: {:ok, [Gap.t()]} | {:error, term()}
+  def suggest_matches(%Track{} = track, opts \\ []) do
+    track = Repo.preload(track, :soundcharts_song)
+    prompt = build_matches_prompt(track, Keyword.get(opts, :count, 8))
+
+    with {:ok, %{"matches" => list}} <- AI.complete(prompt, matches_schema()) do
+      {:ok, Enum.map(list, &%Gap{artist: &1["artist"], song: &1["song"], reason: &1["reason"]})}
     end
   end
 
@@ -94,6 +106,23 @@ defmodule Beatgrid.Repertoire.RecommendationAI do
     """
   end
 
+  defp build_matches_prompt(track, count) do
+    song = track.soundcharts_song
+    bpm = (song && song.tempo_bpm) || track.bpm_detected
+    key = (song && song.camelot) || track.camelot_detected
+
+    """
+    You are a Brazilian-music DJ's crate assistant. Suggest #{count} songs that pair well in a SET with this
+    track — same energy/era/feel, good to mix before or after it. Real, canonical recordings only; don't repeat
+    the track itself.
+
+    Track: #{track.tag_artist} — #{track.tag_title}
+    Folder: #{track.genre_folder} · BPM: #{inspect(bpm)} · key: #{inspect(key)}
+
+    For each: artist, song, and a one-line reason it pairs well.
+    """
+  end
+
   defp build_description_prompt(folder, siblings, artists) do
     current =
       if folder.description in [nil, ""],
@@ -140,6 +169,29 @@ defmodule Beatgrid.Repertoire.RecommendationAI do
         "rationale" => %{"type" => "string"}
       },
       "required" => ["description", "rationale"]
+    }
+  end
+
+  defp matches_schema do
+    %{
+      "type" => "object",
+      "additionalProperties" => false,
+      "properties" => %{
+        "matches" => %{
+          "type" => "array",
+          "items" => %{
+            "type" => "object",
+            "additionalProperties" => false,
+            "properties" => %{
+              "artist" => %{"type" => "string"},
+              "song" => %{"type" => "string"},
+              "reason" => %{"type" => "string"}
+            },
+            "required" => ["artist", "song", "reason"]
+          }
+        }
+      },
+      "required" => ["matches"]
     }
   end
 
