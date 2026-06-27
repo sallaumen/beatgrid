@@ -263,23 +263,21 @@ defmodule Beatgrid.YouTubeTest do
   end
 
   test "enrich_track returns {:error, :budget_exhausted} and creates no suggestions" do
-    original_sc_config = Application.get_env(:beatgrid, Soundcharts)
-    on_exit(fn -> Application.put_env(:beatgrid, Soundcharts, original_sc_config) end)
-    # Drive budget below floor: cap=3, floor=2, used=2 → remaining=1 ≤ floor
-    Application.put_env(:beatgrid, Soundcharts, request_cap: 3, budget_floor: 2)
-    t0 = DateTime.truncate(DateTime.utc_now(), :second)
-
-    for n <- 1..2 do
-      %ApiCall{}
-      |> ApiCall.changeset(%{
-        provider: "soundcharts",
-        endpoint: "song/get",
-        success: true,
-        quota_remaining: nil,
-        occurred_at: DateTime.add(t0, n)
-      })
-      |> Repo.insert!()
-    end
+    # Drive the budget below the floor via the DB header ONLY — NOT a global
+    # Application.put_env(:beatgrid, Soundcharts, ...). request_cap/budget_floor are
+    # global config; mutating them here leaked into concurrent async tests (their
+    # check_budget read the tiny cap), making SoundchartsTest/ResolveSongWorkerTest
+    # flake intermittently. A recorded quota_remaining of 0 makes check_budget refuse
+    # (0 > floor is false for any floor) and is fully isolated to this test's sandbox.
+    %ApiCall{}
+    |> ApiCall.changeset(%{
+      provider: "soundcharts",
+      endpoint: "song/get",
+      success: true,
+      quota_remaining: 0,
+      occurred_at: DateTime.truncate(DateTime.utc_now(), :second)
+    })
+    |> Repo.insert!()
 
     track =
       insert(:track,
