@@ -122,6 +122,45 @@ defmodule BeatgridWeb.LibraryLiveImportTest do
     assert html =~ "Importando — na fila"
   end
 
+  @tag :tmp_dir
+  test "the preview flags a near-duplicate row with a 'parecida já existe' tag", %{
+    conn: conn,
+    tmp_dir: root
+  } do
+    src = Path.join(root, "src")
+    File.mkdir_p!(src)
+    File.write!(Path.join(src, "Djavan - Sina.mp3"), "other-bytes")
+
+    stub(Beatgrid.Audio.Mock, :read_metadata, fn _path ->
+      {:ok, %Metadata{title: "Sina", artist: "Djavan", duration_ms: 211_000}}
+    end)
+
+    # A present track with the SAME normalized artist+title but a DIFFERENT hash:
+    # a fuzzy near-dup the import should warn about (still importable).
+    insert(:track,
+      status: :present,
+      content_sha256: "a-different-hash",
+      tag_artist: "Djavan",
+      tag_title: "Sina",
+      norm_artist: "djavan",
+      norm_title: "sina",
+      rel_path: "MPB/sina.mp3",
+      filename: "sina.mp3"
+    )
+
+    {:ok, view, _html} = live(conn, ~p"/")
+    view |> element("button[phx-click=show_import]") |> render_click()
+
+    view
+    |> form("#import-source", %{source: src})
+    |> render_submit()
+
+    html = render_async(view)
+    assert html =~ "parecida já existe"
+    # it is NOT the hard exact-skip tag — the row stays importable
+    refute html =~ "duplicada — será pulada"
+  end
+
   test "a running import-progress event shows a live progress bar", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/")
 

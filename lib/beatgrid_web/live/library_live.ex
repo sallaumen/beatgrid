@@ -1048,6 +1048,13 @@ defmodule BeatgridWeb.LibraryLive do
             >
               duplicada — será pulada
             </span>
+            <span
+              :if={row.near_dup}
+              class="ml-1 rounded bg-amber/15 px-1.5 py-px text-[10px] font-semibold text-amber"
+              title="Já existe uma faixa com o mesmo artista e título (versão diferente). Você ainda pode importar."
+            >
+              parecida já existe
+            </span>
           </span>
           <span class="text-right font-mono text-caption text-ink-muted">{duration(row.duration_ms)}</span>
           <span class="text-right font-mono text-caption text-ink-faint">{format_label(row.format)}</span>

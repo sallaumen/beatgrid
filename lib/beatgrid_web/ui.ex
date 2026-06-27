@@ -226,6 +226,12 @@ defmodule BeatgridWeb.UI do
           href="/revisao"
           active={@active == :revisao}
         />
+        <.nav_item
+          icon="hero-document-duplicate"
+          label="Duplicatas"
+          href="/dedup"
+          active={@active == :dedup}
+        />
         <.nav_item icon="hero-queue-list" label="Sets" href="/set" active={@active == :sets} />
         <.nav_item icon="hero-arrow-path" label="Jobs" href="/jobs" active={@active == :jobs} />
         <.nav_item icon="hero-tag" label="Gêneros" href="/generos" active={@active == :generos} />
