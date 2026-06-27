@@ -156,6 +156,46 @@ defmodule Beatgrid.Library.TrackQuery do
     end
   end
 
+  @doc """
+  Faixas vindas do YouTube (`source_playlist == "youtube"`), preload da song, com
+  filtros rápidos (`:unfiled`, `:unresolved`, `:gold`) e ordenação
+  (`:recent` default, `:views`, `:published`). Usada pela tela /importados.
+  """
+  @spec youtube_imports(map()) :: [Track.t()]
+  def youtube_imports(filters \\ %{}) do
+    Track
+    |> join(:left, [t], s in assoc(t, :soundcharts_song), as: :song)
+    |> where([t], t.status == :present and t.source_playlist == "youtube")
+    |> imports_filter(:unfiled, filters)
+    |> imports_filter(:unresolved, filters)
+    |> gold_filter(filters)
+    |> imports_sort(filters)
+    |> preload([song: s], soundcharts_song: s)
+    |> Repo.all()
+  end
+
+  defp imports_filter(q, :unfiled, filters) do
+    if truthy(filters[:unfiled] || filters["unfiled"]),
+      do: where(q, [t], is_nil(t.genre_folder)),
+      else: q
+  end
+
+  defp imports_filter(q, :unresolved, filters) do
+    if truthy(filters[:unresolved] || filters["unresolved"]),
+      do: where(q, [t], is_nil(t.soundcharts_song_id)),
+      else: q
+  end
+
+  defp imports_sort(q, filters) do
+    case filters[:sort] || filters["sort"] do
+      :views -> order_by(q, [t], desc_nulls_last: t.youtube_views)
+      "views" -> order_by(q, [t], desc_nulls_last: t.youtube_views)
+      :published -> order_by(q, [t], desc_nulls_last: t.youtube_published_at)
+      "published" -> order_by(q, [t], desc_nulls_last: t.youtube_published_at)
+      _ -> order_by(q, [t], desc: t.inserted_at)
+    end
+  end
+
   defp truthy(v), do: v in [true, "true", "on", "1"]
 
   defp sorted(q, filters) do
