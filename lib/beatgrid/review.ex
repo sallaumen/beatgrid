@@ -146,6 +146,14 @@ defmodule Beatgrid.Review do
   def broadcast_progress(payload),
     do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @reeval_topic, {:reevaluate_progress, payload})
 
+  @doc "Broadcast a re-resolve completion tick (re-uses the re-evaluation topic)."
+  @spec broadcast_re_resolve(%{
+          suggestion_id: Ecto.UUID.t(),
+          outcome: :resolved | :no_match | :budget_exhausted | :error
+        }) :: :ok
+  def broadcast_re_resolve(payload),
+    do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @reeval_topic, {:re_resolve_done, payload})
+
   @doc "Resolves a re-evaluation scope (string-keyed, Oban-args-shaped) to a suggestion list."
   @spec suggestions_for_scope(map()) :: [RenameSuggestion.t()]
   def suggestions_for_scope(%{"scope" => "unevaluated"}),

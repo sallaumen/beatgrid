@@ -1,7 +1,7 @@
 defmodule BeatgridWeb.ReviewLiveApplyTest do
   # async: false — drives the async apply/undo, which touches disk, the shared
   # sandbox, and the (globally stubbed) Tagging mock.
-  use BeatgridWeb.ConnCase, async: false
+  use BeatgridWeb.ConnCase, async: false, oban: true
 
   import Phoenix.LiveViewTest
   import Beatgrid.Factory
@@ -126,7 +126,8 @@ defmodule BeatgridWeb.ReviewLiveApplyTest do
   end
 
   @tag :tmp_dir
-  test "re-resolve from the auditoria tab refreshes the match (no-match path)", %{conn: conn} do
+  test "re-resolve from the auditoria tab enqueues a worker and updates on completion (no-match path)",
+       %{conn: conn} do
     wrong = insert(:soundcharts_song, credit_name: "Wrong", name: "Song")
 
     track =
@@ -151,10 +152,18 @@ defmodule BeatgridWeb.ReviewLiveApplyTest do
 
     {:ok, view, _html} = live(conn, ~p"/revisao")
     view |> element("button[phx-value-tab=auditoria]") |> render_click()
-    view |> element("button[phx-click=re_resolve][phx-value-id='#{r.id}']") |> render_click()
-    html = render_async(view)
 
-    assert html =~ "Sem novo match"
+    html =
+      view |> element("button[phx-click=re_resolve][phx-value-id='#{r.id}']") |> render_click()
+
+    # The click only enqueues — the work runs in the background worker.
+    assert html =~ "Re-resolvendo no Soundcharts"
+    assert_enqueued(worker: Beatgrid.Workers.ReResolveWorker, args: %{suggestion_id: r.id})
+
+    # Run the job; its completion broadcast pushes the LiveView to refresh.
+    assert :ok = perform_job(Beatgrid.Workers.ReResolveWorker, %{"suggestion_id" => r.id})
+
+    assert render(view) =~ "Sem novo match"
     assert NameSync.get(r.id).status == :rejected
     assert Tracks.get(track.id).soundcharts_song_id == nil
   end

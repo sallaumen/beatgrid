@@ -6,7 +6,7 @@ defmodule BeatgridWeb.ReviewLive do
 
   alias Beatgrid.Library.GenreFolders
   alias Beatgrid.{Operations, Review}
-  alias Beatgrid.Workers.ReevaluateWorker
+  alias Beatgrid.Workers.{ReevaluateWorker, ReResolveWorker}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -98,12 +98,13 @@ defmodule BeatgridWeb.ReviewLive do
   end
 
   def handle_event("re_resolve", %{"id" => id}, socket) do
-    s = Enum.find(socket.assigns.renames, &(&1.id == id))
+    toast =
+      case %{"suggestion_id" => id} |> ReResolveWorker.new() |> Oban.insert() do
+        {:ok, _job} -> {:resolving, %{}}
+        _ -> {:error, :re_resolve}
+      end
 
-    {:noreply,
-     socket
-     |> assign(toast: {:resolving, %{}})
-     |> start_async(:re_resolve, fn -> Review.re_resolve(s) end)}
+    {:noreply, assign(socket, toast: toast)}
   end
 
   # --- apply to disk + undo (async so the UI stays responsive) ---
@@ -171,14 +172,6 @@ defmodule BeatgridWeb.ReviewLive do
     {:noreply, socket |> assign(applying?: false, toast: {:undone, result}) |> load()}
   end
 
-  def handle_async(:re_resolve, {:ok, {:ok, outcome}}, socket) do
-    {:noreply, socket |> assign(toast: {outcome, %{}}) |> load()}
-  end
-
-  def handle_async(:re_resolve, {:ok, {:error, _reason}}, socket) do
-    {:noreply, assign(socket, toast: {:error, :re_resolve})}
-  end
-
   def handle_async(_name, {:exit, reason}, socket) do
     {:noreply, assign(socket, applying?: false, toast: {:error, reason})}
   end
@@ -190,6 +183,10 @@ defmodule BeatgridWeb.ReviewLive do
 
   def handle_info({:reevaluate_progress, p}, socket) do
     {:noreply, assign(socket, reeval: p)}
+  end
+
+  def handle_info({:re_resolve_done, %{outcome: outcome}}, socket) do
+    {:noreply, socket |> assign(toast: re_resolve_toast(outcome)) |> load()}
   end
 
   # --- helpers ---
@@ -514,7 +511,13 @@ defmodule BeatgridWeb.ReviewLive do
   defp toast_message({:resolving, _}), do: "Re-resolvendo no Soundcharts…"
   defp toast_message({:resolved, _}), do: "Re-resolvido — confira a nova sugestão em Renomeações."
   defp toast_message({:no_match, _}), do: "Sem novo match no Soundcharts."
+  defp toast_message({:budget_exhausted, _}), do: "Cota Soundcharts esgotada. Tentará mais tarde."
   defp toast_message({:error, _reason}), do: "Falha na operação. Nada foi alterado."
+
+  defp re_resolve_toast(:resolved), do: {:resolved, %{}}
+  defp re_resolve_toast(:no_match), do: {:no_match, %{}}
+  defp re_resolve_toast(:budget_exhausted), do: {:budget_exhausted, %{}}
+  defp re_resolve_toast(_other), do: {:error, :re_resolve}
 
   defp count_summary(items, selected) do
     marked = Enum.count(items, &MapSet.member?(selected, &1.id))
