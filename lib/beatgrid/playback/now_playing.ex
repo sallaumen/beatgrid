@@ -35,6 +35,14 @@ defmodule Beatgrid.Playback.NowPlaying do
   @spec clear() :: %{track_id: nil, set_id: nil}
   def clear, do: put(@empty)
 
+  @doc """
+  Reset the pointer to empty WITHOUT broadcasting — for player teardown (refresh /
+  tab close), where the audio is already gone and there are no live subscribers to
+  notify. Keeps a freshly-mounted page from reading a stale pointer.
+  """
+  @spec reset() :: :ok
+  def reset, do: Agent.update(__MODULE__, fn _ -> @empty end)
+
   @doc "Subscribe the calling process to now-playing updates."
   @spec subscribe() :: :ok | {:error, term()}
   def subscribe, do: PubSub.subscribe(Beatgrid.PubSub, @topic)

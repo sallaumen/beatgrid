@@ -311,4 +311,12 @@ defmodule BeatgridWeb.RecSetLiveTest do
     send(view.pid, {:now_playing, %{track_id: seed.id, set_id: set.id}})
     assert render(view) =~ "now-playing-disc"
   end
+
+  @tag :tmp_dir
+  test "/set/:id with an unknown id redirects to /set (drops the stale id)", %{conn: conn} do
+    {:ok, _} = Sets.create("Existe")
+
+    assert {:error, {:live_redirect, %{to: "/set"}}} =
+             live(conn, ~p"/set/00000000-0000-0000-0000-000000000000")
+  end
 end

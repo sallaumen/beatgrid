@@ -87,6 +87,18 @@ defmodule BeatgridWeb.PlayerLiveTest do
     assert Playback.now_playing() == %{track_id: a.id, set_id: nil}
   end
 
+  test "now_playing with an unknown track id clears the pointer (no ghost highlight)", %{
+    conn: conn
+  } do
+    track = insert(:track, tag_title: "Real")
+    {:ok, view, _html} = live_isolated(conn, BeatgridWeb.PlayerLive)
+    render_hook(view, "now_playing", %{"id" => track.id})
+    assert Playback.now_playing().track_id == track.id
+
+    render_hook(view, "now_playing", %{"id" => "00000000-0000-0000-0000-000000000000"})
+    assert Playback.now_playing() == %{track_id: nil, set_id: nil}
+  end
+
   describe "sticky mount" do
     test "the global player is rendered on each page", %{conn: conn} do
       track = insert(:track, status: :present)

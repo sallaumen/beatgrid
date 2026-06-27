@@ -45,10 +45,16 @@ defmodule BeatgridWeb.RecSetLive do
   # the first set loaded by mount. In-page switching (`select_set`) loads directly.
   @impl true
   def handle_params(%{"id" => id}, _uri, socket) do
-    if socket.assigns[:set] && socket.assigns.set.id == id do
-      {:noreply, socket}
-    else
-      {:noreply, load_set(socket, Sets.get(id) || socket.assigns.set)}
+    cond do
+      socket.assigns[:set] && socket.assigns.set.id == id ->
+        {:noreply, socket}
+
+      set = Sets.get(id) ->
+        {:noreply, load_set(socket, set)}
+
+      true ->
+        # Unknown/deleted set id (e.g. a stale player chip) — drop the bad id.
+        {:noreply, push_patch(socket, to: ~p"/set")}
     end
   end
 

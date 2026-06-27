@@ -29,11 +29,18 @@ defmodule BeatgridWeb.PlayerLive do
 
   @impl true
   def handle_event("now_playing", %{"id" => id} = params, socket) do
-    set_id = params["set_id"]
-    Playback.set_now_playing(%{track_id: id, set_id: set_id})
+    case Tracks.get_with_song(id) do
+      nil ->
+        # The track vanished (deleted / stale row) — clear so no page ghosts a
+        # highlight for a track the player can't show.
+        Playback.clear_now_playing()
+        {:noreply, assign(socket, now_playing: nil, playing_set: nil)}
 
-    {:noreply,
-     assign(socket, now_playing: Tracks.get_with_song(id), playing_set: load_playing_set(set_id))}
+      track ->
+        set_id = params["set_id"]
+        Playback.set_now_playing(%{track_id: id, set_id: set_id})
+        {:noreply, assign(socket, now_playing: track, playing_set: load_playing_set(set_id))}
+    end
   end
 
   def handle_event("track_ended", _params, socket), do: advance(socket)
@@ -42,6 +49,11 @@ defmodule BeatgridWeb.PlayerLive do
     Playback.clear_now_playing()
     {:noreply, assign(socket, now_playing: nil, playing_set: nil)}
   end
+
+  # On teardown (refresh / tab close) the audio is gone — reset the pointer (silent,
+  # no live subscribers to notify) so a freshly-mounted page won't read a stale one.
+  @impl true
+  def terminate(_reason, _socket), do: Playback.reset_now_playing()
 
   # End of a track. If a set is playing, advance to the next ordered track — the
   # pointer is `(set_id, current track)` and `next_after` reads the live order, so a
@@ -226,6 +238,13 @@ defmodule BeatgridWeb.PlayerLive do
               setIcon("▶")
               setPlaying(false)
               window.dispatchEvent(new CustomEvent("beatgrid:paused"))
+              this.pushEvent("track_ended", {})
+            })
+            // A load/decode failure (e.g. a missing file mid-set) recovers the set by
+            // skipping to the next track instead of stalling silently.
+            a.addEventListener("error", () => {
+              setIcon("▶")
+              setPlaying(false)
               this.pushEvent("track_ended", {})
             })
 

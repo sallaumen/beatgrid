@@ -167,8 +167,8 @@ defmodule BeatgridWeb.UI do
         @class
       ]}
       style={"width:#{@size}px;height:#{@size}px;font-size:#{max(round(@size / 2.6), 10)}px"}
-      title={if @playing?, do: "Tocando — clique para pausar", else: "Tocar"}
-      aria-label={if @playing?, do: "Pausar", else: "Tocar"}
+      title={if @playing?, do: "Tocar ou pausar", else: "Tocar"}
+      aria-label={if @playing?, do: "Tocar ou pausar", else: "Tocar"}
     >
       <.vinyl :if={@playing?} size={@size} />
       <span :if={!@playing?} aria-hidden="true">▶</span>
@@ -230,8 +230,8 @@ defmodule BeatgridWeb.UI do
           !@playing? && "hidden bg-black/55 group-hover/cover:flex"
         ]}
         style={"border-radius:#{@radius}px"}
-        title={if @playing?, do: "Tocando — clique para pausar", else: "Tocar"}
-        aria-label={if @playing?, do: "Pausar", else: "Tocar"}
+        title={if @playing?, do: "Tocar ou pausar", else: "Tocar"}
+        aria-label={if @playing?, do: "Tocar ou pausar", else: "Tocar"}
       >
         <.vinyl :if={@playing?} size={max(trunc(@size * 0.5), 16)} />
         <span :if={!@playing?} aria-hidden="true">▶</span>
