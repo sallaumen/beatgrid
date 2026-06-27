@@ -92,7 +92,7 @@ defmodule Beatgrid.Library.TrackQuery do
       where(
         q,
         [t, song: s],
-        fragment("coalesce(?, ?)", s.tempo_bpm, t.bpm_detected) >= ^to_num(v)
+        fragment("coalesce(?, ?, ?)", t.bpm_manual, s.tempo_bpm, t.bpm_detected) >= ^to_num(v)
       )
 
   defp apply_filter(q, :bpm_max, v),
@@ -100,7 +100,7 @@ defmodule Beatgrid.Library.TrackQuery do
       where(
         q,
         [t, song: s],
-        fragment("coalesce(?, ?)", s.tempo_bpm, t.bpm_detected) <= ^to_num(v)
+        fragment("coalesce(?, ?, ?)", t.bpm_manual, s.tempo_bpm, t.bpm_detected) <= ^to_num(v)
       )
 
   defp apply_filter(q, :energy_min, v), do: where(q, [song: s], s.energy >= ^(to_num(v) / 100))
@@ -132,7 +132,7 @@ defmodule Beatgrid.Library.TrackQuery do
         where(
           q,
           [t, song: s],
-          fragment("coalesce(?, ?)", s.camelot, t.camelot_detected) in ^codes
+          fragment("coalesce(?, ?, ?)", t.camelot_manual, s.camelot, t.camelot_detected) in ^codes
         )
     end
   end
@@ -161,12 +161,20 @@ defmodule Beatgrid.Library.TrackQuery do
 
   defp order_terms(:bpm, d),
     do: [
-      {nulls(d), dynamic([t, song: s], fragment("coalesce(?, ?)", s.tempo_bpm, t.bpm_detected))}
+      {nulls(d),
+       dynamic(
+         [t, song: s],
+         fragment("coalesce(?, ?, ?)", t.bpm_manual, s.tempo_bpm, t.bpm_detected)
+       )}
     ]
 
   defp order_terms(:key, d),
     do: [
-      {nulls(d), dynamic([t, song: s], fragment("coalesce(?, ?)", s.camelot, t.camelot_detected))}
+      {nulls(d),
+       dynamic(
+         [t, song: s],
+         fragment("coalesce(?, ?, ?)", t.camelot_manual, s.camelot, t.camelot_detected)
+       )}
     ]
 
   defp order_terms(_other, d), do: order_terms(:artist, d)

@@ -65,6 +65,10 @@ defmodule Beatgrid.Library.Track do
     field :true_peak_dbtp, :float
     field :loudness_attempted_at, :utc_datetime
 
+    field :bpm_manual, :float
+    field :camelot_manual, :string
+    field :manual_fields, {:array, :string}, default: []
+
     field :sc_match_confidence, Ecto.Enum, values: [:high, :medium, :low]
     field :sc_art_trusted, :boolean, default: true
 
@@ -80,7 +84,8 @@ defmodule Beatgrid.Library.Track do
                source_playlist genre_folder status quality_issues
                rating personal_note tags cue_points last_scanned_at sc_match_confidence
                sc_art_trusted bpm_detected camelot_detected analyzed_at
-               loudness_lufs true_peak_dbtp loudness_attempted_at soundcharts_song_id)a
+               loudness_lufs true_peak_dbtp loudness_attempted_at
+               bpm_manual camelot_manual manual_fields soundcharts_song_id)a
 
   @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   def changeset(track, attrs) do

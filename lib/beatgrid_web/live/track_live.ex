@@ -711,10 +711,12 @@ defmodule BeatgridWeb.TrackLive do
   defp title(track), do: track.tag_title || track.filename
 
   # Effective BPM/Tom for the header: Soundcharts value, falling back to detected.
+  defp bpm(%{bpm_manual: b}) when is_number(b), do: round(b)
   defp bpm(%{soundcharts_song: %{tempo_bpm: b}}) when is_number(b), do: round(b)
   defp bpm(%{bpm_detected: b}) when is_number(b), do: round(b)
   defp bpm(_track), do: "—"
 
+  defp camelot(%{camelot_manual: c}) when is_binary(c), do: c
   defp camelot(%{soundcharts_song: %{camelot: c}}) when is_binary(c), do: c
   defp camelot(%{camelot_detected: c}) when is_binary(c), do: c
   defp camelot(_track), do: nil

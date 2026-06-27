@@ -254,8 +254,8 @@ defmodule Beatgrid.Library do
     song = track.soundcharts_song
 
     %{
-      camelot: (song && song.camelot) || track.camelot_detected,
-      bpm: (song && song.tempo_bpm) || track.bpm_detected,
+      camelot: track.camelot_manual || (song && song.camelot) || track.camelot_detected,
+      bpm: track.bpm_manual || (song && song.tempo_bpm) || track.bpm_detected,
       energy: song && song.energy
     }
   end
