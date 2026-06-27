@@ -6,7 +6,7 @@ defmodule Beatgrid.Workers.LoudnessWorker do
   discards — the track stays unmeasured and can be re-run from the Painel.
   """
   use Oban.Worker,
-    queue: :analysis,
+    queue: :loudness,
     max_attempts: 3,
     unique: [period: 30, keys: [:track_id]]
 

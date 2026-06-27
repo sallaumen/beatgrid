@@ -26,13 +26,24 @@ config :beatgrid, :library_root, Path.expand("~/Music/DJ")
 # concurrent jobs would race the quota and risk rate-limiting.
 #   youtube  2 — yt-dlp downloads/expands; kept low because YouTube returns 429
 #                (rate limit) when we pull too many at once
-#   analysis 4 — local librosa/ffmpeg CPU work (BPM/key/loudness backfill)
+#   analysis 5 — librosa BPM/key (own queue, separate from loudness so the two
+#                backfills run in parallel instead of fighting for slots)
+#   loudness 5 — ffmpeg loudnorm (LUFS); each proc is pinned to 1 thread, so 5+5
+#                CPU-bound procs map cleanly onto the 12 cores with headroom
 #   ai       3 — claude CLI (heavy per call; modest parallelism)
 #   scan     3 — filesystem scan/import (IO-bound)
 #   soundcharts 1 — external API, budget-guarded → must stay serial
 config :beatgrid, Oban,
   repo: Beatgrid.Repo,
-  queues: [default: 10, scan: 3, soundcharts: 1, ai: 3, analysis: 4, youtube: 2],
+  queues: [
+    default: 10,
+    scan: 3,
+    soundcharts: 1,
+    ai: 3,
+    analysis: 5,
+    loudness: 5,
+    youtube: 2
+  ],
   plugins: [{Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}]
 
 # Integration ports (ports & adapters). Tests override these with Mox mocks.

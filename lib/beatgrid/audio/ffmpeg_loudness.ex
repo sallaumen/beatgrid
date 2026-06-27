@@ -6,7 +6,10 @@ defmodule Beatgrid.Audio.FfmpegLoudness do
   """
   @behaviour Beatgrid.Audio.Loudness
 
-  @args ["-hide_banner", "-nostats", "-i"]
+  # `-threads 1` pins each ffmpeg to one core, so several loudness jobs run as clean
+  # parallel single-core processes (via the Oban queue) instead of each grabbing all
+  # cores and thrashing.
+  @args ["-hide_banner", "-nostats", "-threads", "1", "-i"]
   @tail ["-af", "loudnorm=print_format=json", "-f", "null", "-"]
 
   @impl true

@@ -7,9 +7,23 @@ defmodule Beatgrid.Audio.LibrosaCli do
   """
   @behaviour Beatgrid.Audio.Analyzer
 
+  # Pin each librosa process to a single thread. numpy/numba/BLAS otherwise spawn a
+  # thread per core PER process, so running several analyses at once oversubscribes
+  # the CPU (12 cores × N processes) and throughput stutters. One thread per process
+  # lets Oban's queue concurrency provide clean, steady parallelism instead.
+  # `VECLIB_MAXIMUM_THREADS` covers macOS's Accelerate/vecLib backend.
+  @thread_env [
+    {"OMP_NUM_THREADS", "1"},
+    {"OPENBLAS_NUM_THREADS", "1"},
+    {"MKL_NUM_THREADS", "1"},
+    {"NUMEXPR_NUM_THREADS", "1"},
+    {"NUMBA_NUM_THREADS", "1"},
+    {"VECLIB_MAXIMUM_THREADS", "1"}
+  ]
+
   @impl Beatgrid.Audio.Analyzer
   def analyze(path) do
-    case System.cmd(python(), [script(), path], stderr_to_stdout: false) do
+    case System.cmd(python(), [script(), path], stderr_to_stdout: false, env: @thread_env) do
       {output, 0} -> parse(output)
       {output, code} -> {:error, {:analyze_exit, code, String.slice(output, 0, 500)}}
     end
