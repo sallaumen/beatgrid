@@ -6,7 +6,8 @@ defmodule BeatgridWeb.TrackLiveTest do
 
   alias Beatgrid.Analysis
   alias Beatgrid.Library.Tracks
-  alias Beatgrid.Workers.{AnalyzeWorker, EnrichWorker}
+  alias Beatgrid.Repertoire
+  alias Beatgrid.Workers.{AnalyzeWorker, EnrichWorker, ExpandWorker, RecommendWorker}
 
   test "shows the detail and updates rating, tags and note", %{conn: conn} do
     song = insert(:soundcharts_song, camelot: "8A", tempo_bpm: 120.0, energy: 0.6)
@@ -265,5 +266,166 @@ defmodule BeatgridWeb.TrackLiveTest do
     )
 
     assert render(view) =~ "Atualizando…"
+  end
+
+  test "renders persisted similar suggestions for the track on mount", %{conn: conn} do
+    track =
+      insert(:track,
+        status: :present,
+        tag_title: "Sina",
+        tag_artist: "Djavan",
+        analyzed_at: ~U[2026-01-01 00:00:00Z]
+      )
+
+    insert(:recommendation,
+      artist: "Gilberto Gil",
+      song: "Aquele Abraço",
+      reason: "mesma época",
+      track_id: track.id,
+      genre_folder: nil,
+      source: :match,
+      status: :new
+    )
+
+    {:ok, _view, html} = live(conn, ~p"/track/#{track.id}")
+
+    assert html =~ "Sugestões parecidas (IA)"
+    assert html =~ "Gilberto Gil"
+    assert html =~ "Aquele Abraço"
+    assert html =~ "mesma época"
+  end
+
+  test "clicking Buscar parecidas enqueues a track RecommendWorker", %{conn: conn} do
+    track =
+      insert(:track,
+        status: :present,
+        tag_title: "Sina",
+        tag_artist: "Djavan",
+        analyzed_at: ~U[2026-01-01 00:00:00Z]
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
+    html = view |> element("button[phx-click=fetch_matches]") |> render_click()
+
+    assert_enqueued(worker: RecommendWorker, args: %{scope: "track", track_id: track.id})
+    assert html =~ "Gerando…"
+  end
+
+  test "a recommend-progress :done event for this track renders persisted matches", %{conn: conn} do
+    track =
+      insert(:track,
+        status: :present,
+        tag_title: "Sina",
+        tag_artist: "Djavan",
+        analyzed_at: ~U[2026-01-01 00:00:00Z]
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
+    refute render(view) =~ "Caetano Veloso"
+
+    insert(:recommendation,
+      artist: "Caetano Veloso",
+      song: "Sozinho",
+      reason: "vibe parecida",
+      track_id: track.id,
+      genre_folder: nil,
+      source: :match,
+      status: :new
+    )
+
+    send(
+      view.pid,
+      {:recommend_progress,
+       %{batch_id: "b1", scope: "track", key: track.id, status: :done, count: 1}}
+    )
+
+    assert render(view) =~ "Caetano Veloso"
+  end
+
+  test "a recommend-progress :done event for another track is ignored", %{conn: conn} do
+    track =
+      insert(:track,
+        status: :present,
+        tag_title: "Sina",
+        tag_artist: "Djavan",
+        analyzed_at: ~U[2026-01-01 00:00:00Z]
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
+
+    insert(:recommendation,
+      artist: "Caetano Veloso",
+      song: "Sozinho",
+      track_id: track.id,
+      genre_folder: nil,
+      source: :match,
+      status: :new
+    )
+
+    # A tick for a different track must not reload this view's suggestions.
+    send(
+      view.pid,
+      {:recommend_progress,
+       %{batch_id: "b1", scope: "track", key: Ecto.UUID.generate(), status: :done, count: 1}}
+    )
+
+    refute render(view) =~ "Caetano Veloso"
+  end
+
+  test "Baixar on a match enqueues a YouTube download and marks it imported", %{conn: conn} do
+    track =
+      insert(:track,
+        status: :present,
+        tag_title: "Sina",
+        tag_artist: "Djavan",
+        analyzed_at: ~U[2026-01-01 00:00:00Z]
+      )
+
+    rec =
+      insert(:recommendation,
+        artist: "Tim Maia",
+        song: "Azul da Cor do Mar",
+        youtube_query: "Tim Maia Azul da Cor do Mar",
+        track_id: track.id,
+        genre_folder: nil,
+        source: :match,
+        status: :new
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
+    view |> element("button[phx-click=download_rec][phx-value-id='#{rec.id}']") |> render_click()
+
+    assert_enqueued(worker: ExpandWorker)
+    assert Repertoire.get_recommendation(rec.id).status == :imported
+    assert render(view) =~ "baixada"
+  end
+
+  test "Dispensar on a match hides it and marks it dismissed", %{conn: conn} do
+    track =
+      insert(:track,
+        status: :present,
+        tag_title: "Sina",
+        tag_artist: "Djavan",
+        analyzed_at: ~U[2026-01-01 00:00:00Z]
+      )
+
+    rec =
+      insert(:recommendation,
+        artist: "Cartola",
+        song: "O Mundo é um Moinho",
+        track_id: track.id,
+        genre_folder: nil,
+        source: :match,
+        status: :new
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
+    assert render(view) =~ "Cartola"
+
+    view |> element("button[phx-click=dismiss_rec][phx-value-id='#{rec.id}']") |> render_click()
+
+    html = render(view)
+    refute html =~ "Cartola"
+    assert Repertoire.get_recommendation(rec.id).status == :dismissed
   end
 end

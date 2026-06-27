@@ -7,8 +7,9 @@ defmodule BeatgridWeb.TrackLive do
   alias Beatgrid.Analysis
   alias Beatgrid.Library.Tracks
   alias Beatgrid.Mixing
+  alias Beatgrid.Repertoire
   alias Beatgrid.Sets
-  alias Beatgrid.Workers.{AnalyzeWorker, EnrichWorker}
+  alias Beatgrid.Workers.{AnalyzeWorker, EnrichWorker, RecommendWorker}
   alias Beatgrid.YouTube
   alias Phoenix.LiveView.JS
 
@@ -27,12 +28,22 @@ defmodule BeatgridWeb.TrackLive do
            tag_draft: "",
            analyzing?: false,
            enriching?: false,
+           recs: load_recs(track.id),
+           recommending?: false,
            toast: nil,
            page_title: title(track)
          )
          |> maybe_auto_analyze()}
     end
   end
+
+  defp load_recs(track_id),
+    do:
+      Repertoire.list_recommendations(
+        track_id: track_id,
+        source: :match,
+        statuses: [:new, :imported]
+      )
 
   # Auto-run local analysis the first time a track is opened without it. Runs in
   # the background (AnalyzeWorker), so it survives navigation; the `unique`
@@ -45,6 +56,7 @@ defmodule BeatgridWeb.TrackLive do
     if connected?(socket) do
       Analysis.subscribe()
       YouTube.subscribe_enrich()
+      Repertoire.subscribe()
       if is_nil(track.analyzed_at), do: enqueue_analyze(socket), else: socket
     else
       socket
@@ -108,6 +120,42 @@ defmodule BeatgridWeb.TrackLive do
     {:noreply, assign(socket, enriching?: true, toast: nil)}
   end
 
+  def handle_event("fetch_matches", _params, socket) do
+    Oban.insert(
+      RecommendWorker.new(%{
+        "scope" => "track",
+        "track_id" => socket.assigns.track.id,
+        "batch_id" => Uniq.UUID.uuid7()
+      })
+    )
+
+    {:noreply, assign(socket, recommending?: true)}
+  end
+
+  def handle_event("download_rec", %{"id" => id}, socket) do
+    toast =
+      case Repertoire.get_recommendation(id) do
+        nil ->
+          socket.assigns.toast
+
+        rec ->
+          YouTube.enqueue("ytsearch1:" <> (rec.youtube_query || ""))
+          Repertoire.set_recommendation_status(rec, :imported)
+          {:ok, "#{rec.artist} — #{rec.song}: na fila — veja em Jobs."}
+      end
+
+    {:noreply, assign(socket, recs: load_recs(socket.assigns.track.id), toast: toast)}
+  end
+
+  def handle_event("dismiss_rec", %{"id" => id}, socket) do
+    case Repertoire.get_recommendation(id) do
+      nil -> :ok
+      rec -> Repertoire.set_recommendation_status(rec, :dismissed)
+    end
+
+    {:noreply, assign(socket, recs: load_recs(socket.assigns.track.id))}
+  end
+
   def handle_event("dismiss_toast", _params, socket) do
     {:noreply, assign(socket, toast: nil)}
   end
@@ -128,6 +176,19 @@ defmodule BeatgridWeb.TrackLive do
   end
 
   def handle_info({:enrich_progress, _payload}, socket), do: {:noreply, socket}
+
+  # This track's "songs that pair" recommendation finished. Reload the persisted
+  # matches and clear the spinner; ignore ticks for other tracks (topic is global).
+  def handle_info({:recommend_progress, %{scope: "track", key: id, status: status}}, socket)
+      when status in [:done, :error] do
+    if id == socket.assigns.track.id do
+      {:noreply, assign(socket, recommending?: false, recs: load_recs(id))}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info({:recommend_progress, _payload}, socket), do: {:noreply, socket}
 
   defp enrich_done_toast(%{budget_exhausted: true}), do: {:error, "Cota Soundcharts esgotada."}
 
@@ -405,8 +466,110 @@ defmodule BeatgridWeb.TrackLive do
             Sem sugestões harmônicas (faixa sem tom/BPM, ou nada compatível).
           </p>
         </section>
+
+        <section class="mt-6 rounded-xl border border-white/6 bg-surface p-4">
+          <div class="flex items-center justify-between gap-3">
+            <div class="min-w-0">
+              <.section_label>Sugestões parecidas (IA)</.section_label>
+              <p class="mt-1 text-caption text-ink-faint">
+                Faixas de outra origem que combinam com esta — mesmo clima, época e energia.
+              </p>
+            </div>
+            <button
+              type="button"
+              phx-click="fetch_matches"
+              disabled={@recommending?}
+              class="inline-flex shrink-0 items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-[12px] font-semibold text-white transition-opacity disabled:opacity-50"
+            >
+              <span
+                :if={@recommending?}
+                class="size-2 animate-pulse rounded-full bg-white/90"
+                aria-hidden="true"
+              ></span>
+              {if @recommending?, do: "Gerando…", else: "Buscar parecidas"}
+            </button>
+          </div>
+
+          <div :if={@recs != []} class="mt-3 space-y-1.5">
+            <.rec_row :for={rec <- @recs} rec={rec} />
+          </div>
+
+          <div
+            :if={@recs == [] and @recommending?}
+            class="mt-3 flex items-center gap-2 rounded-lg border border-primary/25 bg-primary/8 px-3 py-3 text-body-sm text-ink-secondary"
+          >
+            <span class="size-2.5 animate-pulse rounded-full bg-primary" aria-hidden="true"></span>
+            Gerando sugestões com a IA… isso pode levar alguns segundos.
+          </div>
+
+          <p
+            :if={@recs == [] and not @recommending?}
+            class="mt-3 rounded-lg border border-dashed border-white/8 px-3 py-4 text-center text-body-sm text-ink-faint"
+          >
+            Nenhuma sugestão salva para esta faixa. Clique em <span class="text-ink-secondary">Buscar parecidas</span>.
+          </p>
+        </section>
       </div>
     </.app_shell>
+    """
+  end
+
+  # One persisted AI match recommendation: `artist — song`, the AI's reason, and the
+  # YouTube search / download / dismiss actions. Imported rows wear a "baixada" tag.
+  attr :rec, :map, required: true
+
+  defp rec_row(assigns) do
+    ~H"""
+    <div class={[
+      "group rounded-lg border px-3 py-2.5 transition-colors",
+      if(@rec.status == :imported,
+        do: "border-green/25 bg-green/5",
+        else: "border-white/6 bg-base hover:border-white/12"
+      )
+    ]}>
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-body font-medium">
+            {@rec.artist} <span class="text-ink-faint">—</span> {@rec.song}
+          </p>
+          <p :if={@rec.reason} class="mt-0.5 text-caption text-ink-muted">{@rec.reason}</p>
+        </div>
+        <span
+          :if={@rec.status == :imported}
+          class="bg-token-chip inline-flex shrink-0 items-center gap-1 rounded-xs px-[7px] py-[2px] text-[9.5px] font-bold uppercase tracking-wide"
+          style="--c:#5ad1a0"
+        >
+          ✓ baixada
+        </span>
+      </div>
+
+      <div class="mt-2 flex flex-wrap items-center gap-1.5">
+        <a
+          href={Repertoire.youtube_search_url(@rec)}
+          target="_blank"
+          rel="noopener"
+          class="inline-flex items-center gap-1 rounded-md border border-white/10 bg-input px-2.5 py-1 text-[11px] text-ink-secondary transition-colors hover:text-ink"
+        >
+          Buscar no YouTube <span class="text-ink-faint" aria-hidden="true">↗</span>
+        </a>
+        <button
+          type="button"
+          phx-click="download_rec"
+          phx-value-id={@rec.id}
+          class="inline-flex items-center gap-1 rounded-md bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/25"
+        >
+          ↓ {if @rec.status == :imported, do: "Baixar de novo", else: "Baixar"}
+        </button>
+        <button
+          type="button"
+          phx-click="dismiss_rec"
+          phx-value-id={@rec.id}
+          class="ml-auto rounded-md px-2.5 py-1 text-[11px] text-ink-muted transition-colors hover:text-coral"
+        >
+          Dispensar
+        </button>
+      </div>
+    </div>
     """
   end
 
