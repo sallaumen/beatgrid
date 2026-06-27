@@ -48,15 +48,21 @@ defmodule Beatgrid.Repertoire.RecommendationAI do
     have = if artists == [], do: "(none yet)", else: Enum.join(artists, ", ")
 
     """
-    You are a Brazilian-music curator helping a DJ fill gaps in their library.
+    You are a Brazilian-music curator helping a DJ fill gaps in ONE folder of their library.
 
     Folder: #{folder.display_name} — #{folder.description}
 
     Artists already in this folder: #{have}
 
-    Suggest #{count} important artists/songs that fit this folder and that the DJ is
-    likely MISSING (not already in the list above). Favor canonical, well-loved choices
-    for the style. For each: artist, song, and a one-line reason.
+    Suggest #{count} important artists/songs that fit THIS folder's specific style (read the
+    description above — stay within it, don't drift into generic Brazilian music) and that the
+    DJ is likely MISSING (not already in the list above). Guidelines:
+    - Real, verifiable recordings only — never invent a song; use the canonical Artist + Song.
+    - Favor essential, well-loved choices for the style, with a few deeper cuts mixed in.
+    - Spread across different artists — don't stack several songs by the same one.
+    - Use the proper Brazilian-Portuguese titles.
+
+    For each: artist, song, and a one-line reason it belongs in this folder.
     """
   end
 

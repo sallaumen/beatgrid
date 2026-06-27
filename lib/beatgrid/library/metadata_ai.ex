@@ -56,12 +56,33 @@ defmodule Beatgrid.Library.MetadataAI do
       tracks |> Enum.with_index(1) |> Enum.map_join("\n", fn {t, i} -> resolve_line(i, t) end)
 
     """
-    You verify a DJ's Brazilian-music library metadata. For each track decide the correct
-    canonical "Artist - Title" for THIS specific recording, and whether the Soundcharts match
-    (when present) is the SAME recording — not merely the same song title by the original or a
-    different artist. Covers/versions are common (e.g. a forró cover of an MPB classic is NOT the
-    original). Prefer the file's OWN metadata (tags, filename, YouTube title); only override it
-    with a clear reason. Use the folder context below to judge plausibility.
+    You verify a DJ's Brazilian-music library metadata. For EACH track, decide two things:
+
+    1. The correct canonical "Artist - Title" for THIS SPECIFIC recording — the file the DJ
+       actually has. "Artist" means the PERFORMER of this recording, NOT the composer and NOT
+       whoever made the original or most famous version.
+    2. same_recording: is the linked Soundcharts match the SAME recording as this file — same
+       performer, same version — or merely the same song title by a different/original artist?
+
+    Covers and versions are everywhere in this scene (forró and MPB acts constantly re-record
+    each other's songs — e.g. a forró band covering an MPB classic, or a duo covering a pop hit).
+    So a Soundcharts hit on the song TITLE is NOT enough: if the performer differs from the
+    file's evidence, it is a DIFFERENT recording (same_recording=false), and the artist must be
+    the file's performer, not the match's.
+
+    Evidence priority — the file is the source of truth for WHICH recording this is:
+    - Trust the file's OWN signals first: tags (file_artist/file_title), filename, and
+      especially youtube_title (where the track came from).
+    - When youtube_title (or the tags) name a performer that differs from the Soundcharts
+      match's artist, treat it as a strong cover signal → keep the file's performer and set
+      same_recording=false.
+    - Use the Soundcharts match (artist/title/subgenres/year) and the folder context only to
+      confirm plausibility or fix obvious tag noise — never to overwrite a clearly-named
+      performer with the original/most-famous artist.
+
+    Calibrate confidence: high (>= 0.8) only when the file evidence is clear AND consistent;
+    medium when you had to choose between conflicting signals; low when the metadata is sparse
+    or contradictory.
 
     Folder context:
     #{rubric}
@@ -69,9 +90,10 @@ defmodule Beatgrid.Library.MetadataAI do
     Tracks (one per number):
     #{lines}
 
-    For each track return {index, same_recording (is the Soundcharts match the same recording? —
-    false when there is no match or it's the original/another artist's version), artist, title,
-    confidence 0.0-1.0, rationale (one short phrase)}.
+    For each track return {index, same_recording (true ONLY if the Soundcharts match is this
+    exact recording by this performer; false when there is no match, or it's the original /
+    another artist's version), artist (the performer of THIS recording), title, confidence
+    0.0-1.0, rationale (one short phrase)}.
     """
   end
 
@@ -154,9 +176,16 @@ defmodule Beatgrid.Library.MetadataAI do
 
     """
     Extract the music artist and song title from each raw YouTube video title below.
-    Drop noise like "(Official Video)", "[HD]", "Lyric Video", "ft.", channel names.
-    Keep the real song title (including meaningful parentheticals). Return one entry
-    per input, in the same order.
+
+    - Drop noise: "(Official Video)", "(Clipe Oficial)", "[HD]"/"[4K]", "Lyric Video",
+      "Áudio Oficial", remaster/year tags, and channel or label names.
+    - The artist is the MAIN performer. Drop featured guests ("ft."/"feat."/"part.") from the
+      artist field — keep only the lead act.
+    - Keep the real song title, including meaningful parentheticals that are part of it
+      ("(Ao Vivo)", "(Acústico)", a subtitle), but not promo noise.
+    - Titles are usually "Artista - Título"; if the order looks reversed, use your knowledge of
+      Brazilian artists to put the performer in `artist`.
+    - Return one entry per input, in the same order.
 
     Titles:
     #{lines}

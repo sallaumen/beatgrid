@@ -126,11 +126,19 @@ defmodule Beatgrid.Organization.ClassificationAI do
     lines = tracks |> Enum.with_index(1) |> Enum.map_join("\n", fn {t, i} -> track_line(i, t) end)
 
     """
-    You are classifying a DJ's Brazilian music library (forró / MPB / samba) into genre
-    folders. Assign each track to exactly ONE folder by its key, using the rubric. Use the
-    artist, title and Soundcharts signals (subgenres, BPM, energy, year). When a track is a
-    songwriter/MPB act rather than forró, prefer `mpb`. Distinguish the forró sub-styles by
-    the rubric; when unsure between two, pick the better fit and lower the confidence.
+    You are classifying a DJ's Brazilian music library (forró / MPB / samba and related) into
+    genre folders. Assign each track to EXACTLY ONE folder by its `key`.
+
+    How to decide:
+    - The folder DESCRIPTIONS below are the rubric and the authority — match each track's actual
+      sound, era and instrumentation to the description that fits best, not just the artist name.
+    - Weight the Soundcharts signals heavily when present: subgenres first, then BPM, energy and
+      year. With sparse signals, lean on artist/title knowledge and lower the confidence.
+    - Distinguish the forró sub-styles by the rubric (e.g. traditional pé-de-serra/roots with
+      zabumba–triângulo–sanfona vs. later/electronic/universitário vs. the classics era). When
+      torn between two forró folders, pick the better fit and lower the confidence.
+    - A singer-songwriter / MPB act belongs in `mpb` UNLESS the specific track is clearly a
+      forró arrangement — then follow the rubric (a forró-scene recording stays in forró).
 
     Folders:
     #{rubric}
@@ -139,7 +147,7 @@ defmodule Beatgrid.Organization.ClassificationAI do
     #{lines}
 
     For each track return {index, folder (one of the keys above), confidence 0.0–1.0,
-    rationale (one short phrase)}.
+    rationale (one short phrase explaining the fit)}.
     """
   end
 
