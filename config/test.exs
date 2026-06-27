@@ -44,6 +44,7 @@ config :beatgrid, Beatgrid.Soundcharts.Client, adapter: Beatgrid.Soundcharts.Moc
 config :beatgrid, Beatgrid.AI.Client, adapter: Beatgrid.AI.Mock
 config :beatgrid, Beatgrid.Tagging.Writer, adapter: Beatgrid.Tagging.Mock
 config :beatgrid, Beatgrid.Audio.Analyzer, adapter: Beatgrid.Audio.AnalyzerMock
+config :beatgrid, Beatgrid.Audio.Loudness, adapter: Beatgrid.Audio.LoudnessMock
 config :beatgrid, Beatgrid.YouTube.Downloader, adapter: Beatgrid.YouTube.DownloaderMock
 
 # The Http adapter, when exercised directly, routes through Req.Test instead of

@@ -33,6 +33,7 @@ config :beatgrid, Beatgrid.Soundcharts.Client, adapter: Beatgrid.Soundcharts.Htt
 config :beatgrid, Beatgrid.AI.Client, adapter: Beatgrid.AI.ClaudeCli
 config :beatgrid, Beatgrid.Tagging.Writer, adapter: Beatgrid.Tagging.Ffmpeg
 config :beatgrid, Beatgrid.Audio.Analyzer, adapter: Beatgrid.Audio.LibrosaCli
+config :beatgrid, Beatgrid.Audio.Loudness, adapter: Beatgrid.Audio.FfmpegLoudness
 config :beatgrid, Beatgrid.YouTube.Downloader, adapter: Beatgrid.YouTube.YtDlp
 
 # AI classifier: which `claude` model and how many tracks per classification call.

@@ -14,6 +14,7 @@ defmodule Beatgrid.Library.TrackQuery do
           | {:with_quality_issues, boolean()}
           | {:resolved, boolean()}
           | {:analyzed, boolean()}
+          | {:loudness, boolean()}
           | {:order_by, term()}
 
   @spec list_by([list_opt()]) :: [Track.t()]
@@ -191,5 +192,7 @@ defmodule Beatgrid.Library.TrackQuery do
   defp reduce_opt({:resolved, false}, q), do: where(q, [t], is_nil(t.soundcharts_song_id))
   defp reduce_opt({:analyzed, true}, q), do: where(q, [t], not is_nil(t.analyzed_at))
   defp reduce_opt({:analyzed, false}, q), do: where(q, [t], is_nil(t.analyzed_at))
+  defp reduce_opt({:loudness, true}, q), do: where(q, [t], not is_nil(t.loudness_lufs))
+  defp reduce_opt({:loudness, false}, q), do: where(q, [t], is_nil(t.loudness_lufs))
   defp reduce_opt({:order_by, order}, q), do: order_by(q, ^order)
 end
