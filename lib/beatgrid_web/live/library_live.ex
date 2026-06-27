@@ -10,6 +10,9 @@ defmodule BeatgridWeb.LibraryLive do
 
   @confidences [{"alta", :high}, {"média", :medium}, {"baixa", :low}]
 
+  # The 24 Camelot wheel codes, 1A..12B, for the Tom filter <select>.
+  @camelot_codes for n <- 1..12, letter <- ["A", "B"], do: "#{n}#{letter}"
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: Library.subscribe_import()
@@ -20,6 +23,7 @@ defmodule BeatgridWeb.LibraryLive do
        page_title: "Biblioteca",
        folders: GenreFolders.list(),
        filters: %{},
+       sort: {:artist, :asc},
        import: nil,
        import_progress: nil,
        import_toast: nil
@@ -42,13 +46,35 @@ defmodule BeatgridWeb.LibraryLive do
      |> load_tracks()}
   end
 
+  def handle_event("toggle_unclassified", _params, socket) do
+    {:noreply,
+     socket
+     |> update_filter(:unclassified, toggle(socket.assigns.filters[:unclassified], true))
+     |> load_tracks()}
+  end
+
+  # Clicking a column header sorts by that field — toggling asc/desc when it's
+  # already the active field, otherwise starting ascending.
+  def handle_event("sort", %{"by" => by}, socket) do
+    field = String.to_existing_atom(by)
+    {cur_field, cur_dir} = socket.assigns.sort
+    dir = if cur_field == field, do: flip_dir(cur_dir), else: :asc
+
+    {:noreply, socket |> assign(sort: {field, dir}) |> load_tracks()}
+  end
+
   def handle_event("filter", params, socket) do
     filters =
       socket.assigns.filters
       |> put_filter(:search, params["search"])
       |> put_filter(:rating_min, params["rating_min"])
+      |> put_filter(:rating_max, params["rating_max"])
       |> put_filter(:bpm_min, params["bpm_min"])
       |> put_filter(:bpm_max, params["bpm_max"])
+      |> put_filter(:energy_min, params["energy_min"])
+      |> put_filter(:energy_max, params["energy_max"])
+      |> put_filter(:camelot, params["camelot"])
+      |> put_toggle(:camelot_compatible, params["camelot_compatible"])
 
     {:noreply, socket |> assign(filters: filters) |> load_tracks()}
   end
@@ -171,7 +197,10 @@ defmodule BeatgridWeb.LibraryLive do
   defp import_summary(%{imported: n}) when n > 0, do: "#{n} faixa(s) importada(s)."
   defp import_summary(_p), do: "Nada novo para importar."
 
-  defp load_tracks(socket), do: assign(socket, tracks: TrackQuery.library(socket.assigns.filters))
+  defp load_tracks(socket) do
+    filters = Map.put(socket.assigns.filters, :sort, socket.assigns.sort)
+    assign(socket, tracks: TrackQuery.library(filters))
+  end
 
   defp update_filter(socket, key, nil),
     do: assign(socket, filters: Map.delete(socket.assigns.filters, key))
@@ -182,6 +211,13 @@ defmodule BeatgridWeb.LibraryLive do
   defp toggle(current, val), do: if(current == val, do: nil, else: val)
   defp put_filter(filters, key, val) when val in [nil, ""], do: Map.delete(filters, key)
   defp put_filter(filters, key, val), do: Map.put(filters, key, val)
+
+  # A checkbox sends "on" when ticked and is absent when unticked.
+  defp put_toggle(filters, key, "on"), do: Map.put(filters, key, true)
+  defp put_toggle(filters, key, _absent), do: Map.delete(filters, key)
+
+  defp flip_dir(:asc), do: :desc
+  defp flip_dir(:desc), do: :asc
 
   @impl true
   def render(assigns) do
@@ -221,7 +257,7 @@ defmodule BeatgridWeb.LibraryLive do
           </aside>
 
           <section class="min-w-0 flex-1 overflow-y-auto px-5 py-4">
-            <.track_table :if={@tracks != []} tracks={@tracks} />
+            <.track_table :if={@tracks != []} tracks={@tracks} sort={@sort} />
             <.empty_state :if={@tracks == []} />
           </section>
         </div>
@@ -236,7 +272,7 @@ defmodule BeatgridWeb.LibraryLive do
   attr :folders, :list, required: true
 
   defp filters_panel(assigns) do
-    assigns = assign(assigns, confidences: @confidences)
+    assigns = assign(assigns, confidences: @confidences, camelot_codes: @camelot_codes)
 
     ~H"""
     <div class="flex items-center justify-between">
@@ -250,7 +286,19 @@ defmodule BeatgridWeb.LibraryLive do
       </button>
     </div>
 
-    <p class="mt-4 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Pasta</p>
+    <div class="mt-4 mb-1.5 flex items-center justify-between">
+      <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Pasta</span>
+      <button
+        phx-click="toggle_unclassified"
+        class={[
+          "rounded-sm border px-[7px] py-[3px] text-[10px] font-semibold transition-colors",
+          @filters[:unclassified] && "border-primary/60 bg-primary/20 text-ink",
+          !@filters[:unclassified] && "border-white/8 bg-input text-ink-faint hover:text-ink-muted"
+        ]}
+      >
+        só não classificadas
+      </button>
+    </div>
     <div class="flex flex-wrap gap-1.5">
       <button
         :for={folder <- @folders}
@@ -280,20 +328,80 @@ defmodule BeatgridWeb.LibraryLive do
       </button>
     </div>
 
-    <form id="library-filters" phx-change="filter" class="mt-4 space-y-3">
+    <form id="library-filters" phx-change="filter" class="mt-4 space-y-3.5">
+      <div>
+        <p class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Tom</p>
+        <select
+          name="camelot"
+          class="w-full rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
+        >
+          <option value="" selected={!@filters[:camelot]}>Qualquer</option>
+          <option :for={code <- @camelot_codes} value={code} selected={@filters[:camelot] == code}>
+            {code}
+          </option>
+        </select>
+        <label class="mt-1.5 flex items-center gap-1.5 text-[11px] text-ink-muted">
+          <input
+            type="checkbox"
+            name="camelot_compatible"
+            checked={@filters[:camelot_compatible] == true}
+            class="rounded border-white/20 bg-input"
+          /> incluir compatíveis
+        </label>
+      </div>
+
+      <div>
+        <p class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Nota</p>
+        <div class="flex items-center gap-1.5">
+          <input
+            type="number"
+            name="rating_min"
+            min="0"
+            max="10"
+            placeholder="min"
+            value={@filters[:rating_min]}
+            class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
+          />
+          <span class="text-ink-faint">–</span>
+          <input
+            type="number"
+            name="rating_max"
+            min="0"
+            max="10"
+            placeholder="max"
+            value={@filters[:rating_max]}
+            class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
+          />
+        </div>
+      </div>
+
       <div>
         <p class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
-          Nota mínima
+          Energia
         </p>
-        <input
-          type="number"
-          name="rating_min"
-          min="0"
-          max="10"
-          value={@filters[:rating_min]}
-          class="w-20 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
-        />
+        <div class="flex items-center gap-1.5">
+          <input
+            type="number"
+            name="energy_min"
+            min="0"
+            max="100"
+            placeholder="min"
+            value={@filters[:energy_min]}
+            class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
+          />
+          <span class="text-ink-faint">–</span>
+          <input
+            type="number"
+            name="energy_max"
+            min="0"
+            max="100"
+            placeholder="max"
+            value={@filters[:energy_max]}
+            class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
+          />
+        </div>
       </div>
+
       <div>
         <p class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
           Faixa de BPM
@@ -321,6 +429,7 @@ defmodule BeatgridWeb.LibraryLive do
   end
 
   attr :tracks, :list, required: true
+  attr :sort, :any, required: true
 
   defp track_table(assigns) do
     ~H"""
@@ -330,13 +439,13 @@ defmodule BeatgridWeb.LibraryLive do
         style={grid_cols()}
       >
         <span></span>
-        <span>Faixa</span>
-        <span>Pasta</span>
-        <span class="text-right">BPM</span>
-        <span>Tom</span>
-        <span>Energia</span>
-        <span class="text-right">Nota</span>
-        <span class="text-right">Sinal</span>
+        <.sort_header field={:artist} label="Faixa" sort={@sort} />
+        <.sort_header field={:folder} label="Pasta" sort={@sort} />
+        <.sort_header field={:bpm} label="BPM" sort={@sort} align="right" />
+        <.sort_header field={:key} label="Tom" sort={@sort} />
+        <.sort_header field={:energy} label="Energia" sort={@sort} />
+        <.sort_header field={:rating} label="Nota" sort={@sort} align="right" />
+        <.sort_header field={:confidence} label="Sinal" sort={@sort} align="right" />
       </div>
       <div
         :for={track <- @tracks}
@@ -367,6 +476,47 @@ defmodule BeatgridWeb.LibraryLive do
         </.link>
       </div>
     </div>
+    """
+  end
+
+  # A clickable column header. The active column shows its direction arrow and
+  # brightens; the rest reveal a faint ↕ affordance on hover.
+  attr :field, :atom, required: true
+  attr :label, :string, required: true
+  attr :sort, :any, required: true
+  attr :align, :string, default: "left"
+
+  defp sort_header(assigns) do
+    {active_field, dir} = assigns.sort
+    active? = active_field == assigns.field
+
+    assigns =
+      assign(assigns,
+        active?: active?,
+        arrow: if(active?, do: if(dir == :asc, do: "▲", else: "▼"), else: "↕")
+      )
+
+    ~H"""
+    <button
+      type="button"
+      phx-click="sort"
+      phx-value-by={@field}
+      class={[
+        "group flex items-center gap-1 uppercase tracking-wider transition-colors",
+        @align == "right" && "justify-end",
+        @active? && "text-ink",
+        !@active? && "text-ink-faint hover:text-ink-muted"
+      ]}
+    >
+      <span>{@label}</span>
+      <span class={[
+        "text-[8px] leading-none transition-opacity",
+        @active? && "text-primary opacity-100",
+        !@active? && "opacity-0 group-hover:opacity-60"
+      ]}>
+        {@arrow}
+      </span>
+    </button>
     """
   end
 
