@@ -8,7 +8,6 @@ defmodule Beatgrid.YouTubeTest do
   alias Beatgrid.Library.{NameSync, Tracks}
   alias Beatgrid.Organization
   alias Beatgrid.Repo
-  alias Beatgrid.Soundcharts
   alias Beatgrid.Soundcharts.{ApiCall, Response}
   alias Beatgrid.Workers.DownloadWorker
   alias Beatgrid.YouTube

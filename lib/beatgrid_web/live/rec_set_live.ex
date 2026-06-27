@@ -27,7 +27,8 @@ defmodule BeatgridWeb.RecSetLive do
      |> assign(
        weights: Mixing.weights(),
        filters: default_filters(),
-       candidate_limit: 12
+       candidate_limit: 12,
+       console_nonce: 0
      )
      |> assign(sets: sets)
      |> load_set(List.first(sets))}
@@ -157,7 +158,11 @@ defmodule BeatgridWeb.RecSetLive do
   def handle_event("reset_console", _params, socket) do
     {:noreply,
      socket
-     |> assign(weights: Mixing.weights(), filters: default_filters())
+     |> assign(
+       weights: Mixing.weights(),
+       filters: default_filters(),
+       console_nonce: socket.assigns.console_nonce + 1
+     )
      |> assign_candidates()}
   end
 
@@ -446,6 +451,7 @@ defmodule BeatgridWeb.RecSetLive do
               filters={@filters}
               folders={@folders}
               from={last_track_title(@entries)}
+              nonce={@console_nonce}
             />
             <.candidate_list
               :if={@entries != []}
@@ -526,6 +532,7 @@ defmodule BeatgridWeb.RecSetLive do
   attr :filters, :map, required: true
   attr :folders, :list, required: true
   attr :from, :string, default: nil
+  attr :nonce, :integer, default: 0
 
   defp console_panel(assigns) do
     assigns = assign(assigns, :dims, @fader_dims)
@@ -553,7 +560,13 @@ defmodule BeatgridWeb.RecSetLive do
       </header>
 
       <div class="flex items-start justify-between gap-4 px-4 py-4">
-        <.fader :for={dim <- @dims} dim={dim} label={fader_label(dim)} value={@weights[dim]} />
+        <.fader
+          :for={dim <- @dims}
+          dim={dim}
+          label={fader_label(dim)}
+          value={@weights[dim]}
+          nonce={@nonce}
+        />
       </div>
 
       <div class="flex flex-wrap items-center gap-x-4 gap-y-2.5 border-t border-white/6 px-4 py-3">

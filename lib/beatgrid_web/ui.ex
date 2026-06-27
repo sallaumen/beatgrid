@@ -351,12 +351,16 @@ defmodule BeatgridWeb.UI do
   attr :label, :string, required: true
   attr :value, :integer, required: true
 
+  attr :nonce, :integer,
+    default: 0,
+    doc: "bump to force the native range to re-mount (e.g. on Resetar)"
+
   def fader(assigns) do
     assigns =
       assign(assigns,
         color: dimension_color(assigns.dim),
         dim_str: Atom.to_string(assigns.dim),
-        id: "fader-#{assigns.dim}",
+        id: "fader-#{assigns.nonce}-#{assigns.dim}",
         fill: max(min(assigns.value, 100), 0)
       )
 
@@ -387,6 +391,7 @@ defmodule BeatgridWeb.UI do
           value={@value}
           phx-hook=".Fader"
           data-dim={@dim_str}
+          data-value={@value}
           aria-label={"Peso: #{@label}"}
           class="relative h-32 w-7 cursor-pointer appearance-none bg-transparent"
           style={"writing-mode:vertical-lr;direction:rtl;accent-color:#{@color}"}
@@ -401,6 +406,9 @@ defmodule BeatgridWeb.UI do
           this.el.addEventListener("change", () => {
             this.pushEvent("set_weight", { dim: this.el.dataset.dim, value: this.el.value })
           })
+        },
+        updated() {
+          this.el.value = this.el.dataset.value
         }
       }
     </script>

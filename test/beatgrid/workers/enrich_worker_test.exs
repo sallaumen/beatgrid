@@ -6,7 +6,6 @@ defmodule Beatgrid.Workers.EnrichWorkerTest do
   alias Beatgrid.Library.{NameSync, Tracks}
   alias Beatgrid.Organization
   alias Beatgrid.Repo
-  alias Beatgrid.Soundcharts
   alias Beatgrid.Soundcharts.{ApiCall, Response}
   alias Beatgrid.Workers.EnrichWorker
   alias Beatgrid.YouTube
