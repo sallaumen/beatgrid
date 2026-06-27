@@ -28,7 +28,7 @@ defmodule Beatgrid.YouTube.YtDlp do
       "mp3",
       "--no-overwrites",
       "--print",
-      "after_move:%(id)s#{@sep}%(title)s#{@sep}%(webpage_url)s",
+      "after_move:%(id)s#{@sep}%(title)s#{@sep}%(webpage_url)s#{@sep}%(view_count)s#{@sep}%(upload_date)s",
       "-o",
       template,
       url
@@ -83,10 +83,41 @@ defmodule Beatgrid.YouTube.YtDlp do
     |> String.split("\n", trim: true)
     |> Enum.flat_map(fn line ->
       case String.split(line, @sep) do
-        [id, title, url] -> [%{path: Path.join(dest_dir, id <> ".mp3"), title: title, url: url}]
-        _ -> []
+        [id, title, url, views, upload] ->
+          [item(dest_dir, id, title, url, to_int(views), nil_if_na(upload))]
+
+        [id, title, url] ->
+          [item(dest_dir, id, title, url, nil, nil)]
+
+        _ ->
+          []
       end
     end)
+  end
+
+  defp item(dest_dir, id, title, url, views, upload) do
+    %{
+      path: Path.join(dest_dir, id <> ".mp3"),
+      title: title,
+      url: url,
+      views: views,
+      upload_date: upload
+    }
+  end
+
+  defp to_int(s) do
+    case Integer.parse(String.trim(s)) do
+      {n, _} -> n
+      _ -> nil
+    end
+  end
+
+  defp nil_if_na(s) do
+    case String.trim(s) do
+      "" -> nil
+      "NA" -> nil
+      v -> v
+    end
   end
 
   defp run(fun, timeout) do
