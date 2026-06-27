@@ -136,6 +136,44 @@ defmodule Beatgrid.Library.TrackQueryTest do
     end
   end
 
+  describe "pagination, count_library/1, library_ids/1" do
+    setup do
+      tracks =
+        for letter <- ~w(a b c d e) do
+          insert(:track, status: :present, norm_artist: letter, norm_title: letter)
+        end
+
+      %{tracks: tracks}
+    end
+
+    test "library/1 returns a limit+offset page in sort order", %{tracks: [a, b, c, d, e]} do
+      page1 = TrackQuery.library(%{limit: 2, offset: 0}) |> Enum.map(& &1.id)
+      page2 = TrackQuery.library(%{limit: 2, offset: 2}) |> Enum.map(& &1.id)
+      page3 = TrackQuery.library(%{limit: 2, offset: 4}) |> Enum.map(& &1.id)
+
+      assert page1 == [a.id, b.id]
+      assert page2 == [c.id, d.id]
+      assert page3 == [e.id]
+    end
+
+    test "count_library/1 counts all matching rows, ignoring limit/offset" do
+      assert TrackQuery.count_library(%{}) == 5
+      assert TrackQuery.count_library(%{limit: 2, offset: 0}) == 5
+    end
+
+    test "library_ids/1 returns every matching id, ignoring limit/offset", %{tracks: tracks} do
+      ids = TrackQuery.library_ids(%{limit: 2})
+      assert Enum.sort(ids) == Enum.sort(Enum.map(tracks, & &1.id))
+    end
+
+    test "count_library/1 and library_ids/1 respect filters" do
+      insert(:track, status: :present, genre_folder: "mpb", norm_artist: "z")
+
+      assert TrackQuery.count_library(%{genre_folder: "mpb"}) == 1
+      assert [_one] = TrackQuery.library_ids(%{genre_folder: "mpb"})
+    end
+  end
+
   describe "all_tags/0" do
     test "only includes tags from present tracks" do
       insert(:track, status: :present, tags: ["live"])

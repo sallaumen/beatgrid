@@ -301,6 +301,37 @@ defmodule BeatgridWeb.LibraryLiveTest do
     refute html =~ "Comum"
   end
 
+  test "paginates at 100, appends on load_more, and Marcar todas spans all pages", %{conn: conn} do
+    for i <- 1..101 do
+      n = String.pad_leading(Integer.to_string(i), 3, "0")
+
+      insert(:track,
+        status: :present,
+        tag_artist: "A#{n}",
+        tag_title: "T#{n}",
+        norm_artist: "a#{n}",
+        norm_title: "t#{n}"
+      )
+    end
+
+    {:ok, view, html} = live(conn, ~p"/")
+    # Header counts ALL matching, not just the loaded page.
+    assert html =~ "101 faixas"
+    # Page 1 = first 100 by artist; the 101st only arrives on scroll.
+    assert html =~ "A001"
+    refute html =~ "A101"
+    assert html =~ "carregando mais…"
+
+    html2 = render_hook(view, "load_more", %{})
+    assert html2 =~ "A101"
+    refute html2 =~ "carregando mais…"
+
+    # "Marcar todas" selects every matching id (across pages), not just loaded rows.
+    view |> element("button[phx-click=toggle_select_mode]") |> render_click()
+    html3 = view |> element("button[phx-click=select_all]") |> render_click()
+    assert html3 =~ "101 selecionadas"
+  end
+
   # True if `a` appears before `b` in the rendered HTML.
   defp before?(html, a, b) do
     ia = :binary.match(html, a) |> elem(0)
