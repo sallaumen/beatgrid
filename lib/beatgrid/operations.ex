@@ -6,6 +6,7 @@ defmodule Beatgrid.Operations do
   which keeps the suggestion status consistent with what the UI shows. This log
   is what the "Desfazer" action targets, and it survives the toast.
   """
+  alias Beatgrid.Library
   alias Beatgrid.Library.{NameSync, Tracks}
   alias Beatgrid.Operations.{Operation, OperationQuery}
   alias Beatgrid.{Organization, Tagging}
@@ -42,6 +43,20 @@ defmodule Beatgrid.Operations do
 
   defp undo_one(%Operation{kind: :rename, suggestion_id: sid} = op),
     do: do_undo(op, NameSync.get(sid), &NameSync.undo/1)
+
+  # A manual move (no backing suggestion) is reverted by relocating the file back
+  # to `op.from`, into whatever folder that path belongs to.
+  defp undo_one(%Operation{kind: :move, suggestion_id: nil} = op) do
+    case Tracks.get(op.track_id) do
+      nil ->
+        mark_failed(op, :track_not_found)
+
+      track ->
+        do_undo(op, track, fn t ->
+          Library.relocate(t, op.from, Library.genre_folder_for_rel(op.from))
+        end)
+    end
+  end
 
   defp undo_one(%Operation{kind: :move, suggestion_id: sid} = op),
     do: do_undo(op, Organization.get(sid), &Organization.undo/1)

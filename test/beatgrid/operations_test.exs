@@ -121,5 +121,44 @@ defmodule Beatgrid.OperationsTest do
       # operations themselves are now :undone
       assert Operations.count(batch_id: batch, status: :undone) == 2
     end
+
+    @tag :tmp_dir
+    test "reverts a manual move (suggestion_id: nil) back to its original folder", %{
+      tmp_dir: root
+    } do
+      insert(:genre_folder, key: "mpb", dir_name: "MPB")
+      insert(:genre_folder, key: "forro", dir_name: "Forró")
+
+      # the file currently sits in Forró (it was moved there); undo sends it back to MPB
+      File.mkdir_p!(Path.join(root, "Forró"))
+      File.write!(Path.join(root, "Forró/x.mp3"), "audio")
+
+      track =
+        insert(:track,
+          status: :present,
+          rel_path: "Forró/x.mp3",
+          filename: "x.mp3",
+          genre_folder: "forro"
+        )
+
+      batch = Uniq.UUID.uuid7()
+
+      {:ok, _} =
+        Operations.record(%{
+          track_id: track.id,
+          kind: :move,
+          from: "MPB/x.mp3",
+          to: "forro",
+          batch_id: batch,
+          suggestion_id: nil
+        })
+
+      assert {:ok, %{undone: 1, failed: 0}} = Operations.undo_batch(batch)
+
+      assert File.exists?(Path.join(root, "MPB/x.mp3"))
+      refute File.exists?(Path.join(root, "Forró/x.mp3"))
+      assert Tracks.get(track.id).rel_path == "MPB/x.mp3"
+      assert Tracks.get(track.id).genre_folder == "mpb"
+    end
   end
 end

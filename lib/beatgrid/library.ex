@@ -7,6 +7,7 @@ defmodule Beatgrid.Library do
   primitives (relocate, quarantine) that back the organization workflow.
   """
   alias Beatgrid.Library.{FileInfo, GenreFolders, MetadataAI, Track, Tracks}
+  alias Beatgrid.{Operations, Tagging}
   alias Beatgrid.YouTube.TitleParser
 
   @structural_dirs ["_Inbox", "_Quarantine"]
@@ -248,6 +249,80 @@ defmodule Beatgrid.Library do
       energy: song && song.energy
     }
   end
+
+  @doc """
+  Moves a track directly into the genre folder `folder_key`: relocates the file,
+  records an undoable `:move` operation (with the ORIGINAL `rel_path` as `from`, so
+  the undo can put it back) and writes the genre ID3 tag. Returns the moved track
+  and the operation's `batch_id`. Rejects an unknown folder (`:unknown_folder`) and
+  a no-op move into the track's current folder (`:already_there`).
+  """
+  @spec move_to_folder(Track.t(), String.t()) ::
+          {:ok, Track.t(), Ecto.UUID.t()} | {:error, term()}
+  def move_to_folder(%Track{} = track, folder_key) do
+    move_in_batch(track, folder_key, Uniq.UUID.uuid7())
+  end
+
+  @doc """
+  Moves several tracks (by id) into `folder_key` under one shared `batch_id` (so a
+  single "Desfazer" reverts the whole batch). Tracks that can't move — missing id,
+  unknown folder, already in the folder, or a relocate error — count as `failed`.
+  Returns `%{moved, failed, batch_id}`.
+  """
+  @spec move_many([Ecto.UUID.t()], String.t()) :: %{
+          moved: non_neg_integer(),
+          failed: non_neg_integer(),
+          batch_id: Ecto.UUID.t()
+        }
+  def move_many(track_ids, folder_key) do
+    batch_id = Uniq.UUID.uuid7()
+
+    results =
+      Enum.map(track_ids, fn id ->
+        case Tracks.get(id) do
+          %Track{} = t -> move_one_in_batch(t, folder_key, batch_id)
+          _ -> :failed
+        end
+      end)
+
+    %{
+      moved: Enum.count(results, &(&1 == :moved)),
+      failed: Enum.count(results, &(&1 == :failed)),
+      batch_id: batch_id
+    }
+  end
+
+  defp move_one_in_batch(track, folder_key, batch_id) do
+    case move_in_batch(track, folder_key, batch_id) do
+      {:ok, _moved, _batch_id} -> :moved
+      {:error, _} -> :failed
+    end
+  end
+
+  defp move_in_batch(%Track{} = track, folder_key, batch_id) do
+    with %{dir_name: dir} <- GenreFolders.get_by_key(folder_key) || {:error, :unknown_folder},
+         :ok <- ensure_not_already_there(track, folder_key),
+         orig = track.rel_path,
+         dest_rel = Path.join(dir, track.filename),
+         {:ok, moved} <- relocate(track, dest_rel, folder_key) do
+      Operations.record(%{
+        track_id: track.id,
+        kind: :move,
+        from: orig,
+        to: folder_key,
+        batch_id: batch_id,
+        suggestion_id: nil
+      })
+
+      Tagging.write_genre(moved)
+      {:ok, moved, batch_id}
+    else
+      {:error, _} = e -> e
+    end
+  end
+
+  defp ensure_not_already_there(%Track{genre_folder: key}, key), do: {:error, :already_there}
+  defp ensure_not_already_there(_track, _folder_key), do: :ok
 
   @doc """
   Moves a track's file to `dest_rel` (relative to the library root) and updates
