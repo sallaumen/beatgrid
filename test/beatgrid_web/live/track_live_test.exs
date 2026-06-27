@@ -506,4 +506,11 @@ defmodule BeatgridWeb.TrackLiveTest do
     refute html =~ "Cartola"
     assert Repertoire.get_recommendation(rec.id).status == :dismissed
   end
+
+  test "shows the Ouro badge for a gold track", %{conn: conn} do
+    track = insert(:track, status: :present, gold_status: :confirmed, tag_title: "Pérola")
+
+    {:ok, _view, html} = live(conn, ~p"/track/#{track.id}")
+    assert html =~ "Ouro — não está no Soundcharts"
+  end
 end

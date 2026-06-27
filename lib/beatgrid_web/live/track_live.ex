@@ -387,7 +387,10 @@ defmodule BeatgridWeb.TrackLive do
         <header class="mt-4 flex gap-5">
           <.cover src={cover_src(@track)} artist={@track.tag_artist} size={84} />
           <div class="min-w-0 flex-1">
-            <h1 class="truncate text-[23px] font-semibold">{title(@track)}</h1>
+            <div class="flex min-w-0 items-center gap-2">
+              <h1 class="truncate text-[23px] font-semibold">{title(@track)}</h1>
+              <.ouro_badge track={@track} />
+            </div>
             <p class="text-body-lg text-ink-secondary">{@track.tag_artist || "—"}</p>
             <div class="mt-3 flex items-center gap-4">
               <.folder_badge :if={@track.genre_folder} folder={@track.genre_folder} />
