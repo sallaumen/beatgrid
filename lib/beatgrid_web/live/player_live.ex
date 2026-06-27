@@ -2,12 +2,17 @@ defmodule BeatgridWeb.PlayerLive do
   @moduledoc """
   The single, app-wide audio player. Rendered once as a sticky nested LiveView in
   `app_shell`, so it keeps playing across live navigation. It owns the only
-  `<audio>` element + the `.Player` colocated hook + the bottom banner.
+  `<audio>` element + the `.Player` colocated hook + the bottom banner, and it is the
+  **conductor** of set playback.
 
-  Playback is triggered client-side (`beatgrid:play` dispatched to `#player-audio`)
-  for zero-latency start; the hook then pushes `now_playing` so this LiveView renders
-  the cover/title/artist from the DB. Seek/time/volume are client-owned (the `<audio>`
-  is the source of truth) inside a `phx-update="ignore"` region.
+  Playback is triggered client-side (`beatgrid:play` dispatched to `#player-audio`,
+  optionally carrying a `set_id`) for zero-latency start; the hook pushes `now_playing`
+  so this LiveView renders the cover/title/artist and records the now-playing pointer
+  (`Beatgrid.Playback.set_now_playing/1`). When a track ends inside a set, the hook
+  pushes `track_ended` and this LiveView asks `Sets.next_after/2` for the next track
+  (the pointer is `(set_id, current track)` — no track list is held) and pushes
+  `play_track` back to the hook. Seek/time/volume stay client-owned inside a
+  `phx-update="ignore"` region.
   """
   use BeatgridWeb, :live_view
 
@@ -15,19 +20,58 @@ defmodule BeatgridWeb.PlayerLive do
 
   alias Beatgrid.Library.Tracks
   alias Beatgrid.Playback
+  alias Beatgrid.Sets
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, now_playing: nil), layout: false}
+    {:ok, assign(socket, now_playing: nil, playing_set: nil), layout: false}
   end
 
   @impl true
-  def handle_event("now_playing", %{"id" => id}, socket) do
-    {:noreply, assign(socket, now_playing: Tracks.get_with_song(id))}
+  def handle_event("now_playing", %{"id" => id} = params, socket) do
+    set_id = params["set_id"]
+    Playback.set_now_playing(%{track_id: id, set_id: set_id})
+
+    {:noreply,
+     assign(socket, now_playing: Tracks.get_with_song(id), playing_set: load_playing_set(set_id))}
   end
 
+  def handle_event("track_ended", _params, socket), do: advance(socket)
+
   def handle_event("close", _params, socket) do
-    {:noreply, assign(socket, now_playing: nil)}
+    Playback.clear_now_playing()
+    {:noreply, assign(socket, now_playing: nil, playing_set: nil)}
+  end
+
+  # End of a track. If a set is playing, advance to the next ordered track — the
+  # pointer is `(set_id, current track)` and `next_after` reads the live order, so a
+  # reorder is honored with no re-sync. At the end of the set, drop the set context
+  # (no more auto-advance) but keep the last track shown. No set ⇒ nothing to do.
+  defp advance(%{assigns: %{playing_set: %{id: set_id}, now_playing: %{id: current_id}}} = socket) do
+    case Sets.next_after(set_id, current_id) do
+      nil ->
+        Playback.set_now_playing(%{track_id: current_id, set_id: nil})
+        {:noreply, assign(socket, playing_set: nil)}
+
+      next ->
+        Playback.set_now_playing(%{track_id: next.id, set_id: set_id})
+
+        {:noreply,
+         socket
+         |> assign(now_playing: next)
+         |> push_event("play_track", %{src: ~p"/audio/#{next.id}", id: next.id})}
+    end
+  end
+
+  defp advance(socket), do: {:noreply, socket}
+
+  defp load_playing_set(nil), do: nil
+
+  defp load_playing_set(set_id) do
+    case Sets.get(set_id) do
+      nil -> nil
+      set -> %{id: set.id, name: set.name}
+    end
   end
 
   @impl true
@@ -58,6 +102,16 @@ defmodule BeatgridWeb.PlayerLive do
             <p class="text-ink-muted truncate text-caption">{@now_playing.tag_artist || "—"}</p>
           </div>
         </div>
+
+        <.link
+          :if={@playing_set}
+          navigate={~p"/set/#{@playing_set.id}"}
+          class="hidden shrink-0 items-center gap-1.5 rounded-full bg-primary/15 px-2.5 py-1 text-caption font-semibold text-primary hover:bg-primary/25 sm:flex"
+          title="Ir para o set"
+        >
+          <span class="hero-queue-list size-3.5" aria-hidden="true" />
+          <span class="max-w-[160px] truncate">{@playing_set.name}</span>
+        </.link>
 
         <div id="player-controls" phx-update="ignore" class="flex flex-1 items-center gap-3">
           <button
@@ -125,21 +179,31 @@ defmodule BeatgridWeb.PlayerLive do
             }
             const setIcon = (t) => { const el = byId("player-toggle-icon"); if (el) el.textContent = t }
 
-            a.addEventListener("beatgrid:play", (e) => {
-              a.src = e.detail.src
+            // Load + play a src; preview jumps to the configured offset for long tracks.
+            const playSrc = (src, preview) => {
+              a.src = src
               a.load()
               if (a._pendingStart) a.removeEventListener("loadedmetadata", a._pendingStart)
               const start = () => {
                 const durMs = (a.duration || 0) * 1000
-                a.currentTime = (e.detail.preview && durMs >= minDur) ? offset / 1000 : 0
+                a.currentTime = (preview && durMs >= minDur) ? offset / 1000 : 0
                 a.play()
                 a.removeEventListener("loadedmetadata", start)
                 a._pendingStart = null
               }
               a._pendingStart = start
               a.addEventListener("loadedmetadata", start)
-              this.pushEvent("now_playing", {id: e.detail.id})
+            }
+
+            // User-initiated play from a page (may carry a set_id for set playback).
+            a.addEventListener("beatgrid:play", (e) => {
+              playSrc(e.detail.src, e.detail.preview)
+              this.pushEvent("now_playing", {id: e.detail.id, set_id: e.detail.set_id || null})
             })
+
+            // Server-initiated auto-advance: the server already updated now_playing,
+            // so just play the next src (full track), no now_playing push.
+            this.handleEvent("play_track", ({src}) => playSrc(src, false))
 
             a.addEventListener("beatgrid:toggle", () => a.paused ? a.play() : a.pause())
             a.addEventListener("beatgrid:stop", () => a.pause())
@@ -148,8 +212,15 @@ defmodule BeatgridWeb.PlayerLive do
               setIcon("⏸")
               window.dispatchEvent(new CustomEvent("beatgrid:playing", {detail: {source: "player-audio"}}))
             })
-            a.addEventListener("pause", () => setIcon("▶"))
-            a.addEventListener("ended", () => setIcon("▶"))
+            a.addEventListener("pause", () => {
+              setIcon("▶")
+              window.dispatchEvent(new CustomEvent("beatgrid:paused"))
+            })
+            a.addEventListener("ended", () => {
+              setIcon("▶")
+              window.dispatchEvent(new CustomEvent("beatgrid:paused"))
+              this.pushEvent("track_ended", {})
+            })
 
             a.addEventListener("loadedmetadata", () => {
               const seek = byId("player-seek")

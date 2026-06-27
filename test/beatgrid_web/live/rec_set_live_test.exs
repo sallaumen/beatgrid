@@ -256,4 +256,39 @@ defmodule BeatgridWeb.RecSetLiveTest do
     refute html =~ "set-player"
     assert html =~ "&quot;preview&quot;:false"
   end
+
+  @tag :tmp_dir
+  test "/set/:id deep-links a specific set (the player chip target)", %{conn: conn} do
+    {:ok, older} = Sets.create("Primeiro")
+    {:ok, _newer} = Sets.create("Segundo")
+
+    # /set defaults to the most recent; /set/:id loads the requested one.
+    {:ok, _view, html} = live(conn, ~p"/set/#{older.id}")
+    assert html =~ ~s(value="Primeiro")
+  end
+
+  @tag :tmp_dir
+  test "playing inside a set carries the set_id (set-mode auto-advance)", %{conn: conn} do
+    seed =
+      track_with("8A", 120.0,
+        tag_title: "Seed",
+        tag_artist: "A",
+        norm_title: "seed",
+        norm_artist: "a"
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/set")
+    new_set(view)
+    view |> form("#track-search", %{q: "Seed"}) |> render_change()
+
+    view
+    |> element("#search-results button[phx-click=append][phx-value-track='#{seed.id}']")
+    |> render_click()
+
+    html = render(view)
+    set = hd(Sets.list())
+    assert html =~ "Tocar set"
+    # the set id flows into the play dispatch (so playback enters set-mode)
+    assert html =~ ~s(&quot;set_id&quot;:&quot;#{set.id}&quot;)
+  end
 end

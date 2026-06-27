@@ -140,6 +140,10 @@ defmodule BeatgridWeb.UI do
   attr :size, :integer, default: 28
   attr :class, :string, default: nil
 
+  attr :set_id, :string,
+    default: nil,
+    doc: "when set, plays in set-mode (auto-advance) from this track"
+
   def play_button(assigns) do
     ~H"""
     <button
@@ -147,7 +151,7 @@ defmodule BeatgridWeb.UI do
       phx-click={
         JS.dispatch("beatgrid:play",
           to: "#player-audio",
-          detail: %{src: @src, id: @track_id, preview: @preview}
+          detail: %{src: @src, id: @track_id, preview: @preview, set_id: @set_id}
         )
       }
       class={[

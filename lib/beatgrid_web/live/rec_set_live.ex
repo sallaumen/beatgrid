@@ -8,6 +8,7 @@ defmodule BeatgridWeb.RecSetLive do
   alias Beatgrid.Mixing
   alias Beatgrid.Mixing.StyleAffinity
   alias Beatgrid.Sets
+  alias Phoenix.LiveView.JS
 
   @impl true
   def mount(_params, _session, socket) do
@@ -34,6 +35,19 @@ defmodule BeatgridWeb.RecSetLive do
      |> assign(sets: sets)
      |> load_set(List.first(sets))}
   end
+
+  # `/set/:id` deep-links a specific set (e.g. the player's set chip). `/set` keeps
+  # the first set loaded by mount. In-page switching (`select_set`) loads directly.
+  @impl true
+  def handle_params(%{"id" => id}, _uri, socket) do
+    if socket.assigns[:set] && socket.assigns.set.id == id do
+      {:noreply, socket}
+    else
+      {:noreply, load_set(socket, Sets.get(id) || socket.assigns.set)}
+    end
+  end
+
+  def handle_params(_params, _uri, socket), do: {:noreply, socket}
 
   defp load_set(socket, nil), do: assign(socket, set: nil, entries: [], candidates: [])
 
@@ -287,6 +301,9 @@ defmodule BeatgridWeb.RecSetLive do
   defp last_track_title([]), do: nil
   defp last_track_title(entries), do: entries |> List.last() |> Map.fetch!(:track) |> title()
 
+  defp first_track_id([%{track: %{id: id}} | _]), do: id
+  defp first_track_id(_), do: nil
+
   defp fader_label(:style), do: "Estilo"
   defp fader_label(:harmony), do: "Tom"
   defp fader_label(:bpm), do: "Tempo"
@@ -361,6 +378,23 @@ defmodule BeatgridWeb.RecSetLive do
               </form>
               <div class="flex shrink-0 items-center gap-2">
                 <button
+                  :if={@entries != []}
+                  phx-click={
+                    JS.dispatch("beatgrid:play",
+                      to: "#player-audio",
+                      detail: %{
+                        src: ~p"/audio/#{first_track_id(@entries)}",
+                        id: first_track_id(@entries),
+                        preview: false,
+                        set_id: @set.id
+                      }
+                    )
+                  }
+                  class="text-green rounded-md bg-green/15 px-3 py-1.5 text-body-sm font-semibold hover:bg-green/25"
+                >
+                  ▶ Tocar set
+                </button>
+                <button
                   phx-click="export"
                   disabled={@entries == []}
                   class="rounded-md bg-primary px-3 py-1.5 text-body-sm font-semibold text-white disabled:opacity-40"
@@ -414,6 +448,7 @@ defmodule BeatgridWeb.RecSetLive do
                   track_id={e.track.id}
                   preview={false}
                   size={28}
+                  set_id={@set.id}
                 />
                 <.cover src={cover_src(e.track)} artist={e.track.tag_artist} size={34} />
                 <div class="min-w-0 flex-1">
