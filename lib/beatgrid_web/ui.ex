@@ -6,6 +6,7 @@ defmodule BeatgridWeb.UI do
   """
   use Phoenix.Component
 
+  alias Beatgrid.Library.GenreFolders
   alias Phoenix.LiveView.JS
 
   @folder_colors %{
@@ -30,12 +31,32 @@ defmodule BeatgridWeb.UI do
 
   @cover_palette ~w(#6c5ce7 #8b7bf0 #ffb020 #e08e00 #5ad1a0 #2d9cff #ff8d97 #c08bf0)
 
-  @doc "Hex color for a genre folder key."
-  def folder_color(key), do: Map.get(@folder_colors, key, "#9498a6")
+  @doc """
+  Hex color for a genre folder key. Seeded keys hit the hardcoded fast path;
+  dynamic (user-created) folders fall back to their stored `color` (gray if none).
+  """
+  def folder_color(key), do: @folder_colors[key] || db_color(key)
 
-  @doc "Human label for a genre folder key."
+  @doc """
+  Human label for a genre folder key. Seeded keys hit the hardcoded fast path;
+  dynamic folders fall back to their `display_name` (the key itself if not found).
+  """
   def folder_label(nil), do: "—"
-  def folder_label(key), do: Map.get(@folder_labels, key, key)
+  def folder_label(key), do: @folder_labels[key] || db_label(key)
+
+  defp db_color(key) do
+    case GenreFolders.get_by_key(key) do
+      %{color: color} when is_binary(color) and color != "" -> color
+      _ -> "#9498a6"
+    end
+  end
+
+  defp db_label(key) do
+    case GenreFolders.get_by_key(key) do
+      %{display_name: name} when is_binary(name) and name != "" -> name
+      _ -> key
+    end
+  end
 
   @doc "Album-art URL for a track — only when the match is trusted (art) and not low-confidence."
   def cover_src(%{

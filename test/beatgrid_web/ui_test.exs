@@ -1,5 +1,5 @@
 defmodule BeatgridWeb.UITest do
-  use ExUnit.Case, async: true
+  use Beatgrid.DataCase, async: true
 
   import Phoenix.LiveViewTest
 
@@ -63,6 +63,31 @@ defmodule BeatgridWeb.UITest do
       assert html =~ "#player-audio"
       assert html =~ "xyz"
       assert html =~ "group-hover/cover"
+    end
+  end
+
+  describe "folder_color/1 and folder_label/1 DB fallback" do
+    test "uses the hardcoded fast path for seeded keys" do
+      assert BeatgridWeb.UI.folder_color("mpb") == "#8b7bf0"
+      assert BeatgridWeb.UI.folder_label("mpb") == "MPB"
+    end
+
+    test "falls back to a DB-present folder's color + display_name" do
+      insert(:genre_folder,
+        key: "samba",
+        display_name: "Samba",
+        dir_name: "Samba",
+        color: "#abc123"
+      )
+
+      assert BeatgridWeb.UI.folder_color("samba") == "#abc123"
+      assert BeatgridWeb.UI.folder_label("samba") == "Samba"
+    end
+
+    test "a totally-unknown key returns gray / the key, and nil stays a dash" do
+      assert BeatgridWeb.UI.folder_color("ghost") == "#9498a6"
+      assert BeatgridWeb.UI.folder_label("ghost") == "ghost"
+      assert BeatgridWeb.UI.folder_label(nil) == "—"
     end
   end
 end
