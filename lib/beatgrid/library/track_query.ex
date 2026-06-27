@@ -8,7 +8,8 @@ defmodule Beatgrid.Library.TrackQuery do
   alias Beatgrid.Soundcharts.Camelot
 
   @type list_opt ::
-          {:status, atom()}
+          {:ids, [Ecto.UUID.t()]}
+          | {:status, atom()}
           | {:genre_folder, String.t() | nil}
           | {:with_quality_issues, boolean()}
           | {:resolved, boolean()}
@@ -180,6 +181,7 @@ defmodule Beatgrid.Library.TrackQuery do
     |> Repo.aggregate(:count, :id)
   end
 
+  defp reduce_opt({:ids, ids}, q), do: where(q, [t], t.id in ^ids)
   defp reduce_opt({:status, status}, q), do: where(q, [t], t.status == ^status)
   defp reduce_opt({:genre_folder, nil}, q), do: where(q, [t], is_nil(t.genre_folder))
   defp reduce_opt({:genre_folder, folder}, q), do: where(q, [t], t.genre_folder == ^folder)

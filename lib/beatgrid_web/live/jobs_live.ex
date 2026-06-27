@@ -1,13 +1,15 @@
 defmodule BeatgridWeb.JobsLive do
   @moduledoc """
-  Background-jobs visibility: a live view of recent Oban jobs across all queues,
-  with their state + last error, and retry/cancel actions.
+  Background-jobs visibility: a live table of recent Oban jobs across all queues,
+  with their state, queue, a human-readable summary of what each job is doing,
+  attempts, timing, the last error, and retry/cancel actions.
   """
   use BeatgridWeb, :live_view
 
   import BeatgridWeb.UI
 
   alias Beatgrid.Jobs
+  alias Beatgrid.Library.Tracks
 
   @refresh_ms 2_000
   @states ~w(available scheduled executing retryable completed discarded cancelled)
@@ -15,29 +17,33 @@ defmodule BeatgridWeb.JobsLive do
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: Process.send_after(self(), :refresh, @refresh_ms)
-    {:ok, assign(socket, filter: nil, jobs: load(nil), states: @states, expanded: MapSet.new())}
+
+    {:ok,
+     socket
+     |> assign(filter: nil, states: @states, expanded: MapSet.new())
+     |> assign_jobs(nil)}
   end
 
   @impl true
   def handle_info(:refresh, socket) do
     Process.send_after(self(), :refresh, @refresh_ms)
-    {:noreply, assign(socket, jobs: load(socket.assigns.filter))}
+    {:noreply, assign_jobs(socket, socket.assigns.filter)}
   end
 
   @impl true
   def handle_event("filter", %{"state" => state}, socket) do
     filter = if state == "", do: nil, else: state
-    {:noreply, assign(socket, filter: filter, jobs: load(filter))}
+    {:noreply, socket |> assign(filter: filter) |> assign_jobs(filter)}
   end
 
   def handle_event("retry", %{"id" => id}, socket) do
     Jobs.retry(String.to_integer(id))
-    {:noreply, assign(socket, jobs: load(socket.assigns.filter))}
+    {:noreply, assign_jobs(socket, socket.assigns.filter)}
   end
 
   def handle_event("cancel", %{"id" => id}, socket) do
     Jobs.cancel(String.to_integer(id))
-    {:noreply, assign(socket, jobs: load(socket.assigns.filter))}
+    {:noreply, assign_jobs(socket, socket.assigns.filter)}
   end
 
   def handle_event("toggle_details", %{"id" => id}, socket) do
@@ -52,20 +58,50 @@ defmodule BeatgridWeb.JobsLive do
     {:noreply, assign(socket, expanded: expanded)}
   end
 
+  defp assign_jobs(socket, filter) do
+    jobs = load(filter)
+    assign(socket, jobs: jobs, titles: track_titles(jobs))
+  end
+
   defp load(nil), do: Jobs.list_recent(limit: 100)
   defp load(state), do: Jobs.list_recent(limit: 100, states: [state])
+
+  # Resolve the track titles referenced by the visible jobs in one batched query,
+  # so the summary reads "Asa Branca" instead of a bare UUID.
+  defp track_titles(jobs) do
+    case jobs |> Enum.flat_map(&job_track_ids/1) |> Enum.uniq() do
+      [] ->
+        %{}
+
+      ids ->
+        Tracks.list_by(ids: ids)
+        |> Map.new(fn t -> {t.id, t.tag_title || t.filename} end)
+    end
+  end
+
+  defp job_track_ids(%Oban.Job{worker: worker, args: args}) do
+    case worker_name(worker) do
+      "AnalyzeWorker" -> List.wrap(args["track_id"])
+      "ResolveSongWorker" -> List.wrap(args["track_id"])
+      "EnrichWorker" -> if(args["scope"] == "track", do: List.wrap(args["id"]), else: [])
+      "RecommendWorker" -> if(args["scope"] == "track", do: List.wrap(args["track_id"]), else: [])
+      _ -> []
+    end
+  end
 
   @impl true
   def render(assigns) do
     ~H"""
     <.app_shell active={:jobs} socket={@socket}>
-      <div class="mx-auto max-w-5xl px-6 py-8">
-        <h1 class="text-[22px] font-semibold">Jobs</h1>
-        <p class="text-ink-muted mt-1 text-body-sm">
+      <header class="border-b border-white/6 bg-rail px-6 py-3">
+        <h2 class="text-[22px] font-semibold">Jobs</h2>
+        <p class="text-ink-muted text-body-sm">
           Tarefas em segundo plano (downloads, análise, IA, Soundcharts). Atualiza sozinho.
         </p>
+      </header>
 
-        <div class="mt-4 flex flex-wrap gap-1.5">
+      <div class="mx-auto max-w-[1600px] px-6 py-6">
+        <div class="flex flex-wrap items-center gap-1.5">
           <button
             phx-click="filter"
             phx-value-state=""
@@ -81,67 +117,101 @@ defmodule BeatgridWeb.JobsLive do
           >
             {state_label(s)}
           </button>
+          <span class="text-ink-faint ml-auto font-mono text-caption">{length(@jobs)} tarefa(s)</span>
         </div>
 
-        <div class="mt-4 space-y-1">
-          <div
-            :for={j <- @jobs}
-            class="rounded-lg border border-white/6 bg-surface px-3 py-2"
-          >
-            <div class="flex items-center gap-3">
-              <span class={[
-                "rounded-sm px-2 py-0.5 text-[10px] font-bold uppercase",
-                state_class(j.state)
-              ]}>
-                {state_label(j.state)}
-              </span>
-              <div class="min-w-0 flex-1">
-                <p class="truncate text-body-sm font-medium">{worker_label(j.worker)}</p>
-                <p class="text-ink-muted truncate text-caption font-mono">{job_summary(j)}</p>
-                <p :if={last_error(j)} class="text-coral truncate text-caption">{last_error(j)}</p>
-              </div>
-              <span class="text-ink-faint shrink-0 font-mono text-[11px]">{j.attempt}/{j.max_attempts}</span>
-              <div class="flex shrink-0 items-center gap-1.5">
-                <button
-                  :if={j.errors != []}
-                  type="button"
-                  phx-click="toggle_details"
-                  phx-value-id={j.id}
-                  class="text-ink-faint hover:text-ink text-[11px]"
-                >
-                  {if MapSet.member?(@expanded, j.id), do: "Ocultar", else: "Detalhes"}
-                </button>
-                <button
-                  :if={j.state in ["retryable", "discarded", "cancelled"]}
-                  phx-click="retry"
-                  phx-value-id={j.id}
-                  class="rounded-md bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary hover:bg-primary/25"
-                >
-                  Re-tentar
-                </button>
-                <button
-                  :if={j.state in ["available", "scheduled", "executing", "retryable"]}
-                  phx-click="cancel"
-                  phx-value-id={j.id}
-                  class="rounded-md bg-coral/10 px-2.5 py-1 text-[11px] text-coral hover:bg-coral/20"
-                >
-                  Cancelar
-                </button>
-              </div>
-            </div>
-            <div
-              :if={MapSet.member?(@expanded, j.id)}
-              class="mt-1 space-y-1 rounded-md bg-base px-3 py-2"
-            >
-              <p class="text-ink-muted break-all font-mono text-[11px]">{full_url(j)}</p>
-              <p
-                :for={line <- all_errors(j)}
-                class="text-coral break-all whitespace-pre-wrap font-mono text-[11px]"
-              >
-                {line}
-              </p>
-            </div>
-          </div>
+        <div class="mt-4 overflow-x-auto rounded-xl border border-white/6 bg-surface">
+          <table class="w-full text-left text-body-sm">
+            <thead>
+              <tr class="text-ink-faint border-b border-white/6 text-[10px] uppercase tracking-wider">
+                <th class="px-4 py-2.5 font-semibold">Estado</th>
+                <th class="px-4 py-2.5 font-semibold">Tarefa</th>
+                <th class="px-4 py-2.5 font-semibold">Fila</th>
+                <th class="px-4 py-2.5 text-center font-semibold">Tentativas</th>
+                <th class="px-4 py-2.5 font-semibold">Quando</th>
+                <th class="px-4 py-2.5 text-right font-semibold">Ações</th>
+              </tr>
+            </thead>
+            <tbody :for={j <- @jobs} class="border-b border-white/4 last:border-0">
+              <tr class="hover:bg-white/[0.02]">
+                <td class="whitespace-nowrap px-4 py-3 align-top">
+                  <span class={[
+                    "rounded-sm px-2 py-0.5 text-[10px] font-bold uppercase",
+                    state_class(j.state)
+                  ]}>
+                    {state_label(j.state)}
+                  </span>
+                </td>
+                <td class="px-4 py-3 align-top">
+                  <div class="flex items-center gap-2">
+                    <span class="text-body-sm font-medium">{worker_label(j.worker)}</span>
+                    <span class="text-ink-faint rounded bg-white/6 px-1.5 py-0.5 font-mono text-[10px]">
+                      {worker_name(j.worker)}
+                    </span>
+                  </div>
+                  <p class="text-ink-muted mt-0.5 max-w-[680px] truncate font-mono text-caption">
+                    {job_summary(j, @titles)}
+                  </p>
+                  <p :if={last_error(j)} class="text-coral mt-0.5 max-w-[680px] truncate text-caption">
+                    {last_error(j)}
+                  </p>
+                </td>
+                <td class="whitespace-nowrap px-4 py-3 align-top">
+                  <span class="text-ink-muted rounded-sm bg-white/6 px-2 py-0.5 font-mono text-[11px]">
+                    {j.queue}
+                  </span>
+                </td>
+                <td class="text-ink-muted whitespace-nowrap px-4 py-3 text-center align-top font-mono text-[12px]">
+                  {j.attempt}/{j.max_attempts}
+                </td>
+                <td class="text-ink-faint whitespace-nowrap px-4 py-3 align-top font-mono text-[12px]">
+                  {ago(job_time(j))}
+                </td>
+                <td class="whitespace-nowrap px-4 py-3 text-right align-top">
+                  <div class="flex items-center justify-end gap-1.5">
+                    <button
+                      :if={j.errors != []}
+                      type="button"
+                      phx-click="toggle_details"
+                      phx-value-id={j.id}
+                      class="text-ink-faint hover:text-ink text-[11px]"
+                    >
+                      {if MapSet.member?(@expanded, j.id), do: "Ocultar", else: "Detalhes"}
+                    </button>
+                    <button
+                      :if={j.state in ["retryable", "discarded", "cancelled"]}
+                      phx-click="retry"
+                      phx-value-id={j.id}
+                      class="rounded-md bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary hover:bg-primary/25"
+                    >
+                      Re-tentar
+                    </button>
+                    <button
+                      :if={j.state in ["available", "scheduled", "executing", "retryable"]}
+                      phx-click="cancel"
+                      phx-value-id={j.id}
+                      class="text-coral rounded-md bg-coral/10 px-2.5 py-1 text-[11px] hover:bg-coral/20"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              <tr :if={MapSet.member?(@expanded, j.id)}>
+                <td colspan="6" class="px-4 pb-3">
+                  <div class="space-y-1 rounded-md bg-base px-3 py-2">
+                    <p class="text-ink-muted break-all font-mono text-[11px]">{full_url(j)}</p>
+                    <p
+                      :for={line <- all_errors(j)}
+                      class="text-coral break-all whitespace-pre-wrap font-mono text-[11px]"
+                    >
+                      {line}
+                    </p>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
           <p :if={@jobs == []} class="text-ink-faint py-12 text-center text-body-sm">
             Nenhuma tarefa.
           </p>
@@ -150,6 +220,117 @@ defmodule BeatgridWeb.JobsLive do
     </.app_shell>
     """
   end
+
+  # ── Worker name + label ────────────────────────────────────────────────────
+
+  defp worker_name(worker), do: worker |> String.split(".") |> List.last()
+
+  # Friendly PT-BR action labels per worker; falls back to the bare module segment
+  # so a newly-added worker still renders something readable. The real module name
+  # is always shown alongside as a small tag, so this is the "what it does", not a
+  # replacement for the technical name.
+  @worker_labels %{
+    "AnalyzeWorker" => "Analisar áudio",
+    "DownloadWorker" => "Baixar do YouTube",
+    "ExpandWorker" => "Expandir playlist",
+    "ImportWorker" => "Importar arquivos",
+    "EnrichWorker" => "Enriquecer metadados",
+    "ResolveSongWorker" => "Resolver no Soundcharts",
+    "ReResolveWorker" => "Re-resolver match",
+    "ReevaluateWorker" => "Re-avaliar com IA",
+    "RecommendWorker" => "Sugerir repertório",
+    "DedupWorker" => "Procurar duplicatas",
+    "ScanWorker" => "Escanear biblioteca"
+  }
+
+  defp worker_label(worker) do
+    name = worker_name(worker)
+    Map.get(@worker_labels, name, name)
+  end
+
+  # ── Human-readable summary (per worker, from args — never a dump of arg keys) ─
+
+  defp job_summary(%Oban.Job{worker: worker, args: args}, titles),
+    do: summarize(worker_name(worker), args, titles)
+
+  defp summarize("DownloadWorker", args, _titles), do: args["title"] || args["url"] || "—"
+
+  defp summarize("ExpandWorker", args, _titles),
+    do: args["url"] || args["playlist_url"] || "playlist"
+
+  defp summarize("AnalyzeWorker", args, titles), do: track_ref(args["track_id"], titles)
+  defp summarize("ResolveSongWorker", args, titles), do: track_ref(args["track_id"], titles)
+  defp summarize("EnrichWorker", args, titles), do: enrich_summary(args, titles)
+  defp summarize("ReResolveWorker", args, _titles), do: "sugestão ##{args["suggestion_id"]}"
+  defp summarize("ReevaluateWorker", args, _titles), do: reeval_summary(args)
+  defp summarize("RecommendWorker", args, titles), do: recommend_summary(args, titles)
+  defp summarize("ImportWorker", args, _titles), do: import_summary(args)
+  defp summarize("DedupWorker", _args, _titles), do: "biblioteca inteira"
+  defp summarize("ScanWorker", _args, _titles), do: "varredura da biblioteca"
+  defp summarize(_worker, args, _titles), do: generic_summary(args)
+
+  defp track_ref(nil, _titles), do: "—"
+
+  defp track_ref(id, titles),
+    do: Map.get(titles, id, "faixa ##{String.slice(to_string(id), 0, 8)}")
+
+  defp enrich_summary(%{"scope" => "pending"}, _titles), do: "todas as pendentes · Soundcharts"
+
+  defp enrich_summary(%{"scope" => "track", "id" => id}, titles),
+    do: "#{track_ref(id, titles)} · Soundcharts"
+
+  defp enrich_summary(_, _titles), do: "Soundcharts"
+
+  defp reeval_summary(%{"scope" => "folder", "folder" => key}), do: "pasta: #{folder_label(key)}"
+  defp reeval_summary(%{"scope" => "one", "id" => id}), do: "sugestão ##{id}"
+  defp reeval_summary(%{"scope" => scope}), do: "escopo: #{reeval_scope(scope)}"
+  defp reeval_summary(_), do: "—"
+
+  defp reeval_scope("unevaluated"), do: "ainda não avaliadas"
+  defp reeval_scope("pending"), do: "pendentes"
+  defp reeval_scope("rejected"), do: "rejeitadas"
+  defp reeval_scope(other), do: to_string(other)
+
+  defp recommend_summary(%{"scope" => "folder", "folder" => key}, _titles),
+    do: "pasta: #{folder_label(key)}"
+
+  defp recommend_summary(%{"scope" => "track", "track_id" => id}, titles),
+    do: track_ref(id, titles)
+
+  defp recommend_summary(_, _titles), do: "repertório"
+
+  defp import_summary(%{"items" => items}) when is_list(items), do: "#{length(items)} arquivo(s)"
+  defp import_summary(_), do: "arquivos"
+
+  defp generic_summary(args) do
+    case args |> Map.drop(["batch_id"]) |> Map.values() |> Enum.filter(&is_binary/1) do
+      [] -> "—"
+      vals -> Enum.join(vals, " · ")
+    end
+  end
+
+  # ── Timing ─────────────────────────────────────────────────────────────────
+
+  defp job_time(%Oban.Job{} = j) do
+    j.completed_at || j.cancelled_at || j.discarded_at || j.attempted_at || j.scheduled_at ||
+      j.inserted_at
+  end
+
+  defp ago(nil), do: "—"
+
+  defp ago(%NaiveDateTime{} = ndt), do: ago(DateTime.from_naive!(ndt, "Etc/UTC"))
+
+  defp ago(%DateTime{} = dt) do
+    case DateTime.diff(DateTime.utc_now(), dt, :second) do
+      s when s < 5 -> "agora"
+      s when s < 60 -> "há #{s}s"
+      s when s < 3_600 -> "há #{div(s, 60)}min"
+      s when s < 86_400 -> "há #{div(s, 3_600)}h"
+      s -> "há #{div(s, 86_400)}d"
+    end
+  end
+
+  # ── Errors / extra detail ──────────────────────────────────────────────────
 
   defp full_url(%Oban.Job{args: args}), do: args["url"] || args["title"] || ""
 
@@ -161,31 +342,6 @@ defmodule BeatgridWeb.JobsLive do
     end)
   end
 
-  defp worker_name(worker), do: worker |> String.split(".") |> List.last()
-
-  # Friendly PT-BR labels per worker; falls back to the bare module segment so a
-  # newly-added worker still renders something readable without editing this map.
-  @worker_labels %{
-    "EnrichWorker" => "Enriquecer",
-    "AnalyzeWorker" => "Analisar",
-    "ReResolveWorker" => "Re-resolver",
-    "DownloadWorker" => "Baixar",
-    "ReevaluateWorker" => "Re-avaliar",
-    "ResolveSongWorker" => "Resolver",
-    "ScanWorker" => "Escanear",
-    "DedupWorker" => "Dedup",
-    "ExpandWorker" => "Expandir"
-  }
-
-  defp worker_label(worker) do
-    name = worker_name(worker)
-    Map.get(@worker_labels, name, name)
-  end
-
-  defp job_summary(%Oban.Job{args: args}) do
-    args["url"] || args["title"] || args |> Map.keys() |> Enum.join(", ")
-  end
-
   defp last_error(%Oban.Job{errors: []}), do: nil
 
   defp last_error(%Oban.Job{errors: errors}) do
@@ -194,6 +350,8 @@ defmodule BeatgridWeb.JobsLive do
       _ -> nil
     end
   end
+
+  # ── State labels / colors ──────────────────────────────────────────────────
 
   defp state_label("available"), do: "Na fila"
   defp state_label("scheduled"), do: "Agendada"
