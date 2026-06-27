@@ -220,6 +220,25 @@ defmodule BeatgridWeb.RecSetLiveTest do
   end
 
   @tag :tmp_dir
+  test "the mixing console collapses and expands", %{conn: conn} do
+    _t = track_with("8A", 120.0, tag_title: "X")
+    {:ok, view, _html} = live(conn, ~p"/set")
+    new_set(view)
+
+    # Open by default: the faders render.
+    assert render(view) =~ ~s(data-dim="bpm")
+
+    # Collapse: the faders are hidden, the header stays.
+    collapsed = view |> element("button[phx-click=toggle_console]") |> render_click()
+    refute collapsed =~ ~s(data-dim="bpm")
+    assert collapsed =~ "Mesa de mixagem"
+
+    # Expand again: the faders come back.
+    assert view |> element("button[phx-click=toggle_console]") |> render_click() =~
+             ~s(data-dim="bpm")
+  end
+
+  @tag :tmp_dir
   test "play controls target the global player, not a local one", %{conn: conn} do
     seed =
       track_with("8A", 120.0,
