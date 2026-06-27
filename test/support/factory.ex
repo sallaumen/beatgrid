@@ -34,4 +34,16 @@ defmodule Beatgrid.Factory do
       credit_name: "Some Artist"
     }
   end
+
+  def recommendation_factory do
+    %Beatgrid.Repertoire.Recommendation{
+      artist: sequence(:rec_artist, &"Artist #{&1}"),
+      song: sequence(:rec_song, &"Song #{&1}"),
+      reason: "fits the style",
+      youtube_query: "artist song",
+      source: :gaps,
+      genre_folder: "mpb",
+      status: :new
+    }
+  end
 end
