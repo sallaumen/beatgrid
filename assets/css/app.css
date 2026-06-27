@@ -168,3 +168,8 @@ html, body { background: var(--bg-base); color: var(--text-primary); font-family
    the global player is playing. The Player hook toggles `body[data-playing]`. */
 .now-playing-disc { animation-play-state: paused; }
 body[data-playing="true"] .now-playing-disc { animation-play-state: running; }
+
+/* Camelot wheel (Tom filter): wedges rest dim and light up on hover. The base
+   opacity is a presentation attribute, so this CSS rule overrides it on hover. */
+.camelot-wedge { transition: opacity 0.14s ease, stroke 0.14s ease; }
+.camelot-wedge:hover { opacity: 1; }

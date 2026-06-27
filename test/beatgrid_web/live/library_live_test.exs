@@ -104,8 +104,9 @@ defmodule BeatgridWeb.LibraryLiveTest do
   end
 
   describe "extended filter rail" do
-    test "a Tom filter with compatibles narrows to harmonic neighbors", %{conn: conn} do
+    test "the Tom wheel filters by the clicked key and widens to compatibles", %{conn: conn} do
       song_8a = insert(:soundcharts_song, camelot: "8A")
+      song_8b = insert(:soundcharts_song, camelot: "8B")
       song_3b = insert(:soundcharts_song, camelot: "3B")
 
       insert(:track,
@@ -118,6 +119,14 @@ defmodule BeatgridWeb.LibraryLiveTest do
 
       insert(:track,
         status: :present,
+        tag_title: "Neighbor",
+        tag_artist: "Near",
+        norm_artist: "near",
+        soundcharts_song_id: song_8b.id
+      )
+
+      insert(:track,
+        status: :present,
         tag_title: "Drop",
         tag_artist: "Dropper",
         norm_artist: "dropper",
@@ -125,14 +134,19 @@ defmodule BeatgridWeb.LibraryLiveTest do
       )
 
       {:ok, view, _html} = live(conn, ~p"/")
+      view |> element("button[phx-click=toggle_tom_wheel]") |> render_click()
 
-      html =
-        view
-        |> form("#library-filters", %{camelot: "8A", camelot_compatible: "on"})
-        |> render_change()
-
+      # Click the 8A wedge: only 8A matches; 8B (a neighbor) and 3B are out.
+      html = view |> element(~s|path[phx-value-code="8A"]|) |> render_click()
       assert html =~ "Keep"
+      refute html =~ "Neighbor"
       refute html =~ "Drop"
+
+      # Toggle "incluir compatíveis": 8B (neighbor of 8A) joins; 3B stays out.
+      html2 = view |> element("input[phx-click=toggle_camelot_compatible]") |> render_click()
+      assert html2 =~ "Keep"
+      assert html2 =~ "Neighbor"
+      refute html2 =~ "Drop"
     end
 
     test "an energy minimum narrows to high-energy tracks", %{conn: conn} do

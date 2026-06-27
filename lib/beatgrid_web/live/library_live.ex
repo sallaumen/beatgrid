@@ -9,6 +9,7 @@ defmodule BeatgridWeb.LibraryLive do
   alias Beatgrid.Loudness
   alias Beatgrid.Operations
   alias Beatgrid.Playback
+  alias Beatgrid.Soundcharts.Camelot
   alias Beatgrid.Workers.ImportWorker
 
   # "Parecidas" widens the energy window by ±this many points (0–100) around the
@@ -17,11 +18,13 @@ defmodule BeatgridWeb.LibraryLive do
 
   @confidences [{"alta", :high}, {"média", :medium}, {"baixa", :low}]
 
-  # The 24 Camelot wheel codes, 1A..12B, for the Tom filter <select>.
-  @camelot_codes for n <- 1..12, letter <- ["A", "B"], do: "#{n}#{letter}"
-
   # Rows loaded per DB page; the rest stream in on scroll (no load-everything query).
   @per_page 100
+
+  # Camelot wheel geometry, computed once. Two concentric rings (A inner / B outer),
+  # 12 wedges each, number `n` centered at `n*30°` clockwise from the top.
+  @wheel_cx 140
+  @wheel_cy 140
 
   @impl true
   def mount(_params, _session, socket) do
@@ -42,6 +45,7 @@ defmodule BeatgridWeb.LibraryLive do
        selecting?: false,
        selected: MapSet.new(),
        row_menu: nil,
+       tom_wheel_open: false,
        move_toast: nil,
        import: nil,
        import_progress: nil,
@@ -101,10 +105,28 @@ defmodule BeatgridWeb.LibraryLive do
       |> put_filter(:bpm_max, params["bpm_max"])
       |> put_filter(:energy_min, params["energy_min"])
       |> put_filter(:energy_max, params["energy_max"])
-      |> put_filter(:camelot, params["camelot"])
-      |> put_toggle(:camelot_compatible, params["camelot_compatible"])
 
+    # `camelot` / `camelot_compatible` are managed by the Tom wheel popover
+    # (set_camelot / toggle_camelot_compatible), not this form.
     {:noreply, socket |> assign(filters: filters) |> load_tracks()}
+  end
+
+  def handle_event("toggle_tom_wheel", _params, socket),
+    do: {:noreply, assign(socket, tom_wheel_open: not socket.assigns.tom_wheel_open)}
+
+  def handle_event("close_tom_wheel", _params, socket),
+    do: {:noreply, assign(socket, tom_wheel_open: false)}
+
+  # Click a wedge: set that Camelot code as the filter; clicking the active one
+  # (or the empty "limpar") clears it. Results refresh live behind the popover.
+  def handle_event("set_camelot", %{"code" => code}, socket) do
+    value = if code in ["", socket.assigns.filters[:camelot]], do: nil, else: code
+    {:noreply, socket |> update_filter(:camelot, value) |> load_tracks()}
+  end
+
+  def handle_event("toggle_camelot_compatible", _params, socket) do
+    value = if socket.assigns.filters[:camelot_compatible] == true, do: nil, else: true
+    {:noreply, socket |> update_filter(:camelot_compatible, value) |> load_tracks()}
   end
 
   def handle_event("clear_filters", _params, socket) do
@@ -396,10 +418,6 @@ defmodule BeatgridWeb.LibraryLive do
   defp put_filter(filters, key, val) when val in [nil, ""], do: Map.delete(filters, key)
   defp put_filter(filters, key, val), do: Map.put(filters, key, val)
 
-  # A checkbox sends "on" when ticked and is absent when unticked.
-  defp put_toggle(filters, key, "on"), do: Map.put(filters, key, true)
-  defp put_toggle(filters, key, _absent), do: Map.delete(filters, key)
-
   defp flip_dir(:asc), do: :desc
   defp flip_dir(:desc), do: :asc
 
@@ -492,7 +510,7 @@ defmodule BeatgridWeb.LibraryLive do
         <.import_toast :if={@import_toast} message={@import_toast} />
         <.move_toast :if={@move_toast} toast={@move_toast} />
 
-        <div class="flex min-h-0 flex-1">
+        <div class="relative flex min-h-0 flex-1">
           <aside class="w-60 shrink-0 overflow-y-auto border-r border-white/6 bg-rail px-4 py-4">
             <.filters_panel filters={@filters} folders={@folders} tags={@all_tags} />
           </aside>
@@ -533,6 +551,47 @@ defmodule BeatgridWeb.LibraryLive do
               }
             }
           </script>
+
+          <div :if={@tom_wheel_open} class="fixed inset-0 z-20" phx-click="close_tom_wheel" />
+          <div
+            :if={@tom_wheel_open}
+            class="absolute left-[15.5rem] top-3 z-30 w-[324px] rounded-2xl border border-white/10 bg-surface p-4 shadow-lg"
+          >
+            <div class="mb-1 flex items-center justify-between">
+              <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+                Roda harmônica
+              </span>
+              <button
+                phx-click="close_tom_wheel"
+                class="text-ink-muted hover:text-ink"
+                aria-label="Fechar"
+              >
+                <span class="hero-x-mark size-4" />
+              </button>
+            </div>
+            <.camelot_wheel
+              selected={@filters[:camelot]}
+              compatible?={@filters[:camelot_compatible] == true}
+            />
+            <div class="mt-2 flex items-center justify-between">
+              <label class="flex cursor-pointer items-center gap-2 text-[12px] text-ink-muted">
+                <input
+                  type="checkbox"
+                  checked={@filters[:camelot_compatible] == true}
+                  phx-click="toggle_camelot_compatible"
+                  class="rounded border-white/20 bg-input"
+                /> incluir compatíveis
+              </label>
+              <button
+                :if={@filters[:camelot]}
+                phx-click="set_camelot"
+                phx-value-code=""
+                class="text-[12px] text-ink-muted hover:text-ink"
+              >
+                limpar tom
+              </button>
+            </div>
+          </div>
         </div>
 
         <.batch_bar
@@ -553,7 +612,7 @@ defmodule BeatgridWeb.LibraryLive do
   attr :tags, :list, default: []
 
   defp filters_panel(assigns) do
-    assigns = assign(assigns, confidences: @confidences, camelot_codes: @camelot_codes)
+    assigns = assign(assigns, confidences: @confidences)
 
     ~H"""
     <div class="flex items-center justify-between">
@@ -635,28 +694,32 @@ defmodule BeatgridWeb.LibraryLive do
       </button>
     </div>
 
-    <form id="library-filters" phx-change="filter" class="mt-4 space-y-3.5">
-      <div>
-        <p class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Tom</p>
-        <select
-          name="camelot"
-          class="w-full rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
-        >
-          <option value="" selected={!@filters[:camelot]}>Qualquer</option>
-          <option :for={code <- @camelot_codes} value={code} selected={@filters[:camelot] == code}>
-            {code}
-          </option>
-        </select>
-        <label class="mt-1.5 flex items-center gap-1.5 text-[11px] text-ink-muted">
-          <input
-            type="checkbox"
-            name="camelot_compatible"
-            checked={@filters[:camelot_compatible] == true}
-            class="rounded border-white/20 bg-input"
-          /> incluir compatíveis
-        </label>
-      </div>
+    <div class="mt-4">
+      <p class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Tom</p>
+      <button
+        type="button"
+        phx-click="toggle_tom_wheel"
+        class="flex w-full items-center justify-between rounded-md border border-white/8 bg-input px-2 py-1.5 text-body-sm hover:border-primary/50"
+      >
+        <span class="flex items-center gap-2 font-mono">
+          <span
+            :if={@filters[:camelot]}
+            class="inline-block size-2.5 rounded-full"
+            style={"background:#{camelot_dot(@filters[:camelot])}"}
+          />
+          {@filters[:camelot] || "Qualquer"}
+          <span
+            :if={@filters[:camelot] && @filters[:camelot_compatible]}
+            class="text-[10px] text-ink-faint"
+          >
+            + comp.
+          </span>
+        </span>
+        <span class="hero-chevron-down size-3.5 text-ink-faint" />
+      </button>
+    </div>
 
+    <form id="library-filters" phx-change="filter" class="mt-3.5 space-y-3.5">
       <div>
         <p class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Nota</p>
         <div class="flex items-center gap-1.5">
@@ -1240,6 +1303,146 @@ defmodule BeatgridWeb.LibraryLive do
   defp camelot(%{soundcharts_song: %{camelot: c}}) when is_binary(c), do: c
   defp camelot(%{camelot_detected: c}) when is_binary(c), do: c
   defp camelot(_track), do: nil
+
+  # --- Camelot wheel (Tom filter) ---------------------------------------------
+
+  attr :selected, :string, default: nil
+  attr :compatible?, :boolean, default: false
+
+  defp camelot_wheel(assigns) do
+    neighbors = wheel_neighbors(assigns.selected, assigns.compatible?)
+    assigns = assign(assigns, wedges: camelot_wedges(), neighbors: neighbors)
+
+    ~H"""
+    <svg
+      viewBox="0 0 280 280"
+      class="mx-auto w-full max-w-[300px]"
+      role="img"
+      aria-label="Roda harmônica Camelot"
+    >
+      <path
+        :for={w <- @wedges}
+        d={w.d}
+        fill={w.fill}
+        opacity={wedge_opacity(w.code, @selected, @neighbors)}
+        stroke={wedge_stroke(w.code, @selected, @neighbors)}
+        stroke-width={wedge_stroke_width(w.code, @selected, @neighbors)}
+        stroke-dasharray={wedge_dash(w.code, @neighbors)}
+        class="camelot-wedge cursor-pointer"
+        phx-click="set_camelot"
+        phx-value-code={w.code}
+      />
+      <text
+        :for={w <- @wedges}
+        x={w.lx}
+        y={w.ly}
+        text-anchor="middle"
+        dominant-baseline="central"
+        font-size="11"
+        fill={if(w.code == @selected, do: "#fff", else: "rgba(255,255,255,.72)")}
+        class="pointer-events-none font-mono"
+      >
+        {w.code}
+      </text>
+      <text
+        x="140"
+        y="136"
+        text-anchor="middle"
+        dominant-baseline="central"
+        font-size="26"
+        fill="#eef0f5"
+        class="pointer-events-none font-mono"
+      >
+        {@selected}
+      </text>
+      <text
+        x="140"
+        y="160"
+        text-anchor="middle"
+        font-size="11"
+        fill="#5f636f"
+        class="pointer-events-none"
+      >
+        {wheel_caption(@selected, @compatible?)}
+      </text>
+    </svg>
+    """
+  end
+
+  defp wheel_caption(nil, _), do: "qualquer"
+  defp wheel_caption(_code, true), do: "+ compatíveis"
+  defp wheel_caption(_code, false), do: "tom"
+
+  defp wedge_opacity(code, code, _neighbors), do: "1"
+
+  defp wedge_opacity(code, _selected, neighbors) do
+    if MapSet.member?(neighbors, code), do: "0.85", else: "0.4"
+  end
+
+  defp wedge_stroke(code, code, _neighbors), do: "#eef0f5"
+
+  defp wedge_stroke(code, _selected, neighbors) do
+    if MapSet.member?(neighbors, code), do: "rgba(238,240,245,.55)", else: "none"
+  end
+
+  defp wedge_stroke_width(code, code, _neighbors), do: "2"
+
+  defp wedge_stroke_width(code, _selected, neighbors) do
+    if MapSet.member?(neighbors, code), do: "1", else: "0"
+  end
+
+  defp wedge_dash(code, neighbors), do: if(MapSet.member?(neighbors, code), do: "2 2")
+
+  # Compatible-key set (excluding the selected one) when "incluir compatíveis" is on.
+  defp wheel_neighbors(nil, _), do: MapSet.new()
+  defp wheel_neighbors(_code, false), do: MapSet.new()
+
+  defp wheel_neighbors(code, true) do
+    code |> Camelot.neighbors() |> MapSet.new() |> MapSet.delete(code)
+  end
+
+  # The 24 wedges with precomputed SVG paths + label positions + muted-rainbow fills.
+  defp camelot_wedges do
+    for {letter, ri, ro, lr} <- [{"A", 56, 90, 73}, {"B", 94, 132, 113}], n <- 1..12 do
+      deg = rem(n, 12) * 30
+      {lx, ly} = wheel_point(lr, deg)
+
+      %{
+        code: "#{n}#{letter}",
+        d: sector_path(ri, ro, deg - 13.5, deg + 13.5),
+        lx: lx,
+        ly: ly,
+        fill: "hsl(#{rem((n - 1) * 30, 360)} #{wheel_sat(letter)}% #{wheel_light(letter)}%)"
+      }
+    end
+  end
+
+  defp wheel_sat("A"), do: 38
+  defp wheel_sat("B"), do: 42
+  defp wheel_light("A"), do: 44
+  defp wheel_light("B"), do: 52
+
+  # Dot color in the trigger button for the current code (just its number's hue).
+  defp camelot_dot(code) do
+    n = code |> String.trim_trailing("A") |> String.trim_trailing("B") |> String.to_integer()
+    "hsl(#{rem((n - 1) * 30, 360)} 45% 52%)"
+  end
+
+  # Annular sector between radii `ri`/`ro` from `a1`° to `a2`° (0° = top, clockwise).
+  defp sector_path(ri, ro, a1, a2) do
+    {x1, y1} = wheel_point(ro, a1)
+    {x2, y2} = wheel_point(ro, a2)
+    {x3, y3} = wheel_point(ri, a2)
+    {x4, y4} = wheel_point(ri, a1)
+    "M#{x1} #{y1} A#{ro} #{ro} 0 0 1 #{x2} #{y2} L#{x3} #{y3} A#{ri} #{ri} 0 0 0 #{x4} #{y4} Z"
+  end
+
+  defp wheel_point(r, deg) do
+    rad = deg * :math.pi() / 180
+
+    {Float.round(@wheel_cx + r * :math.sin(rad), 2),
+     Float.round(@wheel_cy - r * :math.cos(rad), 2)}
+  end
 
   defp energy_pct(%{soundcharts_song: %{energy: e}}) when is_number(e), do: round(e * 100)
   defp energy_pct(_track), do: 0
