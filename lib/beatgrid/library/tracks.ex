@@ -15,6 +15,30 @@ defmodule Beatgrid.Library.Tracks do
   @spec list_by(keyword()) :: [Track.t()]
   def list_by(opts \\ []), do: TrackQuery.list_by(opts)
 
+  @doc """
+  Fuzzy signatures (`"norm_artist|norm_title"`) of every present track that has
+  both fields, as a `MapSet`. Used to flag import near-duplicates (same artist +
+  title) before importing. Blank-field tracks are excluded.
+  """
+  @spec present_signatures() :: MapSet.t(String.t())
+  def present_signatures do
+    list_by(status: :present)
+    |> Enum.reduce(MapSet.new(), fn t, acc ->
+      case signature(t.norm_artist, t.norm_title) do
+        nil -> acc
+        sig -> MapSet.put(acc, sig)
+      end
+    end)
+  end
+
+  @doc "Fuzzy signature `\"norm_artist|norm_title\"`, or nil if either part is blank."
+  @spec signature(String.t() | nil, String.t() | nil) :: String.t() | nil
+  def signature(norm_artist, norm_title) do
+    if present?(norm_artist) and present?(norm_title), do: "#{norm_artist}|#{norm_title}"
+  end
+
+  defp present?(value), do: is_binary(value) and String.trim(value) != ""
+
   @spec update(Track.t(), map()) :: {:ok, Track.t()} | {:error, Ecto.Changeset.t()}
   def update(track, attrs), do: track |> Track.changeset(attrs) |> Repo.update()
 

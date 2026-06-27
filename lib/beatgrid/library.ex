@@ -6,7 +6,7 @@ defmodule Beatgrid.Library do
   reflects and edits it. It owns library initialization and the file-moving
   primitives (relocate, quarantine) that back the organization workflow.
   """
-  alias Beatgrid.Library.{FileInfo, GenreFolders, MetadataAI, Track, Tracks}
+  alias Beatgrid.Library.{FileInfo, GenreFolders, MetadataAI, Normalize, Track, Tracks}
   alias Beatgrid.{Operations, Tagging}
   alias Beatgrid.YouTube.TitleParser
 
@@ -172,12 +172,22 @@ defmodule Beatgrid.Library do
 
   # Build a preview row per file (read-only), then optionally refine the
   # artist-less ones with one batched AI call (mirrors YouTube.refine_titles).
+  # Finally flag fuzzy near-dups (same artist+title as a present track) — computed
+  # after refinement so AI-filled names count too, and distinct from `duplicate`
+  # (the exact content-hash match).
   defp build_rows(paths, opts) do
     seen = library_hashes()
+    present_sigs = Tracks.present_signatures()
 
     paths
     |> Enum.map(&base_row(&1, seen))
     |> refine_rows(Keyword.get(opts, :ai, true))
+    |> Enum.map(&flag_near_dup(&1, present_sigs))
+  end
+
+  defp flag_near_dup(row, present_sigs) do
+    sig = Tracks.signature(Normalize.normalize(row.artist), Normalize.normalize(row.title))
+    Map.put(row, :near_dup, not is_nil(sig) and sig in present_sigs and not row.duplicate)
   end
 
   defp base_row(path, seen) do

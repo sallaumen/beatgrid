@@ -110,6 +110,58 @@ defmodule Beatgrid.Library.ImportPreviewTest do
   end
 
   @tag :tmp_dir
+  test "flags a fuzzy near-dup (same artist+title, different hash) as near_dup", %{tmp_dir: root} do
+    src = Path.join(root, "src")
+    File.mkdir_p!(src)
+    File.write!(Path.join(src, "Djavan - Sina.mp3"), "other-bytes")
+
+    stub(Beatgrid.Audio.Mock, :read_metadata, fn _ ->
+      {:ok, %Metadata{title: "Sina", artist: "Djavan", duration_ms: 211_000}}
+    end)
+
+    # A present track with the SAME normalized artist+title but a DIFFERENT hash.
+    insert(:track,
+      status: :present,
+      content_sha256: "a-different-hash",
+      tag_artist: "Djavan",
+      tag_title: "Sina",
+      norm_artist: "djavan",
+      norm_title: "sina",
+      rel_path: "MPB/sina.mp3",
+      filename: "sina.mp3"
+    )
+
+    assert {:ok, [row]} = Library.preview_import(src, ai: false)
+    assert row.near_dup
+    refute row.duplicate
+  end
+
+  @tag :tmp_dir
+  test "does not flag near_dup when the artist+title differ", %{tmp_dir: root} do
+    src = Path.join(root, "src")
+    File.mkdir_p!(src)
+    File.write!(Path.join(src, "Djavan - Sina.mp3"), "bytes")
+
+    stub(Beatgrid.Audio.Mock, :read_metadata, fn _ ->
+      {:ok, %Metadata{title: "Sina", artist: "Djavan", duration_ms: 211_000}}
+    end)
+
+    insert(:track,
+      status: :present,
+      content_sha256: "h",
+      tag_artist: "Caetano Veloso",
+      tag_title: "Sozinho",
+      norm_artist: "caetano veloso",
+      norm_title: "sozinho",
+      rel_path: "MPB/sozinho.mp3",
+      filename: "sozinho.mp3"
+    )
+
+    assert {:ok, [row]} = Library.preview_import(src, ai: false)
+    refute row.near_dup
+  end
+
+  @tag :tmp_dir
   test "previews a single audio file", %{tmp_dir: root} do
     file = Path.join(root, "Djavan - Sina.mp3")
     File.write!(file, "bytes")
