@@ -29,7 +29,11 @@ defmodule BeatgridWeb.ImportsLive do
   end
 
   def handle_event("toggle_gold", %{"id" => id}, socket) do
-    id |> Tracks.get() |> Library.toggle_gold()
+    case Tracks.get(id) do
+      nil -> :ok
+      track -> Library.toggle_gold(track)
+    end
+
     {:noreply, load(socket)}
   end
 

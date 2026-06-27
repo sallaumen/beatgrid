@@ -44,6 +44,9 @@ defmodule BeatgridWeb.ImportsLiveTest do
     view |> element("button[phx-click=toggle_gold][phx-value-id='#{t.id}']") |> render_click()
 
     assert Tracks.get(t.id).gold_manual == true
+
+    view |> element("button[phx-click=toggle_gold][phx-value-id='#{t.id}']") |> render_click()
+    assert is_nil(Tracks.get(t.id).gold_manual)
   end
 
   @tag :tmp_dir
