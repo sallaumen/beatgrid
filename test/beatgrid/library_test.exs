@@ -3,6 +3,7 @@ defmodule Beatgrid.LibraryTest do
 
   alias Beatgrid.Library
   alias Beatgrid.Library.Track
+  alias Beatgrid.Library.Tracks
 
   describe "init_library/1" do
     @tag :tmp_dir
@@ -80,6 +81,52 @@ defmodule Beatgrid.LibraryTest do
         |> Repo.preload(:soundcharts_song)
 
       assert %{bpm: 128.0, camelot: "11A", energy: 0.7} = Library.effective(t)
+    end
+  end
+
+  describe "gold + toggle_gold/1" do
+    test "gold/1 delega ao efetivo; toggle alterna manual" do
+      t = insert(:track, gold_status: :candidate)
+      assert {true, :raro_candidato} = Library.gold(t)
+
+      assert {:ok, t} = Library.toggle_gold(t)
+      assert t.gold_manual == false
+      assert {false, nil} = Library.gold(t)
+
+      assert {:ok, t} = Library.toggle_gold(t)
+      assert is_nil(t.gold_manual)
+
+      assert {:ok, t} = Library.clear_gold_manual(%{t | gold_manual: true})
+      assert is_nil(t.gold_manual)
+      assert is_nil(Tracks.get(t.id).gold_manual)
+    end
+  end
+
+  describe "hard_delete/1" do
+    @tag :tmp_dir
+    test "remove arquivo e registro", %{tmp_dir: root} do
+      File.mkdir_p!(Path.join(root, "_Inbox"))
+      path = Path.join(root, "_Inbox/x.mp3")
+      File.write!(path, "audio")
+      prev = Application.get_env(:beatgrid, :library_root)
+      Application.put_env(:beatgrid, :library_root, root)
+      on_exit(fn -> Application.put_env(:beatgrid, :library_root, prev) end)
+
+      t = insert(:track, rel_path: "_Inbox/x.mp3", filename: "x.mp3")
+      assert {:ok, _} = Library.hard_delete(t)
+      refute File.exists?(path)
+      assert is_nil(Tracks.get(t.id))
+    end
+
+    @tag :tmp_dir
+    test "arquivo já ausente ainda remove o registro", %{tmp_dir: root} do
+      prev = Application.get_env(:beatgrid, :library_root)
+      Application.put_env(:beatgrid, :library_root, root)
+      on_exit(fn -> Application.put_env(:beatgrid, :library_root, prev) end)
+
+      t = insert(:track, rel_path: "_Inbox/missing.mp3", filename: "missing.mp3")
+      assert {:ok, _} = Library.hard_delete(t)
+      assert is_nil(Tracks.get(t.id))
     end
   end
 end

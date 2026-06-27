@@ -107,6 +107,7 @@ defmodule Beatgrid.Library.TrackQuery do
     |> filter(:energy_min, filters)
     |> filter(:energy_max, filters)
     |> camelot_filter(filters)
+    |> gold_filter(filters)
     |> filter(:unclassified, filters)
     |> filter(:search, filters)
   end
@@ -215,6 +216,64 @@ defmodule Beatgrid.Library.TrackQuery do
           [t, song: s],
           fragment("coalesce(?, ?, ?)", t.camelot_manual, s.camelot, t.camelot_detected) in ^codes
         )
+    end
+  end
+
+  @gold_view_threshold Beatgrid.Gold.view_threshold()
+
+  # Selo Ouro = manual true OU (sem override manual E (eixo raro setado OU views >= limiar)),
+  # sempre excluindo manual=false. Espelha Beatgrid.Gold.effective/1.
+  defp gold_filter(q, filters) do
+    if truthy(filters[:gold] || filters["gold"]) do
+      where(
+        q,
+        [t],
+        t.gold_manual == true or
+          (is_nil(t.gold_manual) and
+             (not is_nil(t.gold_status) or t.youtube_views >= ^@gold_view_threshold))
+      )
+    else
+      q
+    end
+  end
+
+  @doc """
+  Faixas vindas do YouTube (`source_playlist == "youtube"`), preload da song, com
+  filtros rápidos (`:unfiled`, `:unresolved`, `:gold`) e ordenação
+  (`:recent` default, `:views`, `:published`). Usada pela tela /importados.
+  """
+  @spec youtube_imports(map()) :: [Track.t()]
+  def youtube_imports(filters \\ %{}) do
+    Track
+    |> join(:left, [t], s in assoc(t, :soundcharts_song), as: :song)
+    |> where([t], t.status == :present and t.source_playlist == "youtube")
+    |> imports_filter(:unfiled, filters)
+    |> imports_filter(:unresolved, filters)
+    |> gold_filter(filters)
+    |> imports_sort(filters)
+    |> preload([song: s], soundcharts_song: s)
+    |> Repo.all()
+  end
+
+  defp imports_filter(q, :unfiled, filters) do
+    if truthy(filters[:unfiled] || filters["unfiled"]),
+      do: where(q, [t], is_nil(t.genre_folder)),
+      else: q
+  end
+
+  defp imports_filter(q, :unresolved, filters) do
+    if truthy(filters[:unresolved] || filters["unresolved"]),
+      do: where(q, [t], is_nil(t.soundcharts_song_id)),
+      else: q
+  end
+
+  defp imports_sort(q, filters) do
+    case filters[:sort] || filters["sort"] do
+      :views -> order_by(q, [t], desc_nulls_last: t.youtube_views)
+      "views" -> order_by(q, [t], desc_nulls_last: t.youtube_views)
+      :published -> order_by(q, [t], desc_nulls_last: t.youtube_published_at)
+      "published" -> order_by(q, [t], desc_nulls_last: t.youtube_published_at)
+      _ -> order_by(q, [t], desc: t.inserted_at)
     end
   end
 

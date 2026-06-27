@@ -37,6 +37,16 @@ defmodule Beatgrid.YouTubeTest do
     end)
   end
 
+  defp expect_download_full(title, views, upload) do
+    expect(Beatgrid.YouTube.DownloaderMock, :download, fn _url, dest ->
+      path = Path.join(dest, "abc.mp3")
+      File.write!(path, "audio")
+
+      {:ok,
+       [%{path: path, title: title, url: "https://y/abc", views: views, upload_date: upload}]}
+    end)
+  end
+
   @tag :tmp_dir
   test "download_and_ingest creates an _Inbox track with the parsed title" do
     stub_metadata()
@@ -92,6 +102,19 @@ defmodule Beatgrid.YouTubeTest do
     insert(:track, status: :present, genre_folder: "mpb")
 
     assert YouTube.pending_count() == 1
+  end
+
+  @tag :tmp_dir
+  test "ingest persiste views/data e marca candidato Ouro quando sem ISRC" do
+    stub_metadata()
+    expect_download_full("Raridade - Forró de Antigamente", 250, "20120607")
+
+    assert {:ok, 1} = YouTube.download_and_ingest("https://y/abc")
+
+    t = Tracks.get_by_path("_Inbox/abc.mp3")
+    assert t.youtube_views == 250
+    assert t.youtube_published_at == ~D[2012-06-07]
+    assert t.gold_status == :candidate
   end
 
   defp song_attrs do
@@ -259,6 +282,66 @@ defmodule Beatgrid.YouTubeTest do
     assert [_rename] = NameSync.list_by(status: :pending)
     assert [move] = Organization.list_by(status: :pending, source: :claude)
     assert move.track_id == track.id
+  end
+
+  @tag :tmp_dir
+  test "enrich confirma Ouro quando Soundcharts não acha" do
+    track = insert(:track, tag_artist: "Ninguém", tag_title: "Inédita", norm_artist: "ninguem")
+
+    expect(Beatgrid.Soundcharts.Mock, :search_song, fn _term ->
+      {:ok, %Response{data: [], quota_remaining: 999, status: 200}}
+    end)
+
+    assert :no_match = YouTube.resolve_track_enrich(track.id)
+    assert Tracks.get(track.id).gold_status == :confirmed
+  end
+
+  @tag :tmp_dir
+  test "enrich rebaixa candidato quando Soundcharts acha" do
+    track =
+      insert(:track,
+        gold_status: :candidate,
+        tag_artist: "Casuarina",
+        tag_title: "Disritmia",
+        norm_artist: "casuarina"
+      )
+
+    expect(Beatgrid.Soundcharts.Mock, :search_song, fn _term ->
+      {:ok,
+       %Response{
+         data: [%{uuid: "u1", name: "Disritmia", credit_name: "Casuarina", release_date: nil}],
+         quota_remaining: 999,
+         status: 200
+       }}
+    end)
+
+    expect(Beatgrid.Soundcharts.Mock, :get_song, fn "u1" ->
+      {:ok,
+       %Response{
+         data: song_attrs(),
+         quota_remaining: 998,
+         status: 200
+       }}
+    end)
+
+    stub(Beatgrid.AI.Mock, :complete, fn _p, _s, _o ->
+      {:ok,
+       %{
+         "resolutions" => [
+           %{
+             "index" => 1,
+             "same_recording" => true,
+             "artist" => "Casuarina",
+             "title" => "Disritmia",
+             "confidence" => 0.9,
+             "rationale" => "ok"
+           }
+         ]
+       }}
+    end)
+
+    assert :resolved = YouTube.resolve_track_enrich(track.id)
+    assert is_nil(Tracks.get(track.id).gold_status)
   end
 
   test "enrich_track returns {:error, :budget_exhausted} and creates no suggestions" do

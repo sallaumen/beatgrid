@@ -16,6 +16,31 @@ defmodule Beatgrid.YouTube.YtDlpTest do
     test "ignores malformed lines" do
       assert [] = YtDlp.parse("garbage-without-tabs\n", "/inbox")
     end
+
+    test "parse extrai path/title/url/views/upload_date" do
+      out = "abc\tDjavan - Sina\thttps://y/abc\t1234567\t20200115\n"
+      assert [item] = YtDlp.parse(out, "/inbox")
+      assert item.path == "/inbox/abc.mp3"
+      assert item.title == "Djavan - Sina"
+      assert item.url == "https://y/abc"
+      assert item.views == 1_234_567
+      assert item.upload_date == "20200115"
+    end
+
+    test "campos ausentes (NA) viram nil; linha curta degrada" do
+      out = "abc\tT\thttps://y/abc\tNA\tNA\ndef\tU\thttps://y/def\n"
+      assert [a, b] = YtDlp.parse(out, "/inbox")
+      assert a.views == nil
+      assert a.upload_date == nil
+      assert b.views == nil
+      assert b.upload_date == nil
+    end
+
+    test "views não-numérico vira nil" do
+      out = "abc\tT\thttps://y/abc\t123abc\t20200115\n"
+      assert [item] = YtDlp.parse(out, "/inbox")
+      assert item.views == nil
+    end
   end
 
   describe "parse_entries/1" do

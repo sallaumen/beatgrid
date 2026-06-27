@@ -27,6 +27,7 @@ defmodule BeatgridWeb.Router do
       live "/set/:id", RecSetLive, :show
       live "/jobs", JobsLive, :index
       live "/generos", GenresLive, :index
+      live "/importados", ImportsLive, :index
     end
 
     get "/audio/:id", AudioController, :show

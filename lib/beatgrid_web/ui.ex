@@ -114,6 +114,52 @@ defmodule BeatgridWeb.UI do
   def loudness_delta_class(delta) when abs(delta) >= 3, do: "text-amber"
   def loudness_delta_class(_delta), do: "text-ink-faint"
 
+  @doc "Contagem de views pra exibição (pt-BR): 2,3 mi · 12 mil · 950 · — quando nil."
+  def format_views(nil), do: "—"
+  def format_views(v) when v >= 1_000_000, do: "#{br(Float.round(v / 1_000_000, 1))} mi"
+  def format_views(v) when v >= 1_000, do: "#{div(v, 1_000)} mil"
+  def format_views(v), do: Integer.to_string(v)
+
+  defp br(f), do: f |> :erlang.float_to_binary(decimals: 1) |> String.replace(".", ",")
+
+  @doc "Idade da publicação no YouTube em texto (há N anos · este ano · — quando nil)."
+  def format_age(nil), do: "—"
+
+  def format_age(%Date{} = date) do
+    case div(Date.diff(Date.utc_today(), date), 365) do
+      y when y >= 1 -> "há #{y} #{if y == 1, do: "ano", else: "anos"}"
+      _ -> "este ano"
+    end
+  end
+
+  attr :track, :map, required: true
+
+  @doc "Selo Ouro (dourado quando confirmado/popular/manual; âmbar com ? quando candidato)."
+  def ouro_badge(assigns) do
+    {is_gold, reason} = Beatgrid.Gold.effective(assigns.track)
+    assigns = assign(assigns, gold?: is_gold, reason: reason)
+
+    ~H"""
+    <span
+      :if={@gold?}
+      class={[
+        "inline-flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-px text-[10px] font-semibold",
+        @reason == :raro_candidato && "bg-amber/15 text-amber",
+        @reason != :raro_candidato && "bg-[#f5c518]/20 text-[#f5c518]"
+      ]}
+      title={ouro_tooltip(@reason, @track)}
+    >
+      ★<span :if={@reason == :raro_candidato}>?</span>
+    </span>
+    """
+  end
+
+  defp ouro_tooltip(:manual, _t), do: "Ouro — marcado por você"
+  defp ouro_tooltip(:popular, t), do: "Ouro — clássico (#{format_views(t.youtube_views)} views)"
+  defp ouro_tooltip(:raro_confirmado, _t), do: "Ouro — não está no Soundcharts"
+  defp ouro_tooltip(:raro_candidato, _t), do: "Ouro? — candidato (palpite)"
+  defp ouro_tooltip(_, _t), do: "Ouro"
+
   @doc """
   Track cover: the album art (`src`) when available, falling back to a stable
   gradient + initials placeholder (also shown if the image fails to load).
@@ -295,6 +341,12 @@ defmodule BeatgridWeb.UI do
         <.nav_item icon="hero-queue-list" label="Sets" href="/set" active={@active == :sets} />
         <.nav_item icon="hero-arrow-path" label="Jobs" href="/jobs" active={@active == :jobs} />
         <.nav_item icon="hero-tag" label="Gêneros" href="/generos" active={@active == :generos} />
+        <.nav_item
+          icon="hero-arrow-down-tray"
+          label="Importados"
+          href="/importados"
+          active={@active == :importados}
+        />
       </nav>
       <main class="min-w-0 flex-1 pb-20">{render_slot(@inner_block)}</main>
       {live_render(@socket, BeatgridWeb.PlayerLive, id: "player", sticky: true)}

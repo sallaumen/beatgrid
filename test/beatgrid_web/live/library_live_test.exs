@@ -284,6 +284,23 @@ defmodule BeatgridWeb.LibraryLiveTest do
     assert html =~ "+6.0 dB"
   end
 
+  test "filtro Ouro mostra só faixas Ouro", %{conn: conn} do
+    insert(:track,
+      status: :present,
+      gold_status: :confirmed,
+      tag_title: "Joia Rara",
+      norm_title: "joia rara"
+    )
+
+    insert(:track, status: :present, tag_title: "Comum", norm_title: "comum")
+
+    {:ok, view, _} = live(conn, ~p"/")
+    html = view |> element("button[phx-click=toggle_gold_filter]") |> render_click()
+
+    assert html =~ "Joia Rara"
+    refute html =~ "Comum"
+  end
+
   test "paginates at 100, appends on load_more, and Marcar todas spans all pages", %{conn: conn} do
     for i <- 1..101 do
       n = String.pad_leading(Integer.to_string(i), 3, "0")

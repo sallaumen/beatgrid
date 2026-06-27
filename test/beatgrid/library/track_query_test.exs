@@ -183,4 +183,49 @@ defmodule Beatgrid.Library.TrackQueryTest do
       assert TrackQuery.all_tags() == ["live"]
     end
   end
+
+  describe "library/1 filtro :gold" do
+    test "pega manual/popular/raro e exclui gold_manual false" do
+      hi = Beatgrid.Gold.view_threshold() + 1
+      manual = insert(:track, status: :present, gold_manual: true)
+      popular = insert(:track, status: :present, youtube_views: hi)
+      raro = insert(:track, status: :present, gold_status: :confirmed)
+      rejeitado = insert(:track, status: :present, gold_manual: false, youtube_views: hi)
+      comum = insert(:track, status: :present)
+
+      ids = TrackQuery.library(%{gold: true}) |> Enum.map(& &1.id) |> MapSet.new()
+      assert manual.id in ids
+      assert popular.id in ids
+      assert raro.id in ids
+      refute rejeitado.id in ids
+      refute comum.id in ids
+    end
+  end
+
+  describe "youtube_imports/1" do
+    test "só faixas youtube; filtros e ordem por views" do
+      a = insert(:track, status: :present, source_playlist: "youtube", youtube_views: 10)
+      b = insert(:track, status: :present, source_playlist: "youtube", youtube_views: 999)
+      _disk = insert(:track, status: :present, source_playlist: "import")
+
+      ids = TrackQuery.youtube_imports(%{}) |> Enum.map(& &1.id)
+      assert a.id in ids and b.id in ids
+      assert length(ids) == 2
+
+      [first | _] = TrackQuery.youtube_imports(%{sort: :views})
+      assert first.id == b.id
+    end
+
+    test "filtro :unresolved" do
+      song = insert(:soundcharts_song)
+
+      _res =
+        insert(:track, status: :present, source_playlist: "youtube", soundcharts_song_id: song.id)
+
+      unres = insert(:track, status: :present, source_playlist: "youtube")
+
+      ids = TrackQuery.youtube_imports(%{unresolved: true}) |> Enum.map(& &1.id)
+      assert ids == [unres.id]
+    end
+  end
 end
