@@ -62,4 +62,31 @@ defmodule Beatgrid.RepertoireTest do
       assert Repertoire.decade_distribution() == %{1980 => 1, 2010 => 1}
     end
   end
+
+  describe "recommendations" do
+    test "create, list and count recommendations by scope/status" do
+      {:ok, _} =
+        Repertoire.create_recommendation(%{
+          artist: "A",
+          song: "S",
+          source: :gaps,
+          genre_folder: "mpb",
+          youtube_query: "A S"
+        })
+
+      assert [%{artist: "A"}] =
+               Repertoire.list_recommendations(genre_folder: "mpb", source: :gaps)
+
+      assert Repertoire.count_recommendations(
+               genre_folder: "mpb",
+               source: :gaps,
+               statuses: [:new, :imported]
+             ) == 1
+    end
+
+    test "youtube_search_url encodes the query" do
+      rec = %Beatgrid.Repertoire.Recommendation{youtube_query: "Elis Águas de Março"}
+      assert Repertoire.youtube_search_url(rec) =~ "search_query=Elis+%C3%81guas"
+    end
+  end
 end

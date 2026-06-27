@@ -1,12 +1,17 @@
 defmodule Beatgrid.Repertoire do
   @moduledoc """
-  Read-only analytics over the library — the numbers behind the dashboard.
-  Counts, distributions and histograms; no mutations, no AI.
+  Analytics over the library — the numbers behind the dashboard (counts,
+  distributions and histograms) — plus persisted AI recommendations: CRUD over
+  `Recommendation` rows, a `"recommendations"` PubSub topic, and the YouTube
+  search URL for a suggestion. The analytics half stays read-only.
   """
   import Ecto.Query
 
   alias Beatgrid.Library.Track
+  alias Beatgrid.Repertoire.{Recommendation, RecommendationQuery}
   alias Beatgrid.Repo
+
+  @rec_topic "recommendations"
 
   @doc "Headline dashboard counts."
   @spec overview() :: %{
@@ -82,6 +87,42 @@ defmodule Beatgrid.Repertoire do
     |> Repo.all()
     |> Map.new()
   end
+
+  # --- persisted AI recommendations ---
+
+  @doc "Lists recommendations (see `RecommendationQuery` for filter opts)."
+  def list_recommendations(opts \\ []), do: RecommendationQuery.list_by(opts)
+
+  @doc "Counts recommendations matching the given filter opts."
+  def count_recommendations(opts \\ []), do: RecommendationQuery.count(opts)
+
+  @doc "Fetches a recommendation by id, or nil."
+  def get_recommendation(id), do: Repo.get(Recommendation, id)
+
+  @doc "Persists a new recommendation."
+  @spec create_recommendation(map()) :: {:ok, Recommendation.t()} | {:error, Ecto.Changeset.t()}
+  def create_recommendation(attrs) do
+    %Recommendation{} |> Recommendation.changeset(attrs) |> Repo.insert()
+  end
+
+  @doc "Sets a recommendation's status (`:new` / `:dismissed` / `:imported`)."
+  @spec set_recommendation_status(Recommendation.t(), atom()) ::
+          {:ok, Recommendation.t()} | {:error, Ecto.Changeset.t()}
+  def set_recommendation_status(%Recommendation{} = rec, status) do
+    rec |> Recommendation.changeset(%{status: status}) |> Repo.update()
+  end
+
+  @doc "The YouTube search URL for a recommendation's query."
+  @spec youtube_search_url(Recommendation.t()) :: String.t()
+  def youtube_search_url(%Recommendation{youtube_query: q}),
+    do: "https://www.youtube.com/results?search_query=" <> URI.encode_www_form(q || "")
+
+  @doc "Subscribes the caller to the recommendations PubSub topic."
+  def subscribe, do: Phoenix.PubSub.subscribe(Beatgrid.PubSub, @rec_topic)
+
+  @doc "Broadcasts recommendation progress to subscribers."
+  def broadcast_recommend(payload),
+    do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @rec_topic, {:recommend_progress, payload})
 
   defp present, do: from(t in Track, where: t.status == :present)
   defp count(query), do: Repo.aggregate(query, :count, :id)
