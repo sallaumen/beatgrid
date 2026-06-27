@@ -82,9 +82,26 @@ defmodule Beatgrid.Dedup do
     end)
   end
 
+  # Picks the best copy to keep: most by quality (fewest issues), then placement
+  # (classified folder > present inbox > quarantined), then resolved (Soundcharts
+  # match), then rating, bitrate, duration. Ties break deterministically by the
+  # lower `rel_path`.
   defp pick_keeper(members) do
     members
-    |> Enum.sort_by(fn t -> {-(t.bitrate_kbps || 0), -(t.duration_ms || 0), t.rel_path} end)
+    |> Enum.sort_by(fn t -> {-keeper_score(t), t.rel_path} end)
     |> List.first()
   end
+
+  defp keeper_score(t) do
+    -length(t.quality_issues || []) * 10_000 +
+      placement_score(t) * 1_000 +
+      if(t.soundcharts_song_id, do: 500, else: 0) +
+      (t.rating || 0) * 20 +
+      (t.bitrate_kbps || 0) / 10 +
+      (t.duration_ms || 0) / 100_000
+  end
+
+  defp placement_score(%{status: :quarantined}), do: 0
+  defp placement_score(%{genre_folder: nil}), do: 1
+  defp placement_score(_classified), do: 2
 end

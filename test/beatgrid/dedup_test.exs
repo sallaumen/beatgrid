@@ -47,6 +47,33 @@ defmodule Beatgrid.DedupTest do
       assert Dedup.list_groups() == []
     end
 
+    test "pick_keeper prefers fewer quality issues, then classified placement, then resolved, then bitrate" do
+      song = insert(:soundcharts_song)
+
+      best =
+        insert(:track,
+          content_sha256: "h",
+          bitrate_kbps: 128,
+          genre_folder: "mpb",
+          soundcharts_song_id: song.id,
+          rel_path: "MPB/a.mp3"
+        )
+
+      _worse =
+        insert(:track,
+          content_sha256: "h",
+          bitrate_kbps: 320,
+          genre_folder: nil,
+          quality_issues: [:truncated],
+          rel_path: "_Inbox/b.mp3"
+        )
+
+      {:ok, _} = Dedup.detect()
+      [group] = Dedup.list_groups()
+      # classified + resolved + clean beats raw bitrate
+      assert group.keeper_track_id == best.id
+    end
+
     test "is idempotent across re-runs" do
       insert(:track, content_sha256: "abc", rel_path: "a.mp3")
       insert(:track, content_sha256: "abc", rel_path: "b.mp3")
