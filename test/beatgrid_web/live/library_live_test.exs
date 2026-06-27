@@ -224,6 +224,20 @@ defmodule BeatgridWeb.LibraryLiveTest do
     assert html =~ "ring-primary/40"
   end
 
+  test "shows the suggested gain in the Vol. column for a measured track", %{conn: conn} do
+    insert(:track,
+      status: :present,
+      tag_artist: "A",
+      tag_title: "Loud",
+      loudness_lufs: -20.0,
+      true_peak_dbtp: -8.0
+    )
+
+    {:ok, _view, html} = live(conn, ~p"/")
+    assert html =~ "Vol."
+    assert html =~ "+6.0 dB"
+  end
+
   # True if `a` appears before `b` in the rendered HTML.
   defp before?(html, a, b) do
     ia = :binary.match(html, a) |> elem(0)

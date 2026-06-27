@@ -6,6 +6,7 @@ defmodule BeatgridWeb.LibraryLive do
 
   alias Beatgrid.Library
   alias Beatgrid.Library.{GenreFolders, TrackQuery, Tracks}
+  alias Beatgrid.Loudness
   alias Beatgrid.Operations
   alias Beatgrid.Playback
   alias Beatgrid.Workers.ImportWorker
@@ -650,6 +651,7 @@ defmodule BeatgridWeb.LibraryLive do
         <.sort_header field={:key} label="Tom" sort={@sort} />
         <.sort_header field={:energy} label="Energia" sort={@sort} />
         <.sort_header field={:rating} label="Nota" sort={@sort} align="right" />
+        <.sort_header field={:loudness} label="Vol." sort={@sort} align="right" />
         <.sort_header field={:confidence} label="Sinal" sort={@sort} align="right" />
         <span></span>
       </div>
@@ -703,6 +705,16 @@ defmodule BeatgridWeb.LibraryLive do
             <div class="h-full rounded-full bg-green" style={"width:#{energy_pct(track)}%"} />
           </div>
           <div class="text-right"><.rating_badge value={track.rating} /></div>
+          <div class="text-right">
+            <span
+              :if={track.loudness_lufs}
+              class="text-ink-secondary font-mono text-caption"
+              title={format_lufs(track.loudness_lufs)}
+            >
+              {format_gain(Loudness.gain_db(track.loudness_lufs, track.true_peak_dbtp))}
+            </span>
+            <span :if={!track.loudness_lufs} class="text-ink-faint text-caption">–</span>
+          </div>
           <div class="text-right"><.confidence_chip level={track.sc_match_confidence} /></div>
         </.link>
         <.row_menu track={track} open?={@row_menu == track.id} folders={@folders} />
@@ -1102,7 +1114,7 @@ defmodule BeatgridWeb.LibraryLive do
   # the data columns, and a trailing ⋯ action column.
   defp grid_cols(selecting?) do
     lead = if selecting?, do: "24px ", else: ""
-    "grid-template-columns:#{lead}38px 1fr 130px 52px 56px 80px 52px 100px 28px"
+    "grid-template-columns:#{lead}38px 1fr 130px 52px 56px 80px 52px 64px 100px 28px"
   end
 
   defp row_selected?(selected, id), do: MapSet.member?(selected, id)

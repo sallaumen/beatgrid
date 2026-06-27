@@ -320,6 +320,25 @@ defmodule BeatgridWeb.RecSetLive do
   defp first_track_id([%{track: %{id: id}} | _]), do: id
   defp first_track_id(_), do: nil
 
+  # Loudness jump (LU) from the previous entry to entry `i` (1-based) — nil at the top
+  # or when either track is unmeasured. Drives the between-track "salto" marker.
+  defp loudness_jump(entries, i) when i > 1 do
+    with %{track: %{loudness_lufs: cur}} when is_number(cur) <- Enum.at(entries, i - 1),
+         %{track: %{loudness_lufs: prev}} when is_number(prev) <- Enum.at(entries, i - 2) do
+      Float.round(cur - prev, 1)
+    else
+      _ -> nil
+    end
+  end
+
+  defp loudness_jump(_entries, _i), do: nil
+
+  defp loudness_jump_label(delta) do
+    sign = if delta >= 0, do: "+", else: ""
+    prefix = if abs(delta) >= 3, do: "salto · ", else: ""
+    "#{prefix}#{sign}#{delta} LU"
+  end
+
   defp fader_label(:style), do: "Estilo"
   defp fader_label(:harmony), do: "Tom"
   defp fader_label(:bpm), do: "Tempo"
@@ -454,57 +473,64 @@ defmodule BeatgridWeb.RecSetLive do
             <.toast :if={@toast} toast={@toast} />
 
             <ol class="mt-4 space-y-1">
-              <li
-                :for={{e, i} <- Enum.with_index(@entries, 1)}
-                class={[
+              <li :for={{e, i} <- Enum.with_index(@entries, 1)} class="space-y-1">
+                <div :if={loudness_jump(@entries, i)} class="flex justify-center">
+                  <span class={[
+                    "font-mono text-[10px]",
+                    loudness_delta_class(loudness_jump(@entries, i))
+                  ]}>
+                    {loudness_jump_label(loudness_jump(@entries, i))}
+                  </span>
+                </div>
+                <div class={[
                   "flex items-center gap-3 rounded-lg px-2.5 py-2",
                   (e.track.id == @playing_track_id && "bg-primary/15 ring-1 ring-primary/40") ||
                     "bg-surface"
-                ]}
-              >
-                <span class="w-5 shrink-0 text-right font-mono text-[12px] text-ink-faint">{i}</span>
-                <.play_button
-                  src={~p"/audio/#{e.track.id}"}
-                  track_id={e.track.id}
-                  preview={false}
-                  size={28}
-                  set_id={@set.id}
-                  playing?={e.track.id == @playing_track_id}
-                />
-                <.cover src={cover_src(e.track)} artist={e.track.tag_artist} size={34} />
-                <div class="min-w-0 flex-1">
-                  <p class="truncate text-body font-medium">{title(e.track)}</p>
-                  <p class="truncate text-caption text-ink-muted">{e.track.tag_artist || "—"}</p>
-                </div>
-                <span
-                  :if={role_label(e.role)}
-                  class="shrink-0 rounded-full bg-primary/15 px-2 py-px text-[10px] font-semibold text-primary"
-                >
-                  {role_label(e.role)}
-                </span>
-                <.camelot_seal value={camelot(e.track)} />
-                <span class="w-10 text-right font-mono text-body text-primary">{bpm(e.track)}</span>
-                <div class="flex shrink-0 items-center gap-1 text-[12px]">
-                  <button
-                    phx-click="move"
-                    phx-value-track={e.track.id}
-                    phx-value-dir="up"
-                    class="text-ink-faint hover:text-ink"
-                    title="Subir"
-                  >▲</button>
-                  <button
-                    phx-click="move"
-                    phx-value-track={e.track.id}
-                    phx-value-dir="down"
-                    class="text-ink-faint hover:text-ink"
-                    title="Descer"
-                  >▼</button>
-                  <button
-                    phx-click="remove"
-                    phx-value-track={e.track.id}
-                    class="ml-1 text-ink-muted hover:text-coral"
-                    title="Remover"
-                  >✕</button>
+                ]}>
+                  <span class="w-5 shrink-0 text-right font-mono text-[12px] text-ink-faint">{i}</span>
+                  <.play_button
+                    src={~p"/audio/#{e.track.id}"}
+                    track_id={e.track.id}
+                    preview={false}
+                    size={28}
+                    set_id={@set.id}
+                    playing?={e.track.id == @playing_track_id}
+                  />
+                  <.cover src={cover_src(e.track)} artist={e.track.tag_artist} size={34} />
+                  <div class="min-w-0 flex-1">
+                    <p class="truncate text-body font-medium">{title(e.track)}</p>
+                    <p class="truncate text-caption text-ink-muted">{e.track.tag_artist || "—"}</p>
+                  </div>
+                  <span
+                    :if={role_label(e.role)}
+                    class="shrink-0 rounded-full bg-primary/15 px-2 py-px text-[10px] font-semibold text-primary"
+                  >
+                    {role_label(e.role)}
+                  </span>
+                  <.camelot_seal value={camelot(e.track)} />
+                  <span class="w-10 text-right font-mono text-body text-primary">{bpm(e.track)}</span>
+                  <div class="flex shrink-0 items-center gap-1 text-[12px]">
+                    <button
+                      phx-click="move"
+                      phx-value-track={e.track.id}
+                      phx-value-dir="up"
+                      class="text-ink-faint hover:text-ink"
+                      title="Subir"
+                    >▲</button>
+                    <button
+                      phx-click="move"
+                      phx-value-track={e.track.id}
+                      phx-value-dir="down"
+                      class="text-ink-faint hover:text-ink"
+                      title="Descer"
+                    >▼</button>
+                    <button
+                      phx-click="remove"
+                      phx-value-track={e.track.id}
+                      class="ml-1 text-ink-muted hover:text-coral"
+                      title="Remover"
+                    >✕</button>
+                  </div>
                 </div>
               </li>
             </ol>

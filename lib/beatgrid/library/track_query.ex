@@ -152,6 +152,7 @@ defmodule Beatgrid.Library.TrackQuery do
   defp order_terms(:rating, d), do: [{nulls(d), dynamic([t], t.rating)}]
   defp order_terms(:confidence, d), do: [{nulls(d), dynamic([t], t.sc_match_confidence)}]
   defp order_terms(:energy, d), do: [{nulls(d), dynamic([_t, song: s], s.energy)}]
+  defp order_terms(:loudness, d), do: [{nulls(d), dynamic([t], t.loudness_lufs)}]
 
   defp order_terms(:bpm, d),
     do: [

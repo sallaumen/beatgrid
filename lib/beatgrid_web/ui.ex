@@ -94,6 +94,20 @@ defmodule BeatgridWeb.UI do
   def confidence_label(:low), do: "BAIXA"
   def confidence_label(_), do: "SEM MATCH"
 
+  @doc "Integrated loudness for display, e.g. -14.2 LUFS (an em dash when unmeasured)."
+  def format_lufs(nil), do: "—"
+  def format_lufs(lufs), do: "#{Float.round(lufs, 1)} LUFS"
+
+  @doc "Suggested gain with an explicit sign, e.g. +2.1 dB or -3.0 dB (em dash when unmeasured)."
+  def format_gain(nil), do: "—"
+  def format_gain(gain) when gain > 0, do: "+#{Float.round(gain, 1)} dB"
+  def format_gain(gain), do: "#{Float.round(gain, 1)} dB"
+
+  @doc "Color for a loudness jump (LU) between consecutive set tracks (bigger = hotter)."
+  def loudness_delta_class(delta) when abs(delta) >= 6, do: "text-coral"
+  def loudness_delta_class(delta) when abs(delta) >= 3, do: "text-amber"
+  def loudness_delta_class(_delta), do: "text-ink-faint"
+
   @doc """
   Track cover: the album art (`src`) when available, falling back to a stable
   gradient + initials placeholder (also shown if the image fails to load).

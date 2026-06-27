@@ -4,7 +4,7 @@ defmodule BeatgridWeb.DashboardLive do
 
   import BeatgridWeb.UI
 
-  alias Beatgrid.{Analysis, Repertoire, YouTube}
+  alias Beatgrid.{Analysis, Loudness, Repertoire, YouTube}
   alias Beatgrid.Library.GenreFolders
   alias Beatgrid.Workers.{EnrichWorker, RecommendWorker}
 
@@ -12,6 +12,7 @@ defmodule BeatgridWeb.DashboardLive do
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Analysis.subscribe()
+      Loudness.subscribe()
       YouTube.subscribe()
       YouTube.subscribe_enrich()
       Repertoire.subscribe()
@@ -31,6 +32,8 @@ defmodule BeatgridWeb.DashboardLive do
        decades: Repertoire.decade_distribution() |> Enum.sort_by(fn {d, _} -> d end),
        analysis: Analysis.progress(),
        analysis_note: nil,
+       loudness: Loudness.progress(),
+       loudness_note: nil,
        youtube_pending: YouTube.pending_count(),
        youtube_note: nil,
        enrich: nil,
@@ -64,6 +67,17 @@ defmodule BeatgridWeb.DashboardLive do
         else: "Tudo já analisado. ✔"
 
     {:noreply, assign(socket, analysis: Analysis.progress(), analysis_note: note)}
+  end
+
+  def handle_event("analyze_loudness", _params, socket) do
+    {:ok, n} = Loudness.enqueue_pending()
+
+    note =
+      if n > 0,
+        do: "#{n} faixa(s) na fila — medindo loudness em segundo plano…",
+        else: "Loudness de tudo já medido. ✔"
+
+    {:noreply, assign(socket, loudness: Loudness.progress(), loudness_note: note)}
   end
 
   def handle_event("download_youtube", %{"urls" => urls}, socket) do
@@ -128,6 +142,10 @@ defmodule BeatgridWeb.DashboardLive do
   @impl true
   def handle_info({:analysis_tick}, socket) do
     {:noreply, assign(socket, analysis: Analysis.progress())}
+  end
+
+  def handle_info({:loudness_tick}, socket) do
+    {:noreply, assign(socket, loudness: Loudness.progress())}
   end
 
   def handle_info({:youtube_tick}, socket) do
@@ -262,6 +280,34 @@ defmodule BeatgridWeb.DashboardLive do
                 class="shrink-0 rounded-md bg-primary px-3.5 py-1.5 text-body-sm font-semibold text-white disabled:opacity-40"
               >
                 Analisar faltantes ({max(@analysis.total - @analysis.analyzed, 0)})
+              </button>
+            </div>
+
+            <div class="mt-4 flex items-center justify-between gap-4 border-t border-white/6 pt-4">
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center justify-between text-body-sm">
+                  <span class="text-ink-secondary">Loudness (LUFS)</span>
+                  <span class="font-mono text-ink-muted">
+                    {@loudness.measured}/{@loudness.total} medidas
+                  </span>
+                </div>
+                <div class="mt-1.5 h-[7px] rounded-full bg-white/5">
+                  <div
+                    class="bg-amber h-full rounded-full transition-all"
+                    style={"width:#{pct(@loudness.measured, @loudness.total)}%"}
+                  >
+                  </div>
+                </div>
+                <p :if={@loudness_note} class="mt-1.5 text-caption text-ink-muted">
+                  {@loudness_note}
+                </p>
+              </div>
+              <button
+                phx-click="analyze_loudness"
+                disabled={@loudness.measured >= @loudness.total}
+                class="text-amber shrink-0 rounded-md bg-amber/20 px-3.5 py-1.5 text-body-sm font-semibold disabled:opacity-40"
+              >
+                Analisar loudness ({max(@loudness.total - @loudness.measured, 0)})
               </button>
             </div>
           </.panel>

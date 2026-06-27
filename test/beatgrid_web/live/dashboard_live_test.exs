@@ -9,7 +9,7 @@ defmodule BeatgridWeb.DashboardLiveTest do
 
   alias Beatgrid.Library.Tracks
   alias Beatgrid.Repertoire
-  alias Beatgrid.Workers.{EnrichWorker, ExpandWorker, RecommendWorker}
+  alias Beatgrid.Workers.{EnrichWorker, ExpandWorker, LoudnessWorker, RecommendWorker}
 
   setup :set_mox_global
 
@@ -144,6 +144,16 @@ defmodule BeatgridWeb.DashboardLiveTest do
 
     html = view |> element("button[phx-click=analyze_library]") |> render_click()
     assert html =~ "enfileirada"
+  end
+
+  test "the Operações panel enqueues a loudness analysis", %{conn: conn} do
+    insert(:track, status: :present, loudness_lufs: nil)
+
+    {:ok, view, html} = live(conn, ~p"/painel")
+    assert html =~ "Loudness (LUFS)"
+
+    view |> element("button[phx-click=analyze_loudness]") |> render_click()
+    assert_enqueued(worker: LoudnessWorker)
   end
 
   test "the YouTube panel enqueues downloads from pasted URLs", %{conn: conn} do

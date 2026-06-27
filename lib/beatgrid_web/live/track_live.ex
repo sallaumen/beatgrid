@@ -6,6 +6,7 @@ defmodule BeatgridWeb.TrackLive do
 
   alias Beatgrid.Analysis
   alias Beatgrid.Library.Tracks
+  alias Beatgrid.Loudness
   alias Beatgrid.Mixing
   alias Beatgrid.Repertoire
   alias Beatgrid.Sets
@@ -231,6 +232,11 @@ defmodule BeatgridWeb.TrackLive do
                 <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Tom</span>
                 <.camelot_seal value={camelot(@track)} />
               </div>
+              <.stat
+                :if={@track.loudness_lufs}
+                label="Vol."
+                value={format_gain(Loudness.gain_db(@track.loudness_lufs, @track.true_peak_dbtp))}
+              />
               <.confidence_chip level={@track.sc_match_confidence} />
               <button
                 phx-click="enrich_track"
@@ -342,6 +348,35 @@ defmodule BeatgridWeb.TrackLive do
           <p :if={bpm_discrepancy?(@track)} class="mt-2 text-caption text-amber">
             ⚠ Os BPMs divergem bastante (possível erro de dobro/metade) — confira ouvindo na onda.
           </p>
+
+          <div class="mt-3 border-t border-white/6 pt-3">
+            <p class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+              Loudness
+              <span class="text-ink-faint">· alvo {format_lufs(Loudness.target_lufs())}</span>
+            </p>
+            <div
+              :if={@track.loudness_lufs}
+              class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-body-sm"
+            >
+              <span>
+                <span class="text-amber font-mono">{format_lufs(@track.loudness_lufs)}</span>
+                <span class="text-ink-faint">integrado</span>
+              </span>
+              <span :if={@track.true_peak_dbtp}>
+                <span class="text-ink-secondary font-mono">{Float.round(@track.true_peak_dbtp, 1)} dBTP</span>
+                <span class="text-ink-faint">true-peak</span>
+              </span>
+              <span>
+                <span class="font-mono text-primary">
+                  {format_gain(Loudness.gain_db(@track.loudness_lufs, @track.true_peak_dbtp))}
+                </span>
+                <span class="text-ink-faint">ganho sugerido</span>
+              </span>
+            </div>
+            <p :if={!@track.loudness_lufs} class="text-ink-faint mt-1 text-caption">
+              Ainda não medido — rode “Analisar loudness” no Painel.
+            </p>
+          </div>
         </section>
 
         <div class="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-2">

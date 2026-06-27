@@ -319,4 +319,33 @@ defmodule BeatgridWeb.RecSetLiveTest do
     assert {:error, {:live_redirect, %{to: "/set"}}} =
              live(conn, ~p"/set/00000000-0000-0000-0000-000000000000")
   end
+
+  @tag :tmp_dir
+  test "flags a loudness jump between consecutive set tracks", %{conn: conn} do
+    quiet =
+      track_with("8A", 120.0,
+        tag_title: "Quiet",
+        tag_artist: "A",
+        norm_title: "quiet",
+        norm_artist: "a",
+        loudness_lufs: -20.0
+      )
+
+    loud =
+      track_with("8A", 121.0,
+        tag_title: "Loud",
+        tag_artist: "B",
+        norm_title: "loud",
+        norm_artist: "b",
+        loudness_lufs: -10.0
+      )
+
+    {:ok, set} = Sets.create("Jumps")
+    Sets.append(set, quiet)
+    Sets.append(set, loud)
+
+    {:ok, _view, html} = live(conn, ~p"/set/#{set.id}")
+    assert html =~ "salto"
+    assert html =~ "+10.0 LU"
+  end
 end
