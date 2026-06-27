@@ -169,7 +169,7 @@ defmodule Beatgrid.Mixing do
     |> Enum.take(limit)
   end
 
-  defp candidates(exclude, _prev_eff, _opts) do
+  defp candidates(exclude, prev_eff, opts) do
     Track
     |> where([t], t.status == :present)
     |> where([t], t.id not in ^exclude)
@@ -178,9 +178,44 @@ defmodule Beatgrid.Mixing do
       not is_nil(t.soundcharts_song_id) or not is_nil(t.camelot_detected) or
         not is_nil(t.bpm_detected)
     )
+    |> maybe_min_rating(opts[:min_rating])
+    |> maybe_exclude_styles(opts[:exclude_styles])
     |> preload(:soundcharts_song)
     |> Repo.all()
+    |> filter_effective(prev_eff, opts)
   end
+
+  defp maybe_min_rating(query, n) when is_integer(n), do: where(query, [t], t.rating >= ^n)
+  defp maybe_min_rating(query, _), do: query
+
+  defp maybe_exclude_styles(query, [_ | _] = keys),
+    do: where(query, [t], t.genre_folder not in ^keys)
+
+  defp maybe_exclude_styles(query, _), do: query
+
+  defp filter_effective(tracks, prev_eff, opts) do
+    bpm_min = opts[:bpm_min]
+    bpm_max = opts[:bpm_max]
+    harmonic? = opts[:harmonic_only] == true
+
+    Enum.filter(tracks, fn t ->
+      e = effective(t)
+      bpm_ok?(e.bpm, bpm_min, bpm_max) and harmonic_ok?(harmonic?, prev_eff, e.camelot)
+    end)
+  end
+
+  defp bpm_ok?(_bpm, nil, nil), do: true
+  defp bpm_ok?(nil, _min, _max), do: false
+
+  defp bpm_ok?(bpm, min, max),
+    do: (is_nil(min) or bpm >= min) and (is_nil(max) or bpm <= max)
+
+  defp harmonic_ok?(false, _prev_eff, _camelot), do: true
+  defp harmonic_ok?(true, nil, _camelot), do: true
+  defp harmonic_ok?(true, _prev_eff, nil), do: false
+
+  defp harmonic_ok?(true, %{camelot: a}, b),
+    do: a == b or Camelot.compatible?(a, b)
 
   defp score(track, prev_eff, target_style, target_intensity, weights) do
     e = effective(track)

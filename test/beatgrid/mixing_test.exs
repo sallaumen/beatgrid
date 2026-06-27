@@ -140,6 +140,51 @@ defmodule Beatgrid.MixingTest do
     end
   end
 
+  describe "rank/1 filters" do
+    test "harmonic_only keeps only key-compatible candidates" do
+      prev = sc_track(camelot: "8A", tempo_bpm: 120.0, tag_title: "P")
+      compat = sc_track(camelot: "8A", tempo_bpm: 120.0, tag_title: "Compat")
+      far = sc_track(camelot: "3B", tempo_bpm: 120.0, tag_title: "Far")
+
+      ids =
+        Mixing.rank(prev: prev, harmonic_only: true, exclude: [prev.id], limit: 50)
+        |> Enum.map(& &1.track.id)
+
+      assert compat.id in ids
+      refute far.id in ids
+    end
+
+    test "bpm_min/bpm_max bound the pool by effective bpm" do
+      in_range = sc_track(camelot: "8A", tempo_bpm: 122.0, tag_title: "InRange")
+      too_fast = sc_track(camelot: "8A", tempo_bpm: 150.0, tag_title: "TooFast")
+
+      ids = Mixing.rank(bpm_min: 110, bpm_max: 130, limit: 50) |> Enum.map(& &1.track.id)
+      assert in_range.id in ids
+      refute too_fast.id in ids
+    end
+
+    test "min_rating and exclude_styles drop tracks" do
+      keep =
+        sc_track(camelot: "8A", tempo_bpm: 120.0, tag_title: "Keep", rating: 9)
+        |> set_folder("forro")
+
+      low =
+        sc_track(camelot: "8A", tempo_bpm: 120.0, tag_title: "Low", rating: 2)
+        |> set_folder("forro")
+
+      banned =
+        sc_track(camelot: "8A", tempo_bpm: 120.0, tag_title: "Banned", rating: 9)
+        |> set_folder("mpb")
+
+      ids =
+        Mixing.rank(min_rating: 7, exclude_styles: ["mpb"], limit: 50) |> Enum.map(& &1.track.id)
+
+      assert keep.id in ids
+      refute low.id in ids
+      refute banned.id in ids
+    end
+  end
+
   defp set_folder(track, folder) do
     {:ok, t} = Tracks.update(track, %{genre_folder: folder})
     t
