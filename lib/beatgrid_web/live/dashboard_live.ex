@@ -21,7 +21,8 @@ defmodule BeatgridWeb.DashboardLive do
     gaps_folder = folders |> List.first() |> then(&(&1 && &1.key))
 
     {:ok,
-     assign(socket,
+     socket
+     |> assign(
        page_title: "Painel",
        overview: Repertoire.overview(),
        genres: Repertoire.genre_distribution() |> Enum.sort_by(fn {_k, v} -> -v end),
@@ -34,21 +35,24 @@ defmodule BeatgridWeb.DashboardLive do
        youtube_note: nil,
        enrich: nil,
        folders: folders,
-       gaps_folder: gaps_folder,
-       recs: load_recs(gaps_folder),
        recommending?: false
-     )}
+     )
+     |> assign_gaps(gaps_folder)}
   end
 
-  defp load_recs(nil), do: []
+  # One query feeds both the per-folder gap counts (for the folder chips) and the
+  # selected folder's recommendation list — grouping/filtering in Elixir avoids a
+  # second round-trip. Re-run whenever the gaps change (selection, generate, import,
+  # dismiss).
+  defp assign_gaps(socket, folder) do
+    gaps = Repertoire.list_recommendations(source: :gaps, statuses: [:new, :imported])
 
-  defp load_recs(folder),
-    do:
-      Repertoire.list_recommendations(
-        genre_folder: folder,
-        source: :gaps,
-        statuses: [:new, :imported]
-      )
+    assign(socket,
+      gaps_folder: folder,
+      gap_counts: Enum.frequencies_by(gaps, & &1.genre_folder),
+      recs: Enum.filter(gaps, &(&1.genre_folder == folder))
+    )
+  end
 
   @impl true
   def handle_event("analyze_library", _params, socket) do
@@ -80,7 +84,7 @@ defmodule BeatgridWeb.DashboardLive do
   end
 
   def handle_event("select_folder", %{"folder" => key}, socket) do
-    {:noreply, assign(socket, gaps_folder: key, recs: load_recs(key))}
+    {:noreply, assign_gaps(socket, key)}
   end
 
   def handle_event("fetch_gaps", _params, socket) do
@@ -109,7 +113,7 @@ defmodule BeatgridWeb.DashboardLive do
           "#{rec.artist} — #{rec.song}: na fila — veja em Jobs."
       end
 
-    {:noreply, assign(socket, recs: load_recs(socket.assigns.gaps_folder), youtube_note: note)}
+    {:noreply, socket |> assign_gaps(socket.assigns.gaps_folder) |> assign(youtube_note: note)}
   end
 
   def handle_event("dismiss_rec", %{"id" => id}, socket) do
@@ -118,7 +122,7 @@ defmodule BeatgridWeb.DashboardLive do
       rec -> Repertoire.set_recommendation_status(rec, :dismissed)
     end
 
-    {:noreply, assign(socket, recs: load_recs(socket.assigns.gaps_folder))}
+    {:noreply, assign_gaps(socket, socket.assigns.gaps_folder)}
   end
 
   @impl true
@@ -152,7 +156,7 @@ defmodule BeatgridWeb.DashboardLive do
   def handle_info({:recommend_progress, %{scope: "folder", key: key, status: status}}, socket)
       when status in [:done, :error] do
     if key == socket.assigns.gaps_folder do
-      {:noreply, assign(socket, recommending?: false, recs: load_recs(key))}
+      {:noreply, socket |> assign(recommending?: false) |> assign_gaps(key)}
     else
       {:noreply, assign(socket, recommending?: false)}
     end
@@ -204,7 +208,7 @@ defmodule BeatgridWeb.DashboardLive do
           <p class="text-body-sm text-ink-muted">{@overview.total} faixas na biblioteca</p>
         </header>
 
-        <div class="mx-auto max-w-6xl space-y-5 px-6 py-5">
+        <div class="mx-auto max-w-[1600px] space-y-5 px-6 py-5">
           <section class="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
             <.kpi_card label="Total" value={@overview.total} color="#8b7bf0" />
             <.kpi_card
@@ -317,7 +321,7 @@ defmodule BeatgridWeb.DashboardLive do
             </.link>
           </.panel>
 
-          <div class="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <div class="grid grid-cols-1 gap-5 lg:grid-cols-2 2xl:grid-cols-4">
             <.panel title="Distribuição por gênero">
               <div :if={@genres != []} class="space-y-2">
                 <.bar_row
@@ -378,24 +382,35 @@ defmodule BeatgridWeb.DashboardLive do
           </div>
 
           <.panel title="Lacunas no repertório (IA)">
-            <div class="flex flex-wrap items-center gap-2">
-              <form id="gaps-form" phx-change="select_folder" class="min-w-0 flex-1">
-                <label class="sr-only" for="gaps-folder">Pasta</label>
-                <select
-                  id="gaps-folder"
-                  name="folder"
-                  class="w-full rounded-md border border-white/8 bg-input px-2.5 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none sm:max-w-[220px]"
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <button
+                  :for={f <- @folders}
+                  type="button"
+                  phx-click="select_folder"
+                  phx-value-folder={f.key}
+                  class={[
+                    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-semibold transition-colors",
+                    f.key == @gaps_folder && "border-primary/60 bg-primary/15 text-ink",
+                    f.key != @gaps_folder && "border-white/8 text-ink-muted hover:text-ink"
+                  ]}
                 >
-                  <option :for={f <- @folders} value={f.key} selected={f.key == @gaps_folder}>
-                    {f.display_name}
-                  </option>
-                </select>
-              </form>
+                  <span class="size-2 rounded-full" style={"background:#{folder_color(f.key)}"} />
+                  {f.display_name}
+                  <span class={[
+                    "rounded-full px-1.5 text-[10px] font-bold tabular-nums",
+                    (Map.get(@gap_counts, f.key, 0) > 0 && "bg-primary/25 text-primary") ||
+                      "text-ink-faint bg-white/8"
+                  ]}>
+                    {Map.get(@gap_counts, f.key, 0)}
+                  </span>
+                </button>
+              </div>
               <button
                 type="button"
                 phx-click="fetch_gaps"
                 disabled={@recommending? or is_nil(@gaps_folder)}
-                class="inline-flex items-center gap-2 rounded-md bg-primary px-3.5 py-1.5 text-body-sm font-semibold text-white transition-opacity disabled:opacity-50"
+                class="inline-flex shrink-0 items-center gap-2 rounded-md bg-primary px-3.5 py-1.5 text-body-sm font-semibold text-white transition-opacity disabled:opacity-50"
               >
                 <span
                   :if={@recommending?}
@@ -410,7 +425,7 @@ defmodule BeatgridWeb.DashboardLive do
               Sugestões de faixas que faltam nesta pasta, geradas pela IA (não gasta cota). Ficam salvas aqui até você baixar ou dispensar.
             </p>
 
-            <div :if={@recs != []} class="mt-3 space-y-1.5">
+            <div :if={@recs != []} class="mt-3 grid gap-2 lg:grid-cols-2">
               <.rec_row :for={rec <- @recs} rec={rec} />
             </div>
 
