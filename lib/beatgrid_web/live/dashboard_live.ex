@@ -7,12 +7,14 @@ defmodule BeatgridWeb.DashboardLive do
   alias Beatgrid.{Analysis, Repertoire, YouTube}
   alias Beatgrid.Library.GenreFolders
   alias Beatgrid.Repertoire.RecommendationAI
+  alias Beatgrid.Workers.EnrichWorker
 
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Analysis.subscribe()
       YouTube.subscribe()
+      YouTube.subscribe_enrich()
     end
 
     folders = GenreFolders.list()
@@ -29,7 +31,7 @@ defmodule BeatgridWeb.DashboardLive do
        analysis_note: nil,
        youtube_pending: YouTube.pending_count(),
        youtube_note: nil,
-       enriching?: false,
+       enrich: nil,
        folders: folders,
        gaps_folder: folders |> List.first() |> then(&(&1 && &1.key)),
        gaps: nil,
@@ -62,10 +64,9 @@ defmodule BeatgridWeb.DashboardLive do
   end
 
   def handle_event("enrich_youtube", _params, socket) do
-    {:noreply,
-     socket
-     |> assign(enriching?: true, youtube_note: nil)
-     |> start_async(:enrich, &YouTube.enrich_pending/0)}
+    bid = Uniq.UUID.uuid7()
+    Oban.insert(EnrichWorker.new(%{"scope" => "pending", "batch_id" => bid}))
+    {:noreply, assign(socket, enrich: %{status: :queued}, youtube_note: nil)}
   end
 
   def handle_event("select_folder", %{"folder" => key}, socket) do
@@ -94,25 +95,6 @@ defmodule BeatgridWeb.DashboardLive do
     {:noreply, assign(socket, gaps_loading: false, gaps_error: inspect(reason))}
   end
 
-  def handle_async(:enrich, {:ok, {:ok, %{enriched: n, resolved: r}}}, socket) do
-    note =
-      if n > 0,
-        do: "#{n} faixa(s) enriquecida(s) (#{r} com match) — revise na Central de Revisão.",
-        else: "Nada pendente para enriquecer."
-
-    {:noreply,
-     assign(socket,
-       enriching?: false,
-       youtube_note: note,
-       youtube_pending: YouTube.pending_count()
-     )}
-  end
-
-  def handle_async(:enrich, {:exit, reason}, socket) do
-    {:noreply,
-     assign(socket, enriching?: false, youtube_note: "Falha ao enriquecer: #{inspect(reason)}")}
-  end
-
   @impl true
   def handle_info({:analysis_tick}, socket) do
     {:noreply, assign(socket, analysis: Analysis.progress())}
@@ -120,6 +102,29 @@ defmodule BeatgridWeb.DashboardLive do
 
   def handle_info({:youtube_tick}, socket) do
     {:noreply, assign(socket, youtube_pending: YouTube.pending_count())}
+  end
+
+  # Batch enrich progress (only the "pending" scope concerns the dashboard).
+  def handle_info({:enrich_progress, %{scope: "pending", status: :done} = p}, socket) do
+    {:noreply,
+     assign(socket,
+       enrich: p,
+       youtube_note: enrich_summary(p),
+       youtube_pending: YouTube.pending_count()
+     )}
+  end
+
+  def handle_info({:enrich_progress, %{scope: "pending"} = p}, socket) do
+    {:noreply, assign(socket, enrich: p)}
+  end
+
+  def handle_info({:enrich_progress, _payload}, socket), do: {:noreply, socket}
+
+  defp enrich_summary(%{done: 0}), do: "Nada pendente para enriquecer."
+
+  defp enrich_summary(%{done: n, resolved: r} = p) do
+    base = "#{n} enriquecida(s) (#{r} com match)"
+    if p[:budget_exhausted], do: base <> " — cota esgotada.", else: base <> "."
   end
 
   # --- helpers ---
@@ -133,6 +138,21 @@ defmodule BeatgridWeb.DashboardLive do
   defp decade_label(d), do: "#{d}s"
 
   defp conf(by_confidence, level), do: Map.get(by_confidence, level, 0)
+
+  # Enrich progress-bar helpers (mirrors ReviewLive's reeval bar).
+  defp enrich_running?(%{status: :queued}), do: true
+  defp enrich_running?(%{status: :running}), do: true
+  defp enrich_running?(_enrich), do: false
+
+  defp enrich_label(%{status: :queued}), do: "Enriquecendo — na fila…"
+
+  defp enrich_label(%{status: :running, done: d, total: t}),
+    do: "Enriquecendo #{d}/#{t}…"
+
+  defp enrich_label(_enrich), do: "Enriquecendo…"
+
+  defp enrich_pct(%{done: d, total: t}) when is_integer(t) and t > 0, do: round(d / t * 100)
+  defp enrich_pct(_enrich), do: 0
 
   @impl true
   def render(assigns) do
@@ -223,13 +243,26 @@ defmodule BeatgridWeb.DashboardLive do
               </span>
               <button
                 phx-click="enrich_youtube"
-                disabled={@enriching? or @youtube_pending == 0}
+                disabled={enrich_running?(@enrich) or @youtube_pending == 0}
                 class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm text-ink-secondary hover:text-ink disabled:opacity-40"
               >
-                {if @enriching?,
+                {if enrich_running?(@enrich),
                   do: "Enriquecendo…",
                   else: "Enriquecer pendentes (#{@youtube_pending})"}
               </button>
+            </div>
+
+            <div
+              :if={enrich_running?(@enrich)}
+              class="mt-2 rounded-lg border border-white/8 bg-base px-3 py-2"
+            >
+              <p class="text-body-sm text-ink-secondary">{enrich_label(@enrich)}</p>
+              <div class="mt-1.5 h-1.5 w-full rounded-full bg-white/5">
+                <div
+                  class="h-full rounded-full bg-primary transition-[width]"
+                  style={"width:#{enrich_pct(@enrich)}%"}
+                />
+              </div>
             </div>
 
             <p :if={@youtube_note} class="mt-1.5 text-caption text-ink-muted">{@youtube_note}</p>

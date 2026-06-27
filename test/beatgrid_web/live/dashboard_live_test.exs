@@ -1,14 +1,14 @@
 defmodule BeatgridWeb.DashboardLiveTest do
   # async: false — the gaps flow runs an async task that talks to the (globally
   # stubbed) AI mock and the shared sandbox.
-  use BeatgridWeb.ConnCase, async: false
+  use BeatgridWeb.ConnCase, async: false, oban: true
 
   import Phoenix.LiveViewTest
   import Beatgrid.Factory
   import Mox
 
   alias Beatgrid.Library.Tracks
-  alias Beatgrid.Soundcharts.Response
+  alias Beatgrid.Workers.EnrichWorker
 
   setup :set_mox_global
 
@@ -83,48 +83,47 @@ defmodule BeatgridWeb.DashboardLiveTest do
     assert html =~ ~s(href="/jobs")
   end
 
-  test "enriching pending YouTube imports runs and reports back", %{conn: conn} do
-    insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB", description: "d")
-
-    insert(:track,
-      status: :present,
-      genre_folder: nil,
-      soundcharts_song_id: nil,
-      tag_artist: "A",
-      tag_title: "B",
-      norm_artist: "a",
-      norm_title: "b",
-      rel_path: "_Inbox/x.mp3"
-    )
-
-    stub(Beatgrid.Soundcharts.Mock, :search_song, fn _term ->
-      {:ok, %Response{data: [], quota_remaining: 999, status: 200}}
-    end)
-
-    stub(Beatgrid.AI.Mock, :complete, fn _p, _s, _o ->
-      {:ok,
-       %{
-         "classifications" => [
-           %{"index" => 1, "folder" => "mpb", "confidence" => 0.5, "rationale" => "r"}
-         ],
-         "resolutions" => [
-           %{
-             "index" => 1,
-             "same_recording" => true,
-             "artist" => "A",
-             "title" => "B",
-             "confidence" => 0.9,
-             "rationale" => "ok"
-           }
-         ]
-       }}
-    end)
+  test "enriching pending YouTube imports enqueues an EnrichWorker batch job", %{conn: conn} do
+    insert(:track, status: :present, genre_folder: nil, soundcharts_song_id: nil)
 
     {:ok, view, _html} = live(conn, ~p"/painel")
     view |> element("button[phx-click=enrich_youtube]") |> render_click()
-    html = render_async(view)
 
-    assert html =~ "enriquecid"
+    assert_enqueued(worker: EnrichWorker, args: %{scope: "pending"})
+    # The progress bar shows while the batch is queued/running.
+    assert render(view) =~ "Enriquecendo"
+  end
+
+  test "an enrich-progress :done event updates the note and pending count live",
+       %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/painel")
+    assert render(view) =~ "Pendentes de enriquecimento: 0"
+
+    # A still-pending track exists when the batch finishes (its count is re-read).
+    insert(:track, status: :present, genre_folder: nil, soundcharts_song_id: nil)
+
+    send(
+      view.pid,
+      {:enrich_progress,
+       %{scope: "pending", status: :done, done: 3, total: 3, resolved: 2, budget_exhausted: false}}
+    )
+
+    html = render(view)
+    assert html =~ "3 enriquecida(s) (2 com match)"
+    assert html =~ "Pendentes de enriquecimento: 1"
+  end
+
+  test "an enrich-progress :done event with budget exhausted notes the exhausted quota",
+       %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/painel")
+
+    send(
+      view.pid,
+      {:enrich_progress,
+       %{scope: "pending", status: :done, done: 1, total: 5, resolved: 0, budget_exhausted: true}}
+    )
+
+    assert render(view) =~ "cota esgotada"
   end
 
   test "a youtube tick refreshes the pending-enrichment count live", %{conn: conn} do

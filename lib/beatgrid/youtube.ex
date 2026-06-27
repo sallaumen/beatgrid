@@ -23,6 +23,7 @@ defmodule Beatgrid.YouTube do
            )
 
   @topic "youtube"
+  @enrich_topic "enrich"
 
   @doc "Subscribe to download-progress ticks."
   @spec subscribe() :: :ok | {:error, term()}
@@ -31,6 +32,15 @@ defmodule Beatgrid.YouTube do
   @doc "Broadcast a `{:youtube_tick}` after a download finishes."
   @spec broadcast_tick() :: :ok
   def broadcast_tick, do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @topic, {:youtube_tick})
+
+  @doc "Subscribe to enrich-progress events (`{:enrich_progress, payload}`)."
+  @spec subscribe_enrich() :: :ok | {:error, term()}
+  def subscribe_enrich, do: Phoenix.PubSub.subscribe(Beatgrid.PubSub, @enrich_topic)
+
+  @doc "Broadcast an enrich-progress event (separate from the download topic)."
+  @spec broadcast_enrich(map()) :: :ok
+  def broadcast_enrich(payload),
+    do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @enrich_topic, {:enrich_progress, payload})
 
   @doc "Count of tracks downloaded but not yet enriched (present, unresolved, unfiled)."
   @spec pending_count() :: non_neg_integer()
@@ -89,6 +99,26 @@ defmodule Beatgrid.YouTube do
   end
 
   @doc """
+  Resolves ONE track against Soundcharts (spends quota), reproposes a rename if
+  matched, and re-evaluates its pending rename suggestions. Returns
+  `:resolved | :no_match | :budget_exhausted`. This is the quota-spending,
+  per-track step shared by the on-demand and batch enrich flows (it does NOT
+  reclassify — callers batch that to keep AI calls together).
+  """
+  @spec resolve_track_enrich(binary()) :: :resolved | :no_match | :budget_exhausted
+  def resolve_track_enrich(id) do
+    case id |> Tracks.get() |> Soundcharts.resolve_track() do
+      {:error, :budget_exhausted} ->
+        :budget_exhausted
+
+      result ->
+        repropose_if_matched(id)
+        Review.reevaluate_track(id)
+        if match?({:ok, _}, result), do: :resolved, else: :no_match
+    end
+  end
+
+  @doc """
   Enriches ONE track on demand: resolves it against Soundcharts (spends quota),
   re-proposes a rename if it matched, and re-classifies it — so suggestions land in
   the Central de Revisão. Returns `{:ok, %{resolved: boolean}}` on success or
@@ -97,17 +127,13 @@ defmodule Beatgrid.YouTube do
   @spec enrich_track(binary()) ::
           {:ok, %{resolved: boolean()}} | {:error, :budget_exhausted}
   def enrich_track(id) do
-    result = id |> Tracks.get() |> Soundcharts.resolve_track()
-
-    case result do
-      {:error, :budget_exhausted} ->
+    case resolve_track_enrich(id) do
+      :budget_exhausted ->
         {:error, :budget_exhausted}
 
-      _ ->
-        repropose_if_matched(id)
-        Review.reevaluate_track(id)
+      outcome ->
         ClassificationAI.reclassify(tracks: [Tracks.get(id)])
-        {:ok, %{resolved: match?({:ok, _}, result)}}
+        {:ok, %{resolved: outcome == :resolved}}
     end
   end
 
@@ -131,14 +157,17 @@ defmodule Beatgrid.YouTube do
     {:ok, %{enriched: length(ids), resolved: resolved}}
   end
 
-  defp pending_ids do
+  @doc "Ids of pending (downloaded-but-unfiled) tracks: present, unresolved, unfiled."
+  @spec pending_ids() :: [binary()]
+  def pending_ids do
     [status: :present, resolved: false, genre_folder: nil]
     |> Tracks.list_by()
     |> Enum.map(& &1.id)
   end
 
-  # Ask the AI to extract artist/title for tracks the heuristic couldn't split.
-  defp refine_titles(ids) do
+  @doc "Ask the AI to extract artist/title for tracks the heuristic couldn't split (batch, no quota)."
+  @spec refine_titles([binary()]) :: :ok
+  def refine_titles(ids) do
     ambiguous = ids |> Enum.map(&Tracks.get/1) |> Enum.filter(&ambiguous?/1)
 
     with [_ | _] <- ambiguous,

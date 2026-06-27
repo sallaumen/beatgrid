@@ -6,7 +6,7 @@ defmodule BeatgridWeb.TrackLiveTest do
 
   alias Beatgrid.Analysis
   alias Beatgrid.Library.Tracks
-  alias Beatgrid.Workers.AnalyzeWorker
+  alias Beatgrid.Workers.{AnalyzeWorker, EnrichWorker}
 
   test "shows the detail and updates rating, tags and note", %{conn: conn} do
     song = insert(:soundcharts_song, camelot: "8A", tempo_bpm: 120.0, energy: 0.6)
@@ -186,5 +186,84 @@ defmodule BeatgridWeb.TrackLiveTest do
     assert html =~ "Re-analisar"
     refute html =~ "Analisando…"
     assert html =~ "128"
+  end
+
+  test "clicking Atualizar metadados enqueues an EnrichWorker track job", %{conn: conn} do
+    track =
+      insert(:track,
+        status: :present,
+        tag_title: "Sina",
+        tag_artist: "Djavan",
+        analyzed_at: ~U[2026-01-01 00:00:00Z]
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
+    view |> element("button[phx-click=enrich_track]") |> render_click()
+
+    assert_enqueued(worker: EnrichWorker, args: %{scope: "track", id: track.id})
+    assert render(view) =~ "Atualizando…"
+  end
+
+  test "an enrich :done event for this track clears enriching? and toasts", %{conn: conn} do
+    track =
+      insert(:track,
+        status: :present,
+        tag_title: "Sina",
+        tag_artist: "Djavan",
+        analyzed_at: ~U[2026-01-01 00:00:00Z]
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
+    view |> element("button[phx-click=enrich_track]") |> render_click()
+    assert render(view) =~ "Atualizando…"
+
+    send(
+      view.pid,
+      {:enrich_progress,
+       %{
+         scope: "track",
+         id: track.id,
+         status: :done,
+         done: 1,
+         total: 1,
+         resolved: 1,
+         budget_exhausted: false
+       }}
+    )
+
+    html = render(view)
+    refute html =~ "Atualizando…"
+    assert html =~ "Metadados atualizados"
+  end
+
+  test "an enrich :done event for another track is ignored", %{conn: conn} do
+    track =
+      insert(:track,
+        status: :present,
+        tag_title: "Sina",
+        tag_artist: "Djavan",
+        analyzed_at: ~U[2026-01-01 00:00:00Z]
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
+    view |> element("button[phx-click=enrich_track]") |> render_click()
+    assert render(view) =~ "Atualizando…"
+
+    # Progress for a different track id must not clear this view's state.
+    send(
+      view.pid,
+      {:enrich_progress,
+       %{
+         scope: "track",
+         id: Ecto.UUID.generate(),
+         status: :done,
+         done: 1,
+         total: 1,
+         resolved: 1,
+         budget_exhausted: false
+       }}
+    )
+
+    assert render(view) =~ "Atualizando…"
   end
 end

@@ -8,7 +8,7 @@ defmodule BeatgridWeb.TrackLive do
   alias Beatgrid.Library.Tracks
   alias Beatgrid.Mixing
   alias Beatgrid.Sets
-  alias Beatgrid.Workers.AnalyzeWorker
+  alias Beatgrid.Workers.{AnalyzeWorker, EnrichWorker}
   alias Beatgrid.YouTube
   alias Phoenix.LiveView.JS
 
@@ -44,6 +44,7 @@ defmodule BeatgridWeb.TrackLive do
 
     if connected?(socket) do
       Analysis.subscribe()
+      YouTube.subscribe_enrich()
       if is_nil(track.analyzed_at), do: enqueue_analyze(socket), else: socket
     else
       socket
@@ -102,37 +103,13 @@ defmodule BeatgridWeb.TrackLive do
 
   def handle_event("enrich_track", _params, socket) do
     id = socket.assigns.track.id
-
-    {:noreply,
-     socket
-     |> assign(enriching?: true, toast: nil)
-     |> start_async(:enrich, fn -> YouTube.enrich_track(id) end)}
+    bid = Uniq.UUID.uuid7()
+    Oban.insert(EnrichWorker.new(%{"scope" => "track", "id" => id, "batch_id" => bid}))
+    {:noreply, assign(socket, enriching?: true, toast: nil)}
   end
 
   def handle_event("dismiss_toast", _params, socket) do
     {:noreply, assign(socket, toast: nil)}
-  end
-
-  @impl true
-  def handle_async(:enrich, {:ok, {:ok, %{resolved: resolved}}}, socket) do
-    msg =
-      if resolved,
-        do: "Metadados atualizados — revise na Central de Revisão.",
-        else: "Sem match no Soundcharts; classificação atualizada."
-
-    {:noreply,
-     socket
-     |> assign(enriching?: false, toast: {:ok, msg})
-     |> reload()}
-  end
-
-  def handle_async(:enrich, {:ok, {:error, :budget_exhausted}}, socket) do
-    {:noreply, assign(socket, enriching?: false, toast: {:error, "Cota Soundcharts esgotada."})}
-  end
-
-  def handle_async(:enrich, {:exit, _reason}, socket) do
-    {:noreply,
-     assign(socket, enriching?: false, toast: {:error, "Falha ao atualizar metadados."})}
   end
 
   # A background analysis finished (tick is global; reloading this one track is
@@ -142,6 +119,22 @@ defmodule BeatgridWeb.TrackLive do
     socket = reload(socket)
     {:noreply, assign(socket, analyzing?: is_nil(socket.assigns.track.analyzed_at))}
   end
+
+  # This track's enrich job finished (the topic is global; ignore other tracks'
+  # progress and the batch/pending scope, which the dashboard owns).
+  def handle_info({:enrich_progress, %{id: id, status: :done} = p}, socket)
+      when id == socket.assigns.track.id do
+    {:noreply, socket |> assign(enriching?: false, toast: enrich_done_toast(p)) |> reload()}
+  end
+
+  def handle_info({:enrich_progress, _payload}, socket), do: {:noreply, socket}
+
+  defp enrich_done_toast(%{budget_exhausted: true}), do: {:error, "Cota Soundcharts esgotada."}
+
+  defp enrich_done_toast(%{resolved: r}) when is_integer(r) and r > 0,
+    do: {:ok, "Metadados atualizados — revise na Central de Revisão."}
+
+  defp enrich_done_toast(_p), do: {:ok, "Sem match no Soundcharts; classificação atualizada."}
 
   defp save(socket, attrs) do
     {:ok, _} = Tracks.update(socket.assigns.track, attrs)
