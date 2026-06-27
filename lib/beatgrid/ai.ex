@@ -23,6 +23,12 @@ defmodule Beatgrid.AI do
              Beatgrid.AI.ClaudeCli
            )
 
+  @doc "Calls the AI client with the model default applied. The single AI entry point."
+  @spec complete(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def complete(prompt, schema, opts \\ []) do
+    @adapter.complete(prompt, schema, Keyword.put_new(opts, :model, model()))
+  end
+
   @type result :: %{
           track: Track.t(),
           folder: String.t(),
@@ -443,8 +449,8 @@ defmodule Beatgrid.AI do
     }
   end
 
-  defp model, do: config(:model, "sonnet")
-  defp batch_size, do: config(:batch_size, 15)
+  def model, do: config(:model, "sonnet")
+  def batch_size, do: config(:batch_size, 15)
 
   defp config(key, default),
     do: :beatgrid |> Application.get_env(Beatgrid.AI, []) |> Keyword.get(key, default)
