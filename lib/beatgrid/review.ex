@@ -28,6 +28,9 @@ defmodule Beatgrid.Review do
   # Suggestions still in the review queue (not yet applied/undone/failed).
   @open ~w(pending approved rejected)a
 
+  @reeval_topic "reevaluate"
+  @scope_preload [track: :soundcharts_song]
+
   # ---- listing (track preloaded for the cards) ----
 
   @spec queue_renames() :: [RenameSuggestion.t()]
@@ -134,61 +137,80 @@ defmodule Beatgrid.Review do
 
   # ---- apply every approved suggestion to disk, logged & reversible ----
 
-  @doc "Re-evaluates every pending rename with the AI verifier (quota-free)."
-  @spec reevaluate_all_renames() :: {:ok, %{updated: non_neg_integer()}} | {:error, term()}
-  def reevaluate_all_renames do
-    [status: :pending, preload: [track: :soundcharts_song]] |> NameSync.list_by() |> reevaluate()
-  end
+  @doc "Subscribe to re-evaluation progress ticks."
+  @spec subscribe() :: :ok | {:error, term()}
+  def subscribe, do: Phoenix.PubSub.subscribe(Beatgrid.PubSub, @reeval_topic)
 
-  @doc "Re-evaluates the pending rename suggestions whose ids are given."
-  @spec reevaluate_renames([Ecto.UUID.t()]) ::
-          {:ok, %{updated: non_neg_integer()}} | {:error, term()}
-  def reevaluate_renames(ids) when is_list(ids) do
-    set = MapSet.new(ids)
+  @doc "Broadcast a re-evaluation progress tick."
+  @spec broadcast_progress(map()) :: :ok
+  def broadcast_progress(payload),
+    do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @reeval_topic, {:reevaluate_progress, payload})
 
-    [status: :pending, preload: [track: :soundcharts_song]]
-    |> NameSync.list_by()
-    |> Enum.filter(&MapSet.member?(set, &1.id))
-    |> reevaluate()
+  @doc "Resolves a re-evaluation scope (string-keyed, Oban-args-shaped) to a suggestion list."
+  @spec suggestions_for_scope(map()) :: [RenameSuggestion.t()]
+  def suggestions_for_scope(%{"scope" => "unevaluated"}),
+    do:
+      NameSync.list_by(status: :pending, preload: @scope_preload)
+      |> Enum.filter(&is_nil(&1.rationale))
+
+  def suggestions_for_scope(%{"scope" => "pending"}),
+    do: NameSync.list_by(status: :pending, preload: @scope_preload)
+
+  def suggestions_for_scope(%{"scope" => "rejected"}),
+    do: NameSync.list_by(status: :rejected, preload: @scope_preload)
+
+  def suggestions_for_scope(%{"scope" => "folder", "folder" => key}),
+    do:
+      NameSync.list_by(status: :pending, preload: @scope_preload)
+      |> Enum.filter(&(&1.track.genre_folder == key))
+
+  def suggestions_for_scope(%{"scope" => "one", "id" => id}),
+    do: NameSync.list_by(statuses: @open, preload: @scope_preload) |> Enum.filter(&(&1.id == id))
+
+  def suggestions_for_scope(_), do: []
+
+  @doc "Re-evaluates ONE chunk of suggestions via the AI verifier; returns the count updated."
+  @spec reevaluate_chunk([RenameSuggestion.t()]) :: non_neg_integer()
+  def reevaluate_chunk([]), do: 0
+
+  def reevaluate_chunk(suggestions) do
+    case AI.resolve_names(Enum.map(suggestions, & &1.track)) do
+      {:ok, results} ->
+        by_id = Map.new(results, &{&1.track.id, &1})
+        Enum.count(suggestions, &apply_resolution(&1, by_id[&1.track_id]))
+
+      {:error, _reason} ->
+        0
+    end
   end
 
   @doc "Re-evaluates the pending rename suggestions of a single track (used after enrich)."
-  @spec reevaluate_track(Ecto.UUID.t()) :: {:ok, %{updated: non_neg_integer()}} | {:error, term()}
+  @spec reevaluate_track(Ecto.UUID.t()) :: {:ok, %{updated: non_neg_integer()}}
   def reevaluate_track(track_id) do
-    [status: :pending, preload: [track: :soundcharts_song]]
+    [status: :pending, preload: @scope_preload]
     |> NameSync.list_by()
     |> Enum.filter(&(&1.track_id == track_id))
-    |> reevaluate()
+    |> reevaluate_list()
   end
 
-  @doc "Re-evaluates the pending rename suggestions of several tracks in one batch."
-  @spec reevaluate_tracks([Ecto.UUID.t()]) ::
-          {:ok, %{updated: non_neg_integer()}} | {:error, term()}
+  @doc "Re-evaluates the pending rename suggestions of several tracks in one batch (used after enrich)."
+  @spec reevaluate_tracks([Ecto.UUID.t()]) :: {:ok, %{updated: non_neg_integer()}}
   def reevaluate_tracks(track_ids) when is_list(track_ids) do
     set = MapSet.new(track_ids)
 
-    [status: :pending, preload: [track: :soundcharts_song]]
+    [status: :pending, preload: @scope_preload]
     |> NameSync.list_by()
     |> Enum.filter(&MapSet.member?(set, &1.track_id))
-    |> reevaluate()
+    |> reevaluate_list()
   end
 
-  defp reevaluate([]), do: {:ok, %{updated: 0}}
+  defp reevaluate_list([]), do: {:ok, %{updated: 0}}
 
-  defp reevaluate(suggestions) do
+  defp reevaluate_list(suggestions) do
     updated =
       suggestions
       |> Enum.chunk_every(@reevaluate_batch)
-      |> Enum.reduce(0, fn chunk, acc ->
-        case AI.resolve_names(Enum.map(chunk, & &1.track)) do
-          {:ok, results} ->
-            by_id = Map.new(results, &{&1.track.id, &1})
-            acc + Enum.count(chunk, &apply_resolution(&1, by_id[&1.track_id]))
-
-          {:error, _reason} ->
-            acc
-        end
-      end)
+      |> Enum.reduce(0, fn chunk, acc -> acc + reevaluate_chunk(chunk) end)
 
     {:ok, %{updated: updated}}
   end
@@ -204,12 +226,10 @@ defmodule Beatgrid.Review do
         do: NameSync.canonical_filename(song.credit_name, song.name, ext),
         else: NameSync.canonical_filename(r.artist, r.title, ext)
 
-    with {:ok, _} <-
-           NameSync.refine(suggestion, %{
-             to_filename: to,
-             rationale: r.rationale,
-             confidence: confidence_atom(r.confidence)
-           }),
+    attrs = %{to_filename: to, rationale: r.rationale, confidence: confidence_atom(r.confidence)}
+    attrs = if suggestion.status == :rejected, do: Map.put(attrs, :status, :pending), else: attrs
+
+    with {:ok, _} <- NameSync.refine(suggestion, attrs),
          {:ok, _} <- Tracks.update(suggestion.track, %{sc_art_trusted: r.same_recording}) do
       true
     else

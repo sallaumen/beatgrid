@@ -1,5 +1,5 @@
 defmodule BeatgridWeb.ReviewLiveTest do
-  use BeatgridWeb.ConnCase, async: true
+  use BeatgridWeb.ConnCase, async: false, oban: true
 
   import Mox
   import Phoenix.LiveViewTest
@@ -170,7 +170,29 @@ defmodule BeatgridWeb.ReviewLiveTest do
     refute render(view) =~ "verify/title"
   end
 
-  test "re-avaliar com IA updates a rename suggestion's name", %{conn: conn} do
+  test "a scope click enqueues a ReevaluateWorker", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/revisao")
+
+    view
+    |> element("button[phx-click='reevaluate'][phx-value-scope='unevaluated']")
+    |> render_click()
+
+    assert [job] = all_enqueued(worker: Beatgrid.Workers.ReevaluateWorker)
+    assert job.args["scope"] == "unevaluated"
+  end
+
+  test "a progress tick renders the live progress bar", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/revisao")
+
+    send(
+      view.pid,
+      {:reevaluate_progress, %{batch_id: "b1", status: :running, done: 3, total: 10}}
+    )
+
+    assert render(view) =~ "3/10"
+  end
+
+  test "re-avaliar com IA updates a rename suggestion's name via job + progress", %{conn: conn} do
     pending_rename()
 
     stub(Beatgrid.AI.Mock, :complete, fn _p, _s, _o ->
@@ -190,9 +212,12 @@ defmodule BeatgridWeb.ReviewLiveTest do
     end)
 
     {:ok, view, _html} = live(conn, ~p"/revisao")
-    view |> element("button[phx-click='reevaluate_all']") |> render_click()
-    html = render_async(view)
+    view |> element("button[phx-click='reevaluate'][phx-value-scope='pending']") |> render_click()
 
+    [job] = all_enqueued(worker: Beatgrid.Workers.ReevaluateWorker)
+    perform_job(Beatgrid.Workers.ReevaluateWorker, job.args)
+
+    html = render(view)
     assert html =~ "Forró In The Dark - Cajuína"
   end
 end

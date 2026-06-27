@@ -6,9 +6,12 @@ defmodule BeatgridWeb.ReviewLive do
 
   alias Beatgrid.Library.GenreFolders
   alias Beatgrid.{Operations, Review}
+  alias Beatgrid.Workers.ReevaluateWorker
 
   @impl true
   def mount(_params, _session, socket) do
+    if connected?(socket), do: Review.subscribe()
+
     {:ok,
      socket
      |> assign(
@@ -18,7 +21,8 @@ defmodule BeatgridWeb.ReviewLive do
        toast: nil,
        applying?: false,
        selected: MapSet.new(),
-       folders: GenreFolders.list()
+       folders: GenreFolders.list(),
+       reeval: nil
      )
      |> load()}
   end
@@ -122,18 +126,33 @@ defmodule BeatgridWeb.ReviewLive do
 
   def handle_event("dismiss_toast", _params, socket), do: {:noreply, assign(socket, toast: nil)}
 
-  def handle_event("reevaluate_all", _params, socket) do
-    {:noreply,
-     socket
-     |> assign(toast: {:reevaluating, %{}})
-     |> start_async(:reevaluate, fn -> Review.reevaluate_all_renames() end)}
+  def handle_event("reevaluate", %{"scope" => scope} = params, socket) do
+    enqueue_reeval(%{"scope" => scope} |> maybe_folder(params))
+    {:noreply, assign(socket, reeval: %{status: :queued})}
+  end
+
+  def handle_event("reevaluate_folder", %{"folder" => ""}, socket), do: {:noreply, socket}
+
+  def handle_event("reevaluate_folder", %{"folder" => key}, socket) do
+    enqueue_reeval(%{"scope" => "folder", "folder" => key})
+    {:noreply, assign(socket, reeval: %{status: :queued})}
   end
 
   def handle_event("reevaluate_one", %{"id" => id}, socket) do
-    {:noreply,
-     socket
-     |> assign(toast: {:reevaluating, %{}})
-     |> start_async(:reevaluate, fn -> Review.reevaluate_renames([id]) end)}
+    enqueue_reeval(%{"scope" => "one", "id" => id})
+    {:noreply, assign(socket, reeval: %{status: :queued})}
+  end
+
+  defp maybe_folder(args, %{"folder" => f}) when f not in [nil, ""],
+    do: Map.put(args, "folder", f)
+
+  defp maybe_folder(args, _params), do: args
+
+  defp enqueue_reeval(args) do
+    args
+    |> Map.put("batch_id", Uniq.UUID.uuid7())
+    |> ReevaluateWorker.new()
+    |> Oban.insert()
   end
 
   @impl true
@@ -156,16 +175,17 @@ defmodule BeatgridWeb.ReviewLive do
     {:noreply, assign(socket, toast: {:error, :re_resolve})}
   end
 
-  def handle_async(:reevaluate, {:ok, {:ok, %{updated: n}}}, socket) do
-    {:noreply, socket |> assign(toast: {:reevaluated, %{updated: n}}) |> load()}
-  end
-
-  def handle_async(:reevaluate, _other, socket) do
-    {:noreply, assign(socket, toast: {:error, :reevaluate})}
-  end
-
   def handle_async(_name, {:exit, reason}, socket) do
     {:noreply, assign(socket, applying?: false, toast: {:error, reason})}
+  end
+
+  @impl true
+  def handle_info({:reevaluate_progress, %{status: :done} = p}, socket) do
+    {:noreply, socket |> assign(reeval: p) |> load()}
+  end
+
+  def handle_info({:reevaluate_progress, p}, socket) do
+    {:noreply, assign(socket, reeval: p)}
   end
 
   # --- helpers ---
@@ -243,13 +263,27 @@ defmodule BeatgridWeb.ReviewLive do
               >
                 Marcar todas
               </button>
-              <button
-                :if={@tab == :renames}
-                phx-click="reevaluate_all"
-                class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm text-ink-secondary hover:text-ink"
-              >
-                Re-avaliar com IA
-              </button>
+              <div :if={@tab == :renames} class="flex flex-wrap items-center gap-1.5">
+                <span class="text-ink-faint text-[11px]">Re-avaliar com IA:</span>
+                <button phx-click="reevaluate" phx-value-scope="unevaluated" class={reeval_btn()}>
+                  Não-avaliados
+                </button>
+                <button phx-click="reevaluate" phx-value-scope="pending" class={reeval_btn()}>
+                  Pendentes
+                </button>
+                <button phx-click="reevaluate" phx-value-scope="rejected" class={reeval_btn()}>
+                  Rejeitados
+                </button>
+                <form id="reeval-folder-form" phx-change="reevaluate_folder">
+                  <select
+                    name="folder"
+                    class="rounded-md border border-white/8 bg-input px-2 py-1.5 text-[12px]"
+                  >
+                    <option value="">Por pasta…</option>
+                    <option :for={f <- @folders} value={f.key}>{f.display_name}</option>
+                  </select>
+                </form>
+              </div>
               <button
                 :if={MapSet.size(@selected) > 0}
                 phx-click="clear_selection"
@@ -297,6 +331,16 @@ defmodule BeatgridWeb.ReviewLive do
           <p class="mb-3 text-caption text-ink-faint">
             {count_summary(@items, @selected)}
           </p>
+
+          <div :if={@reeval} class="mb-3 rounded-lg border border-white/8 bg-surface px-3 py-2">
+            <p class="text-body-sm text-ink-secondary">{reeval_label(@reeval)}</p>
+            <div class="mt-1.5 h-1.5 w-full rounded-full bg-white/5">
+              <div
+                class="h-full rounded-full bg-primary transition-[width]"
+                style={"width:#{reeval_pct(@reeval)}%"}
+              />
+            </div>
+          </div>
 
           <div :if={@items != []} class="space-y-2.5">
             <%= for s <- @items do %>
@@ -466,15 +510,27 @@ defmodule BeatgridWeb.ReviewLive do
   defp toast_message({:resolving, _}), do: "Re-resolvendo no Soundcharts…"
   defp toast_message({:resolved, _}), do: "Re-resolvido — confira a nova sugestão em Renomeações."
   defp toast_message({:no_match, _}), do: "Sem novo match no Soundcharts."
-  defp toast_message({:reevaluating, _}), do: "Re-avaliando com IA…"
-
-  defp toast_message({:reevaluated, %{updated: n}}),
-    do: "#{n} sugestão(ões) re-avaliada(s) com IA."
-
   defp toast_message({:error, _reason}), do: "Falha na operação. Nada foi alterado."
 
   defp count_summary(items, selected) do
     marked = Enum.count(items, &MapSet.member?(selected, &1.id))
     "#{length(items)} nesta aba · #{marked} marcada(s)"
   end
+
+  defp reeval_btn,
+    do:
+      "rounded-md border border-white/10 bg-input px-2.5 py-1.5 text-[12px] text-ink-secondary hover:text-ink"
+
+  defp reeval_label(%{status: :queued}), do: "Re-avaliando com IA — na fila…"
+
+  defp reeval_label(%{status: :running, done: d, total: t}),
+    do: "Re-avaliando com IA — #{d}/#{t}…"
+
+  defp reeval_label(%{status: :done, updated: u}),
+    do: "Re-avaliação concluída — #{u} atualizada(s)."
+
+  defp reeval_label(_), do: "Re-avaliando com IA…"
+
+  defp reeval_pct(%{done: d, total: t}) when is_integer(t) and t > 0, do: round(d / t * 100)
+  defp reeval_pct(_), do: 0
 end

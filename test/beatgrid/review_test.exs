@@ -249,7 +249,107 @@ defmodule Beatgrid.ReviewTest do
     end
   end
 
-  describe "reevaluate_renames/1" do
+  describe "suggestions_for_scope/1 + reevaluate_chunk/1" do
+    import Mox
+    setup :verify_on_exit!
+
+    defp pending_rename(attrs) do
+      song = insert(:soundcharts_song, credit_name: "Caetano Veloso", name: "Cajuína")
+      n = :erlang.unique_integer([:positive])
+      filename = "Cajuina-#{n}.mp3"
+      rel_path = "_Inbox/#{filename}"
+
+      track =
+        insert(
+          :track,
+          Keyword.merge(
+            [
+              status: :present,
+              tag_title: "Cajuina",
+              filename: filename,
+              rel_path: rel_path,
+              soundcharts_song_id: song.id
+            ],
+            attrs[:track] || []
+          )
+        )
+
+      {:ok, sug} =
+        %RenameSuggestion{}
+        |> RenameSuggestion.changeset(
+          Map.merge(
+            %{
+              track_id: track.id,
+              from_rel_path: track.rel_path,
+              from_filename: track.filename,
+              to_filename: "Caetano Veloso - Cajuína.mp3",
+              status: :pending
+            },
+            attrs[:sug] || %{}
+          )
+        )
+        |> Repo.insert()
+
+      {track, sug}
+    end
+
+    test "unevaluated scope returns only pending suggestions without a rationale" do
+      {_t1, s1} = pending_rename(sug: %{rationale: nil})
+      {_t2, _s2} = pending_rename(sug: %{rationale: "already evaluated"})
+
+      ids =
+        Review.suggestions_for_scope(%{"scope" => "unevaluated"}) |> Enum.map(& &1.id)
+
+      assert ids == [s1.id]
+    end
+
+    test "folder scope filters by the track's genre_folder" do
+      {_t1, s1} = pending_rename(track: [genre_folder: "forro_roots"])
+      {_t2, _s2} = pending_rename(track: [genre_folder: "mpb"])
+
+      ids =
+        Review.suggestions_for_scope(%{"scope" => "folder", "folder" => "forro_roots"})
+        |> Enum.map(& &1.id)
+
+      assert ids == [s1.id]
+    end
+
+    test "reevaluate_chunk re-evaluates a rejected suggestion and resets it to pending" do
+      {track, sug} =
+        pending_rename(track: [genre_folder: "forro_roots"], sug: %{status: :rejected})
+
+      expect(Beatgrid.AI.Mock, :complete, fn _p, _s, _o ->
+        {:ok,
+         %{
+           "resolutions" => [
+             %{
+               "index" => 1,
+               "same_recording" => false,
+               "artist" => "Forró In The Dark",
+               "title" => "Cajuína",
+               "confidence" => 0.7,
+               "rationale" => "versão forró"
+             }
+           ]
+         }}
+      end)
+
+      assert 1 =
+               Review.reevaluate_chunk([
+                 %{sug | track: Tracks.get_with_song(track.id)}
+               ])
+
+      reloaded = Repo.get(RenameSuggestion, sug.id)
+      assert reloaded.status == :pending
+      assert reloaded.to_filename == "Forró In The Dark - Cajuína.mp3"
+      assert reloaded.rationale =~ "forró"
+    end
+  end
+
+  describe "reevaluate via scope one" do
+    import Mox
+    setup :verify_on_exit!
+
     test "updates the suggestion + art flag from the AI verdict, no Soundcharts call" do
       insert(:genre_folder,
         key: "forro_roots",
@@ -299,7 +399,8 @@ defmodule Beatgrid.ReviewTest do
          }}
       end)
 
-      assert {:ok, %{updated: 1}} = Review.reevaluate_renames([sug.id])
+      suggestions = Review.suggestions_for_scope(%{"scope" => "one", "id" => sug.id})
+      assert 1 = Review.reevaluate_chunk(suggestions)
 
       reloaded = Repo.get(RenameSuggestion, sug.id)
       assert reloaded.to_filename == "Forró In The Dark - Cajuína.mp3"
