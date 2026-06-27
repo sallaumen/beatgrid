@@ -310,7 +310,7 @@ defmodule BeatgridWeb.RecSetLive do
   def render(assigns) do
     ~H"""
     <.app_shell active={:sets} socket={@socket}>
-      <div class="flex h-screen">
+      <div class="flex h-[calc(100vh_-_5rem)]">
         <aside class="flex w-60 shrink-0 flex-col border-r border-white/6 bg-rail">
           <div class="flex items-center justify-between px-4 py-3">
             <h2 class="text-[18px] font-semibold">Sets</h2>

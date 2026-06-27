@@ -365,7 +365,7 @@ defmodule BeatgridWeb.LibraryLive do
   def render(assigns) do
     ~H"""
     <.app_shell active={:biblioteca} socket={@socket}>
-      <div class="flex h-screen flex-col">
+      <div class="flex h-[calc(100vh_-_5rem)] flex-col">
         <header class="flex items-center justify-between gap-4 border-b border-white/6 bg-rail px-5 py-3">
           <div class="flex items-baseline gap-3">
             <h2 class="text-[22px] font-semibold">Biblioteca</h2>

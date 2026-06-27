@@ -158,9 +158,9 @@ defmodule BeatgridWeb.GenresLive do
           >
             <input type="hidden" name="key" value={f.key} />
             <div class="mb-2 flex items-center gap-2">
-              <span class="size-3 rounded-full" style={"background:#{folder_color(f.key)}"} />
-              <span class="text-body font-medium">{f.display_name}</span>
-              <span class="text-ink-faint font-mono text-[11px]">{f.key}</span>
+              <span class="size-3 shrink-0 rounded-full" style={"background:#{folder_color(f.key)}"} />
+              <span class="min-w-0 truncate text-body font-medium">{f.display_name}</span>
+              <span class="text-ink-faint shrink-0 font-mono text-[11px]">{f.key}</span>
               <div class="ml-auto flex items-center gap-2">
                 <button
                   type="button"

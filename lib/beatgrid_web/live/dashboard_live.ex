@@ -202,7 +202,7 @@ defmodule BeatgridWeb.DashboardLive do
   def render(assigns) do
     ~H"""
     <.app_shell active={:painel} socket={@socket}>
-      <div class="h-screen overflow-y-auto">
+      <div class="h-[calc(100vh_-_5rem)] overflow-y-auto">
         <header class="border-b border-white/6 bg-rail px-5 py-3">
           <h2 class="text-[22px] font-semibold">Painel</h2>
           <p class="text-body-sm text-ink-muted">{@overview.total} faixas na biblioteca</p>

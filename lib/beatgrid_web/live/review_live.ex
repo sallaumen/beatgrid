@@ -249,7 +249,7 @@ defmodule BeatgridWeb.ReviewLive do
         <header class="border-b border-white/6 bg-rail px-5 pt-3">
           <div class="flex items-center justify-between gap-4">
             <h2 class="text-[22px] font-semibold">Central de Revisão</h2>
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center justify-end gap-2">
               <button
                 :if={@tab != :auditoria}
                 phx-click="select_high"
