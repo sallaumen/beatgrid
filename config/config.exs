@@ -43,6 +43,10 @@ config :beatgrid, Beatgrid.AI, model: "sonnet", batch_size: 15
 # which the client refuses to call (the free tier is ~1,000 requests total).
 config :beatgrid, Beatgrid.Soundcharts, request_cap: 1000, budget_floor: 50
 
+# Limiar de visualizações no YouTube pra contar uma faixa como "popular" (Ouro).
+# Backend-driven, consultável na UI; ajustar aqui + restart (como target_lufs).
+config :beatgrid, Beatgrid.Gold, view_threshold: 1_000_000
+
 # Rule-based organization: source playlist (folder name) => genre folder key.
 # Used by `Beatgrid.Organization.suggest_by_rule/1` to seed move suggestions.
 config :beatgrid, :playlist_genre_rules, %{
