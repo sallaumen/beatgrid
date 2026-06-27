@@ -26,6 +26,7 @@ defmodule Beatgrid.Workers.EnrichWorker do
 
   alias Beatgrid.Library.Tracks
   alias Beatgrid.Organization.ClassificationAI
+  alias Beatgrid.Review
   alias Beatgrid.YouTube
 
   @impl Oban.Worker
@@ -68,8 +69,19 @@ defmodule Beatgrid.Workers.EnrichWorker do
       total: total
     })
 
-    # Batch AI title-refinement (no quota) before the per-track resolution loop.
-    YouTube.refine_titles(ids)
+    # Batch AI title-refinement (no quota) before the per-track resolution loop —
+    # reports per-batch progress so the bar moves instead of sitting at 0.
+    YouTube.refine_titles(ids, fn refined, refine_total ->
+      YouTube.broadcast_enrich(%{
+        batch_id: bid,
+        scope: "pending",
+        id: nil,
+        status: :refining,
+        done: refined,
+        total: refine_total
+      })
+    end)
+
     {done, resolved, budget} = enrich_ids(ids, bid, "pending", nil)
 
     YouTube.broadcast_enrich(%{
@@ -96,8 +108,15 @@ defmodule Beatgrid.Workers.EnrichWorker do
     {done, resolved, budget, processed} =
       Enum.reduce_while(ids, {0, 0, false, []}, &enrich_step(&1, &2, ctx))
 
-    if processed != [],
-      do: ClassificationAI.reclassify(tracks: Enum.map(processed, &Tracks.get/1))
+    # Tail: batch the AI re-evaluation + reclassification over just the tracks we
+    # processed (one batched pass, not one AI call per track) — the slow part, made
+    # visible with a `:finishing` phase.
+    if processed != [] do
+      YouTube.broadcast_enrich(Map.merge(ctx, %{status: :finishing, done: done}))
+      tracks = Enum.map(processed, &Tracks.get/1)
+      Review.reevaluate_tracks(processed)
+      ClassificationAI.reclassify(tracks: tracks)
+    end
 
     {done, resolved, budget}
   end

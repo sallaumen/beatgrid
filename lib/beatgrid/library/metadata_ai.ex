@@ -43,14 +43,24 @@ defmodule Beatgrid.Library.MetadataAI do
   that fails or comes back misaligned is logged and yields nil-field placeholders
   (callers skip those), so one bad batch never derails the rest. Always `{:ok, list}`.
   """
-  @spec parse_titles([String.t()]) :: {:ok, [ParsedTitle.t()]}
-  def parse_titles([]), do: {:ok, []}
+  @spec parse_titles([String.t()], (non_neg_integer(), non_neg_integer() -> any())) ::
+          {:ok, [ParsedTitle.t()]}
+  def parse_titles(raw_titles, on_progress \\ fn _done, _total -> :ok end)
 
-  def parse_titles(raw_titles) when is_list(raw_titles) do
-    parsed =
+  def parse_titles([], _on_progress), do: {:ok, []}
+
+  def parse_titles(raw_titles, on_progress) when is_list(raw_titles) do
+    total = length(raw_titles)
+
+    {parsed, _done} =
       raw_titles
       |> Enum.chunk_every(AI.batch_size())
-      |> Enum.flat_map(&parse_titles_chunk/1)
+      |> Enum.flat_map_reduce(0, fn chunk, done ->
+        result = parse_titles_chunk(chunk)
+        done = done + length(chunk)
+        on_progress.(done, total)
+        {result, done}
+      end)
 
     {:ok, parsed}
   end

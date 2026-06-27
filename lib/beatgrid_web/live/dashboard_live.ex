@@ -214,17 +214,26 @@ defmodule BeatgridWeb.DashboardLive do
   defp conf(by_confidence, level), do: Map.get(by_confidence, level, 0)
 
   # Enrich progress-bar helpers (mirrors ReviewLive's reeval bar).
-  defp enrich_running?(%{status: :queued}), do: true
-  defp enrich_running?(%{status: :running}), do: true
+  defp enrich_running?(%{status: status})
+       when status in [:queued, :running, :refining, :finishing],
+       do: true
+
   defp enrich_running?(_enrich), do: false
 
   defp enrich_label(%{status: :queued}), do: "Enriquecendo — na fila…"
 
+  defp enrich_label(%{status: :refining, done: d, total: t}),
+    do: "Refinando títulos com IA #{d}/#{t}…"
+
   defp enrich_label(%{status: :running, done: d, total: t}),
-    do: "Enriquecendo #{d}/#{t}…"
+    do: "Resolvendo no Soundcharts #{d}/#{t}…"
+
+  defp enrich_label(%{status: :finishing}), do: "Reavaliando e classificando com IA…"
 
   defp enrich_label(_enrich), do: "Enriquecendo…"
 
+  # During :finishing the per-item bar is full; show 100 so it doesn't look stalled.
+  defp enrich_pct(%{status: :finishing}), do: 100
   defp enrich_pct(%{done: d, total: t}) when is_integer(t) and t > 0, do: round(d / t * 100)
   defp enrich_pct(_enrich), do: 0
 

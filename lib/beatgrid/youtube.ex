@@ -107,6 +107,10 @@ defmodule Beatgrid.YouTube do
   per-track step shared by the on-demand and batch enrich flows (it does NOT
   reclassify — callers batch that to keep AI calls together).
   """
+  # Note: the AI re-evaluation of the resulting rename suggestion is NOT done here —
+  # it's batched by the caller (the worker does `Review.reevaluate_tracks/1` once at
+  # the end; `enrich_track/1` does it for its single track). Per-track AI calls in
+  # the loop made large batches crawl.
   @spec resolve_track_enrich(binary()) :: :resolved | :no_match | :budget_exhausted
   def resolve_track_enrich(id) do
     case id |> Tracks.get() |> Soundcharts.resolve_track() do
@@ -125,7 +129,6 @@ defmodule Beatgrid.YouTube do
         end
 
         repropose_if_matched(id)
-        Review.reevaluate_track(id)
         Gold.apply_resolve_result(Tracks.get(id), result)
         if match?({:ok, _}, result), do: :resolved, else: :no_match
     end
@@ -145,6 +148,7 @@ defmodule Beatgrid.YouTube do
         {:error, :budget_exhausted}
 
       outcome ->
+        Review.reevaluate_track(id)
         ClassificationAI.reclassify(tracks: [Tracks.get(id)])
         {:ok, %{resolved: outcome == :resolved}}
     end
@@ -184,14 +188,19 @@ defmodule Beatgrid.YouTube do
     |> Enum.map(& &1.id)
   end
 
-  @doc "Ask the AI to extract artist/title for tracks the heuristic couldn't split (batch, no quota)."
-  @spec refine_titles([binary()]) :: :ok
-  def refine_titles(ids) do
+  @doc """
+  Ask the AI to extract artist/title for tracks the heuristic couldn't split (batched,
+  no quota). `on_progress.(done, total)` fires per batch so the caller can show that
+  the (otherwise silent) refine phase is moving.
+  """
+  @spec refine_titles([binary()], (non_neg_integer(), non_neg_integer() -> any())) :: :ok
+  def refine_titles(ids, on_progress \\ fn _done, _total -> :ok end) do
     ambiguous = ids |> Enum.map(&Tracks.get/1) |> Enum.filter(&ambiguous?/1)
     Logger.info("YouTube.refine_titles: #{length(ambiguous)} ambíguos de #{length(ids)} faixas")
 
     with [_ | _] <- ambiguous,
-         {:ok, parsed} <- MetadataAI.parse_titles(Enum.map(ambiguous, &raw_title/1)) do
+         {:ok, parsed} <-
+           MetadataAI.parse_titles(Enum.map(ambiguous, &raw_title/1), on_progress) do
       refined =
         ambiguous
         |> Enum.zip(parsed)
