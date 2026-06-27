@@ -230,6 +230,26 @@ defmodule Beatgrid.Library do
   defp raw_title(row), do: row.title || Path.rootname(row.filename)
 
   @doc """
+  Effective audio attrs for a track: the Soundcharts value, falling back to the
+  locally-detected one (energy is Soundcharts-only). The track must have
+  `:soundcharts_song` preloaded.
+  """
+  @spec effective(Track.t()) :: %{
+          camelot: String.t() | nil,
+          bpm: number() | nil,
+          energy: float() | nil
+        }
+  def effective(%Track{} = track) do
+    song = track.soundcharts_song
+
+    %{
+      camelot: (song && song.camelot) || track.camelot_detected,
+      bpm: (song && song.tempo_bpm) || track.bpm_detected,
+      energy: song && song.energy
+    }
+  end
+
+  @doc """
   Moves a track's file to `dest_rel` (relative to the library root) and updates
   the row's `rel_path` and `genre_folder`. Never overwrites an existing file —
   a colliding destination gets a unique " (N)" suffix.

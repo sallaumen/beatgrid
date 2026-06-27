@@ -16,6 +16,7 @@ defmodule Beatgrid.Mixing do
   """
   import Ecto.Query
 
+  alias Beatgrid.Library
   alias Beatgrid.Library.Track
   alias Beatgrid.Mixing.StyleAffinity
   alias Beatgrid.Repo
@@ -243,15 +244,7 @@ defmodule Beatgrid.Mixing do
   end
 
   # Effective Camelot/BPM/energy: Soundcharts value, falling back to detected.
-  defp effective(track) do
-    song = track.soundcharts_song
-
-    %{
-      camelot: (song && song.camelot) || track.camelot_detected,
-      bpm: (song && song.tempo_bpm) || track.bpm_detected,
-      energy: song && song.energy
-    }
-  end
+  defp effective(track), do: Library.effective(track)
 
   defp intensity_of(%{energy: e}) when is_number(e), do: clamp(e)
 
