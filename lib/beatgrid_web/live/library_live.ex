@@ -43,7 +43,8 @@ defmodule BeatgridWeb.LibraryLive do
        import: nil,
        import_progress: nil,
        import_toast: nil,
-       playing_track_id: np.track_id
+       playing_track_id: np.track_id,
+       all_tags: Tracks.all_tags()
      )
      |> load_tracks()}
   end
@@ -67,6 +68,13 @@ defmodule BeatgridWeb.LibraryLive do
     {:noreply,
      socket
      |> update_filter(:unclassified, toggle(socket.assigns.filters[:unclassified], true))
+     |> load_tracks()}
+  end
+
+  def handle_event("toggle_tag", %{"tag" => tag}, socket) do
+    {:noreply,
+     socket
+     |> update_filter(:tag, toggle(socket.assigns.filters[:tag], tag))
      |> load_tracks()}
   end
 
@@ -331,7 +339,9 @@ defmodule BeatgridWeb.LibraryLive do
 
   defp load_tracks(socket) do
     filters = Map.put(socket.assigns.filters, :sort, socket.assigns.sort)
-    assign(socket, tracks: TrackQuery.library(filters))
+    # Recompute the tag chips alongside the rows so newly added/removed tags
+    # (here or on the track page) appear/disappear without a full page reload.
+    assign(socket, tracks: TrackQuery.library(filters), all_tags: Tracks.all_tags())
   end
 
   defp update_filter(socket, key, nil),
@@ -442,7 +452,7 @@ defmodule BeatgridWeb.LibraryLive do
 
         <div class="flex min-h-0 flex-1">
           <aside class="w-60 shrink-0 overflow-y-auto border-r border-white/6 bg-rail px-4 py-4">
-            <.filters_panel filters={@filters} folders={@folders} />
+            <.filters_panel filters={@filters} folders={@folders} tags={@all_tags} />
           </aside>
 
           <section class="min-w-0 flex-1 overflow-y-auto px-5 py-4">
@@ -475,6 +485,7 @@ defmodule BeatgridWeb.LibraryLive do
 
   attr :filters, :map, required: true
   attr :folders, :list, required: true
+  attr :tags, :list, default: []
 
   defp filters_panel(assigns) do
     assigns = assign(assigns, confidences: @confidences, camelot_codes: @camelot_codes)
@@ -527,6 +538,22 @@ defmodule BeatgridWeb.LibraryLive do
       >
         {folder.display_name}
       </button>
+    </div>
+
+    <div :if={@tags != []}>
+      <p class="mt-4 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+        Tags
+      </p>
+      <div class="flex flex-wrap gap-1.5">
+        <button
+          :for={tag <- @tags}
+          phx-click="toggle_tag"
+          phx-value-tag={tag}
+          class={chip_class(@filters[:tag] == tag)}
+        >
+          {tag}
+        </button>
+      </div>
     </div>
 
     <p class="mt-4 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
@@ -1137,11 +1164,14 @@ defmodule BeatgridWeb.LibraryLive do
 
   defp row_selected?(selected, id), do: MapSet.member?(selected, id)
 
-  # Soundcharts value, falling back to the locally-detected one.
+  # Manual override wins, then Soundcharts, then the locally-detected value — the
+  # same precedence the sort/filter use (TrackQuery coalesce) and Library.effective/1.
+  defp bpm(%{bpm_manual: b}) when is_number(b), do: round(b)
   defp bpm(%{soundcharts_song: %{tempo_bpm: b}}) when is_number(b), do: round(b)
   defp bpm(%{bpm_detected: b}) when is_number(b), do: round(b)
   defp bpm(_track), do: "—"
 
+  defp camelot(%{camelot_manual: c}) when is_binary(c), do: c
   defp camelot(%{soundcharts_song: %{camelot: c}}) when is_binary(c), do: c
   defp camelot(%{camelot_detected: c}) when is_binary(c), do: c
   defp camelot(_track), do: nil

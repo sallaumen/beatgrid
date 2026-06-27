@@ -24,7 +24,11 @@ defmodule BeatgridWeb.AudioController do
   end
 
   defp within_root?(path) do
-    String.starts_with?(Path.expand(path), Path.expand(Library.library_root()))
+    root = Path.expand(Library.library_root())
+    expanded = Path.expand(path)
+    # Trailing-separator guard so a sibling dir sharing the prefix (".../lib-evil")
+    # can't pass a bare String.starts_with? check.
+    expanded == root or String.starts_with?(expanded, root <> "/")
   end
 
   # Reviewed false-positives: `path` is `library_root <> track.rel_path` (DB data,

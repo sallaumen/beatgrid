@@ -122,7 +122,7 @@ defmodule BeatgridWeb.UI do
 
   defp br(f), do: f |> :erlang.float_to_binary(decimals: 1) |> String.replace(".", ",")
 
-  @doc "Idade da publicação no YouTube: \"há N anos\" / \"este ano\" / — quando nil."
+  @doc "Idade da publicação no YouTube em texto (há N anos · este ano · — quando nil)."
   def format_age(nil), do: "—"
 
   def format_age(%Date{} = date) do

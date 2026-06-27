@@ -59,6 +59,29 @@ defmodule Beatgrid.Library.TracksTest do
     end
   end
 
+  describe "all_tags/0" do
+    test "returns distinct, sorted, non-blank tags across the library" do
+      {:ok, _} =
+        Tracks.upsert_by_path(
+          attrs(%{rel_path: "a.mp3", filename: "a.mp3", tags: ["forró", "abertura"]})
+        )
+
+      {:ok, _} =
+        Tracks.upsert_by_path(
+          attrs(%{rel_path: "b.mp3", filename: "b.mp3", tags: ["forró", "fechamento", ""]})
+        )
+
+      {:ok, _} = Tracks.upsert_by_path(attrs(%{rel_path: "c.mp3", filename: "c.mp3", tags: []}))
+
+      assert Tracks.all_tags() == ["abertura", "fechamento", "forró"]
+    end
+
+    test "returns an empty list when no track has tags" do
+      {:ok, _} = Tracks.upsert_by_path(attrs())
+      assert Tracks.all_tags() == []
+    end
+  end
+
   describe "markers" do
     test "add_marker appends a cue point (sorted by position); remove_marker drops it" do
       {:ok, track} = Tracks.upsert_by_path(attrs())

@@ -2,6 +2,7 @@ defmodule Beatgrid.LibraryTest do
   use Beatgrid.DataCase, async: true
 
   alias Beatgrid.Library
+  alias Beatgrid.Library.Track
   alias Beatgrid.Library.Tracks
 
   describe "init_library/1" do
@@ -26,6 +27,26 @@ defmodule Beatgrid.LibraryTest do
       assert {:ok, _} = Library.init_library(root)
       assert {:ok, _} = Library.init_library(root)
       assert File.dir?(Path.join(root, "MPB"))
+    end
+  end
+
+  describe "rename/2 path safety" do
+    # safe_filename/1 rejects before any disk access, so these need no library_root.
+    test "rejects a filename containing path components or traversal" do
+      track = %Track{rel_path: "MPB/song.mp3", filename: "song.mp3"}
+
+      for bad <- [
+            "../evil.mp3",
+            "../../etc/passwd",
+            "/abs/evil.mp3",
+            "sub/nested.mp3",
+            "..",
+            ".",
+            ""
+          ] do
+        assert {:error, :invalid_filename} = Library.rename(track, bad),
+               "expected #{inspect(bad)} to be rejected"
+      end
     end
   end
 
@@ -77,7 +98,7 @@ defmodule Beatgrid.LibraryTest do
 
       assert {:ok, t} = Library.clear_gold_manual(%{t | gold_manual: true})
       assert is_nil(t.gold_manual)
-      assert is_nil(Beatgrid.Library.Tracks.get(t.id).gold_manual)
+      assert is_nil(Tracks.get(t.id).gold_manual)
     end
   end
 

@@ -68,6 +68,20 @@ defmodule Beatgrid.Library.TrackQueryTest do
       assert ids == [fast.id, slow.id, nobpm.id]
     end
 
+    test "sorts by key in Camelot wheel order, not lexically" do
+      s2a = insert(:soundcharts_song, camelot: "2A")
+      s10a = insert(:soundcharts_song, camelot: "10A")
+      s10b = insert(:soundcharts_song, camelot: "10B")
+      two_a = insert(:track, status: :present, soundcharts_song_id: s2a.id, norm_artist: "z")
+      ten_a = insert(:track, status: :present, soundcharts_song_id: s10a.id, norm_artist: "y")
+      ten_b = insert(:track, status: :present, soundcharts_song_id: s10b.id, norm_artist: "x")
+      nokey = insert(:track, status: :present, norm_artist: "a")
+
+      ids = TrackQuery.library(%{sort: {:key, :asc}}) |> Enum.map(& &1.id)
+      # 2A < 10A < 10B (numeric wheel order, A before B); nil key last.
+      assert ids == [two_a.id, ten_a.id, ten_b.id, nokey.id]
+    end
+
     test "filters by compatible key, energy range, rating_max, unclassified" do
       s8a = insert(:soundcharts_song, camelot: "8A", energy: 0.7)
       s3b = insert(:soundcharts_song, camelot: "3B", energy: 0.2)
@@ -100,6 +114,35 @@ defmodule Beatgrid.Library.TrackQueryTest do
       assert keep.id not in rmax_ids and far.id not in rmax_ids
 
       assert Enum.map(TrackQuery.library(%{unclassified: true}), & &1.id) == [inbox.id]
+    end
+
+    test "a decimal BPM filter value parses instead of crashing" do
+      song = insert(:soundcharts_song, tempo_bpm: 128.0)
+      keep = insert(:track, status: :present, soundcharts_song_id: song.id)
+      slow_song = insert(:soundcharts_song, tempo_bpm: 90.0)
+      insert(:track, status: :present, soundcharts_song_id: slow_song.id)
+
+      ids = TrackQuery.library(%{bpm_min: "100.5"}) |> Enum.map(& &1.id)
+      assert ids == [keep.id]
+    end
+
+    test "an unparseable numeric filter is ignored rather than crashing" do
+      a = insert(:track, status: :present)
+      b = insert(:track, status: :present)
+
+      # "." / "" must not raise; the filter is simply skipped.
+      ids = TrackQuery.library(%{bpm_min: ".", rating_max: "abc"}) |> Enum.map(& &1.id)
+      assert Enum.sort(ids) == Enum.sort([a.id, b.id])
+    end
+  end
+
+  describe "all_tags/0" do
+    test "only includes tags from present tracks" do
+      insert(:track, status: :present, tags: ["live"])
+      insert(:track, status: :quarantined, tags: ["quarantined-only"])
+      insert(:track, status: :missing, tags: ["gone"])
+
+      assert TrackQuery.all_tags() == ["live"]
     end
   end
 
