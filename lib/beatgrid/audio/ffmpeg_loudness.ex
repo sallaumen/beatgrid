@@ -33,7 +33,10 @@ defmodule Beatgrid.Audio.FfmpegLoudness do
           {:ok, %{lufs: float(), true_peak: float() | nil, lra: float() | nil}}
           | {:error, :no_loudness_data}
   def parse(output) do
-    with [json] <- Regex.run(~r/\{.*\}/s, output),
+    # loudnorm prints a single flat JSON object (no nested braces). Match flat
+    # `{...}` blocks and take the last, so a stray brace in earlier ffmpeg log lines
+    # can't swallow it.
+    with [json] <- output |> then(&Regex.scan(~r/\{[^{}]*\}/s, &1)) |> List.last(),
          {:ok, map} <- Jason.decode(json),
          {lufs, _} <- to_float(map["input_i"]) do
       {:ok,

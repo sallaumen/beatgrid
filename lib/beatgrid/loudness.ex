@@ -47,20 +47,24 @@ defmodule Beatgrid.Loudness do
   @spec broadcast_tick() :: :ok
   def broadcast_tick, do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @topic, {:loudness_tick})
 
-  @doc "Measured-vs-total counts over present tracks (for the progress bar)."
+  @doc """
+  Attempted-vs-total counts over present tracks (for the progress bar). Counts
+  *attempted* (not just successfully measured) so a deterministically unmeasurable
+  file — silence/corrupt — doesn't keep the bar below 100% forever.
+  """
   @spec progress() :: %{measured: non_neg_integer(), total: non_neg_integer()}
   def progress do
     %{
-      measured: Tracks.count(status: :present, loudness: true),
+      measured: Tracks.count(status: :present, loudness_attempted: true),
       total: Tracks.count(status: :present)
     }
   end
 
-  @doc "Enqueues a background loudness job for every not-yet-measured present track."
+  @doc "Enqueues a background loudness job for every not-yet-attempted present track."
   @spec enqueue_pending() :: {:ok, non_neg_integer()}
   def enqueue_pending do
     count =
-      [status: :present, loudness: false]
+      [status: :present, loudness_attempted: false]
       |> Tracks.list_by()
       |> Enum.reduce(0, fn track, acc ->
         case Oban.insert(LoudnessWorker.new(%{track_id: track.id})) do
@@ -72,11 +76,30 @@ defmodule Beatgrid.Loudness do
     {:ok, count}
   end
 
-  @doc "Measures a track and stores its LUFS + true peak (only on success)."
+  @doc """
+  Measures a track and stores its LUFS + true peak. Always stamps `loudness_attempted_at`
+  so the track leaves the pending set: a successful measure stores the values; a
+  deterministically unmeasurable file (silence/corrupt → `:no_loudness_data`) is marked
+  attempted without a value (no point retrying); a transient error (missing file / ffmpeg
+  unavailable) returns the error so the worker retries.
+  """
   @spec measure_track(Track.t()) :: {:ok, Track.t()} | {:error, term()}
   def measure_track(%Track{} = track) do
-    with {:ok, %{lufs: lufs, true_peak: true_peak}} <- @adapter.measure(abs_path(track)) do
-      Tracks.update(track, %{loudness_lufs: lufs, true_peak_dbtp: true_peak})
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    case @adapter.measure(abs_path(track)) do
+      {:ok, %{lufs: lufs, true_peak: true_peak}} ->
+        Tracks.update(track, %{
+          loudness_lufs: lufs,
+          true_peak_dbtp: true_peak,
+          loudness_attempted_at: now
+        })
+
+      {:error, :no_loudness_data} ->
+        Tracks.update(track, %{loudness_attempted_at: now})
+
+      other ->
+        other
     end
   end
 

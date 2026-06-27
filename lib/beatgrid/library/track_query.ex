@@ -15,6 +15,7 @@ defmodule Beatgrid.Library.TrackQuery do
           | {:resolved, boolean()}
           | {:analyzed, boolean()}
           | {:loudness, boolean()}
+          | {:loudness_attempted, boolean()}
           | {:order_by, term()}
 
   @spec list_by([list_opt()]) :: [Track.t()]
@@ -152,7 +153,11 @@ defmodule Beatgrid.Library.TrackQuery do
   defp order_terms(:rating, d), do: [{nulls(d), dynamic([t], t.rating)}]
   defp order_terms(:confidence, d), do: [{nulls(d), dynamic([t], t.sc_match_confidence)}]
   defp order_terms(:energy, d), do: [{nulls(d), dynamic([_t, song: s], s.energy)}]
-  defp order_terms(:loudness, d), do: [{nulls(d), dynamic([t], t.loudness_lufs)}]
+  # The "Vol." column DISPLAYS the suggested gain (≈ target − LUFS), which is inverse
+  # to LUFS — so ascending gain = descending LUFS. Flip the direction so the visible
+  # numbers sort the way the arrow implies; nulls (unmeasured) always last.
+  defp order_terms(:loudness, :asc), do: [{nulls(:desc), dynamic([t], t.loudness_lufs)}]
+  defp order_terms(:loudness, :desc), do: [{nulls(:asc), dynamic([t], t.loudness_lufs)}]
 
   defp order_terms(:bpm, d),
     do: [
@@ -195,5 +200,12 @@ defmodule Beatgrid.Library.TrackQuery do
   defp reduce_opt({:analyzed, false}, q), do: where(q, [t], is_nil(t.analyzed_at))
   defp reduce_opt({:loudness, true}, q), do: where(q, [t], not is_nil(t.loudness_lufs))
   defp reduce_opt({:loudness, false}, q), do: where(q, [t], is_nil(t.loudness_lufs))
+
+  defp reduce_opt({:loudness_attempted, true}, q),
+    do: where(q, [t], not is_nil(t.loudness_attempted_at))
+
+  defp reduce_opt({:loudness_attempted, false}, q),
+    do: where(q, [t], is_nil(t.loudness_attempted_at))
+
   defp reduce_opt({:order_by, order}, q), do: order_by(q, ^order)
 end

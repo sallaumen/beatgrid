@@ -100,8 +100,14 @@ defmodule BeatgridWeb.UI do
 
   @doc "Suggested gain with an explicit sign, e.g. +2.1 dB or -3.0 dB (em dash when unmeasured)."
   def format_gain(nil), do: "—"
-  def format_gain(gain) when gain > 0, do: "+#{Float.round(gain, 1)} dB"
-  def format_gain(gain), do: "#{Float.round(gain, 1)} dB"
+
+  def format_gain(gain) do
+    case Float.round(gain, 1) do
+      r when r > 0 -> "+#{r} dB"
+      r when r == 0.0 -> "0.0 dB"
+      r -> "#{r} dB"
+    end
+  end
 
   @doc "Color for a loudness jump (LU) between consecutive set tracks (bigger = hotter)."
   def loudness_delta_class(delta) when abs(delta) >= 6, do: "text-coral"
