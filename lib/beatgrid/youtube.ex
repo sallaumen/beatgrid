@@ -9,7 +9,7 @@ defmodule Beatgrid.YouTube do
   Downloads run as background `DownloadWorker` jobs; the screen follows progress via
   the `"youtube"` PubSub topic.
   """
-  alias Beatgrid.{Library, Review, Soundcharts}
+  alias Beatgrid.{Gold, Library, Review, Soundcharts}
   alias Beatgrid.Library.{FileInfo, NameSync, Tracks}
   alias Beatgrid.Library.MetadataAI
   alias Beatgrid.Organization.ClassificationAI
@@ -188,23 +188,38 @@ defmodule Beatgrid.YouTube do
     if track && track.soundcharts_song_id, do: NameSync.repropose(track)
   end
 
-  defp ingest(%{path: path, title: title, url: url}, playlist_url) do
+  defp ingest(%{path: path, title: title, url: url} = item, playlist_url) do
     parsed = TitleParser.parse(title)
     file = FileInfo.read(path)
 
     yt = %{"youtube_title" => title, "youtube_url" => url}
     yt = if playlist_url, do: Map.put(yt, "youtube_playlist_url", playlist_url), else: yt
 
-    file
-    |> Map.merge(%{
-      rel_path: Path.relative_to(path, Library.library_root()),
-      source_playlist: "youtube",
-      status: :present,
-      last_scanned_at: DateTime.truncate(DateTime.utc_now(), :second),
-      tag_artist: parsed.artist,
-      tag_title: parsed.title,
-      raw_tags: Map.merge(file[:raw_tags] || %{}, yt)
-    })
-    |> Tracks.upsert_by_path()
+    attrs =
+      Map.merge(file, %{
+        rel_path: Path.relative_to(path, Library.library_root()),
+        source_playlist: "youtube",
+        status: :present,
+        last_scanned_at: DateTime.truncate(DateTime.utc_now(), :second),
+        tag_artist: parsed.artist,
+        tag_title: parsed.title,
+        youtube_views: Map.get(item, :views),
+        youtube_published_at: parse_upload_date(Map.get(item, :upload_date)),
+        raw_tags: Map.merge(file[:raw_tags] || %{}, yt)
+      })
+
+    case Tracks.upsert_by_path(attrs) do
+      {:ok, track} -> Gold.maybe_mark_candidate(track)
+      error -> error
+    end
   end
+
+  defp parse_upload_date(<<y::binary-4, m::binary-2, d::binary-2>>) do
+    case Date.from_iso8601("#{y}-#{m}-#{d}") do
+      {:ok, date} -> date
+      _ -> nil
+    end
+  end
+
+  defp parse_upload_date(_), do: nil
 end

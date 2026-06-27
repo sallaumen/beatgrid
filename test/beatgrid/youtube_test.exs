@@ -37,6 +37,16 @@ defmodule Beatgrid.YouTubeTest do
     end)
   end
 
+  defp expect_download_full(title, views, upload) do
+    expect(Beatgrid.YouTube.DownloaderMock, :download, fn _url, dest ->
+      path = Path.join(dest, "abc.mp3")
+      File.write!(path, "audio")
+
+      {:ok,
+       [%{path: path, title: title, url: "https://y/abc", views: views, upload_date: upload}]}
+    end)
+  end
+
   @tag :tmp_dir
   test "download_and_ingest creates an _Inbox track with the parsed title" do
     stub_metadata()
@@ -92,6 +102,19 @@ defmodule Beatgrid.YouTubeTest do
     insert(:track, status: :present, genre_folder: "mpb")
 
     assert YouTube.pending_count() == 1
+  end
+
+  @tag :tmp_dir
+  test "ingest persiste views/data e marca candidato Ouro quando sem ISRC" do
+    stub_metadata()
+    expect_download_full("Raridade - Forró de Antigamente", 250, "20120607")
+
+    assert {:ok, 1} = YouTube.download_and_ingest("https://y/abc")
+
+    t = Tracks.get_by_path("_Inbox/abc.mp3")
+    assert t.youtube_views == 250
+    assert t.youtube_published_at == ~D[2012-06-07]
+    assert t.gold_status == :candidate
   end
 
   defp song_attrs do
