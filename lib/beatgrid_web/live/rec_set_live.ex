@@ -454,7 +454,7 @@ defmodule BeatgridWeb.RecSetLive do
             </ol>
           </section>
 
-          <aside class="w-[420px] shrink-0 overflow-y-auto border-l border-white/6 bg-rail px-4 py-5">
+          <aside class="w-[740px] shrink-0 overflow-y-auto border-l border-white/6 bg-rail px-4 py-5">
             <.section_fill active={@active_section} />
             <.console_panel
               weights={@weights}
