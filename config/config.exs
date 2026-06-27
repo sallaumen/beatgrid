@@ -20,11 +20,18 @@ config :beatgrid, Beatgrid.Repo,
 # the settings table (see Beatgrid.Settings).
 config :beatgrid, :library_root, Path.expand("~/Music/DJ")
 
-# Background jobs (Oban). Queues sized for a single-user local app; the
-# `soundcharts` queue is serialized (local_limit 1) to respect the API budget.
+# Background jobs (Oban). Concurrency is per-queue; parallelize the local/IO work
+# so downloads + analysis finish faster, but keep `soundcharts` serialized (1):
+# it hits an external, quota-limited API and its budget guard reads-then-acts, so
+# concurrent jobs would race the quota and risk rate-limiting.
+#   youtube  5 — yt-dlp downloads/expands (network + ffmpeg), the main "go faster"
+#   analysis 4 — local librosa/ffmpeg CPU work (BPM/key/loudness backfill)
+#   ai       3 — claude CLI (heavy per call; modest parallelism)
+#   scan     3 — filesystem scan/import (IO-bound)
+#   soundcharts 1 — external API, budget-guarded → must stay serial
 config :beatgrid, Oban,
   repo: Beatgrid.Repo,
-  queues: [default: 10, scan: 2, soundcharts: 1, ai: 2, analysis: 2, youtube: 2],
+  queues: [default: 10, scan: 3, soundcharts: 1, ai: 3, analysis: 4, youtube: 5],
   plugins: [{Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}]
 
 # Integration ports (ports & adapters). Tests override these with Mox mocks.
