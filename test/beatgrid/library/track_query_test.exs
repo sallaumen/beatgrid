@@ -68,6 +68,20 @@ defmodule Beatgrid.Library.TrackQueryTest do
       assert ids == [fast.id, slow.id, nobpm.id]
     end
 
+    test "sorts by key in Camelot wheel order, not lexically" do
+      s2a = insert(:soundcharts_song, camelot: "2A")
+      s10a = insert(:soundcharts_song, camelot: "10A")
+      s10b = insert(:soundcharts_song, camelot: "10B")
+      two_a = insert(:track, status: :present, soundcharts_song_id: s2a.id, norm_artist: "z")
+      ten_a = insert(:track, status: :present, soundcharts_song_id: s10a.id, norm_artist: "y")
+      ten_b = insert(:track, status: :present, soundcharts_song_id: s10b.id, norm_artist: "x")
+      nokey = insert(:track, status: :present, norm_artist: "a")
+
+      ids = TrackQuery.library(%{sort: {:key, :asc}}) |> Enum.map(& &1.id)
+      # 2A < 10A < 10B (numeric wheel order, A before B); nil key last.
+      assert ids == [two_a.id, ten_a.id, ten_b.id, nokey.id]
+    end
+
     test "filters by compatible key, energy range, rating_max, unclassified" do
       s8a = insert(:soundcharts_song, camelot: "8A", energy: 0.7)
       s3b = insert(:soundcharts_song, camelot: "3B", energy: 0.2)

@@ -220,12 +220,30 @@ defmodule Beatgrid.Library.TrackQuery do
        )}
     ]
 
+  # Sort the "Tom" column by the Camelot wheel, not lexically (else "10A" sorts
+  # before "2A"). Order by the numeric part (1–12) extracted in SQL, then the A/B
+  # letter ("A" < "B"). A nil/malformed code yields a nil number → nulls-last.
   defp order_terms(:key, d),
     do: [
       {nulls(d),
        dynamic(
          [t, song: s],
-         fragment("coalesce(?, ?, ?)", t.camelot_manual, s.camelot, t.camelot_detected)
+         fragment(
+           "(substring(coalesce(?, ?, ?) from '^[0-9]+'))::integer",
+           t.camelot_manual,
+           s.camelot,
+           t.camelot_detected
+         )
+       )},
+      {nulls(d),
+       dynamic(
+         [t, song: s],
+         fragment(
+           "upper(right(coalesce(?, ?, ?), 1))",
+           t.camelot_manual,
+           s.camelot,
+           t.camelot_detected
+         )
        )}
     ]
 
