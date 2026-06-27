@@ -44,7 +44,13 @@ config :beatgrid, Oban,
     loudness: 5,
     youtube: 2
   ],
-  plugins: [{Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}]
+  plugins: [
+    {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7},
+    # Rescue jobs orphaned in `executing` when a node dies mid-run (common in dev
+    # on recompile/restart) back to `available` for retry. 15min > any real batch,
+    # and the :soundcharts queue is concurrency 1, so a rescue never double-runs.
+    {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(15)}
+  ]
 
 # Integration ports (ports & adapters). Tests override these with Mox mocks.
 config :beatgrid, Beatgrid.Audio, adapter: Beatgrid.Audio.Ffprobe

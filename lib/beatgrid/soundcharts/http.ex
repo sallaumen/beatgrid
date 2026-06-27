@@ -45,7 +45,14 @@ defmodule Beatgrid.Soundcharts.Http do
   end
 
   defp client(account) do
-    [base_url: Accounts.base_url(), headers: headers(account)]
+    # Explicit request timeouts so a single Soundcharts call can never hang a job
+    # indefinitely (this is Req's default, made explicit; overridable via :req_options).
+    [
+      base_url: Accounts.base_url(),
+      headers: headers(account),
+      connect_options: [timeout: 15_000],
+      receive_timeout: 15_000
+    ]
     |> Keyword.merge(config(:req_options) || [])
     |> Req.new()
   end

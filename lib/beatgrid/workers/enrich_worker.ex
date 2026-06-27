@@ -13,7 +13,16 @@ defmodule Beatgrid.Workers.EnrichWorker do
   pointlessly) and carries `budget_exhausted: true` on the final broadcast;
   transient crashes propagate and Oban retries up to 3×.
   """
-  use Oban.Worker, queue: :soundcharts, max_attempts: 3
+  # `unique` so a double-click (or a Lifeline-rescued retry while one is still in
+  # flight) can't stack duplicate jobs: at most one in-flight job per scope+id
+  # (the "pending" batch shares scope only; per-track jobs key on the track id).
+  use Oban.Worker,
+    queue: :soundcharts,
+    max_attempts: 3,
+    unique: [
+      keys: [:scope, :id],
+      states: [:scheduled, :available, :executing, :retryable, :suspended]
+    ]
 
   alias Beatgrid.Library.Tracks
   alias Beatgrid.Organization.ClassificationAI

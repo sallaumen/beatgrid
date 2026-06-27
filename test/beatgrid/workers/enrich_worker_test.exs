@@ -176,4 +176,31 @@ defmodule Beatgrid.Workers.EnrichWorkerTest do
     assert NameSync.list_by(status: :pending) == []
     assert Organization.list_by(status: :pending, source: :claude) == []
   end
+
+  describe "unique (dedup)" do
+    test "não empilha um segundo job 'pending' enquanto um está em voo" do
+      assert {:ok, _} = Oban.insert(EnrichWorker.new(%{"scope" => "pending", "batch_id" => "a"}))
+
+      assert {:ok, job2} =
+               Oban.insert(EnrichWorker.new(%{"scope" => "pending", "batch_id" => "b"}))
+
+      assert job2.conflict?
+      assert length(all_enqueued(worker: EnrichWorker)) == 1
+    end
+
+    test "jobs 'track' de faixas diferentes coexistem" do
+      assert {:ok, _} =
+               Oban.insert(
+                 EnrichWorker.new(%{"scope" => "track", "id" => "t1", "batch_id" => "a"})
+               )
+
+      assert {:ok, j2} =
+               Oban.insert(
+                 EnrichWorker.new(%{"scope" => "track", "id" => "t2", "batch_id" => "b"})
+               )
+
+      refute j2.conflict?
+      assert length(all_enqueued(worker: EnrichWorker)) == 2
+    end
+  end
 end
