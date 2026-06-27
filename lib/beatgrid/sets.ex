@@ -151,8 +151,20 @@ defmodule Beatgrid.Sets do
     end
   end
 
+  # Console opts forwarded as-is to Mixing.rank/1 (weights + hard filters).
+  @passthrough [
+    :weights,
+    :harmonic_only,
+    :bpm_min,
+    :bpm_max,
+    :min_rating,
+    :exclude_styles,
+    :limit
+  ]
+
   # Common rank options: anchor on the set's style, chain from the last member,
-  # and exclude everything already in the set.
+  # and exclude everything already in the set. Console weights/filters
+  # (`@passthrough`) flow through unchanged.
   defp rank_opts(%RecSet{} = set, opts) do
     members = RecSetQuery.ordered_tracks(set.id)
 
@@ -163,10 +175,13 @@ defmodule Beatgrid.Sets do
       limit: Keyword.get(opts, :limit, 10)
     ]
 
-    case List.last(members) do
-      nil -> base
-      last -> [{:prev, last} | base]
-    end
+    base =
+      case List.last(members) do
+        nil -> base
+        last -> [{:prev, last} | base]
+      end
+
+    Keyword.merge(base, Keyword.take(opts, @passthrough))
   end
 
   defp member_ids(%RecSet{id: id}), do: RecSetQuery.ordered_tracks(id) |> Enum.map(& &1.id)

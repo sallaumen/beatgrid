@@ -50,6 +50,26 @@ defmodule Beatgrid.SetsTest do
     refute compat.id in (set |> Sets.next_candidates(limit: 10) |> Enum.map(& &1.track.id))
   end
 
+  test "next_candidates threads weights + filters into the ranking" do
+    {:ok, set} = Sets.create("Console")
+    prev = track_with("8A", 120.0)
+    {:ok, _} = Sets.append(set, prev)
+    bpm_match = track_with("11A", 121.0)
+    key_match = track_with("8A", 150.0)
+
+    ids =
+      Sets.next_candidates(set,
+        weights: %{style: 0, harmony: 0, intensity: 0, bpm: 100, rating: 0},
+        bpm_min: 110,
+        bpm_max: 130,
+        limit: 10
+      )
+      |> Enum.map(& &1.track.id)
+
+    assert bpm_match.id in ids
+    refute key_match.id in ids
+  end
+
   test "move reorders a track up and down, clamping at the edges" do
     {:ok, set} = Sets.create("Reorder")
     a = track_with("8A", 120.0)
