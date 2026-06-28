@@ -31,7 +31,7 @@ defmodule Beatgrid.Workers.MixDownloadWorker do
         case Mixes.fetch_source(mix.source_url, dest) do
           {:ok, meta} ->
             {:ok, mix} = Mixes.update_mix(mix, Map.put(meta, :status, :analyzing))
-            Oban.insert(MixAnalyzeWorker.new(%{mix_id: mix.id}))
+            {:ok, _} = Oban.insert(MixAnalyzeWorker.new(%{mix_id: mix.id}))
             Mixes.broadcast(%{mix_id: mix.id, status: :analyzing})
             :ok
 

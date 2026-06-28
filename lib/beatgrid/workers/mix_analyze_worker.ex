@@ -90,7 +90,7 @@ defmodule Beatgrid.Workers.MixAnalyzeWorker do
     {:ok, job} =
       Oban.insert(MixCleanupWorker.new(%{mix_id: mix.id}, schedule_in: 86_400))
 
-    Mixes.update_mix(mix, %{cleanup_job_id: job.id})
+    {:ok, _} = Mixes.update_mix(mix, %{cleanup_job_id: job.id})
   end
 
   defp fail(mix, reason) do
