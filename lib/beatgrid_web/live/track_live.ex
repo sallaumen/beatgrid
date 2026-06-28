@@ -1105,9 +1105,6 @@ defmodule BeatgridWeb.TrackLive do
 
   defp format_secs(s), do: "#{div(s, 60)}:#{String.pad_leading(to_string(rem(s, 60)), 2, "0")}"
 
-  defp format_ms(ms) when is_integer(ms), do: format_secs(div(ms, 1000))
-  defp format_ms(_ms), do: "0:00"
-
   defp title(track), do: track.tag_title || track.filename
 
   defp ver_label(track), do: Beatgrid.Library.Version.label(track.tag_title || track.filename)

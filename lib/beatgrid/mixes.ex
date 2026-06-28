@@ -10,7 +10,7 @@ defmodule Beatgrid.Mixes do
   alias Beatgrid.Library.{Normalize, Track}
   alias Beatgrid.Mixes.{DjPart, DjTimestamps, Mix, Segment}
   alias Beatgrid.Repo
-  alias Beatgrid.Workers.MixDownloadWorker
+  alias Beatgrid.Workers.{MixAnalyzeWorker, MixDownloadWorker}
 
   @adapter Application.compile_env(
              :beatgrid,
@@ -212,6 +212,21 @@ defmodule Beatgrid.Mixes do
     root = Path.expand(Path.join(Library.library_root(), "_Mixes"))
     String.starts_with?(Path.expand(path), root <> "/")
   end
+
+  @spec set_dj_parts_from_chapters(Mix.t()) ::
+          {:ok, non_neg_integer()} | {:error, :manual_present | :no_chapters}
+  def set_dj_parts_from_chapters(%Mix{chapters: chapters} = mix)
+      when is_list(chapters) and chapters != [] do
+    parts = Enum.map(chapters, fn c -> %{start_ms: c["start_ms"], dj_name: c["title"]} end)
+
+    with {:ok, n} <- replace_dj_parts(mix, :chapter, parts),
+         {:ok, _} <- update_mix(mix, %{chapters_role: :djs}),
+         {:ok, _} <- Oban.insert(MixAnalyzeWorker.new(%{mix_id: mix.id})) do
+      {:ok, n}
+    end
+  end
+
+  def set_dj_parts_from_chapters(_mix), do: {:error, :no_chapters}
 
   @spec match_track(String.t() | nil, String.t() | nil) ::
           %{track_id: binary(), confidence: :high} | nil

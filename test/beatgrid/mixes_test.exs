@@ -157,5 +157,29 @@ defmodule Beatgrid.MixesTest do
       assert {1, nil} = Mixes.clear_dj_parts(mix)
       assert Mixes.get_with_dj_parts(mix.id).dj_parts == []
     end
+
+    test "set_dj_parts_from_chapters creates :chapter parts, flips role to :djs, re-analyzes" do
+      mix =
+        insert(:mix,
+          duration_ms: 600_000,
+          chapters: [%{"start_ms" => 0, "title" => "DJ A"}, %{"start_ms" => 300_000, "title" => "DJ B"}],
+          chapters_role: :tracks
+        )
+
+      insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+      insert(:mix_segment, mix: mix, position: 1, start_ms: 300_000)
+
+      assert {:ok, 2} = Mixes.set_dj_parts_from_chapters(mix)
+      reloaded = Mixes.get_with_dj_parts(mix.id)
+      assert Enum.map(reloaded.dj_parts, & &1.dj_name) == ["DJ A", "DJ B"]
+      assert Enum.all?(reloaded.dj_parts, &(&1.source == :chapter))
+      assert reloaded.chapters_role == :djs
+      assert_enqueued(worker: Beatgrid.Workers.MixAnalyzeWorker, args: %{mix_id: mix.id})
+    end
+
+    test "set_dj_parts_from_chapters with no chapters -> error" do
+      mix = insert(:mix, chapters: [])
+      assert Mixes.set_dj_parts_from_chapters(mix) == {:error, :no_chapters}
+    end
   end
 end
