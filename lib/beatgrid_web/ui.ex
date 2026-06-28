@@ -406,7 +406,14 @@ defmodule BeatgridWeb.UI do
             icon: "hero-document-duplicate",
             href: "/dedup"
           },
-          %{key: :generos, label: "Gêneros", short: "GEN", icon: "hero-tag", href: "/generos"}
+          %{key: :generos, label: "Gêneros", short: "GEN", icon: "hero-tag", href: "/generos"},
+          %{
+            key: :mixes,
+            label: "Sets online",
+            short: "MIX",
+            icon: "hero-rectangle-stack",
+            href: "/sets-online"
+          }
         ]
       },
       %{
