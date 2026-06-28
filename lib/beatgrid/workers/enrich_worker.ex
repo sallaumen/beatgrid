@@ -24,8 +24,6 @@ defmodule Beatgrid.Workers.EnrichWorker do
       states: [:scheduled, :available, :executing, :retryable, :suspended]
     ]
 
-  alias Beatgrid.Library.Tracks
-  alias Beatgrid.Organization.ClassificationAI
   alias Beatgrid.Review
   alias Beatgrid.YouTube
 
@@ -51,6 +49,35 @@ defmodule Beatgrid.Workers.EnrichWorker do
       total: 1,
       resolved: resolved,
       budget_exhausted: budget
+    })
+
+    :ok
+  end
+
+  def perform(%Oban.Job{args: %{"scope" => "rare", "batch_id" => bid}}) do
+    ids = YouTube.rare_unfiled_ids()
+    total = length(ids)
+
+    YouTube.broadcast_enrich(%{
+      batch_id: bid,
+      scope: "rare",
+      id: nil,
+      status: :running,
+      done: 0,
+      total: total
+    })
+
+    YouTube.enrich_fallback(ids)
+
+    YouTube.broadcast_enrich(%{
+      batch_id: bid,
+      scope: "rare",
+      id: nil,
+      status: :done,
+      done: total,
+      total: total,
+      resolved: 0,
+      budget_exhausted: false
     })
 
     :ok
@@ -108,14 +135,13 @@ defmodule Beatgrid.Workers.EnrichWorker do
     {done, resolved, budget, processed} =
       Enum.reduce_while(ids, {0, 0, false, []}, &enrich_step(&1, &2, ctx))
 
-    # Tail: batch the AI re-evaluation + reclassification over just the tracks we
-    # processed (one batched pass, not one AI call per track) — the slow part, made
-    # visible with a `:finishing` phase.
+    # Tail: batch the AI re-evaluation + reclassification (+ análise-fallback pras
+    # no-match) over just the tracks we processed — one batched pass, not one AI call
+    # per track. Made visible with a `:finishing` phase.
     if processed != [] do
       YouTube.broadcast_enrich(Map.merge(ctx, %{status: :finishing, done: done}))
-      tracks = Enum.map(processed, &Tracks.get/1)
       Review.reevaluate_tracks(processed)
-      ClassificationAI.reclassify(tracks: tracks)
+      YouTube.enrich_fallback(processed)
     end
 
     {done, resolved, budget}

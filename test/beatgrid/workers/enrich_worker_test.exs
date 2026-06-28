@@ -177,6 +177,31 @@ defmodule Beatgrid.Workers.EnrichWorkerTest do
     assert Organization.list_by(status: :pending, source: :claude) == []
   end
 
+  test "scope rare roda fallback sem chamar Soundcharts" do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    rare =
+      matching_track(
+        filename: "r.mp3",
+        rel_path: "_Inbox/r.mp3",
+        sc_attempted_at: now,
+        bpm_detected: nil
+      )
+
+    # SEM expectativas no Soundcharts.Mock — se chamar, o Mock levanta.
+    stub(Beatgrid.AI.Mock, :complete, fn _p, _s, _o ->
+      {:ok,
+       %{
+         "classifications" => [
+           %{"index" => 1, "folder" => "mpb", "confidence" => 0.3, "rationale" => "r"}
+         ]
+       }}
+    end)
+
+    assert :ok = perform_job(EnrichWorker, %{"scope" => "rare", "batch_id" => "rb"})
+    assert_enqueued(worker: Beatgrid.Workers.AnalyzeWorker, args: %{track_id: rare.id})
+  end
+
   describe "unique (dedup)" do
     test "não empilha um segundo job 'pending' enquanto um está em voo" do
       assert {:ok, _} = Oban.insert(EnrichWorker.new(%{"scope" => "pending", "batch_id" => "a"}))
