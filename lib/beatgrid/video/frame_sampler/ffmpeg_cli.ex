@@ -1,9 +1,16 @@
 defmodule Beatgrid.Video.FrameSampler.FfmpegCli do
   @moduledoc """
-  FrameSampler adapter: yt-dlp -g to resolve the stream, ffmpeg to build a lower-third
-  montage grid in reading order. No `drawtext` (not all ffmpeg builds ship libfreetype) —
-  tiles are ordered left-to-right/top-to-bottom and the caller aligns them to timestamps
-  by position.
+  FrameSampler adapter: two-step pipeline.
+
+  1. `resolve_stream/1` — yt-dlp -g to get a direct stream URL.
+  2. `extract_frames/2` — ONE sequential ffmpeg pass (no random -ss seeks): extracts a
+     cropped lower-third frame every N seconds into a local directory. Sequential
+     range reads are range-friendly and avoid HTTP 429 / exit-234 throttling that
+     random per-frame seeks cause on long streams.
+  3. `montage/2` — assembles already-extracted local frames into one xstack image for OCR.
+
+  No `drawtext` (not all ffmpeg builds ship libfreetype) — tiles are ordered
+  left-to-right/top-to-bottom and the caller aligns them to timestamps by position.
   """
   @behaviour Beatgrid.Video.FrameSampler
 
@@ -11,37 +18,43 @@ defmodule Beatgrid.Video.FrameSampler.FfmpegCli do
   def resolve_stream(url) do
     case System.cmd(ytdlp(), ["-g", "-f", "bv*[height<=720]/b", "--no-playlist", url], stderr_to_stdout: true) do
       {out, 0} -> {:ok, out |> String.split("\n", trim: true) |> List.first()}
-      {out, code} -> {:error, {:ytdlp_exit, code, String.slice(out, 0, 300)}}
+      {out, code} -> {:error, {:ytdlp_exit, code, tail_excerpt(out)}}
     end
   end
 
   @impl true
-  def sample_grid(stream_url, %{tiles: tiles, dest: dest}) do
-    case System.cmd(ffmpeg(), build_grid_args(stream_url, tiles, dest), stderr_to_stdout: true) do
-      {_out, 0} -> {:ok, dest}
-      {out, code} -> {:error, {:ffmpeg_exit, code, String.slice(out, 0, 300)}}
+  def extract_frames(stream_url, %{interval_ms: interval_ms, dir: dir}) do
+    secs = max(1, div(interval_ms, 1000))
+    pattern = Path.join(dir, "f%05d.jpg")
+    args = ["-nostdin", "-i", stream_url, "-vf", "fps=1/#{secs},crop=iw:ih/3:0:ih*2/3,scale=320:-2", "-q:v", "4", pattern]
+
+    case System.cmd(ffmpeg(), args, stderr_to_stdout: true) do
+      {_out, 0} -> {:ok, dir |> Path.join("f*.jpg") |> Path.wildcard() |> Enum.sort()}
+      {out, code} -> {:error, {:ffmpeg_exit, code, tail_excerpt(out)}}
     end
   end
 
-  @doc "ffmpeg argv: one -ss input per tile, crop bottom third, scale, tile into a reading-order grid (no drawtext)."
-  @spec build_grid_args(String.t(), [integer()], String.t()) :: [String.t()]
-  def build_grid_args(stream_url, tiles, dest) do
-    inputs = Enum.flat_map(tiles, fn ms -> ["-ss", "#{ms / 1000}", "-i", stream_url] end)
-    n = length(tiles)
+  @impl true
+  def montage(frame_paths, dest) do
+    case System.cmd(ffmpeg(), build_montage_args(frame_paths, dest), stderr_to_stdout: true) do
+      {_out, 0} -> {:ok, dest}
+      {out, code} -> {:error, {:ffmpeg_exit, code, tail_excerpt(out)}}
+    end
+  end
 
-    labels =
-      Enum.map_join(0..(n - 1), ";", fn i ->
-        "[#{i}:v]crop=iw:ih/3:0:ih*2/3,scale=320:-2[t#{i}]"
-      end)
+  @doc "ffmpeg argv to xstack already-cropped local frames into one reading-order montage."
+  @spec build_montage_args([String.t()], String.t()) :: [String.t()]
+  def build_montage_args(frame_paths, dest) do
+    inputs = Enum.flat_map(frame_paths, fn p -> ["-i", p] end)
+    n = length(frame_paths)
 
     filter =
       if n == 1 do
-        "#{labels}"
-        |> String.replace_suffix("[t0]", "[out]")
+        "[0:v]copy[out]"
       else
         cols = max(1, round(:math.sqrt(n)))
-        tags = Enum.map_join(0..(n - 1), "", &"[t#{&1}]")
-        "#{labels};#{tags}xstack=inputs=#{n}:layout=#{xstack_layout(n, cols)}[out]"
+        tags = Enum.map_join(0..(n - 1), "", &"[#{&1}:v]")
+        "#{tags}xstack=inputs=#{n}:layout=#{xstack_layout(n, cols)}[out]"
       end
 
     inputs ++ ["-filter_complex", filter, "-map", "[out]", "-frames:v", "1", "-y", dest]
@@ -59,6 +72,8 @@ defmodule Beatgrid.Video.FrameSampler.FfmpegCli do
 
   defp xstack_coord(0, _unit), do: "0"
   defp xstack_coord(n, unit), do: Enum.map_join(1..n, "+", fn _ -> unit end)
+
+  defp tail_excerpt(out), do: out |> String.split("\n", trim: true) |> Enum.take(-4) |> Enum.join(" | ") |> String.slice(0, 500)
 
   defp ytdlp, do: Application.get_env(:beatgrid, __MODULE__, [])[:ytdlp] || "yt-dlp"
   defp ffmpeg, do: Application.get_env(:beatgrid, __MODULE__, [])[:ffmpeg] || "ffmpeg"

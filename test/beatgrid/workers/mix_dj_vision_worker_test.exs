@@ -8,8 +8,8 @@ defmodule Beatgrid.Workers.MixDjVisionWorkerTest do
   alias Beatgrid.Mixes
   alias Beatgrid.Workers.MixDjVisionWorker
 
-  test "samples grids, OCRs, and writes :image dj parts" do
-    # interval 4_000 + duration 8_000 → one grid window of two tiles [0, 4000].
+  test "samples frames sequentially, montages, OCRs, and writes :image dj parts" do
+    # interval 4_000 → 2 frames from duration 8_000; tiles_per_grid 16 → one montage chunk
     prev = Application.get_env(:beatgrid, MixDjVisionWorker)
     Application.put_env(:beatgrid, MixDjVisionWorker, frame_interval_ms: 4_000, tiles_per_grid: 16)
 
@@ -24,9 +24,14 @@ defmodule Beatgrid.Workers.MixDjVisionWorkerTest do
     insert(:mix_segment, mix: mix, position: 1, start_ms: 4_000)
 
     expect(Beatgrid.Video.FrameSamplerMock, :resolve_stream, fn _ -> {:ok, "http://stream"} end)
-    expect(Beatgrid.Video.FrameSamplerMock, :sample_grid, fn _u, %{dest: dest} -> {:ok, dest} end)
 
-    # New contract: vision returns names in tile reading-order; read_grid zips with tiles_ms.
+    expect(Beatgrid.Video.FrameSamplerMock, :extract_frames, fn _stream, %{dir: dir} ->
+      {:ok, [Path.join(dir, "f00001.jpg"), Path.join(dir, "f00002.jpg")]}
+    end)
+
+    expect(Beatgrid.Video.FrameSamplerMock, :montage, fn _paths, dest -> {:ok, dest} end)
+
+    # Vision returns names for 2 tiles: frame 0 → ts 0ms, frame 1 → ts 4000ms
     expect(Beatgrid.AI.Mock, :complete, fn _p, _s, _o -> {:ok, %{"names" => ["A", "B"]}} end)
 
     assert :ok = perform_job(MixDjVisionWorker, %{mix_id: mix.id})
