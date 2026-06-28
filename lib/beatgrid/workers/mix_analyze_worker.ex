@@ -60,30 +60,43 @@ defmodule Beatgrid.Workers.MixAnalyzeWorker do
     |> Enum.sort()
   end
 
-  # Zip segment analysis with names by ORDER (Path A/B). Extra audio segments beyond
-  # the tracklist stay unnamed (name_source :audio); a tracklist longer than the
-  # detected segments simply runs out of segments to attach to.
   defp build_segments(raw_segments, tracklist) do
+    # With timestamps (Path A), names align to segments by START TIME — the
+    # segmenter may prepend an unnamed intro segment at 0, so a plain zip-by-index
+    # would shift every name down by one. Without timestamps (Path B), fall back to
+    # zip-by-order.
+    by_start =
+      for e <- tracklist, e.start_seconds != nil, into: %{}, do: {e.start_seconds * 1000, e}
+
     raw_segments
     |> Enum.with_index()
     |> Enum.map(fn {seg, i} ->
-      entry = Enum.at(tracklist, i)
-      camelot = Camelot.from_key(seg.key, seg.mode)
-      match = entry && Mixes.match_track(entry.artist, entry.title)
+      entry =
+        if map_size(by_start) > 0,
+          do: Map.get(by_start, seg.start_ms),
+          else: Enum.at(tracklist, i)
 
-      %{
-        position: i,
-        start_ms: seg.start_ms,
-        end_ms: seg.end_ms,
-        bpm_detected: seg.bpm,
-        camelot_detected: camelot,
-        artist: entry && entry.artist,
-        title: entry && entry.title,
-        name_source: if(entry && (entry.artist || entry.title), do: :description, else: :audio),
-        matched_track_id: match && match.track_id,
-        match_confidence: match && match.confidence
-      }
+      build_segment(seg, i, entry)
     end)
+  end
+
+  defp build_segment(seg, i, entry) do
+    camelot = Camelot.from_key(seg.key, seg.mode)
+    match = entry && Mixes.match_track(entry.artist, entry.title)
+    named? = entry && (entry.artist || entry.title)
+
+    %{
+      position: i,
+      start_ms: seg.start_ms,
+      end_ms: seg.end_ms,
+      bpm_detected: seg.bpm,
+      camelot_detected: camelot,
+      artist: entry && entry.artist,
+      title: entry && entry.title,
+      name_source: if(named?, do: :description, else: :audio),
+      matched_track_id: match && match.track_id,
+      match_confidence: match && match.confidence
+    }
   end
 
   defp schedule_cleanup(mix) do

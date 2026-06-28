@@ -187,7 +187,7 @@ defmodule BeatgridWeb.MixLive do
     <div class="flex items-center gap-2 px-3 py-0.5 text-[11px] text-ink-faint">
       <span>↕</span>
       <span>{camelot_label(@t.camelot)}</span>
-      <span :if={@t.bpm_delta}>· {bpm_delta_label(@t.bpm_delta)}</span>
+      <span :if={@t.bpm_delta && @t.bpm_delta != 0.0}>· {bpm_delta_label(@t.bpm_delta)}</span>
     </div>
     """
   end

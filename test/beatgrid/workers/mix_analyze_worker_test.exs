@@ -57,4 +57,60 @@ defmodule Beatgrid.Workers.MixAnalyzeWorkerTest do
     assert s2.matched_track_id == nil
     assert_enqueued(worker: MixCleanupWorker, args: %{mix_id: mix.id})
   end
+
+  test "Path A: unnamed intro segment when first track starts at non-zero time" do
+    # The description's first track starts at 30 s, so the segmenter returns an extra
+    # intro segment at 0 ms. The old zip-by-index would shift names; the new
+    # start-time alignment must leave the intro UNNAMED.
+    mix =
+      insert(:mix,
+        status: :analyzing,
+        audio_path: "/tmp/_Mixes/intro-test.mp3",
+        description: "00:30 A - One\n05:00 B - Two"
+      )
+
+    expect(Beatgrid.AI.Mock, :complete, fn _p, _s, _o ->
+      {:ok,
+       %{
+         "tracklist" => [
+           %{"position" => 0, "start_seconds" => 30, "artist" => "A", "title" => "One"},
+           %{"position" => 1, "start_seconds" => 300, "artist" => "B", "title" => "Two"}
+         ]
+       }}
+    end)
+
+    expect(Beatgrid.Audio.SetSegmenterMock, :analyze, fn "/tmp/_Mixes/intro-test.mp3",
+                                                         [30_000, 300_000] ->
+      {:ok,
+       [
+         %{start_ms: 0, end_ms: 30_000, bpm: 120.0, key: 1, mode: 1},
+         %{start_ms: 30_000, end_ms: 300_000, bpm: 124.0, key: 7, mode: 1},
+         %{start_ms: 300_000, end_ms: 600_000, bpm: 126.0, key: 2, mode: 1}
+       ]}
+    end)
+
+    assert :ok = perform_job(MixAnalyzeWorker, %{mix_id: mix.id})
+
+    reloaded = Mixes.get_with_segments(mix.id)
+    assert reloaded.status == :ready
+    assert [intro, seg1, seg2] = reloaded.segments
+
+    # Intro segment at 0 ms must be unnamed (no description entry at start_ms 0)
+    assert intro.start_ms == 0
+    assert intro.artist == nil
+    assert intro.title == nil
+    assert intro.name_source == :audio
+
+    # First described track (A - One) aligns to start_ms 30_000
+    assert seg1.start_ms == 30_000
+    assert seg1.artist == "A"
+    assert seg1.title == "One"
+    assert seg1.name_source == :description
+
+    # Second described track (B - Two) aligns to start_ms 300_000
+    assert seg2.start_ms == 300_000
+    assert seg2.artist == "B"
+    assert seg2.title == "Two"
+    assert seg2.name_source == :description
+  end
 end

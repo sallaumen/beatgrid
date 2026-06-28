@@ -7,6 +7,20 @@ defmodule Beatgrid.Workers.MixCleanupWorkerTest do
   alias Beatgrid.Mixes
   alias Beatgrid.Workers.MixCleanupWorker
 
+  setup do
+    original = Application.get_env(:beatgrid, :library_root)
+    tmp = Path.join(System.tmp_dir!(), "mix_cleanup_test_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(tmp)
+    Application.put_env(:beatgrid, :library_root, tmp)
+
+    on_exit(fn ->
+      Application.put_env(:beatgrid, :library_root, original)
+      File.rm_rf(tmp)
+    end)
+
+    :ok
+  end
+
   test "deletes the audio file under _Mixes and stamps audio_deleted_at" do
     dir = Path.join(Library.library_root(), "_Mixes")
     File.mkdir_p!(dir)
