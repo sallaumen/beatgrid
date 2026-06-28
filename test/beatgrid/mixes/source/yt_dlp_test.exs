@@ -40,13 +40,13 @@ defmodule Beatgrid.Mixes.Source.YtDlpTest do
       ["vid123", "Festival", "Uploader", "10800", Jason.encode!("desc"), chapters_json]
       |> Enum.join("\t")
 
-    assert {:ok, meta} = Beatgrid.Mixes.Source.YtDlp.parse_meta(line, "/tmp/dest")
+    assert {:ok, meta} = YtDlp.parse_meta(line, "/tmp/dest")
     assert meta.chapters == [%{start_ms: 0, title: "DJ A"}, %{start_ms: 3_600_000, title: "DJ B"}]
   end
 
   test "parse_meta tolerates absent/empty chapters" do
     line = ["v", "T", "U", "60", Jason.encode!("d"), "NA"] |> Enum.join("\t")
-    assert {:ok, meta} = Beatgrid.Mixes.Source.YtDlp.parse_meta(line, "/tmp/dest")
+    assert {:ok, meta} = YtDlp.parse_meta(line, "/tmp/dest")
     assert meta.chapters == []
   end
 end
