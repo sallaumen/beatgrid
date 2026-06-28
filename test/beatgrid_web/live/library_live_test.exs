@@ -43,6 +43,29 @@ defmodule BeatgridWeb.LibraryLiveTest do
     refute filtered =~ "Asa Branca"
   end
 
+  test "renders the grouped, collapsible navigation rail", %{conn: conn} do
+    {:ok, _view, html} = live(conn, ~p"/")
+
+    # Workflow grouping (Coleção → Curadoria → Sistema)
+    assert html =~ "Coleção"
+    assert html =~ "Curadoria"
+    assert html =~ "Sistema"
+
+    # Every route stays reachable from the rail
+    for href <- ~w(/ /set /painel /importados /revisao /dedup /generos /jobs) do
+      assert html =~ ~s(href="#{href}")
+    end
+
+    # Collapse toggle + accessibility hooks
+    assert html =~ "data-nav-toggle"
+    assert html =~ ~s(aria-label="Navegação principal")
+    assert html =~ ~s(aria-label="Recolher menu lateral")
+    assert html =~ ~s(aria-label="Expandir menu lateral")
+    # Active route marks itself for assistive tech, nothing renders aria-current="false"
+    assert html =~ ~s(aria-current="page")
+    refute html =~ ~s(aria-current="false")
+  end
+
   test "library rows can play in the global player and still link to the track", %{conn: conn} do
     track = insert(:track, status: :present, tag_title: "Sina", tag_artist: "Djavan")
 

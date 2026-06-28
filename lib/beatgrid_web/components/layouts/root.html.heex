@@ -43,6 +43,37 @@
         });
       })();
     </script>
+    <script>
+      // Sidebar collapse state. Applied before paint (no flicker), persisted in
+      // localStorage, and toggled via event delegation on [data-nav-toggle] so it
+      // survives LiveView navigation (the <html> attr isn't patched by morphdom).
+      // The two toggle buttons carry distinct aria-labels (Recolher/Expandir),
+      // so the state is announced without a desync-prone aria-expanded.
+      (() => {
+        const KEY = "bg:nav";
+        const root = document.documentElement;
+        const apply = (state) =>
+          root.setAttribute("data-nav", state === "collapsed" ? "collapsed" : "expanded");
+        // localStorage can throw (private mode / storage disabled) — degrade to
+        // the default expanded state instead of killing the toggle.
+        const read = () => { try { return localStorage.getItem(KEY); } catch (_e) { return null; } };
+        const write = (v) => { try { localStorage.setItem(KEY, v); } catch (_e) {} };
+        apply(read() || "expanded");
+        document.addEventListener("click", (e) => {
+          if (!e.target.closest("[data-nav-toggle]")) return;
+          const next = root.getAttribute("data-nav") === "collapsed" ? "expanded" : "collapsed";
+          write(next);
+          apply(next);
+          // The clicked toggle is hidden in the new state, so move focus to the
+          // now-visible one — otherwise keyboard focus drops to <body>.
+          requestAnimationFrame(() => {
+            const visible = Array.from(document.querySelectorAll("[data-nav-toggle]"))
+              .find((b) => b.offsetParent !== null);
+            if (visible) visible.focus();
+          });
+        });
+      })();
+    </script>
   </head>
   <body>
     {@inner_content}

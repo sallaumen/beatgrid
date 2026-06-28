@@ -102,6 +102,11 @@
 /* Use the data attribute for dark mode  */
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
+/* Sidebar collapsed state — driven by `data-nav=collapsed` on <html> (set before
+   paint in root.html.heex). Descendant-only: every nav-collapsed:* utility lives
+   inside the rail, never on the host element. Keeps the nav markup declarative. */
+@custom-variant nav-collapsed (&:where([data-nav=collapsed] *));
+
 /* Make LiveView wrapper divs transparent for layout */
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 
