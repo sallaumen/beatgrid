@@ -37,6 +37,8 @@ defmodule BeatgridWeb.DashboardLive do
        youtube_pending: YouTube.pending_count(),
        youtube_note: nil,
        enrich: nil,
+       rare_pending: YouTube.rare_unfiled_count(),
+       enrich_rare: nil,
        folders: folders,
        recommending?: false
      )
@@ -109,6 +111,25 @@ defmodule BeatgridWeb.DashboardLive do
     end
   end
 
+  def handle_event("enrich_rare", _params, socket) do
+    bid = Uniq.UUID.uuid7()
+
+    case Oban.insert(EnrichWorker.new(%{"scope" => "rare", "batch_id" => bid})) do
+      {:ok, %Oban.Job{conflict?: true}} ->
+        {:noreply,
+         assign(socket,
+           youtube_note: "Já existe um enriquecimento de raras em andamento — veja em Jobs."
+         )}
+
+      {:ok, _job} ->
+        {:noreply, assign(socket, enrich_rare: %{status: :queued}, youtube_note: nil)}
+
+      {:error, _reason} ->
+        {:noreply,
+         assign(socket, youtube_note: "Não foi possível iniciar o enriquecimento das raras.")}
+    end
+  end
+
   def handle_event("select_folder", %{"folder" => key}, socket) do
     {:noreply, assign_gaps(socket, key)}
   end
@@ -162,6 +183,20 @@ defmodule BeatgridWeb.DashboardLive do
 
   def handle_info({:youtube_tick}, socket) do
     {:noreply, assign(socket, youtube_pending: YouTube.pending_count())}
+  end
+
+  # Batch enrich progress — "rare" scope (IA + análise local).
+  def handle_info({:enrich_progress, %{scope: "rare", status: :done} = p}, socket) do
+    {:noreply,
+     assign(socket,
+       enrich_rare: p,
+       rare_pending: YouTube.rare_unfiled_count(),
+       youtube_pending: YouTube.pending_count()
+     )}
+  end
+
+  def handle_info({:enrich_progress, %{scope: "rare"} = p}, socket) do
+    {:noreply, assign(socket, enrich_rare: p)}
   end
 
   # Batch enrich progress (only the "pending" scope concerns the dashboard).
@@ -380,6 +415,34 @@ defmodule BeatgridWeb.DashboardLive do
                 <div
                   class="h-full rounded-full bg-primary transition-[width]"
                   style={"width:#{enrich_pct(@enrich)}%"}
+                />
+              </div>
+            </div>
+
+            <div class="mt-4 flex items-center justify-between gap-3 border-t border-white/6 pt-2">
+              <span class="text-body-sm text-ink-secondary">
+                Soundcharts não achou / raras: {@rare_pending}
+              </span>
+              <button
+                phx-click="enrich_rare"
+                disabled={enrich_running?(@enrich_rare) or @rare_pending == 0}
+                class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm text-ink-secondary hover:text-ink disabled:opacity-40"
+              >
+                {if enrich_running?(@enrich_rare),
+                  do: "Enriquecendo raras…",
+                  else: "Enriquecer raras (IA + análise) (#{@rare_pending})"}
+              </button>
+            </div>
+
+            <div
+              :if={enrich_running?(@enrich_rare)}
+              class="mt-2 rounded-lg border border-white/8 bg-base px-3 py-2"
+            >
+              <p class="text-body-sm text-ink-secondary">{enrich_label(@enrich_rare)}</p>
+              <div class="mt-1.5 h-1.5 w-full rounded-full bg-white/5">
+                <div
+                  class="h-full rounded-full bg-amber transition-[width]"
+                  style={"width:#{enrich_pct(@enrich_rare)}%"}
                 />
               </div>
             </div>

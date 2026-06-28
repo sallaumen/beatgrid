@@ -246,6 +246,23 @@ defmodule BeatgridWeb.DashboardLiveTest do
     assert render(view) =~ "Pendentes de enriquecimento: 1"
   end
 
+  test "botão das raras enfileira EnrichWorker scope rare", %{conn: conn} do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    insert(:track,
+      status: :present,
+      soundcharts_song_id: nil,
+      genre_folder: nil,
+      sc_attempted_at: now
+    )
+
+    {:ok, view, html} = live(conn, ~p"/painel")
+    assert html =~ "Soundcharts não achou"
+
+    view |> element("button[phx-click=enrich_rare]") |> render_click()
+    assert_enqueued(worker: Beatgrid.Workers.EnrichWorker, args: %{scope: "rare"})
+  end
+
   test "an analysis tick refreshes the progress counts live", %{conn: conn} do
     track = insert(:track, status: :present)
 
