@@ -3,6 +3,7 @@ defmodule Beatgrid.MixesTest do
 
   import Beatgrid.Factory
 
+  alias Beatgrid.Library.Normalize
   alias Beatgrid.Mixes
 
   test "create_mix/1 requires source_url" do
@@ -33,5 +34,27 @@ defmodule Beatgrid.MixesTest do
              Mixes.update_segment(seg, %{artist: "Djavan", title: "Sina", name_source: :manual})
 
     assert seg.artist == "Djavan" and seg.name_source == :manual
+  end
+
+  describe "match_track/2" do
+    test "matches a present track by normalized artist + title (high)" do
+      track =
+        insert(:track,
+          status: :present,
+          tag_artist: "Djavan",
+          tag_title: "Sina",
+          norm_artist: Normalize.normalize("Djavan"),
+          norm_title: Normalize.normalize("Sina")
+        )
+
+      assert %{track_id: id, confidence: :high} = Mixes.match_track("Djavan", "Sina")
+      assert id == track.id
+    end
+
+    test "returns nil when nothing matches or the name is blank" do
+      assert Mixes.match_track("Ninguém", "Nada") == nil
+      assert Mixes.match_track(nil, "Sina") == nil
+      assert Mixes.match_track("Djavan", "") == nil
+    end
   end
 end

@@ -6,6 +6,7 @@ defmodule Beatgrid.Mixes do
   """
   import Ecto.Query
 
+  alias Beatgrid.Library.{Normalize, Track}
   alias Beatgrid.Mixes.{Mix, Segment}
   alias Beatgrid.Repo
 
@@ -31,4 +32,23 @@ defmodule Beatgrid.Mixes do
   @spec update_segment(Segment.t(), map()) :: {:ok, Segment.t()} | {:error, Ecto.Changeset.t()}
   def update_segment(%Segment{} = segment, attrs),
     do: segment |> Segment.changeset(attrs) |> Repo.update()
+
+  @spec match_track(String.t() | nil, String.t() | nil) ::
+          %{track_id: binary(), confidence: :high} | nil
+  def match_track(artist, title) do
+    na = Normalize.normalize(artist)
+    nt = Normalize.normalize(title)
+
+    if na != "" and nt != "" do
+      Track
+      |> where([t], t.status == :present and t.norm_artist == ^na and t.norm_title == ^nt)
+      |> order_by([t], asc: t.inserted_at)
+      |> limit(1)
+      |> Repo.one()
+      |> case do
+        nil -> nil
+        track -> %{track_id: track.id, confidence: :high}
+      end
+    end
+  end
 end
