@@ -4,6 +4,7 @@ defmodule Beatgrid.Mixes.Mix do
 
   import Ecto.Changeset
 
+  alias Beatgrid.Mixes.DjPart
   alias Beatgrid.Mixes.Segment
 
   @type t :: %__MODULE__{}
@@ -32,6 +33,7 @@ defmodule Beatgrid.Mixes.Mix do
     field :chapters_role, Ecto.Enum, values: @chapters_roles, default: :tracks
 
     has_many :segments, Segment, preload_order: [asc: :position]
+    has_many :dj_parts, DjPart, preload_order: [asc: :position]
 
     timestamps()
   end

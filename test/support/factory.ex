@@ -67,4 +67,15 @@ defmodule Beatgrid.Factory do
       name_source: :description
     }
   end
+
+  def dj_part_factory do
+    %Beatgrid.Mixes.DjPart{
+      mix: build(:mix),
+      position: 0,
+      start_ms: 0,
+      end_ms: 60_000,
+      dj_name: "DJ Test",
+      source: :manual
+    }
+  end
 end
