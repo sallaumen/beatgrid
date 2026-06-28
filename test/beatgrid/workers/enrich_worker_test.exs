@@ -66,7 +66,7 @@ defmodule Beatgrid.Workers.EnrichWorkerTest do
       {:ok,
        %{
          "classifications" => [
-           %{"index" => 1, "folder" => "mpb", "confidence" => 0.9, "rationale" => "r"}
+           %{"index" => 1, "folder" => "mpb", "confidence" => 0.6, "rationale" => "r"}
          ],
          "resolutions" => [
            %{

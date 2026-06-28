@@ -72,6 +72,10 @@ config :beatgrid, Beatgrid.Soundcharts, request_cap: 1000, budget_floor: 50
 # Backend-driven, consultável na UI; ajustar aqui + restart (como target_lufs).
 config :beatgrid, Beatgrid.Gold, view_threshold: 1_000_000
 
+# Confiança mínima da IA pra ARQUIVAR sozinho (mover o arquivo, reversível). Abaixo
+# disso vira proposta na Revisão. Backend-driven, consultável na UI; ajustar + restart.
+config :beatgrid, Beatgrid.Organization, auto_file_confidence: 0.80
+
 # Rule-based organization: source playlist (folder name) => genre folder key.
 # Used by `Beatgrid.Organization.suggest_by_rule/1` to seed move suggestions.
 config :beatgrid, :playlist_genre_rules, %{

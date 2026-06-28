@@ -18,6 +18,12 @@ defmodule Beatgrid.Organization.ClassificationAI do
     defstruct [:track, :folder, :confidence, :rationale]
   end
 
+  @auto_file_confidence Application.compile_env(
+                          :beatgrid,
+                          [Beatgrid.Organization, :auto_file_confidence],
+                          0.80
+                        )
+
   @doc "Classifies a batch of tracks into genre folders via the AI client."
   @spec classify_tracks([Track.t()]) :: {:ok, [Verdict.t()]} | {:error, term()}
   def classify_tracks(tracks) when is_list(tracks) do
@@ -70,7 +76,7 @@ defmodule Beatgrid.Organization.ClassificationAI do
         acc
 
       true ->
-        {:ok, _suggestion} =
+        {:ok, suggestion} =
           Organization.create_suggestion(%{
             track_id: track.id,
             from_rel_path: track.rel_path,
@@ -80,6 +86,10 @@ defmodule Beatgrid.Organization.ClassificationAI do
             reason: String.slice(result.rationale || "", 0, 250),
             batch_id: batch_id
           })
+
+        if is_number(result.confidence) and result.confidence >= @auto_file_confidence do
+          Organization.apply_batch([suggestion])
+        end
 
         %{acc | suggested: acc.suggested + 1}
     end

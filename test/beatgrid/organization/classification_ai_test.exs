@@ -2,6 +2,7 @@ defmodule Beatgrid.Organization.ClassificationAITest do
   use Beatgrid.DataCase, async: true
 
   alias Beatgrid.AI.Mock
+  alias Beatgrid.Library.Tracks
   alias Beatgrid.Organization
   alias Beatgrid.Organization.ClassificationAI
 
@@ -76,7 +77,7 @@ defmodule Beatgrid.Organization.ClassificationAITest do
              %{
                "index" => 1,
                "folder" => "mpb",
-               "confidence" => 0.8,
+               "confidence" => 0.79,
                "rationale" => "MPB songwriter"
              },
              %{"index" => 2, "folder" => "mpb", "confidence" => 0.7, "rationale" => "already mpb"}
@@ -90,7 +91,7 @@ defmodule Beatgrid.Organization.ClassificationAITest do
       assert suggestion.track_id == t1.id
       assert suggestion.to_genre_folder == "mpb"
       assert suggestion.source == :claude
-      assert suggestion.confidence == 0.8
+      assert suggestion.confidence == 0.79
     end
 
     test "does not duplicate a suggestion already pending for a track" do
@@ -117,6 +118,60 @@ defmodule Beatgrid.Organization.ClassificationAITest do
     end
   end
 
+  describe "reclassify/1 auto-apply" do
+    @tag :tmp_dir
+    test "auto-arquiva (move) quando confidence >= limiar; senão propõe", %{tmp_dir: root} do
+      File.mkdir_p!(Path.join(root, "_Inbox"))
+      prev = Application.get_env(:beatgrid, :library_root)
+      Application.put_env(:beatgrid, :library_root, root)
+      on_exit(fn -> Application.put_env(:beatgrid, :library_root, prev) end)
+
+      File.write!(Path.join(root, "_Inbox/hi.mp3"), "x")
+      File.write!(Path.join(root, "_Inbox/lo.mp3"), "x")
+
+      hi =
+        insert(:track,
+          status: :present,
+          genre_folder: nil,
+          rel_path: "_Inbox/hi.mp3",
+          filename: "hi.mp3",
+          tag_artist: "Alta"
+        )
+
+      lo =
+        insert(:track,
+          status: :present,
+          genre_folder: nil,
+          rel_path: "_Inbox/lo.mp3",
+          filename: "lo.mp3",
+          tag_artist: "Baixa"
+        )
+
+      expect(Beatgrid.AI.Mock, :complete, fn _p, _s, _o ->
+        {:ok,
+         %{
+           "classifications" => [
+             %{"index" => 1, "folder" => "mpb", "confidence" => 0.95, "rationale" => "claro"},
+             %{"index" => 2, "folder" => "mpb", "confidence" => 0.50, "rationale" => "incerto"}
+           ]
+         }}
+      end)
+
+      ClassificationAI.reclassify(tracks: [hi, lo])
+
+      # alta confiança: movida e arquivada (sai do balde pendente)
+      assert Tracks.get(hi.id).genre_folder == "mpb"
+      refute File.exists?(Path.join(root, "_Inbox/hi.mp3"))
+      # baixa confiança: proposta na Revisão, não movida
+      assert is_nil(Tracks.get(lo.id).genre_folder)
+
+      assert Enum.any?(
+               Organization.list_by(status: :pending, source: :claude),
+               &(&1.track_id == lo.id)
+             )
+    end
+  end
+
   describe "reclassify/1 with :tracks" do
     test "classifies only the given tracks" do
       inbox = insert(:track, tag_artist: "Djavan", genre_folder: nil, rel_path: "_Inbox/x.mp3")
@@ -126,7 +181,7 @@ defmodule Beatgrid.Organization.ClassificationAITest do
         {:ok,
          %{
            "classifications" => [
-             %{"index" => 1, "folder" => "mpb", "confidence" => 0.9, "rationale" => "r"}
+             %{"index" => 1, "folder" => "mpb", "confidence" => 0.6, "rationale" => "r"}
            ]
          }}
       end)
