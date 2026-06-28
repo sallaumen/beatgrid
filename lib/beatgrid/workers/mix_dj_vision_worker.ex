@@ -53,12 +53,18 @@ defmodule Beatgrid.Workers.MixDjVisionWorker do
     Mixes.broadcast(%{mix_id: mix.id, stage: "dj_vision", done: i + 1, total: total})
     dest = Path.join(System.tmp_dir!(), "grid-#{mix.id}-#{i}.jpg")
 
-    with {:ok, path} <- @sampler.sample_grid(stream, %{tiles: tiles, dest: dest}),
-         {:ok, r} <- DjVisionAI.read_grid(path, tiles) do
-      File.rm(path)
-      r
-    else
-      _ -> []
+    case @sampler.sample_grid(stream, %{tiles: tiles, dest: dest}) do
+      {:ok, path} ->
+        result = DjVisionAI.read_grid(path, tiles)
+        File.rm(path)
+
+        case result do
+          {:ok, reads} -> reads
+          _ -> []
+        end
+
+      _ ->
+        []
     end
   end
 
