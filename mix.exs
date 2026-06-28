@@ -81,6 +81,7 @@ defmodule Beatgrid.MixProject do
       {:oban, "~> 2.19"},
       {:req, "~> 0.5"},
       {:uniq, "~> 0.6"},
+      {:dotenvy, "~> 1.1"},
 
       # Quality / dev tooling
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

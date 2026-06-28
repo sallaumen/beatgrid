@@ -1,4 +1,5 @@
 import Config
+import Dotenvy
 
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
@@ -23,28 +24,37 @@ end
 config :beatgrid, BeatgridWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
-# Soundcharts HTTP adapter credentials (read from the environment in every env).
-# Tests use the Mox adapter and never read these.
+# Soundcharts HTTP adapter credentials, loaded from the (gitignored) .env via Dotenvy
+# so no manual `source .env` is needed. `source!/1` is lenient: the .env file does not
+# need to exist (prod reads real OS env, where there is no .env), and passing
+# `System.get_env()` last means real environment variables win over the file.
 #
 # Multiple accounts enable automatic failover across limited free quotas: calls go
 # to the first account that still has quota; when it runs out, the next takes over
 # (see Beatgrid.Soundcharts.Accounts). Add a 2nd account by setting SOUNDCHARTS_APP_ID_2
-# + SOUNDCHARTS_API_KEY_2 in the (gitignored) .env. Accounts missing credentials are
-# ignored, so an unset 2nd account is simply skipped.
-config :beatgrid, Beatgrid.Soundcharts.Http,
-  base_url: System.get_env("SOUNDCHARTS_BASE_URL", "https://customer.api.soundcharts.com"),
-  accounts: [
-    %{
-      id: "1",
-      app_id: System.get_env("SOUNDCHARTS_APP_ID"),
-      api_key: System.get_env("SOUNDCHARTS_API_KEY")
-    },
-    %{
-      id: "2",
-      app_id: System.get_env("SOUNDCHARTS_APP_ID_2"),
-      api_key: System.get_env("SOUNDCHARTS_API_KEY_2")
-    }
-  ]
+# + SOUNDCHARTS_API_KEY_2 in the .env. Accounts missing credentials are ignored, so an
+# unset 2nd account is simply skipped.
+#
+# Skipped in :test — the suite uses the Mox adapter and config/test.exs supplies its
+# own (mock) Soundcharts config; we don't want tests reading the developer's real .env.
+if config_env() != :test do
+  source!([".env", System.get_env()])
+
+  config :beatgrid, Beatgrid.Soundcharts.Http,
+    base_url: env!("SOUNDCHARTS_BASE_URL", :string, "https://customer.api.soundcharts.com"),
+    accounts: [
+      %{
+        id: "1",
+        app_id: env!("SOUNDCHARTS_APP_ID", :string, nil),
+        api_key: env!("SOUNDCHARTS_API_KEY", :string, nil)
+      },
+      %{
+        id: "2",
+        app_id: env!("SOUNDCHARTS_APP_ID_2", :string, nil),
+        api_key: env!("SOUNDCHARTS_API_KEY_2", :string, nil)
+      }
+    ]
+end
 
 if config_env() == :prod do
   database_url =
