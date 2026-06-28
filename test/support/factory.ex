@@ -46,4 +46,25 @@ defmodule Beatgrid.Factory do
       status: :new
     }
   end
+
+  def mix_factory do
+    %Beatgrid.Mixes.Mix{
+      source: "soundcloud",
+      source_url: sequence(:mix_url, &"https://soundcloud.com/dj/set-#{&1}"),
+      title: "Live @ Somewhere",
+      dj: "DJ Test",
+      duration_ms: 3_600_000,
+      description: "",
+      status: :ready
+    }
+  end
+
+  def mix_segment_factory do
+    %Beatgrid.Mixes.Segment{
+      mix: build(:mix),
+      position: 0,
+      start_ms: 0,
+      name_source: :description
+    }
+  end
 end
