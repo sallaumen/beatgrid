@@ -105,4 +105,17 @@ defmodule Beatgrid.MixesTest do
     assert {:ok, updated} = Beatgrid.Mixes.cancel_cleanup(mix)
     assert updated.cleanup_job_id == nil
   end
+
+  test "changeset casts chapters and chapters_role" do
+    attrs = %{
+      source: "youtube",
+      source_url: "https://youtu.be/cap",
+      chapters: [%{"start_ms" => 0, "title" => "Intro"}],
+      chapters_role: :djs
+    }
+
+    assert {:ok, mix} = Mixes.create_mix(attrs)
+    assert mix.chapters == [%{"start_ms" => 0, "title" => "Intro"}]
+    assert mix.chapters_role == :djs
+  end
 end

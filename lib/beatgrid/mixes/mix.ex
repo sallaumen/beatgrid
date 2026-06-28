@@ -9,6 +9,7 @@ defmodule Beatgrid.Mixes.Mix do
   @type t :: %__MODULE__{}
 
   @statuses [:downloading, :analyzing, :ready, :failed]
+  @chapters_roles [:tracks, :djs]
 
   @primary_key {:id, Uniq.UUID, autogenerate: true, version: 7, type: :uuid}
   @foreign_key_type Uniq.UUID
@@ -27,6 +28,8 @@ defmodule Beatgrid.Mixes.Mix do
     field :analyzed_at, :utc_datetime
     field :cleanup_job_id, :integer
     field :audio_deleted_at, :utc_datetime
+    field :chapters, {:array, :map}, default: []
+    field :chapters_role, Ecto.Enum, values: @chapters_roles, default: :tracks
 
     has_many :segments, Segment, preload_order: [asc: :position]
 
@@ -34,7 +37,7 @@ defmodule Beatgrid.Mixes.Mix do
   end
 
   @fields ~w(source source_url title dj duration_ms audio_path description status
-             error analyzed_at cleanup_job_id audio_deleted_at)a
+             error analyzed_at cleanup_job_id audio_deleted_at chapters chapters_role)a
 
   @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   def changeset(mix, attrs) do
