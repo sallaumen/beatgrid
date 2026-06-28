@@ -8,4 +8,12 @@ defmodule Beatgrid.Video.FrameSampler.FfmpegCliTest do
     assert Enum.any?(args, &(&1 == "http://stream"))
     assert "-ss" in args
   end
+
+  test "build_grid_args with a single tile does not use xstack and still ends with dest" do
+    args = FfmpegCli.build_grid_args("http://stream", [5_000], "/tmp/single.jpg")
+    assert "/tmp/single.jpg" == List.last(args)
+    assert Enum.any?(args, &(&1 == "http://stream"))
+    assert "-ss" in args
+    refute Enum.any?(args, &String.contains?(&1, "xstack"))
+  end
 end

@@ -88,6 +88,8 @@ def coarse_features(path, dur_ms):
     finally:
         proc.stdout.close()
         proc.wait()
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg failed in coarse_features with exit code {proc.returncode}")
     if not cols:
         return np.zeros((20, 1))
     feat = np.array(cols).T
