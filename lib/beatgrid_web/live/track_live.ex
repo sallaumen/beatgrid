@@ -9,6 +9,7 @@ defmodule BeatgridWeb.TrackLive do
   alias Beatgrid.Library.Tracks
   alias Beatgrid.Loudness
   alias Beatgrid.Mixing
+  alias Beatgrid.Playback
   alias Beatgrid.Repertoire
   alias Beatgrid.Sets
   alias Beatgrid.Workers.{AnalyzeWorker, EnrichWorker, RecommendWorker}
@@ -45,6 +46,7 @@ defmodule BeatgridWeb.TrackLive do
            recs: load_recs(track.id),
            recommending?: false,
            toast: nil,
+           playing_track_id: Playback.now_playing().track_id,
            page_title: title(track)
          )
          |> maybe_auto_analyze()}
@@ -71,6 +73,7 @@ defmodule BeatgridWeb.TrackLive do
       Analysis.subscribe()
       YouTube.subscribe_enrich()
       Repertoire.subscribe()
+      Playback.subscribe()
       if is_nil(track.analyzed_at), do: enqueue_analyze(socket), else: socket
     else
       socket
@@ -275,6 +278,11 @@ defmodule BeatgridWeb.TrackLive do
 
   def handle_info({:recommend_progress, _payload}, socket), do: {:noreply, socket}
 
+  # Global now-playing pointer changed — light up this page if it's our track.
+  def handle_info({:now_playing, np}, socket) do
+    {:noreply, assign(socket, playing_track_id: np.track_id)}
+  end
+
   defp enrich_done_toast(%{budget_exhausted: true}), do: {:error, "Cota Soundcharts esgotada."}
 
   defp enrich_done_toast(%{resolved: r}) when is_integer(r) and r > 0,
@@ -407,11 +415,22 @@ defmodule BeatgridWeb.TrackLive do
         <.enrich_toast :if={@toast} toast={@toast} />
 
         <header class="mt-4 flex gap-5">
-          <.cover src={cover_src(@track)} artist={@track.tag_artist} size={84} />
+          <div class={[
+            "shrink-0 rounded-xl",
+            @track.id == @playing_track_id && "ring-2 ring-primary"
+          ]}>
+            <.cover src={cover_src(@track)} artist={@track.tag_artist} size={84} />
+          </div>
           <div class="min-w-0 flex-1">
             <div class="flex min-w-0 items-center gap-2">
               <h1 class="truncate text-[23px] font-semibold">{title(@track)}</h1>
               <.ouro_badge track={@track} />
+              <span
+                :if={@track.id == @playing_track_id}
+                class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary"
+              >
+                <.vinyl size={12} /> Tocando agora
+              </span>
             </div>
             <p class="text-body-lg text-ink-secondary">{@track.tag_artist || "—"}</p>
             <div class="mt-3 flex items-center gap-4">

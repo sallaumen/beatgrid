@@ -557,4 +557,18 @@ defmodule BeatgridWeb.TrackLiveTest do
     {:ok, _view, html} = live(conn, ~p"/track/#{track.id}")
     assert html =~ "Ouro — não está no Soundcharts"
   end
+
+  test "marks the page as playing when it is the now-playing track", %{conn: conn} do
+    track = insert(:track, status: :present, tag_title: "Sina", tag_artist: "Djavan")
+
+    {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
+
+    # Another track playing → this page is not marked.
+    send(view.pid, {:now_playing, %{track_id: Ecto.UUID.generate(), set_id: nil}})
+    refute render(view) =~ "Tocando agora"
+
+    # This track becomes the now-playing one → the page lights up.
+    send(view.pid, {:now_playing, %{track_id: track.id, set_id: nil}})
+    assert render(view) =~ "Tocando agora"
+  end
 end
