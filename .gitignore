@@ -33,3 +33,6 @@ graphify-out/
 
 # NOTE: the music library itself lives under ~/Music/DJ, NOT in this repo.
 # Beatgrid manages those files on disk; the repo only holds code + a Postgres DB.
+
+# subagent-driven-development scratch
+.superpowers/
