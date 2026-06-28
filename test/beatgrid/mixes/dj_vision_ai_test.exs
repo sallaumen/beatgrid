@@ -18,12 +18,19 @@ defmodule Beatgrid.Mixes.DjVisionAITest do
            ]
   end
 
-  test "read_grid asks the AI and maps tiles" do
+  test "read_grid asks the AI and aligns names to tiles by reading order" do
     expect(Beatgrid.AI.Mock, :complete, fn prompt, _schema, opts ->
       assert prompt =~ "/tmp/grid.jpg"
       assert opts[:add_dir] == ["/tmp"]
-      {:ok, %{"tiles" => [%{"ts_ms" => 0, "dj_name" => "A"}, %{"ts_ms" => 10_000, "dj_name" => nil}]}}
+      {:ok, %{"names" => ["A", nil]}}
     end)
+
+    assert {:ok, [%{ts_ms: 0, dj_name: "A"}, %{ts_ms: 10_000, dj_name: nil}]} =
+             DjVisionAI.read_grid("/tmp/grid.jpg", [0, 10_000])
+  end
+
+  test "read_grid pads missing trailing names to nil" do
+    expect(Beatgrid.AI.Mock, :complete, fn _p, _s, _o -> {:ok, %{"names" => ["A"]}} end)
 
     assert {:ok, [%{ts_ms: 0, dj_name: "A"}, %{ts_ms: 10_000, dj_name: nil}]} =
              DjVisionAI.read_grid("/tmp/grid.jpg", [0, 10_000])

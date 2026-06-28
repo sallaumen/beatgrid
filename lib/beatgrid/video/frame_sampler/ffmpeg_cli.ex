@@ -1,5 +1,10 @@
 defmodule Beatgrid.Video.FrameSampler.FfmpegCli do
-  @moduledoc "FrameSampler adapter: yt-dlp -g to resolve the stream, ffmpeg to build a labeled lower-third montage."
+  @moduledoc """
+  FrameSampler adapter: yt-dlp -g to resolve the stream, ffmpeg to build a lower-third
+  montage grid in reading order. No `drawtext` (not all ffmpeg builds ship libfreetype) —
+  tiles are ordered left-to-right/top-to-bottom and the caller aligns them to timestamps
+  by position.
+  """
   @behaviour Beatgrid.Video.FrameSampler
 
   @impl true
@@ -18,16 +23,15 @@ defmodule Beatgrid.Video.FrameSampler.FfmpegCli do
     end
   end
 
-  @doc "ffmpeg argv: one -ss input per tile, crop bottom third, label with ts, tile into a grid."
+  @doc "ffmpeg argv: one -ss input per tile, crop bottom third, scale, tile into a reading-order grid (no drawtext)."
   @spec build_grid_args(String.t(), [integer()], String.t()) :: [String.t()]
   def build_grid_args(stream_url, tiles, dest) do
     inputs = Enum.flat_map(tiles, fn ms -> ["-ss", "#{ms / 1000}", "-i", stream_url] end)
     n = length(tiles)
 
     labels =
-      Enum.map_join(Enum.with_index(tiles), ";", fn {ms, i} ->
-        "[#{i}:v]crop=iw:ih/3:0:ih*2/3,scale=320:-1," <>
-          "drawtext=text='#{div(ms, 1000)}s':x=4:y=4:fontsize=18:fontcolor=white:box=1:boxcolor=black@0.5[t#{i}]"
+      Enum.map_join(0..(n - 1), ";", fn i ->
+        "[#{i}:v]crop=iw:ih/3:0:ih*2/3,scale=320:-2[t#{i}]"
       end)
 
     filter =
