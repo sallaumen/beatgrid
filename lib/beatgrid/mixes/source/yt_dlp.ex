@@ -25,7 +25,7 @@ defmodule Beatgrid.Mixes.Source.YtDlp do
       "--no-overwrites",
       "--no-playlist",
       "--print",
-      "after_move:%(id)s#{@sep}%(title)s#{@sep}%(uploader)s#{@sep}%(duration)s#{@sep}%(description)j",
+      "after_move:%(id)s#{@sep}%(title)s#{@sep}%(uploader)s#{@sep}%(duration)s#{@sep}%(description)j#{@sep}%(chapters)j",
       "-o",
       template,
       url
@@ -48,14 +48,15 @@ defmodule Beatgrid.Mixes.Source.YtDlp do
     line = output |> String.split("\n", trim: true) |> List.last()
 
     case line && String.split(line, @sep) do
-      [id, title, uploader, duration, description] ->
+      [id, title, uploader, duration, description, chapters] ->
         {:ok,
          %{
            audio_path: Path.join(dest_dir, id <> ".mp3"),
            title: nil_if_blank(title),
            dj: nil_if_blank(uploader),
            duration_ms: duration_ms(duration),
-           description: decode_description(description)
+           description: decode_description(description),
+           chapters: decode_chapters(chapters)
          }}
 
       _ ->
@@ -74,6 +75,18 @@ defmodule Beatgrid.Mixes.Source.YtDlp do
     case Jason.decode(json) do
       {:ok, text} when is_binary(text) -> text
       _ -> ""
+    end
+  end
+
+  defp decode_chapters(json) do
+    case Jason.decode(json) do
+      {:ok, list} when is_list(list) ->
+        for %{"start_time" => s} = c <- list, is_number(s) do
+          %{start_ms: round(s * 1000), title: nil_if_blank(c["title"]) || ""}
+        end
+
+      _ ->
+        []
     end
   end
 

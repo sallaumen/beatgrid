@@ -6,7 +6,8 @@ defmodule Beatgrid.Mixes.Source do
           title: String.t() | nil,
           dj: String.t() | nil,
           duration_ms: integer() | nil,
-          description: String.t()
+          description: String.t(),
+          chapters: [%{start_ms: integer(), title: String.t()}]
         }
 
   @callback fetch(url :: String.t(), dest_dir :: String.t()) :: {:ok, meta()} | {:error, term()}
