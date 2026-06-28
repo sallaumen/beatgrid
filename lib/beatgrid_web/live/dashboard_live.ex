@@ -194,7 +194,15 @@ defmodule BeatgridWeb.DashboardLive do
 
   def handle_info({:recommend_progress, _payload}, socket), do: {:noreply, socket}
 
-  defp enrich_summary(%{done: 0}), do: "Nada pendente para enriquecer."
+  # Order matters: distinguish "0 because nothing was pending" from "0 because the
+  # quota ran out / no credentials" — the latter must NOT read as "nada pendente".
+  defp enrich_summary(%{total: 0}), do: "Nada pendente para enriquecer."
+
+  defp enrich_summary(%{done: 0, budget_exhausted: true}),
+    do: "Cota do Soundcharts esgotada — 0 enriquecida(s). Configure/carregue a 2ª conta no .env."
+
+  defp enrich_summary(%{done: 0}),
+    do: "Nada enriquecido — sem cota ou credenciais? Veja os logs do servidor."
 
   defp enrich_summary(%{done: n, resolved: r} = p) do
     base = "#{n} enriquecida(s) (#{r} com match)"

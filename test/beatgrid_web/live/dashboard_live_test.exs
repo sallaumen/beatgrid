@@ -212,6 +212,30 @@ defmodule BeatgridWeb.DashboardLiveTest do
     assert render(view) =~ "cota esgotada"
   end
 
+  test "done: 0 with budget exhausted reads as 'cota esgotada', NOT 'nada pendente'",
+       %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/painel")
+
+    # Halted on the very first track because there was no quota — there ARE pending
+    # tracks (total: 174), so it must not claim "nada pendente".
+    send(
+      view.pid,
+      {:enrich_progress,
+       %{
+         scope: "pending",
+         status: :done,
+         done: 0,
+         total: 174,
+         resolved: 0,
+         budget_exhausted: true
+       }}
+    )
+
+    html = render(view)
+    assert html =~ "Cota do Soundcharts esgotada"
+    refute html =~ "Nada pendente"
+  end
+
   test "a youtube tick refreshes the pending-enrichment count live", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/painel")
     assert render(view) =~ "Pendentes de enriquecimento: 0"
