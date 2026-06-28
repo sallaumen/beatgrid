@@ -284,6 +284,41 @@ defmodule Beatgrid.YouTubeTest do
     assert move.track_id == track.id
   end
 
+  test "enrich_track enfileira análise local quando a faixa não tem bpm_detected" do
+    insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB", description: "d")
+
+    track =
+      insert(:track,
+        status: :present,
+        genre_folder: nil,
+        soundcharts_song_id: nil,
+        bpm_detected: nil,
+        tag_artist: "Raro",
+        tag_title: "Inédito",
+        norm_artist: "raro",
+        norm_title: "inedito",
+        filename: "x.mp3",
+        rel_path: "_Inbox/x.mp3"
+      )
+
+    expect(Beatgrid.Soundcharts.Mock, :search_song, fn _term ->
+      {:ok, %Response{data: [], quota_remaining: 999, status: 200}}
+    end)
+
+    stub(Beatgrid.AI.Mock, :complete, fn _p, _s, _o ->
+      {:ok,
+       %{
+         "classifications" => [
+           %{"index" => 1, "folder" => "mpb", "confidence" => 0.3, "rationale" => "r"}
+         ],
+         "resolutions" => []
+       }}
+    end)
+
+    assert {:ok, %{resolved: false}} = YouTube.enrich_track(track.id)
+    assert_enqueued(worker: Beatgrid.Workers.AnalyzeWorker, args: %{track_id: track.id})
+  end
+
   @tag :tmp_dir
   test "no_match carimba sc_attempted_at" do
     track = insert(:track, tag_artist: "Ninguém", tag_title: "Inédita", norm_artist: "ninguem")

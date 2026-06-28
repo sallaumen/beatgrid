@@ -150,9 +150,11 @@ defmodule Beatgrid.YouTube do
 
   @doc """
   Enriches ONE track on demand: resolves it against Soundcharts (spends quota),
-  re-proposes a rename if it matched, and re-classifies it — so suggestions land in
-  the Central de Revisão. Returns `{:ok, %{resolved: boolean}}` on success or
-  `{:error, :budget_exhausted}` when the quota floor is reached.
+  re-proposes a rename if it matched, then runs the offline fallback (`enrich_fallback/1`:
+  local audio analysis when BPM is missing + AI genre classification, auto-filing the
+  high-confidence ones). Same fallback the batch/rare flows use. Returns
+  `{:ok, %{resolved: boolean}}` on success or `{:error, :budget_exhausted}` when the
+  quota floor is reached.
   """
   @spec enrich_track(binary()) ::
           {:ok, %{resolved: boolean()}} | {:error, :budget_exhausted}
@@ -163,7 +165,7 @@ defmodule Beatgrid.YouTube do
 
       outcome ->
         Review.reevaluate_track(id)
-        ClassificationAI.reclassify(tracks: [Tracks.get(id)])
+        enrich_fallback([id])
         {:ok, %{resolved: outcome == :resolved}}
     end
   end
