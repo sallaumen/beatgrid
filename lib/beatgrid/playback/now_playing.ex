@@ -11,6 +11,10 @@ defmodule Beatgrid.Playback.NowPlaying do
   alias Phoenix.PubSub
 
   @topic "now_playing"
+  # Cue-point marker changes go on their OWN topic so the many now-playing subscribers
+  # (Library/RecSet/Review highlight rows) don't get messages they don't handle — only
+  # the player and the track page subscribe here.
+  @markers_topic "markers"
   @empty %{track_id: nil, set_id: nil}
 
   def start_link(_opts), do: Agent.start_link(fn -> @empty end, name: __MODULE__)
@@ -46,6 +50,18 @@ defmodule Beatgrid.Playback.NowPlaying do
   @doc "Subscribe the calling process to now-playing updates."
   @spec subscribe() :: :ok | {:error, term()}
   def subscribe, do: PubSub.subscribe(Beatgrid.PubSub, @topic)
+
+  @doc "Subscribe to cue-point marker changes (`{:markers_changed, track_id}`)."
+  @spec subscribe_markers() :: :ok | {:error, term()}
+  def subscribe_markers, do: PubSub.subscribe(Beatgrid.PubSub, @markers_topic)
+
+  @doc """
+  Broadcast `{:markers_changed, track_id}` so the player and that track's page reload
+  the cue points. On a dedicated topic so the broader now-playing subscribers are spared.
+  """
+  @spec broadcast_markers_changed(term()) :: :ok
+  def broadcast_markers_changed(track_id),
+    do: PubSub.broadcast(Beatgrid.PubSub, @markers_topic, {:markers_changed, track_id})
 
   @doc "The PubSub topic now-playing updates are broadcast on."
   @spec topic() :: String.t()

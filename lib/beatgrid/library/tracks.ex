@@ -100,6 +100,28 @@ defmodule Beatgrid.Library.Tracks do
     save_cues(track, Enum.reject(track.cue_points || [], &(&1["ms"] == position_ms)))
   end
 
+  @doc "Sets the label of the marker at `position_ms`; a blank label clears it. Unknown position is a no-op."
+  @spec rename_marker(Track.t(), non_neg_integer(), String.t() | nil) ::
+          {:ok, Track.t()} | {:error, Ecto.Changeset.t()}
+  def rename_marker(track, position_ms, label) do
+    cues =
+      Enum.map(track.cue_points || [], fn
+        %{"ms" => ^position_ms} = marker -> Map.put(marker, "label", normalize_label(label))
+        marker -> marker
+      end)
+
+    save_cues(track, cues)
+  end
+
+  defp normalize_label(nil), do: nil
+
+  defp normalize_label(label) when is_binary(label) do
+    case String.trim(label) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
   defp save_cues(track, cues), do: track |> Track.changeset(%{cue_points: cues}) |> Repo.update()
 
   @spec count(keyword()) :: non_neg_integer()

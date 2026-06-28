@@ -47,9 +47,11 @@ config :beatgrid, Oban,
   ],
   plugins: [
     {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7},
-    # Rescue jobs orphaned in `executing` when a node dies mid-run (common in dev
-    # on recompile/restart) back to `available` for retry. 15min > any real batch,
-    # and the :soundcharts queue is concurrency 1, so a rescue never double-runs.
+    # Rescue jobs orphaned in :executing (e.g. node crash / dev recompile) back to
+    # :available for retry. NOTE: a multi-hour mix analyze/vision job can legitimately
+    # exceed 15min and be re-run by Lifeline; that's wasteful but idempotent —
+    # replace_segments/replace_dj_parts are transactional, and schedule_cleanup cancels
+    # a prior cleanup before scheduling a new one.
     {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(15)}
   ]
 
@@ -61,6 +63,7 @@ config :beatgrid, Beatgrid.Tagging.Writer, adapter: Beatgrid.Tagging.Ffmpeg
 config :beatgrid, Beatgrid.Audio.Analyzer, adapter: Beatgrid.Audio.LibrosaCli
 config :beatgrid, Beatgrid.Audio.Loudness, adapter: Beatgrid.Audio.FfmpegLoudness
 config :beatgrid, Beatgrid.YouTube.Downloader, adapter: Beatgrid.YouTube.YtDlp
+config :beatgrid, Beatgrid.Video.FrameSampler, adapter: Beatgrid.Video.FrameSampler.FfmpegCli
 
 # AI classifier: which `claude` model and how many tracks per classification call.
 config :beatgrid, Beatgrid.AI, model: "sonnet", batch_size: 15

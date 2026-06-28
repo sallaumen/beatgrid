@@ -34,6 +34,27 @@ defmodule Beatgrid.Workers.MixDownloadWorkerTest do
     assert_enqueued(worker: MixAnalyzeWorker, args: %{mix_id: mix.id})
   end
 
+  test "persists chapters from source meta onto the mix" do
+    mix = insert(:mix, status: :downloading, title: nil, audio_path: nil)
+
+    expect(Beatgrid.Mixes.SourceMock, :fetch, fn _url, _dest ->
+      {:ok,
+       %{
+         audio_path: "/tmp/_Mixes/abc.mp3",
+         title: "Live Set",
+         dj: "DJ X",
+         duration_ms: 3_600_000,
+         description: "00:00 A - B",
+         chapters: [%{start_ms: 0, title: "DJ A"}]
+       }}
+    end)
+
+    assert :ok = perform_job(MixDownloadWorker, %{mix_id: mix.id})
+
+    reloaded = Mixes.get_mix(mix.id)
+    assert reloaded.chapters == [%{"start_ms" => 0, "title" => "DJ A"}]
+  end
+
   test "a rate-limit error retries (returns {:error, _})" do
     mix = insert(:mix, status: :downloading)
 

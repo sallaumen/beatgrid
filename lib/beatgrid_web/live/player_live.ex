@@ -24,7 +24,10 @@ defmodule BeatgridWeb.PlayerLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, now_playing: nil, playing_set: nil), layout: false}
+    # Subscribe for {:markers_changed, id} so cue points added/renamed/removed from
+    # another page (e.g. the track page) refresh the player's lane + popover live.
+    if connected?(socket), do: Playback.subscribe_markers()
+    {:ok, assign(socket, now_playing: nil, playing_set: nil, show_markers: false), layout: false}
   end
 
   @impl true
@@ -39,7 +42,11 @@ defmodule BeatgridWeb.PlayerLive do
       track ->
         set_id = params["set_id"]
         Playback.set_now_playing(%{track_id: id, set_id: set_id})
-        {:noreply, assign(socket, now_playing: track, playing_set: load_playing_set(set_id))}
+
+        {:noreply,
+         socket
+         |> assign(now_playing: track, playing_set: load_playing_set(set_id))
+         |> push_markers()}
     end
   end
 
@@ -47,8 +54,60 @@ defmodule BeatgridWeb.PlayerLive do
 
   def handle_event("close", _params, socket) do
     Playback.clear_now_playing()
-    {:noreply, assign(socket, now_playing: nil, playing_set: nil)}
+    {:noreply, assign(socket, now_playing: nil, playing_set: nil, show_markers: false)}
   end
+
+  def handle_event("toggle_markers", _params, socket),
+    do: {:noreply, assign(socket, show_markers: !socket.assigns.show_markers)}
+
+  # Cue-point markers always target the now-playing track. The hook supplies the
+  # current playback position (ms) for add; rename/remove come from the popover.
+  # `to_ms` rejects crafted/empty payloads (no crash); `mutate_markers` re-reads the
+  # track fresh (no lost update vs a concurrent track-page edit) and updates the lane
+  # synchronously instead of waiting for the broadcast echo.
+  def handle_event("add_marker", %{"ms" => ms}, %{assigns: %{now_playing: %{id: id}}} = socket) do
+    case to_ms(ms) do
+      {:ok, n} -> {:noreply, mutate_markers(socket, id, &Tracks.add_marker(&1, n))}
+      :error -> {:noreply, socket}
+    end
+  end
+
+  def handle_event(
+        "rename_marker",
+        %{"ms" => ms, "label" => label},
+        %{assigns: %{now_playing: %{id: id}}} = socket
+      ) do
+    case to_ms(ms) do
+      {:ok, n} -> {:noreply, mutate_markers(socket, id, &Tracks.rename_marker(&1, n, label))}
+      :error -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("remove_marker", %{"ms" => ms}, %{assigns: %{now_playing: %{id: id}}} = socket) do
+    case to_ms(ms) do
+      {:ok, n} -> {:noreply, mutate_markers(socket, id, &Tracks.remove_marker(&1, n))}
+      :error -> {:noreply, socket}
+    end
+  end
+
+  # Marker events with nothing playing are no-ops (defensive).
+  def handle_event(event, _params, socket)
+      when event in ~w(add_marker rename_marker remove_marker),
+      do: {:noreply, socket}
+
+  # A track's markers changed (from here or another page) — if it's the one playing,
+  # reload it so the popover count/list and the seek-lane ticks refresh. The repeated
+  # `id` in the head matches only when the changed track is the now-playing one.
+  @impl true
+  def handle_info({:markers_changed, id}, %{assigns: %{now_playing: %{id: id}}} = socket) do
+    case Tracks.get_with_song(id) do
+      nil -> {:noreply, socket}
+      track -> {:noreply, socket |> assign(now_playing: track) |> push_markers()}
+    end
+  end
+
+  # Ignore everything else on the topic (our own {:now_playing, _} echoes, other tracks).
+  def handle_info(_msg, socket), do: {:noreply, socket}
 
   # On teardown (refresh / tab close) the audio is gone — reset the pointer (silent,
   # no live subscribers to notify) so a freshly-mounted page won't read a stale one.
@@ -71,11 +130,46 @@ defmodule BeatgridWeb.PlayerLive do
         {:noreply,
          socket
          |> assign(now_playing: next)
+         |> push_markers()
          |> push_event("play_track", %{src: ~p"/audio/#{next.id}", id: next.id})}
     end
   end
 
   defp advance(socket), do: {:noreply, socket}
+
+  # Push the now-playing track's cue points to the hook, which draws the seek-lane ticks.
+  defp push_markers(socket) do
+    markers = (socket.assigns.now_playing && socket.assigns.now_playing.cue_points) || []
+    push_event(socket, "player_markers", %{markers: markers})
+  end
+
+  # Re-read the track fresh (so a concurrent track-page edit isn't clobbered), apply the
+  # cue mutation, then update the player synchronously + tell the track's page. The fresh
+  # read carries the song preload, which Repo.update keeps, so now_playing stays complete.
+  defp mutate_markers(socket, id, fun) do
+    case Tracks.get_with_song(id) do
+      nil ->
+        socket
+
+      fresh ->
+        {:ok, updated} = fun.(fresh)
+        Playback.broadcast_markers_changed(id)
+        socket |> assign(now_playing: updated) |> push_markers()
+    end
+  end
+
+  # Coerce a client-supplied position to integer ms; reject empty/non-numeric (no crash).
+  defp to_ms(ms) when is_integer(ms), do: {:ok, ms}
+  defp to_ms(ms) when is_float(ms), do: {:ok, trunc(ms)}
+
+  defp to_ms(ms) when is_binary(ms) do
+    case Integer.parse(ms) do
+      {n, _rest} -> {:ok, n}
+      :error -> :error
+    end
+  end
+
+  defp to_ms(_ms), do: :error
 
   defp load_playing_set(nil), do: nil
 
@@ -125,6 +219,45 @@ defmodule BeatgridWeb.PlayerLive do
           <span class="max-w-[160px] truncate">{@playing_set.name}</span>
         </.link>
 
+        <div :if={@now_playing} class="relative shrink-0">
+          <button
+            type="button"
+            phx-click="toggle_markers"
+            class={[
+              "flex items-center gap-1 rounded-full px-2.5 py-1 text-caption font-semibold",
+              @show_markers && "bg-amber/25 text-amber",
+              !@show_markers && "bg-amber/10 text-amber hover:bg-amber/20"
+            ]}
+            title="Marcadores"
+          >
+            <span aria-hidden="true">🚩</span>
+            <span>{length(@now_playing.cue_points || [])}</span>
+          </button>
+          <div
+            :if={@show_markers}
+            class="absolute bottom-full left-0 z-50 mb-2 w-72 rounded-lg border border-white/10 bg-rail p-3 shadow-xl"
+          >
+            <div class="mb-2 flex items-center justify-between">
+              <span class="text-caption font-semibold text-ink-secondary">Marcadores</span>
+              <button
+                type="button"
+                phx-click={JS.dispatch("beatgrid:add-marker", to: "#player-audio")}
+                class="rounded-md border border-amber/40 bg-amber/10 px-2 py-0.5 text-[11px] font-semibold text-amber hover:bg-amber/20"
+                title="Marcar a posição atual"
+              >
+                ＋ marcar
+              </button>
+            </div>
+            <.marker_list
+              markers={@now_playing.cue_points || []}
+              track_id={@now_playing.id}
+              play_src={~p"/audio/#{@now_playing.id}"}
+              seekable={true}
+              id_prefix="player"
+            />
+          </div>
+        </div>
+
         <div id="player-controls" phx-update="ignore" class="flex flex-1 items-center gap-3">
           <button
             id="player-toggle"
@@ -136,15 +269,19 @@ defmodule BeatgridWeb.PlayerLive do
             <span id="player-toggle-icon">▶</span>
           </button>
           <span id="player-elapsed" class="text-ink-faint w-9 text-right font-mono text-[11px]">0:00</span>
-          <input
-            id="player-seek"
-            type="range"
-            min="0"
-            max="100"
-            value="0"
-            class="h-1 flex-1"
-            style="accent-color:#8b7bf0"
-          />
+          <div class="relative flex-1">
+            <div id="player-marker-lane" class="pointer-events-none absolute inset-x-0 -top-2 h-2.5">
+            </div>
+            <input
+              id="player-seek"
+              type="range"
+              min="0"
+              max="100"
+              value="0"
+              class="h-1 w-full"
+              style="accent-color:#8b7bf0"
+            />
+          </div>
           <span id="player-duration" class="text-ink-faint w-9 font-mono text-[11px]">0:00</span>
           <span class="text-ink-faint ml-2 text-[13px]">🔊</span>
           <input
@@ -191,14 +328,49 @@ defmodule BeatgridWeb.PlayerLive do
             }
             const setIcon = (t) => { const el = byId("player-toggle-icon"); if (el) el.textContent = t }
 
-            // Load + play a src; preview jumps to the configured offset for long tracks.
-            const playSrc = (src, preview) => {
+            // --- cue-point markers drawn over the seek lane (data pushed from the server) ---
+            this._markers = []
+            const lane = byId("player-marker-lane")
+            const renderMarkers = () => {
+              if (!lane) return
+              lane.innerHTML = ""
+              const durMs = (a.duration || 0) * 1000
+              if (!durMs) return
+              this._markers.forEach((m) => {
+                if (m.ms < 0 || m.ms > durMs) return
+                const left = (m.ms / durMs) * 100
+                const tick = document.createElement("button")
+                tick.type = "button"
+                tick.title = m.label || fmt(m.ms / 1000)
+                tick.style.cssText =
+                  `position:absolute;top:0;bottom:0;left:${left}%;width:3px;` +
+                  `transform:translateX(-1px);background:#ffb020;border:0;border-radius:2px;` +
+                  `cursor:pointer;pointer-events:auto`
+                tick.addEventListener("click", () => { if (a.duration) a.currentTime = m.ms / 1000 })
+                lane.appendChild(tick)
+              })
+            }
+            this.handleEvent("player_markers", ({markers}) => { this._markers = markers || []; renderMarkers() })
+            // "Mark now": the button (player or track page) dispatches this; we read the
+            // live position and let the server persist it on the now-playing track. Ignore
+            // it when nothing has loaded/played yet, so we never store a junk 0:00 cue.
+            a.addEventListener("beatgrid:add-marker", () => {
+              if (!a.duration || a.currentTime <= 0) return
+              this.pushEvent("add_marker", {ms: Math.round(a.currentTime * 1000)})
+            })
+            a.addEventListener("beatgrid:seek", (e) => { if (a.duration) a.currentTime = e.detail.ms / 1000 })
+
+            // Load + play a src. `atMs` (jump to a marker) wins; else a preview jumps
+            // to the configured offset for long tracks; otherwise start at 0.
+            const playSrc = (src, preview, atMs) => {
+              if (lane) lane.innerHTML = ""
               a.src = src
               a.load()
               if (a._pendingStart) a.removeEventListener("loadedmetadata", a._pendingStart)
               const start = () => {
                 const durMs = (a.duration || 0) * 1000
-                a.currentTime = (preview && durMs >= minDur) ? offset / 1000 : 0
+                if (atMs != null) a.currentTime = atMs / 1000
+                else a.currentTime = (preview && durMs >= minDur) ? offset / 1000 : 0
                 a.play()
                 a.removeEventListener("loadedmetadata", start)
                 a._pendingStart = null
@@ -207,9 +379,10 @@ defmodule BeatgridWeb.PlayerLive do
               a.addEventListener("loadedmetadata", start)
             }
 
-            // User-initiated play from a page (may carry a set_id for set playback).
+            // User-initiated play from a page (may carry a set_id for set playback, or
+            // an at_ms to start straight at a cue-point marker).
             a.addEventListener("beatgrid:play", (e) => {
-              playSrc(e.detail.src, e.detail.preview)
+              playSrc(e.detail.src, e.detail.preview, e.detail.at_ms)
               this.pushEvent("now_playing", {id: e.detail.id, set_id: e.detail.set_id || null})
             })
 
@@ -253,6 +426,7 @@ defmodule BeatgridWeb.PlayerLive do
               const dur = byId("player-duration")
               if (seek) { seek.max = Math.floor(a.duration || 0); seek.value = 0 }
               if (dur) dur.textContent = fmt(a.duration)
+              renderMarkers()
             })
             a.addEventListener("timeupdate", () => {
               const seek = byId("player-seek")

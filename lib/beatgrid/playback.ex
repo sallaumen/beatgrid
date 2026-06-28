@@ -27,6 +27,12 @@ defmodule Beatgrid.Playback do
   @doc "Subscribe the caller to now-playing updates (`{:now_playing, %{track_id, set_id}}`)."
   defdelegate subscribe(), to: NowPlaying
 
+  @doc "Subscribe the caller to cue-point marker changes (`{:markers_changed, track_id}`)."
+  defdelegate subscribe_markers(), to: NowPlaying
+
+  @doc "Broadcast `{:markers_changed, track_id}` to the player + that track's page."
+  defdelegate broadcast_markers_changed(track_id), to: NowPlaying
+
   @doc "Where a preview play starts (ms) for tracks at least `preview_min_duration_ms/0` long."
   @spec preview_offset_ms() :: pos_integer()
   def preview_offset_ms, do: @preview_offset_ms

@@ -38,7 +38,7 @@ defmodule Beatgrid.Workers.MixAnalyzeWorkerTest do
        }}
     end)
 
-    expect(Beatgrid.Audio.SetSegmenterMock, :analyze, fn "/tmp/_Mixes/m.mp3", [0, 270_000] ->
+    expect(Beatgrid.Audio.SetSegmenterMock, :analyze, fn "/tmp/_Mixes/m.mp3", [0, 270_000], _opts ->
       {:ok,
        [
          %{start_ms: 0, end_ms: 270_000, bpm: 124.0, key: 7, mode: 1},
@@ -58,10 +58,45 @@ defmodule Beatgrid.Workers.MixAnalyzeWorkerTest do
     assert_enqueued(worker: MixCleanupWorker, args: %{mix_id: mix.id})
   end
 
+  test "uses chapters as track boundaries when there is no description tracklist" do
+    mix =
+      insert(:mix,
+        status: :analyzing,
+        audio_path: "/tmp/_Mixes/cap.mp3",
+        description: "",
+        chapters: [%{"start_ms" => 0, "title" => "A"}, %{"start_ms" => 120_000, "title" => "B"}],
+        chapters_role: :tracks
+      )
+
+    stub(Beatgrid.AI.Mock, :complete, fn _p, _s, _o -> {:ok, %{"tracklist" => []}} end)
+
+    expect(Beatgrid.Audio.SetSegmenterMock, :analyze, fn "/tmp/_Mixes/cap.mp3", [0, 120_000], _opts ->
+      {:ok, [%{start_ms: 0, end_ms: 120_000, bpm: 120.0, key: 7, mode: 1}]}
+    end)
+
+    assert :ok = perform_job(MixAnalyzeWorker, %{mix_id: mix.id})
+  end
+
+  test "ignores chapters for boundaries when chapters_role is :djs" do
+    mix =
+      insert(:mix,
+        status: :analyzing,
+        audio_path: "/tmp/_Mixes/djs.mp3",
+        description: "",
+        chapters: [
+          %{"start_ms" => 0, "title" => "DJ A"},
+          %{"start_ms" => 120_000, "title" => "DJ B"}
+        ],
+        chapters_role: :djs
+      )
+
+    stub(Beatgrid.AI.Mock, :complete, fn _p, _s, _o -> {:ok, %{"tracklist" => []}} end)
+    expect(Beatgrid.Audio.SetSegmenterMock, :analyze, fn "/tmp/_Mixes/djs.mp3", [], _opts -> {:ok, []} end)
+
+    assert :ok = perform_job(MixAnalyzeWorker, %{mix_id: mix.id})
+  end
+
   test "Path A: unnamed intro segment when first track starts at non-zero time" do
-    # The description's first track starts at 30 s, so the segmenter returns an extra
-    # intro segment at 0 ms. The old zip-by-index would shift names; the new
-    # start-time alignment must leave the intro UNNAMED.
     mix =
       insert(:mix,
         status: :analyzing,
@@ -80,7 +115,8 @@ defmodule Beatgrid.Workers.MixAnalyzeWorkerTest do
     end)
 
     expect(Beatgrid.Audio.SetSegmenterMock, :analyze, fn "/tmp/_Mixes/intro-test.mp3",
-                                                         [30_000, 300_000] ->
+                                                         [30_000, 300_000],
+                                                         _opts ->
       {:ok,
        [
          %{start_ms: 0, end_ms: 30_000, bpm: 120.0, key: 1, mode: 1},
@@ -95,22 +131,33 @@ defmodule Beatgrid.Workers.MixAnalyzeWorkerTest do
     assert reloaded.status == :ready
     assert [intro, seg1, seg2] = reloaded.segments
 
-    # Intro segment at 0 ms must be unnamed (no description entry at start_ms 0)
     assert intro.start_ms == 0
     assert intro.artist == nil
     assert intro.title == nil
     assert intro.name_source == :audio
 
-    # First described track (A - One) aligns to start_ms 30_000
     assert seg1.start_ms == 30_000
     assert seg1.artist == "A"
     assert seg1.title == "One"
     assert seg1.name_source == :description
 
-    # Second described track (B - Two) aligns to start_ms 300_000
     assert seg2.start_ms == 300_000
     assert seg2.artist == "B"
     assert seg2.title == "Two"
     assert seg2.name_source == :description
+  end
+
+  test "broadcasts per-segment progress" do
+    Mixes.subscribe()
+    mix = insert(:mix, status: :analyzing, audio_path: "/tmp/_Mixes/p.mp3", description: "")
+    stub(Beatgrid.AI.Mock, :complete, fn _p, _s, _o -> {:ok, %{"tracklist" => []}} end)
+
+    expect(Beatgrid.Audio.SetSegmenterMock, :analyze, fn _p, _b, opts ->
+      opts[:on_progress].(%{stage: "segments", done: 1, total: 1})
+      {:ok, [%{start_ms: 0, end_ms: 1000, bpm: 120.0, key: 7, mode: 1}]}
+    end)
+
+    assert :ok = perform_job(MixAnalyzeWorker, %{mix_id: mix.id})
+    assert_received {:mix_progress, %{stage: "segments", done: 1, total: 1, mix_id: _}}
   end
 end

@@ -6,7 +6,14 @@ defmodule Beatgrid.Workers.MixAnalyzeWorker do
   persists the segments. Marks the mix `:ready` and schedules a cancelable 24h audio
   cleanup. Quota-free (local librosa + Claude-Max).
   """
-  use Oban.Worker, queue: :mixes, max_attempts: 3
+  use Oban.Worker,
+    queue: :mixes,
+    max_attempts: 3,
+    unique: [
+      period: 3600,
+      keys: [:mix_id],
+      states: [:available, :scheduled, :executing, :retryable, :suspended]
+    ]
 
   alias Beatgrid.Mixes
   alias Beatgrid.Mixes.TracklistAI
@@ -30,9 +37,11 @@ defmodule Beatgrid.Workers.MixAnalyzeWorker do
 
   defp run(mix) do
     tracklist = TracklistAI.parse(mix.description)
-    boundaries = boundaries_from(tracklist)
+    boundaries = boundaries_for(mix, tracklist)
 
-    case @segmenter.analyze(mix.audio_path, boundaries) do
+    on_progress = fn p -> Mixes.broadcast(Map.put(p, :mix_id, mix.id)) end
+
+    case @segmenter.analyze(mix.audio_path, boundaries, on_progress: on_progress) do
       {:ok, raw_segments} ->
         segments = build_segments(raw_segments, tracklist)
         {:ok, _n} = Mixes.replace_segments(mix, segments)
@@ -50,6 +59,22 @@ defmodule Beatgrid.Workers.MixAnalyzeWorker do
         fail(mix, reason)
     end
   end
+
+  defp boundaries_for(mix, tracklist) do
+    case boundaries_from(tracklist) do
+      [] -> chapter_boundaries(mix)
+      bs -> bs
+    end
+  end
+
+  defp chapter_boundaries(%{chapters_role: :tracks, chapters: chapters}) when is_list(chapters) do
+    chapters
+    |> Enum.map(&Map.get(&1, "start_ms"))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.sort()
+  end
+
+  defp chapter_boundaries(_mix), do: []
 
   # Path A: tracklist has timestamps → use them. Else [] → segmenter auto-detects.
   defp boundaries_from(tracklist) do
@@ -100,6 +125,9 @@ defmodule Beatgrid.Workers.MixAnalyzeWorker do
   end
 
   defp schedule_cleanup(mix) do
+    mix = Mixes.get_mix(mix.id)
+    if is_integer(mix.cleanup_job_id), do: Oban.cancel_job(mix.cleanup_job_id)
+
     {:ok, job} =
       Oban.insert(MixCleanupWorker.new(%{mix_id: mix.id}, schedule_in: 86_400))
 

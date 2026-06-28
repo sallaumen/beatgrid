@@ -74,6 +74,7 @@ defmodule BeatgridWeb.TrackLive do
       YouTube.subscribe_enrich()
       Repertoire.subscribe()
       Playback.subscribe()
+      Playback.subscribe_markers()
       if is_nil(track.analyzed_at), do: enqueue_analyze(socket), else: socket
     else
       socket
@@ -168,15 +169,15 @@ defmodule BeatgridWeb.TrackLive do
     {:noreply, push_navigate(socket, to: ~p"/set")}
   end
 
-  def handle_event("add_marker", %{"ms" => ms}, socket) do
-    {:ok, _} = Tracks.add_marker(socket.assigns.track, trunc(ms))
-    {:noreply, socket |> reload() |> push_markers()}
-  end
+  # Markers live on the global player now; this page only renames/removes them (the
+  # ＋ button dispatches to the player, which captures the live position). `mutate_markers`
+  # rejects junk ms (no crash), re-reads the track fresh (no lost update vs a player-side
+  # edit), persists, reloads, and broadcasts so the player + this page stay in sync.
+  def handle_event("rename_marker", %{"ms" => ms, "label" => label}, socket),
+    do: {:noreply, mutate_markers(socket, ms, &Tracks.rename_marker(&1, &2, label))}
 
-  def handle_event("remove_marker", %{"ms" => ms}, socket) do
-    {:ok, _} = Tracks.remove_marker(socket.assigns.track, String.to_integer(ms))
-    {:noreply, socket |> reload() |> push_markers()}
-  end
+  def handle_event("remove_marker", %{"ms" => ms}, socket),
+    do: {:noreply, mutate_markers(socket, ms, &Tracks.remove_marker(&1, &2))}
 
   def handle_event("reanalyze", _params, socket) do
     {:noreply, enqueue_analyze(socket)}
@@ -282,6 +283,12 @@ defmodule BeatgridWeb.TrackLive do
   def handle_info({:now_playing, np}, socket) do
     {:noreply, assign(socket, playing_track_id: np.track_id)}
   end
+
+  # Our track's cue points changed (e.g. a marker added from the player) — reload the list.
+  def handle_info({:markers_changed, id}, %{assigns: %{track: %{id: id}}} = socket),
+    do: {:noreply, reload(socket)}
+
+  def handle_info({:markers_changed, _id}, socket), do: {:noreply, socket}
 
   defp enrich_done_toast(%{budget_exhausted: true}), do: {:error, "Cota Soundcharts esgotada."}
 
@@ -400,8 +407,28 @@ defmodule BeatgridWeb.TrackLive do
     assign(socket, track: track, versions: Tracks.versions_of(track))
   end
 
-  defp push_markers(socket),
-    do: push_event(socket, "markers", %{markers: socket.assigns.track.cue_points || []})
+  # Parse ms (no crash on junk), re-read the track fresh (no lost update), mutate, reload.
+  defp mutate_markers(socket, ms, fun) do
+    with {:ok, n} <- to_ms(ms),
+         track when not is_nil(track) <- Tracks.get_with_song(socket.assigns.track.id) do
+      {:ok, _} = fun.(track, n)
+      Playback.broadcast_markers_changed(track.id)
+      reload(socket)
+    else
+      _ -> socket
+    end
+  end
+
+  defp to_ms(ms) when is_integer(ms), do: {:ok, ms}
+
+  defp to_ms(ms) when is_binary(ms) do
+    case Integer.parse(ms) do
+      {n, _rest} -> {:ok, n}
+      :error -> :error
+    end
+  end
+
+  defp to_ms(_ms), do: :error
 
   @impl true
   def render(assigns) do
@@ -463,6 +490,40 @@ defmodule BeatgridWeb.TrackLive do
                 Apagar
               </button>
             </div>
+          </div>
+
+          <div class="flex shrink-0 flex-col items-end gap-2">
+            <button
+              type="button"
+              phx-click={
+                if @track.id == @playing_track_id,
+                  do: JS.dispatch("beatgrid:toggle", to: "#player-audio"),
+                  else:
+                    JS.dispatch("beatgrid:play",
+                      to: "#player-audio",
+                      detail: %{src: ~p"/audio/#{@track.id}", id: @track.id, preview: false}
+                    )
+              }
+              class="flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-[15px] font-semibold text-white shadow-lg shadow-primary/30 hover:bg-primary/90"
+              title="Tocar no player"
+            >
+              <.vinyl :if={@track.id == @playing_track_id} size={18} />
+              <span :if={@track.id != @playing_track_id} aria-hidden="true">▶</span>
+              {if @track.id == @playing_track_id, do: "Tocando", else: "Tocar"}
+            </button>
+            <button
+              type="button"
+              phx-click={JS.dispatch("beatgrid:add-marker", to: "#player-audio")}
+              disabled={@track.id != @playing_track_id}
+              class="flex items-center gap-1.5 rounded-full border border-amber/40 bg-amber/10 px-3.5 py-1.5 text-[12px] font-semibold text-amber hover:bg-amber/20 disabled:cursor-not-allowed disabled:opacity-40"
+              title={
+                if @track.id == @playing_track_id,
+                  do: "Marcar a posição atual",
+                  else: "Dê play nesta faixa para marcar"
+              }
+            >
+              <span aria-hidden="true">＋</span> Marcar
+            </button>
           </div>
         </header>
 
@@ -586,60 +647,32 @@ defmodule BeatgridWeb.TrackLive do
 
         <section class="mt-5 rounded-xl border border-white/6 bg-surface p-4">
           <div class="flex items-center justify-between">
-            <.section_label>Player</.section_label>
-            <div class="flex items-center gap-2">
-              <button
-                id="wf-toggle"
-                phx-click={JS.dispatch("beatgrid:toggle", to: "#track-waveform")}
-                class="flex size-8 items-center justify-center rounded-full bg-primary/15 text-[12px] text-primary hover:bg-primary/25"
-                title="Tocar / pausar"
-              >
-                ▶
-              </button>
-              <button
-                phx-click={JS.dispatch("beatgrid:mark", to: "#track-waveform")}
-                class="rounded-md border border-amber/40 bg-amber/10 px-2.5 py-1 text-[11px] font-semibold text-amber hover:bg-amber/20"
-              >
-                + Marcar aqui
-              </button>
-            </div>
-          </div>
-
-          <div class="relative mt-3">
-            <div
-              id="track-waveform"
-              phx-hook="Waveform"
-              phx-update="ignore"
-              data-audio={~p"/audio/#{@track.id}"}
-              data-markers={Jason.encode!(@track.cue_points || [])}
+            <.section_label>Marcadores</.section_label>
+            <button
+              type="button"
+              phx-click={JS.dispatch("beatgrid:add-marker", to: "#player-audio")}
+              disabled={@track.id != @playing_track_id}
+              class="rounded-md border border-amber/40 bg-amber/10 px-2.5 py-1 text-[11px] font-semibold text-amber hover:bg-amber/20 disabled:cursor-not-allowed disabled:opacity-40"
+              title={
+                if @track.id == @playing_track_id,
+                  do: "Marcar a posição atual",
+                  else: "Dê play nesta faixa para marcar"
+              }
             >
-            </div>
+              ＋ marcar
+            </button>
           </div>
-
-          <div :if={(@track.cue_points || []) != []} class="mt-3 flex flex-wrap gap-1.5">
-            <div
-              :for={m <- @track.cue_points}
-              class="inline-flex items-center gap-1.5 rounded-sm border border-amber/40 bg-amber/10 px-2 py-1 text-[11px]"
-            >
-              <button
-                phx-click={
-                  JS.dispatch("beatgrid:seek", to: "#track-waveform", detail: %{ms: m["ms"]})
-                }
-                class="font-mono text-amber hover:underline"
-                title="Pular para este ponto"
-              >
-                {format_ms(m["ms"])}
-              </button>
-              <span :if={m["label"]} class="text-ink-secondary">{m["label"]}</span>
-              <button
-                phx-click="remove_marker"
-                phx-value-ms={m["ms"]}
-                class="text-ink-muted hover:text-coral"
-                title="Remover marcador"
-              >
-                ✕
-              </button>
-            </div>
+          <p class="text-caption text-ink-faint mt-1">
+            Aparecem no player de baixo em qualquer página. Clique no tempo para tocar a faixa a partir dele.
+          </p>
+          <div class="mt-3">
+            <.marker_list
+              markers={@track.cue_points || []}
+              track_id={@track.id}
+              play_src={~p"/audio/#{@track.id}"}
+              seekable={false}
+              id_prefix="track"
+            />
           </div>
         </section>
 
@@ -1104,9 +1137,6 @@ defmodule BeatgridWeb.TrackLive do
   end
 
   defp format_secs(s), do: "#{div(s, 60)}:#{String.pad_leading(to_string(rem(s, 60)), 2, "0")}"
-
-  defp format_ms(ms) when is_integer(ms), do: format_secs(div(ms, 1000))
-  defp format_ms(_ms), do: "0:00"
 
   defp title(track), do: track.tag_title || track.filename
 

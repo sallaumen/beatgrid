@@ -30,6 +30,10 @@ defmodule BeatgridWeb.MixesLive do
              toast: {:ok, "Set na fila — baixando…"}
            )}
 
+        {:error, :unsupported_source} ->
+          {:noreply,
+           assign(socket, toast: {:error, "Só aceito links do YouTube ou SoundCloud por enquanto."})}
+
         {:error, _changeset} ->
           {:noreply,
            assign(socket, toast: {:error, "Esse set já foi importado (ou URL inválida)."})}
@@ -58,7 +62,7 @@ defmodule BeatgridWeb.MixesLive do
             type="text"
             name="url"
             value={@url}
-            placeholder="Cole a URL do set no SoundCloud…"
+            placeholder="Cole a URL do set (YouTube ou SoundCloud)…"
             class="min-w-0 flex-1 rounded-md border border-white/10 bg-surface px-3 py-2 text-body-sm"
           />
           <button class="rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-body-sm font-semibold text-primary hover:bg-primary/20">
@@ -73,6 +77,7 @@ defmodule BeatgridWeb.MixesLive do
             navigate={~p"/sets-online/#{mix.id}"}
             class="flex items-center justify-between gap-4 rounded-lg border border-white/6 bg-surface px-4 py-3 hover:border-white/12"
           >
+            <.source_badge source={mix.source} />
             <div class="min-w-0">
               <p class="truncate font-medium">{mix.title || mix.source_url}</p>
               <p class="truncate text-body-sm text-ink-muted">{mix.dj || "—"}</p>
@@ -91,4 +96,16 @@ defmodule BeatgridWeb.MixesLive do
   defp mix_status_label(:analyzing), do: "Analisando…"
   defp mix_status_label(:ready), do: "Pronto"
   defp mix_status_label(:failed), do: "Falhou"
+
+  defp source_badge(assigns) do
+    ~H"""
+    <span class={[
+      "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold",
+      @source == "youtube" && "bg-red-500/15 text-red-300",
+      @source == "soundcloud" && "bg-orange-500/15 text-orange-300"
+    ]}>
+      {if @source == "youtube", do: "YT", else: "SC"}
+    </span>
+    """
+  end
 end

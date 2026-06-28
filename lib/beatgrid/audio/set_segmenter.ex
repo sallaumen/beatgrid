@@ -13,6 +13,11 @@ defmodule Beatgrid.Audio.SetSegmenter do
           mode: integer() | nil
         }
 
-  @callback analyze(audio_path :: String.t(), boundaries_ms :: [integer()]) ::
+  @type candidate :: %{start_ms: integer(), strength: float()}
+
+  @callback analyze(audio_path :: String.t(), boundaries_ms :: [integer()], opts :: keyword()) ::
               {:ok, [seg()]} | {:error, term()}
+
+  @callback dj_candidates(audio_path :: String.t()) ::
+              {:ok, [candidate()]} | {:error, term()}
 end

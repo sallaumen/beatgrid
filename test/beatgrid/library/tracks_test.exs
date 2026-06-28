@@ -178,5 +178,20 @@ defmodule Beatgrid.Library.TracksTest do
       {:ok, t3} = Tracks.remove_marker(t2, 20_000)
       assert Enum.map(t3.cue_points, & &1["ms"]) == [90_000]
     end
+
+    test "rename_marker sets the label of the marker at a position (blank clears it)" do
+      {:ok, track} = Tracks.upsert_by_path(attrs())
+      {:ok, t1} = Tracks.add_marker(track, 30_000)
+
+      {:ok, t2} = Tracks.rename_marker(t1, 30_000, "  drop  ")
+      assert Enum.find(t2.cue_points, &(&1["ms"] == 30_000))["label"] == "drop"
+
+      {:ok, t3} = Tracks.rename_marker(t2, 30_000, "   ")
+      assert Enum.find(t3.cue_points, &(&1["ms"] == 30_000))["label"] == nil
+
+      # An unknown position is a no-op (no crash, list unchanged).
+      {:ok, t4} = Tracks.rename_marker(t3, 999_999, "x")
+      assert Enum.map(t4.cue_points, & &1["ms"]) == [30_000]
+    end
   end
 end

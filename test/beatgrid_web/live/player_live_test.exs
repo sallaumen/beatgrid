@@ -99,6 +99,87 @@ defmodule BeatgridWeb.PlayerLiveTest do
     assert Playback.now_playing() == %{track_id: nil, set_id: nil}
   end
 
+  describe "markers" do
+    alias Beatgrid.Library.Tracks
+
+    test "now_playing pushes the track's cue points to the hook", %{conn: conn} do
+      track = insert(:track, tag_title: "M", cue_points: [%{"ms" => 5000, "label" => "intro"}])
+      {:ok, view, _html} = live_isolated(conn, BeatgridWeb.PlayerLive)
+
+      render_hook(view, "now_playing", %{"id" => track.id})
+
+      assert_push_event(view, "player_markers", %{markers: [%{"ms" => 5000, "label" => "intro"}]})
+    end
+
+    test "add_marker stores a cue at the live position on the now-playing track", %{conn: conn} do
+      track = insert(:track, tag_title: "M")
+      {:ok, view, _html} = live_isolated(conn, BeatgridWeb.PlayerLive)
+      render_hook(view, "now_playing", %{"id" => track.id})
+
+      render_hook(view, "add_marker", %{"ms" => 12_345})
+
+      assert [%{"ms" => 12_345}] = Tracks.get(track.id).cue_points
+      assert_push_event(view, "player_markers", %{markers: [%{"ms" => 12_345}]})
+    end
+
+    test "rename_marker and remove_marker manage cues on the now-playing track", %{conn: conn} do
+      track = insert(:track, tag_title: "M", cue_points: [%{"ms" => 7000, "label" => nil}])
+      {:ok, view, _html} = live_isolated(conn, BeatgridWeb.PlayerLive)
+      render_hook(view, "now_playing", %{"id" => track.id})
+
+      render_hook(view, "rename_marker", %{"ms" => "7000", "label" => "build"})
+      assert Enum.find(Tracks.get(track.id).cue_points, &(&1["ms"] == 7000))["label"] == "build"
+
+      render_hook(view, "remove_marker", %{"ms" => "7000"})
+      assert Tracks.get(track.id).cue_points == []
+    end
+
+    test "toggle_markers opens the popover listing the cues", %{conn: conn} do
+      track = insert(:track, tag_title: "M", cue_points: [%{"ms" => 90_000, "label" => "refrão"}])
+      {:ok, view, _html} = live_isolated(conn, BeatgridWeb.PlayerLive)
+      render_hook(view, "now_playing", %{"id" => track.id})
+
+      html = render_click(view, "toggle_markers")
+
+      assert html =~ "refrão"
+      assert html =~ "1:30"
+    end
+
+    test "add_marker with nothing playing is a no-op", %{conn: conn} do
+      {:ok, view, _html} = live_isolated(conn, BeatgridWeb.PlayerLive)
+
+      render_hook(view, "add_marker", %{"ms" => 1000})
+
+      assert Playback.now_playing().track_id == nil
+    end
+
+    test "marker events ignore empty/non-numeric ms instead of crashing", %{conn: conn} do
+      track = insert(:track, tag_title: "M", cue_points: [%{"ms" => 1000, "label" => nil}])
+      {:ok, view, _html} = live_isolated(conn, BeatgridWeb.PlayerLive)
+      render_hook(view, "now_playing", %{"id" => track.id})
+
+      # These would crash a naive String.to_integer/trunc — the handler must no-op.
+      render_hook(view, "rename_marker", %{"ms" => "", "label" => "x"})
+      render_hook(view, "remove_marker", %{"ms" => "abc"})
+      render_hook(view, "add_marker", %{"ms" => "not-a-number"})
+
+      assert render(view) =~ "M"
+      assert [%{"ms" => 1000}] = Tracks.get(track.id).cue_points
+    end
+
+    test "a marker mutation broadcasts markers_changed so other pages refresh", %{conn: conn} do
+      track = insert(:track, tag_title: "M")
+      Playback.subscribe_markers()
+      {:ok, view, _html} = live_isolated(conn, BeatgridWeb.PlayerLive)
+      render_hook(view, "now_playing", %{"id" => track.id})
+
+      render_hook(view, "add_marker", %{"ms" => 4000})
+
+      assert_receive {:markers_changed, id}
+      assert id == track.id
+    end
+  end
+
   describe "sticky mount" do
     test "the global player is rendered on each page", %{conn: conn} do
       track = insert(:track, status: :present)

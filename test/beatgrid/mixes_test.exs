@@ -36,12 +36,45 @@ defmodule Beatgrid.MixesTest do
     assert seg.artist == "Djavan" and seg.name_source == :manual
   end
 
+  describe "detect_source/1" do
+    test "youtube hosts" do
+      for u <- [
+            "https://www.youtube.com/watch?v=a93fldI5DSU",
+            "https://youtu.be/a93fldI5DSU",
+            "https://m.youtube.com/watch?v=x"
+          ] do
+        assert Mixes.detect_source(u) == {:ok, "youtube"}
+      end
+    end
+
+    test "soundcloud hosts" do
+      assert Mixes.detect_source("https://soundcloud.com/dj/set") == {:ok, "soundcloud"}
+      assert Mixes.detect_source("https://on.soundcloud.com/abc") == {:ok, "soundcloud"}
+    end
+
+    test "unsupported host" do
+      assert Mixes.detect_source("https://vimeo.com/123") == {:error, :unsupported_source}
+      assert Mixes.detect_source("not a url") == {:error, :unsupported_source}
+    end
+  end
+
   describe "import_url/1" do
     test "creates a downloading mix and enqueues a MixDownloadWorker" do
       assert {:ok, mix} = Beatgrid.Mixes.import_url("https://soundcloud.com/dj/set")
       assert mix.status == :downloading
       assert mix.source == "soundcloud"
       assert_enqueued(worker: Beatgrid.Workers.MixDownloadWorker, args: %{mix_id: mix.id})
+    end
+
+    test "import_url/1 sets source youtube for a youtube url" do
+      assert {:ok, mix} = Mixes.import_url("https://youtu.be/a93fldI5DSU")
+      assert mix.source == "youtube"
+      assert mix.status == :downloading
+      assert_enqueued(worker: Beatgrid.Workers.MixDownloadWorker, args: %{mix_id: mix.id})
+    end
+
+    test "import_url/1 rejects unsupported source" do
+      assert Mixes.import_url("https://vimeo.com/123") == {:error, :unsupported_source}
     end
   end
 
@@ -71,5 +104,102 @@ defmodule Beatgrid.MixesTest do
     mix = insert(:mix, status: :ready, cleanup_job_id: 999_999)
     assert {:ok, updated} = Beatgrid.Mixes.cancel_cleanup(mix)
     assert updated.cleanup_job_id == nil
+  end
+
+  test "changeset casts chapters and chapters_role" do
+    attrs = %{
+      source: "youtube",
+      source_url: "https://youtu.be/cap",
+      chapters: [%{"start_ms" => 0, "title" => "Intro"}],
+      chapters_role: :djs
+    }
+
+    assert {:ok, mix} = Mixes.create_mix(attrs)
+    assert mix.chapters == [%{"start_ms" => 0, "title" => "Intro"}]
+    assert mix.chapters_role == :djs
+  end
+
+  describe "dj parts" do
+    test "set_dj_parts_manual builds contiguous parts snapped to segment starts" do
+      mix = insert(:mix, duration_ms: 600_000)
+      insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+      insert(:mix_segment, mix: mix, position: 1, start_ms: 305_000)
+
+      assert {:ok, 2} = Mixes.set_dj_parts_manual(mix, "0:00 A\n5:00 B")
+      parts = Mixes.get_with_dj_parts(mix.id).dj_parts
+      assert Enum.map(parts, & &1.dj_name) == ["A", "B"]
+      # 5:00 = 300_000 snaps to the nearest segment start (305_000)
+      assert Enum.map(parts, & &1.start_ms) == [0, 305_000]
+      assert Enum.map(parts, & &1.end_ms) == [305_000, 600_000]
+      assert Enum.all?(parts, &(&1.source == :manual))
+    end
+
+    test "automatic source is blocked when manual parts exist" do
+      mix = insert(:mix, duration_ms: 600_000)
+      insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+      {:ok, _} = Mixes.set_dj_parts_manual(mix, "0:00 A")
+      assert Mixes.replace_dj_parts(mix, :audio, [%{start_ms: 0, dj_name: nil}]) == {:error, :manual_present}
+    end
+
+    test "group_by_dj groups segments by containment, leftovers under nil" do
+      mix = insert(:mix, duration_ms: 600_000)
+      s0 = insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+      s1 = insert(:mix_segment, mix: mix, position: 1, start_ms: 300_000)
+      part = insert(:dj_part, mix: mix, start_ms: 0, end_ms: 250_000, dj_name: "A")
+
+      assert [{p, [g0]}, {nil, [g1]}] = Mixes.group_by_dj([s0, s1], [part])
+      assert p.dj_name == "A" and g0.id == s0.id and g1.id == s1.id
+    end
+
+    test "clear_dj_parts removes them" do
+      mix = insert(:mix)
+      insert(:dj_part, mix: mix)
+      assert {1, nil} = Mixes.clear_dj_parts(mix)
+      assert Mixes.get_with_dj_parts(mix.id).dj_parts == []
+    end
+
+    test "set_dj_parts_from_chapters creates :chapter parts, flips role to :djs, re-analyzes" do
+      mix =
+        insert(:mix,
+          duration_ms: 600_000,
+          chapters: [%{"start_ms" => 0, "title" => "DJ A"}, %{"start_ms" => 300_000, "title" => "DJ B"}],
+          chapters_role: :tracks
+        )
+
+      insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+      insert(:mix_segment, mix: mix, position: 1, start_ms: 300_000)
+
+      assert {:ok, 2} = Mixes.set_dj_parts_from_chapters(mix)
+      reloaded = Mixes.get_with_dj_parts(mix.id)
+      assert Enum.map(reloaded.dj_parts, & &1.dj_name) == ["DJ A", "DJ B"]
+      assert Enum.all?(reloaded.dj_parts, &(&1.source == :chapter))
+      assert reloaded.chapters_role == :djs
+      assert_enqueued(worker: Beatgrid.Workers.MixAnalyzeWorker, args: %{mix_id: mix.id})
+    end
+
+    test "set_dj_parts_from_chapters with no chapters -> error" do
+      mix = insert(:mix, chapters: [])
+      assert Mixes.set_dj_parts_from_chapters(mix) == {:error, :no_chapters}
+    end
+
+    test "snap-collision: a nil-name part and a named part at the same boundary keep the named one" do
+      # The :audio/:image source can pass dj_name: nil for boundary markers. If another
+      # part snaps to the same start_ms, Enum.dedup_by (pre-fix) keeps the first-sorted
+      # entry — which may be the nil one. The fix uses group_by + Enum.find to keep the
+      # named entry when available.
+      mix = insert(:mix, duration_ms: 600_000)
+      insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+      insert(:mix_segment, mix: mix, position: 1, start_ms: 300_000)
+
+      # Call replace_dj_parts directly with a nil-named part at 0 and a named part also
+      # at 0 — simulating the :audio source producing a collision at the same segment.
+      # After fix: the named entry "DJ A" must survive.
+      parts = [%{start_ms: 0, dj_name: nil}, %{start_ms: 0, dj_name: "DJ A"}]
+      assert {:ok, _} = Mixes.replace_dj_parts(mix, :audio, parts)
+      persisted = Mixes.get_with_dj_parts(mix.id).dj_parts
+      part_at_zero = Enum.find(persisted, &(&1.start_ms == 0))
+      assert part_at_zero != nil
+      assert part_at_zero.dj_name == "DJ A"
+    end
   end
 end
