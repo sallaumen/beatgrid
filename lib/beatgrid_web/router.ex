@@ -14,6 +14,12 @@ defmodule BeatgridWeb.Router do
     plug :accepts, ["json"]
   end
 
+  # Quietly absorb the zombie service-worker poll some browsers cache for this
+  # localhost port (we ship no PWA). No pipeline needed — it just serves JS.
+  scope "/", BeatgridWeb do
+    get "/sw.js", ServiceWorkerController, :unregister
+  end
+
   scope "/", BeatgridWeb do
     pipe_through :browser
 
