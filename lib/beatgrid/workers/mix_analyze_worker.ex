@@ -32,7 +32,9 @@ defmodule Beatgrid.Workers.MixAnalyzeWorker do
     tracklist = TracklistAI.parse(mix.description)
     boundaries = boundaries_for(mix, tracklist)
 
-    case @segmenter.analyze(mix.audio_path, boundaries) do
+    on_progress = fn p -> Mixes.broadcast(Map.put(p, :mix_id, mix.id)) end
+
+    case @segmenter.analyze(mix.audio_path, boundaries, on_progress: on_progress) do
       {:ok, raw_segments} ->
         segments = build_segments(raw_segments, tracklist)
         {:ok, _n} = Mixes.replace_segments(mix, segments)
