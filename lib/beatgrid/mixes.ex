@@ -27,8 +27,8 @@ defmodule Beatgrid.Mixes do
 
   @spec import_url(String.t()) :: {:ok, Mix.t()} | {:error, Ecto.Changeset.t()}
   def import_url(url) do
-    with {:ok, mix} <- create_mix(%{source: "soundcloud", source_url: url, status: :downloading}) do
-      Oban.insert(MixDownloadWorker.new(%{mix_id: mix.id}))
+    with {:ok, mix} <- create_mix(%{source: "soundcloud", source_url: url, status: :downloading}),
+         {:ok, _job} <- Oban.insert(MixDownloadWorker.new(%{mix_id: mix.id})) do
       {:ok, mix}
     end
   end

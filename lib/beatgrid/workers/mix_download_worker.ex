@@ -45,7 +45,7 @@ defmodule Beatgrid.Workers.MixDownloadWorker do
         {:error, reason}
 
       unavailable?(reason) ->
-        Mixes.update_mix(mix, %{status: :failed, error: inspect(reason)})
+        {:ok, _} = Mixes.update_mix(mix, %{status: :failed, error: inspect(reason)})
         Mixes.broadcast(%{mix_id: mix.id, status: :failed})
         {:cancel, reason}
 
