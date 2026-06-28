@@ -16,15 +16,26 @@ defmodule Beatgrid.AI.ClaudeCli do
 
   @impl Beatgrid.AI.Client
   def complete(prompt, schema, opts \\ []) do
-    cli_args =
-      ["-p", prompt, "--output-format", "json", "--json-schema", Jason.encode!(schema)] ++
-        model_args(opts)
+    cli_args = build_args(prompt, schema, opts)
 
     # Run through `sh` with stdin from /dev/null. `exec "$@"` forwards argv verbatim,
     # so the prompt/schema need no shell quoting and the CLI gets immediate EOF.
     argv = ["-c", ~s|exec "$@" < /dev/null|, "sh", executable() | cli_args]
 
     run(fn -> System.cmd("/bin/sh", argv, stderr_to_stdout: false) end)
+  end
+
+  @spec build_args(String.t(), map(), keyword()) :: [String.t()]
+  def build_args(prompt, schema, opts) do
+    ["-p", prompt, "--output-format", "json", "--json-schema", Jason.encode!(schema)] ++
+      model_args(opts) ++ add_dir_args(opts)
+  end
+
+  defp add_dir_args(opts) do
+    case opts[:add_dir] do
+      dirs when is_list(dirs) -> Enum.flat_map(dirs, &["--add-dir", &1])
+      _ -> []
+    end
   end
 
   defp run(fun) do
