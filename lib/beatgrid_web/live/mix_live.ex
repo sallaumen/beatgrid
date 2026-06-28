@@ -6,6 +6,7 @@ defmodule BeatgridWeb.MixLive do
 
   alias Beatgrid.Mixes
   alias Beatgrid.Mixes.Transition
+  alias Beatgrid.Workers.MixAnalyzeWorker
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
@@ -28,6 +29,43 @@ defmodule BeatgridWeb.MixLive do
   def handle_info({:mix_progress, _}, socket), do: {:noreply, socket}
 
   @impl true
+  def handle_event(
+        "save_segment",
+        %{"segment_id" => id, "artist" => artist, "title" => title},
+        socket
+      ) do
+    seg = Enum.find(socket.assigns.mix.segments, &(&1.id == id))
+    match = Mixes.match_track(artist, title)
+
+    {:ok, _} =
+      Mixes.update_segment(seg, %{
+        artist: blank_to_nil(artist),
+        title: blank_to_nil(title),
+        name_source: :manual,
+        matched_track_id: match && match.track_id,
+        match_confidence: match && match.confidence
+      })
+
+    {:noreply, assign(socket, mix: Mixes.get_with_segments(socket.assigns.mix.id))}
+  end
+
+  def handle_event("keep_audio", _params, socket) do
+    {:ok, _} = Mixes.cancel_cleanup(socket.assigns.mix)
+
+    {:noreply,
+     socket
+     |> put_flash(:info, "Arquivo mantido — não será apagado.")
+     |> assign(mix: Mixes.get_with_segments(socket.assigns.mix.id))}
+  end
+
+  def handle_event("reanalyze", _params, socket) do
+    mix = socket.assigns.mix
+    {:ok, _} = Mixes.set_status(mix, :analyzing)
+    {:ok, _} = Oban.insert(MixAnalyzeWorker.new(%{mix_id: mix.id}))
+    {:noreply, assign(socket, mix: Mixes.get_with_segments(mix.id))}
+  end
+
+  @impl true
   def render(assigns) do
     ~H"""
     <.app_shell active={:mixes} socket={@socket}>
@@ -43,10 +81,38 @@ defmodule BeatgridWeb.MixLive do
               {@mix.dj || "—"} · {format_clock(@mix.duration_ms)}
             </p>
           </div>
-          <span class="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-ink-faint">
-            {mix_status_label(@mix.status)}
-          </span>
+          <div class="flex shrink-0 items-center gap-3">
+            <span class="text-[11px] font-semibold uppercase tracking-wider text-ink-faint">
+              {mix_status_label(@mix.status)}
+            </span>
+            <button
+              phx-click="reanalyze"
+              class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink"
+            >
+              Re-analisar
+            </button>
+          </div>
         </header>
+
+        <%!-- Cleanup / audio-deleted banner --%>
+        <div
+          :if={@mix.cleanup_job_id && is_nil(@mix.audio_deleted_at)}
+          class="mt-3 flex items-center gap-3 rounded-lg border border-amber-400/20 bg-amber-400/5 px-4 py-2 text-body-sm text-amber-300"
+        >
+          <span>🗑 o áudio será apagado ~24h após a análise</span>
+          <button
+            phx-click="keep_audio"
+            class="ml-auto rounded-md border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-[12px] font-medium hover:bg-amber-400/20"
+          >
+            Manter arquivo
+          </button>
+        </div>
+        <p
+          :if={@mix.audio_deleted_at}
+          class="mt-3 text-body-sm text-ink-muted"
+        >
+          Áudio apagado (análise preservada).
+        </p>
 
         <p :if={@mix.status == :analyzing} class="mt-4 text-body-sm text-ink-muted">
           Analisando o set… as faixas aparecem quando terminar.
@@ -62,12 +128,31 @@ defmodule BeatgridWeb.MixLive do
               <span class="w-12 shrink-0 font-mono text-body-sm text-ink-muted">{format_clock(
                 seg.start_ms
               )}</span>
-              <div class="min-w-0 flex-1">
-                <p class="truncate text-body-sm">
-                  {seg.artist || "—"}
-                  <span :if={seg.title} class="text-ink-secondary">— {seg.title}</span>
-                </p>
-              </div>
+              <form
+                id={"seg-form-#{seg.id}"}
+                phx-submit="save_segment"
+                class="min-w-0 flex-1 flex items-center gap-2"
+              >
+                <input type="hidden" name="segment_id" value={seg.id} />
+                <input
+                  name="artist"
+                  value={seg.artist || ""}
+                  placeholder="Artista"
+                  class="w-32 shrink-0 rounded border border-white/10 bg-transparent px-1.5 py-0.5 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary/50 focus:outline-none"
+                />
+                <input
+                  name="title"
+                  value={seg.title || ""}
+                  placeholder="Título"
+                  class="min-w-0 flex-1 rounded border border-white/10 bg-transparent px-1.5 py-0.5 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary/50 focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  class="shrink-0 rounded px-2 py-0.5 text-[11px] text-ink-faint hover:text-ink"
+                >
+                  ✓
+                </button>
+              </form>
               <span :if={seg.bpm_detected} class="shrink-0 text-body-sm text-primary">{round(
                 seg.bpm_detected
               )} BPM</span>
@@ -122,6 +207,9 @@ defmodule BeatgridWeb.MixLive do
     </a>
     """
   end
+
+  defp blank_to_nil(s) when is_binary(s), do: if(String.trim(s) == "", do: nil, else: s)
+  defp blank_to_nil(_), do: nil
 
   defp camelot_label(:perfect), do: "mesmo tom"
   defp camelot_label(:compatible), do: "compatível"
