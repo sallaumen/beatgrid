@@ -34,19 +34,26 @@ defmodule BeatgridWeb.MixLive do
         %{"segment_id" => id, "artist" => artist, "title" => title},
         socket
       ) do
-    seg = Enum.find(socket.assigns.mix.segments, &(&1.id == id))
-    match = Mixes.match_track(artist, title)
+    case Enum.find(socket.assigns.mix.segments, &(&1.id == id)) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Segmento não encontrado.")}
 
-    {:ok, _} =
-      Mixes.update_segment(seg, %{
-        artist: blank_to_nil(artist),
-        title: blank_to_nil(title),
-        name_source: :manual,
-        matched_track_id: match && match.track_id,
-        match_confidence: match && match.confidence
-      })
+      seg ->
+        artist = blank_to_nil(artist)
+        title = blank_to_nil(title)
+        match = Mixes.match_track(artist, title)
 
-    {:noreply, assign(socket, mix: Mixes.get_with_segments(socket.assigns.mix.id))}
+        {:ok, _} =
+          Mixes.update_segment(seg, %{
+            artist: artist,
+            title: title,
+            name_source: :manual,
+            matched_track_id: match && match.track_id,
+            match_confidence: match && match.confidence
+          })
+
+        {:noreply, assign(socket, mix: Mixes.get_with_segments(socket.assigns.mix.id))}
+    end
   end
 
   def handle_event("keep_audio", _params, socket) do
