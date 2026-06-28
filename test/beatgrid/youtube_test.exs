@@ -388,4 +388,22 @@ defmodule Beatgrid.YouTubeTest do
     assert NameSync.list_by(status: :pending) == []
     assert Organization.list_by(status: :pending, source: :claude) == []
   end
+
+  test "baldes: pending = nunca tentadas; rare = tentadas-sem-match não arquivadas" do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+    never = insert(:track, status: :present, soundcharts_song_id: nil, genre_folder: nil)
+
+    rare =
+      insert(:track,
+        status: :present,
+        soundcharts_song_id: nil,
+        genre_folder: nil,
+        sc_attempted_at: now
+      )
+
+    assert YouTube.pending_count() == 1
+    assert YouTube.pending_ids() == [never.id]
+    assert YouTube.rare_unfiled_count() == 1
+    assert YouTube.rare_unfiled_ids() == [rare.id]
+  end
 end

@@ -44,9 +44,10 @@ defmodule Beatgrid.YouTube do
   def broadcast_enrich(payload),
     do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @enrich_topic, {:enrich_progress, payload})
 
-  @doc "Count of tracks downloaded but not yet enriched (present, unresolved, unfiled)."
+  @doc "Count of tracks downloaded but not yet enriched (present, unresolved, unfiled, never attempted with Soundcharts)."
   @spec pending_count() :: non_neg_integer()
-  def pending_count, do: Tracks.count(status: :present, resolved: false, genre_folder: nil)
+  def pending_count,
+    do: Tracks.count(status: :present, resolved: false, genre_folder: nil, sc_attempted: false)
 
   @doc "Enqueues one `ExpandWorker` per non-blank URL (lines or a list), which fans each out to one `DownloadWorker` per video. Returns `{:ok, count}`."
   @spec enqueue(String.t() | [String.t()]) :: {:ok, non_neg_integer()}
@@ -193,10 +194,22 @@ defmodule Beatgrid.YouTube do
     {:ok, %{enriched: length(ids), resolved: resolved}}
   end
 
-  @doc "Ids of pending (downloaded-but-unfiled) tracks: present, unresolved, unfiled."
+  @doc "Ids of pending (downloaded-but-unfiled) tracks: present, unresolved, unfiled, never attempted with Soundcharts."
   @spec pending_ids() :: [binary()]
   def pending_ids do
-    [status: :present, resolved: false, genre_folder: nil]
+    [status: :present, resolved: false, genre_folder: nil, sc_attempted: false]
+    |> Tracks.list_by()
+    |> Enum.map(& &1.id)
+  end
+
+  @doc "Faixas que o Soundcharts já tentou e não achou, ainda não arquivadas (raras/Ouro)."
+  @spec rare_unfiled_count() :: non_neg_integer()
+  def rare_unfiled_count,
+    do: Tracks.count(status: :present, resolved: false, genre_folder: nil, sc_attempted: true)
+
+  @spec rare_unfiled_ids() :: [binary()]
+  def rare_unfiled_ids do
+    [status: :present, resolved: false, genre_folder: nil, sc_attempted: true]
     |> Tracks.list_by()
     |> Enum.map(& &1.id)
   end
