@@ -389,6 +389,27 @@ defmodule Beatgrid.YouTubeTest do
     assert Organization.list_by(status: :pending, source: :claude) == []
   end
 
+  test "enrich_fallback enfileira análise só pras sem bpm e roda reclassify" do
+    sem = insert(:track, status: :present, bpm_detected: nil, tag_artist: "X")
+    com = insert(:track, status: :present, bpm_detected: 120.0, tag_artist: "Y")
+    insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB", description: "d")
+
+    stub(Beatgrid.AI.Mock, :complete, fn _p, _s, _o ->
+      {:ok,
+       %{
+         "classifications" => [
+           %{"index" => 1, "folder" => "mpb", "confidence" => 0.3, "rationale" => "r"},
+           %{"index" => 2, "folder" => "mpb", "confidence" => 0.3, "rationale" => "r"}
+         ]
+       }}
+    end)
+
+    assert :ok = YouTube.enrich_fallback([sem.id, com.id])
+
+    assert_enqueued(worker: Beatgrid.Workers.AnalyzeWorker, args: %{track_id: sem.id})
+    refute_enqueued(worker: Beatgrid.Workers.AnalyzeWorker, args: %{track_id: com.id})
+  end
+
   test "baldes: pending = nunca tentadas; rare = tentadas-sem-match não arquivadas" do
     now = DateTime.truncate(DateTime.utc_now(), :second)
     never = insert(:track, status: :present, soundcharts_song_id: nil, genre_folder: nil)

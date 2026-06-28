@@ -15,7 +15,7 @@ defmodule Beatgrid.YouTube do
   alias Beatgrid.Library.{FileInfo, NameSync, Tracks}
   alias Beatgrid.Library.MetadataAI
   alias Beatgrid.Organization.ClassificationAI
-  alias Beatgrid.Workers.{DownloadWorker, ExpandWorker}
+  alias Beatgrid.Workers.{AnalyzeWorker, DownloadWorker, ExpandWorker}
   alias Beatgrid.YouTube.TitleParser
 
   @adapter Application.compile_env(
@@ -212,6 +212,24 @@ defmodule Beatgrid.YouTube do
     [status: :present, resolved: false, genre_folder: nil, sc_attempted: true]
     |> Tracks.list_by()
     |> Enum.map(& &1.id)
+  end
+
+  @doc """
+  Fallback de enriquecimento (sem Soundcharts): enfileira análise local pras faixas
+  sem `bpm_detected` (BPM/tom reais) e roda a classificação de gênero por IA, que
+  auto-arquiva as de alta confiança. Idempotente (AnalyzeWorker é unique por faixa;
+  reclassify pula quem já tem pasta ou proposta pendente).
+  """
+  @spec enrich_fallback([binary()]) :: :ok
+  def enrich_fallback(ids) do
+    tracks = Enum.map(ids, &Tracks.get/1) |> Enum.reject(&is_nil/1)
+
+    Enum.each(tracks, fn t ->
+      if is_nil(t.bpm_detected), do: Oban.insert(AnalyzeWorker.new(%{track_id: t.id}))
+    end)
+
+    if tracks != [], do: ClassificationAI.reclassify(tracks: tracks)
+    :ok
   end
 
   @doc """
