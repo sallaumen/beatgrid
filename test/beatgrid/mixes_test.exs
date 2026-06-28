@@ -118,4 +118,44 @@ defmodule Beatgrid.MixesTest do
     assert mix.chapters == [%{"start_ms" => 0, "title" => "Intro"}]
     assert mix.chapters_role == :djs
   end
+
+  describe "dj parts" do
+    test "set_dj_parts_manual builds contiguous parts snapped to segment starts" do
+      mix = insert(:mix, duration_ms: 600_000)
+      insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+      insert(:mix_segment, mix: mix, position: 1, start_ms: 305_000)
+
+      assert {:ok, 2} = Mixes.set_dj_parts_manual(mix, "0:00 A\n5:00 B")
+      parts = Mixes.get_with_dj_parts(mix.id).dj_parts
+      assert Enum.map(parts, & &1.dj_name) == ["A", "B"]
+      # 5:00 = 300_000 snaps to the nearest segment start (305_000)
+      assert Enum.map(parts, & &1.start_ms) == [0, 305_000]
+      assert Enum.map(parts, & &1.end_ms) == [305_000, 600_000]
+      assert Enum.all?(parts, &(&1.source == :manual))
+    end
+
+    test "automatic source is blocked when manual parts exist" do
+      mix = insert(:mix, duration_ms: 600_000)
+      insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+      {:ok, _} = Mixes.set_dj_parts_manual(mix, "0:00 A")
+      assert Mixes.replace_dj_parts(mix, :audio, [%{start_ms: 0, dj_name: nil}]) == {:error, :manual_present}
+    end
+
+    test "group_by_dj groups segments by containment, leftovers under nil" do
+      mix = insert(:mix, duration_ms: 600_000)
+      s0 = insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+      s1 = insert(:mix_segment, mix: mix, position: 1, start_ms: 300_000)
+      part = insert(:dj_part, mix: mix, start_ms: 0, end_ms: 250_000, dj_name: "A")
+
+      assert [{p, [g0]}, {nil, [g1]}] = Mixes.group_by_dj([s0, s1], [part])
+      assert p.dj_name == "A" and g0.id == s0.id and g1.id == s1.id
+    end
+
+    test "clear_dj_parts removes them" do
+      mix = insert(:mix)
+      insert(:dj_part, mix: mix)
+      assert {1, nil} = Mixes.clear_dj_parts(mix)
+      assert Mixes.get_with_dj_parts(mix.id).dj_parts == []
+    end
+  end
 end
