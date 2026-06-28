@@ -58,6 +58,44 @@ defmodule Beatgrid.Workers.MixAnalyzeWorkerTest do
     assert_enqueued(worker: MixCleanupWorker, args: %{mix_id: mix.id})
   end
 
+  test "uses chapters as track boundaries when there is no description tracklist" do
+    mix =
+      insert(:mix,
+        status: :analyzing,
+        audio_path: "/tmp/_Mixes/cap.mp3",
+        description: "",
+        chapters: [%{"start_ms" => 0, "title" => "A"}, %{"start_ms" => 120_000, "title" => "B"}],
+        chapters_role: :tracks
+      )
+
+    stub(Beatgrid.AI.Mock, :complete, fn _p, _s, _o -> {:ok, %{"tracklist" => []}} end)
+
+    expect(Beatgrid.Audio.SetSegmenterMock, :analyze, fn "/tmp/_Mixes/cap.mp3", [0, 120_000] ->
+      {:ok, [%{start_ms: 0, end_ms: 120_000, bpm: 120.0, key: 7, mode: 1}]}
+    end)
+
+    assert :ok = perform_job(MixAnalyzeWorker, %{mix_id: mix.id})
+  end
+
+  test "ignores chapters for boundaries when chapters_role is :djs" do
+    mix =
+      insert(:mix,
+        status: :analyzing,
+        audio_path: "/tmp/_Mixes/djs.mp3",
+        description: "",
+        chapters: [
+          %{"start_ms" => 0, "title" => "DJ A"},
+          %{"start_ms" => 120_000, "title" => "DJ B"}
+        ],
+        chapters_role: :djs
+      )
+
+    stub(Beatgrid.AI.Mock, :complete, fn _p, _s, _o -> {:ok, %{"tracklist" => []}} end)
+    expect(Beatgrid.Audio.SetSegmenterMock, :analyze, fn "/tmp/_Mixes/djs.mp3", [] -> {:ok, []} end)
+
+    assert :ok = perform_job(MixAnalyzeWorker, %{mix_id: mix.id})
+  end
+
   test "Path A: unnamed intro segment when first track starts at non-zero time" do
     # The description's first track starts at 30 s, so the segmenter returns an extra
     # intro segment at 0 ms. The old zip-by-index would shift names; the new

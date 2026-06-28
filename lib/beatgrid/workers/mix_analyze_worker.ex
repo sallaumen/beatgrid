@@ -30,7 +30,7 @@ defmodule Beatgrid.Workers.MixAnalyzeWorker do
 
   defp run(mix) do
     tracklist = TracklistAI.parse(mix.description)
-    boundaries = boundaries_from(tracklist)
+    boundaries = boundaries_for(mix, tracklist)
 
     case @segmenter.analyze(mix.audio_path, boundaries) do
       {:ok, raw_segments} ->
@@ -50,6 +50,22 @@ defmodule Beatgrid.Workers.MixAnalyzeWorker do
         fail(mix, reason)
     end
   end
+
+  defp boundaries_for(mix, tracklist) do
+    case boundaries_from(tracklist) do
+      [] -> chapter_boundaries(mix)
+      bs -> bs
+    end
+  end
+
+  defp chapter_boundaries(%{chapters_role: :tracks, chapters: chapters}) when is_list(chapters) do
+    chapters
+    |> Enum.map(&Map.get(&1, "start_ms"))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.sort()
+  end
+
+  defp chapter_boundaries(_mix), do: []
 
   # Path A: tracklist has timestamps → use them. Else [] → segmenter auto-detects.
   defp boundaries_from(tracklist) do
