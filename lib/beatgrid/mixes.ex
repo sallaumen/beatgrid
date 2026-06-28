@@ -26,9 +26,34 @@ defmodule Beatgrid.Mixes do
   def broadcast(payload),
     do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @topic, {:mix_progress, payload})
 
-  @spec import_url(String.t()) :: {:ok, Mix.t()} | {:error, Ecto.Changeset.t()}
+  @spec detect_source(String.t()) :: {:ok, String.t()} | {:error, :unsupported_source}
+  def detect_source(url) when is_binary(url) do
+    case URI.parse(url).host do
+      nil -> {:error, :unsupported_source}
+      host -> classify_host(String.downcase(host))
+    end
+  end
+
+  def detect_source(_), do: {:error, :unsupported_source}
+
+  defp classify_host(host) do
+    cond do
+      host in ["youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"] ->
+        {:ok, "youtube"}
+
+      host == "soundcloud.com" or String.ends_with?(host, ".soundcloud.com") ->
+        {:ok, "soundcloud"}
+
+      true ->
+        {:error, :unsupported_source}
+    end
+  end
+
+  @spec import_url(String.t()) ::
+          {:ok, Mix.t()} | {:error, :unsupported_source | Ecto.Changeset.t()}
   def import_url(url) do
-    with {:ok, mix} <- create_mix(%{source: "soundcloud", source_url: url, status: :downloading}),
+    with {:ok, source} <- detect_source(url),
+         {:ok, mix} <- create_mix(%{source: source, source_url: url, status: :downloading}),
          {:ok, _job} <- Oban.insert(MixDownloadWorker.new(%{mix_id: mix.id})) do
       {:ok, mix}
     end

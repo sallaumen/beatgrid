@@ -36,12 +36,45 @@ defmodule Beatgrid.MixesTest do
     assert seg.artist == "Djavan" and seg.name_source == :manual
   end
 
+  describe "detect_source/1" do
+    test "youtube hosts" do
+      for u <- [
+            "https://www.youtube.com/watch?v=a93fldI5DSU",
+            "https://youtu.be/a93fldI5DSU",
+            "https://m.youtube.com/watch?v=x"
+          ] do
+        assert Mixes.detect_source(u) == {:ok, "youtube"}
+      end
+    end
+
+    test "soundcloud hosts" do
+      assert Mixes.detect_source("https://soundcloud.com/dj/set") == {:ok, "soundcloud"}
+      assert Mixes.detect_source("https://on.soundcloud.com/abc") == {:ok, "soundcloud"}
+    end
+
+    test "unsupported host" do
+      assert Mixes.detect_source("https://vimeo.com/123") == {:error, :unsupported_source}
+      assert Mixes.detect_source("not a url") == {:error, :unsupported_source}
+    end
+  end
+
   describe "import_url/1" do
     test "creates a downloading mix and enqueues a MixDownloadWorker" do
       assert {:ok, mix} = Beatgrid.Mixes.import_url("https://soundcloud.com/dj/set")
       assert mix.status == :downloading
       assert mix.source == "soundcloud"
       assert_enqueued(worker: Beatgrid.Workers.MixDownloadWorker, args: %{mix_id: mix.id})
+    end
+
+    test "import_url/1 sets source youtube for a youtube url" do
+      assert {:ok, mix} = Mixes.import_url("https://youtu.be/a93fldI5DSU")
+      assert mix.source == "youtube"
+      assert mix.status == :downloading
+      assert_enqueued(worker: Beatgrid.Workers.MixDownloadWorker, args: %{mix_id: mix.id})
+    end
+
+    test "import_url/1 rejects unsupported source" do
+      assert Mixes.import_url("https://vimeo.com/123") == {:error, :unsupported_source}
     end
   end
 
