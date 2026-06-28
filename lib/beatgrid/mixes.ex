@@ -63,6 +63,24 @@ defmodule Beatgrid.Mixes do
   def update_segment(%Segment{} = segment, attrs),
     do: segment |> Segment.changeset(attrs) |> Repo.update()
 
+  @spec set_status(Mix.t(), atom(), map()) :: {:ok, Mix.t()} | {:error, Ecto.Changeset.t()}
+  def set_status(%Mix{} = mix, status, extra \\ %{}),
+    do: update_mix(mix, Map.put(extra, :status, status))
+
+  @doc "Replaces all of a mix's segments with the given attrs (in a transaction)."
+  @spec replace_segments(Mix.t(), [map()]) :: {:ok, non_neg_integer()}
+  def replace_segments(%Mix{id: mix_id}, segments) do
+    Repo.transaction(fn ->
+      Repo.delete_all(from s in Segment, where: s.mix_id == ^mix_id)
+
+      Enum.each(segments, fn attrs ->
+        %Segment{} |> Segment.changeset(Map.put(attrs, :mix_id, mix_id)) |> Repo.insert!()
+      end)
+
+      length(segments)
+    end)
+  end
+
   @spec match_track(String.t() | nil, String.t() | nil) ::
           %{track_id: binary(), confidence: :high} | nil
   def match_track(artist, title) do

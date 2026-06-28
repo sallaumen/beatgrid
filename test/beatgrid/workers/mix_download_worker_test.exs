@@ -8,9 +8,9 @@ defmodule Beatgrid.Workers.MixDownloadWorkerTest do
   setup :set_mox_global
 
   alias Beatgrid.Mixes
-  alias Beatgrid.Workers.MixDownloadWorker
+  alias Beatgrid.Workers.{MixAnalyzeWorker, MixDownloadWorker}
 
-  test "downloads, fills metadata, and marks the mix ready" do
+  test "downloads, fills metadata, sets :analyzing, and enqueues MixAnalyzeWorker" do
     mix = insert(:mix, status: :downloading, title: nil, audio_path: nil)
 
     expect(Beatgrid.Mixes.SourceMock, :fetch, fn _url, _dest ->
@@ -27,10 +27,11 @@ defmodule Beatgrid.Workers.MixDownloadWorkerTest do
     assert :ok = perform_job(MixDownloadWorker, %{mix_id: mix.id})
 
     reloaded = Mixes.get_mix(mix.id)
-    assert reloaded.status == :ready
+    assert reloaded.status == :analyzing
     assert reloaded.title == "Live Set"
     assert reloaded.audio_path == "/tmp/_Mixes/abc.mp3"
     assert reloaded.duration_ms == 3_600_000
+    assert_enqueued(worker: MixAnalyzeWorker, args: %{mix_id: mix.id})
   end
 
   test "a rate-limit error retries (returns {:error, _})" do
