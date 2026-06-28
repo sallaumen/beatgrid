@@ -285,6 +285,18 @@ defmodule Beatgrid.YouTubeTest do
   end
 
   @tag :tmp_dir
+  test "no_match carimba sc_attempted_at" do
+    track = insert(:track, tag_artist: "Ninguém", tag_title: "Inédita", norm_artist: "ninguem")
+
+    expect(Beatgrid.Soundcharts.Mock, :search_song, fn _ ->
+      {:ok, %Beatgrid.Soundcharts.Response{data: [], quota_remaining: 999, status: 200}}
+    end)
+
+    assert :no_match = YouTube.resolve_track_enrich(track.id)
+    assert Tracks.get(track.id).sc_attempted_at
+  end
+
+  @tag :tmp_dir
   test "enrich confirma Ouro quando Soundcharts não acha" do
     track = insert(:track, tag_artist: "Ninguém", tag_title: "Inédita", norm_artist: "ninguem")
 

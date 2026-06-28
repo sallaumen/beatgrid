@@ -136,6 +136,13 @@ defmodule Beatgrid.YouTube do
 
         repropose_if_matched(id)
         Gold.apply_resolve_result(Tracks.get(id), result)
+
+        if match?({:error, :no_match}, result) do
+          Tracks.update(Tracks.get(id), %{
+            sc_attempted_at: DateTime.truncate(DateTime.utc_now(), :second)
+          })
+        end
+
         if match?({:ok, _}, result), do: :resolved, else: :no_match
     end
   end
