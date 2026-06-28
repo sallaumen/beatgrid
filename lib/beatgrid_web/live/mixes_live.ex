@@ -68,9 +68,10 @@ defmodule BeatgridWeb.MixesLive do
 
         <section class="mt-6 space-y-2">
           <p :if={@mixes == []} class="text-body-sm text-ink-muted">Nenhum set importado ainda.</p>
-          <div
+          <.link
             :for={mix <- @mixes}
-            class="flex items-center justify-between gap-4 rounded-lg border border-white/6 bg-surface px-4 py-3"
+            navigate={~p"/sets-online/#{mix.id}"}
+            class="flex items-center justify-between gap-4 rounded-lg border border-white/6 bg-surface px-4 py-3 hover:border-white/12"
           >
             <div class="min-w-0">
               <p class="truncate font-medium">{mix.title || mix.source_url}</p>
@@ -79,7 +80,7 @@ defmodule BeatgridWeb.MixesLive do
             <span class="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-ink-faint">
               {mix_status_label(mix.status)}
             </span>
-          </div>
+          </.link>
         </section>
       </div>
     </.app_shell>
