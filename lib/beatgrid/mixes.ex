@@ -10,7 +10,7 @@ defmodule Beatgrid.Mixes do
   alias Beatgrid.Library.{Normalize, Track}
   alias Beatgrid.Mixes.{DjPart, DjTimestamps, Mix, Segment}
   alias Beatgrid.Repo
-  alias Beatgrid.Workers.{MixAnalyzeWorker, MixDjAudioWorker, MixDownloadWorker}
+  alias Beatgrid.Workers.{MixAnalyzeWorker, MixDjAudioWorker, MixDjVisionWorker, MixDownloadWorker}
 
   @adapter Application.compile_env(
              :beatgrid,
@@ -231,6 +231,10 @@ defmodule Beatgrid.Mixes do
   @spec detect_djs_by_audio(Mix.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
   def detect_djs_by_audio(%Mix{} = mix),
     do: Oban.insert(MixDjAudioWorker.new(%{mix_id: mix.id}))
+
+  @spec detect_djs_by_image(Mix.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
+  def detect_djs_by_image(%Mix{} = mix),
+    do: Oban.insert(MixDjVisionWorker.new(%{mix_id: mix.id}))
 
   @spec match_track(String.t() | nil, String.t() | nil) ::
           %{track_id: binary(), confidence: :high} | nil
