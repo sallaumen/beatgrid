@@ -1,78 +1,179 @@
 #!/usr/bin/env python3
-"""Segment a recorded DJ mix into tracks and analyze each one.
+"""Segment a recorded DJ mix into tracks and analyze each — memory-bounded.
 
-Usage: segment_analyze.py <audio_path> [<boundaries_json>]
-  boundaries_json: JSON array of start-ms ints. If absent/empty, boundaries are
-  auto-detected from the audio (agglomerative clustering over a CQT).
+Decoding is driven by ffmpeg (fast input-seek + streamed PCM), so the whole file
+is never loaded and any container ffmpeg reads (mp3/m4a/…) works. Duration via
+ffprobe.
 
-Output (stdout): JSON array of {start_ms, end_ms, bpm, key, mode}. BPM/key are
-computed on the inner 20%-85% of each segment to avoid blended transition edges;
-segments too short to analyze get null bpm/key/mode.
+Modes:
+  segment_analyze.py <audio_path> [<boundaries_json>]
+      Segment + per-track BPM/key. boundaries_json = JSON array of start-ms ints;
+      empty/absent => boundaries auto-detected from a streamed coarse pass.
+  segment_analyze.py --mode dj-candidates <audio_path>
+      Stream a coarse feature pass; print strongest novelty peaks as candidate
+      DJ-change boundaries.
+
+stdout line protocol (one JSON object per line):
+  {"progress": {"stage": str, "done": int, "total": int}}     # zero or more
+  {"segments":   [{start_ms,end_ms,bpm,key,mode}, ...]}        # final (default)
+  {"candidates": [{start_ms, strength}, ...]}                  # final (dj mode)
 """
 import sys
 import json
+import subprocess
 import numpy as np
 import librosa
 
-# Krumhansl-Schmuckler profiles (same as analyze.py).
 MAJOR = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
 MINOR = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
 
-
-def best_key(profile, chroma_mean):
-    cors = [np.corrcoef(np.roll(profile, i), chroma_mean)[0, 1] for i in range(12)]
-    i = int(np.argmax(cors))
-    return i, cors[i]
+SR = 22050           # per-segment analysis rate
+COARSE_SR = 11025    # coarse pass rate (cheaper)
+COARSE_HOP_S = 2.0   # one coarse feature column per ~2 s
 
 
-def analyze_window(y, sr):
-    tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+def emit(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+
+
+def progress(stage, done, total):
+    emit({"progress": {"stage": stage, "done": done, "total": total}})
+
+
+def duration_ms(path):
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=nokey=1:noprint_wrappers=1", path],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    return int(float(out) * 1000)
+
+
+def decode_window(path, start_ms, dur_ms, sr):
+    """Decode [start_ms, start_ms+dur_ms) to a mono float32 array via ffmpeg."""
+    cmd = [
+        "ffmpeg", "-v", "error", "-nostdin",
+        "-ss", f"{start_ms / 1000:.3f}", "-t", f"{dur_ms / 1000:.3f}",
+        "-i", path, "-ac", "1", "-ar", str(sr), "-f", "f32le", "-",
+    ]
+    raw = subprocess.run(cmd, capture_output=True, check=True).stdout
+    return np.frombuffer(raw, dtype=np.float32)
+
+
+def coarse_features(path, dur_ms):
+    """Stream a coarse mono PCM at COARSE_SR through ffmpeg, computing one feature
+    column per COARSE_HOP_S. Memory bounded to one hop chunk + the compact matrix."""
+    hop = int(COARSE_SR * COARSE_HOP_S)
+    cmd = [
+        "ffmpeg", "-v", "error", "-nostdin", "-i", path,
+        "-ac", "1", "-ar", str(COARSE_SR), "-f", "f32le", "-",
+    ]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+    cols = []
+    total = max(1, dur_ms // 1000)
+    try:
+        while True:
+            buf = proc.stdout.read(hop * 4)  # 4 bytes per float32
+            if not buf:
+                break
+            y = np.frombuffer(buf, dtype=np.float32)
+            if len(y) < COARSE_SR // 2:  # < 0.5 s tail: skip
+                break
+            chroma = librosa.feature.chroma_cqt(y=y, sr=COARSE_SR).mean(axis=1)
+            mfcc = librosa.feature.mfcc(y=y, sr=COARSE_SR, n_mfcc=8).mean(axis=1)
+            cols.append(np.concatenate([chroma, mfcc]))
+            done_ms = len(cols) * int(COARSE_HOP_S * 1000)
+            progress("boundaries", min(done_ms // 1000, total), total)
+    finally:
+        proc.stdout.close()
+        proc.wait()
+    if not cols:
+        return np.zeros((20, 1))
+    feat = np.array(cols).T
+    # L2-normalize columns so cosine geometry is well-behaved.
+    norms = np.linalg.norm(feat, axis=0, keepdims=True)
+    norms[norms == 0] = 1.0
+    return feat / norms
+
+
+def detect_boundaries(feat, dur_ms):
+    n = max(2, min(40, round(dur_ms / 1000 / 240)))  # ~1 segment / 4 min, clamp 2..40
+    n = min(n, feat.shape[1])
+    if n < 2:
+        return []
+    frames = librosa.segment.agglomerative(feat, n)
+    return sorted(int(f * COARSE_HOP_S * 1000) for f in frames)
+
+
+def novelty_peaks(feat, dur_ms):
+    """Strongest structural jumps as candidate DJ boundaries."""
+    if feat.shape[1] < 3:
+        return []
+    d = np.linalg.norm(np.diff(feat, axis=1), axis=0)  # consecutive-column distance
+    # smooth with a small moving average
+    k = 5
+    kernel = np.ones(k) / k
+    s = np.convolve(d, kernel, mode="same")
+    thr = np.percentile(s, 90)
+    peaks = []
+    for i in range(1, len(s) - 1):
+        if s[i] >= thr and s[i] >= s[i - 1] and s[i] >= s[i + 1]:
+            peaks.append((int((i + 1) * COARSE_HOP_S * 1000), float(s[i])))
+    peaks.sort(key=lambda p: -p[1])
+    top = max(2, min(20, round(dur_ms / 1000 / 1200)))  # ~1 candidate / 20 min
+    peaks = sorted(peaks[:top], key=lambda p: p[0])
+    return [{"start_ms": ms, "strength": round(st, 4)} for ms, st in peaks]
+
+
+def analyze_window(path, start_ms, end_ms):
+    inner_a = start_ms + int((end_ms - start_ms) * 0.20)
+    inner_b = start_ms + int((end_ms - start_ms) * 0.85)
+    if inner_b - inner_a < 1000:
+        return None, None, None
+    y = decode_window(path, inner_a, inner_b - inner_a, SR)
+    if len(y) < SR:  # < 1 s decoded: too short
+        return None, None, None
+    tempo, _ = librosa.beat.beat_track(y=y, sr=SR)
     bpm = round(float(np.atleast_1d(tempo)[0]), 2)
-    # beat_track returns 0.0 on segments with no detectable beat (fades/ambient) —
-    # report that as "unknown" (null) rather than a misleading 0 BPM.
     bpm = None if bpm == 0.0 else bpm
-    chroma_mean = librosa.feature.chroma_cqt(y=y, sr=sr).mean(axis=1)
-    maj_i, maj_c = best_key(MAJOR, chroma_mean)
-    min_i, min_c = best_key(MINOR, chroma_mean)
-    if maj_c >= min_c:
-        return bpm, maj_i, 1
-    return bpm, min_i, 0
+    chroma = librosa.feature.chroma_cqt(y=y, sr=SR).mean(axis=1)
+    maj_i = int(np.argmax([np.corrcoef(np.roll(MAJOR, i), chroma)[0, 1] for i in range(12)]))
+    min_i = int(np.argmax([np.corrcoef(np.roll(MINOR, i), chroma)[0, 1] for i in range(12)]))
+    maj_c = np.corrcoef(np.roll(MAJOR, maj_i), chroma)[0, 1]
+    min_c = np.corrcoef(np.roll(MINOR, min_i), chroma)[0, 1]
+    return (bpm, maj_i, 1) if maj_c >= min_c else (bpm, min_i, 0)
 
 
-def detect_boundaries(y, sr, dur_ms):
-    # ~one segment per 4 minutes as a heuristic count, clamped to [2, 40].
-    n = max(2, min(40, round(dur_ms / 1000 / 240)))
-    cqt = np.abs(librosa.cqt(y=y, sr=sr))
-    frames = librosa.segment.agglomerative(cqt, n)
-    times = librosa.frames_to_time(frames, sr=sr)
-    return [int(t * 1000) for t in times]
+def run_segment(path, boundaries):
+    dur = duration_ms(path)
+    if not boundaries:
+        feat = coarse_features(path, dur)
+        boundaries = detect_boundaries(feat, dur)
+    starts = sorted(set([0] + [b for b in boundaries if 0 < b < dur]))
+    segs = []
+    total = len(starts)
+    for i, start in enumerate(starts):
+        end = starts[i + 1] if i + 1 < len(starts) else dur
+        bpm, key, mode = analyze_window(path, start, end)
+        segs.append({"start_ms": start, "end_ms": end, "bpm": bpm, "key": key, "mode": mode})
+        progress("segments", i + 1, total)
+    emit({"segments": segs})
+
+
+def run_dj_candidates(path):
+    dur = duration_ms(path)
+    feat = coarse_features(path, dur)
+    emit({"candidates": novelty_peaks(feat, dur)})
 
 
 def main():
+    if len(sys.argv) >= 3 and sys.argv[1] == "--mode" and sys.argv[2] == "dj-candidates":
+        run_dj_candidates(sys.argv[3])
+        return
     path = sys.argv[1]
     boundaries = json.loads(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] else []
-
-    y, sr = librosa.load(path, mono=True)
-    dur_ms = int(len(y) / sr * 1000)
-
-    if not boundaries:
-        boundaries = detect_boundaries(y, sr, dur_ms)
-
-    starts = sorted(set([0] + [b for b in boundaries if 0 < b < dur_ms]))
-
-    segs = []
-    for i, start in enumerate(starts):
-        end = starts[i + 1] if i + 1 < len(starts) else dur_ms
-        inner_a = start + int((end - start) * 0.20)
-        inner_b = start + int((end - start) * 0.85)
-        ys = y[int(inner_a / 1000 * sr): int(inner_b / 1000 * sr)]
-        if len(ys) < sr:  # < 1s of audio: too short to analyze reliably
-            bpm = key = mode = None
-        else:
-            bpm, key, mode = analyze_window(ys, sr)
-        segs.append({"start_ms": start, "end_ms": end, "bpm": bpm, "key": key, "mode": mode})
-
-    print(json.dumps(segs))
+    run_segment(path, boundaries)
 
 
 if __name__ == "__main__":
