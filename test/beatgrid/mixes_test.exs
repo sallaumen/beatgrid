@@ -66,4 +66,10 @@ defmodule Beatgrid.MixesTest do
       assert Mixes.match_track("Djavan", "") == nil
     end
   end
+
+  test "cancel_cleanup clears the cleanup_job_id" do
+    mix = insert(:mix, status: :ready, cleanup_job_id: 999_999)
+    assert {:ok, updated} = Beatgrid.Mixes.cancel_cleanup(mix)
+    assert updated.cleanup_job_id == nil
+  end
 end

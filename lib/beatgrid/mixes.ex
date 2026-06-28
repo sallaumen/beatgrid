@@ -6,6 +6,7 @@ defmodule Beatgrid.Mixes do
   """
   import Ecto.Query
 
+  alias Beatgrid.Library
   alias Beatgrid.Library.{Normalize, Track}
   alias Beatgrid.Mixes.{Mix, Segment}
   alias Beatgrid.Repo
@@ -79,6 +80,30 @@ defmodule Beatgrid.Mixes do
 
       length(segments)
     end)
+  end
+
+  @doc "Deletes the cached audio file (only under _Mixes), keeping the analysis."
+  @spec purge_audio(Mix.t()) :: {:ok, Mix.t()} | {:error, Ecto.Changeset.t()}
+  def purge_audio(%Mix{audio_path: path} = mix) do
+    if is_binary(path) and under_mixes_dir?(path) and File.exists?(path), do: File.rm(path)
+
+    update_mix(mix, %{
+      audio_path: nil,
+      cleanup_job_id: nil,
+      audio_deleted_at: DateTime.utc_now() |> DateTime.truncate(:second)
+    })
+  end
+
+  @doc "Cancels the scheduled audio-cleanup job for a mix (keeps the file)."
+  @spec cancel_cleanup(Mix.t()) :: {:ok, Mix.t()} | {:error, Ecto.Changeset.t()}
+  def cancel_cleanup(%Mix{cleanup_job_id: id} = mix) do
+    if is_integer(id), do: Oban.cancel_job(id)
+    update_mix(mix, %{cleanup_job_id: nil})
+  end
+
+  defp under_mixes_dir?(path) do
+    root = Path.expand(Path.join(Library.library_root(), "_Mixes"))
+    String.starts_with?(Path.expand(path), root <> "/")
   end
 
   @spec match_track(String.t() | nil, String.t() | nil) ::
