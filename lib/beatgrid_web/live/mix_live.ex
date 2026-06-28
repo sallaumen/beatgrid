@@ -127,7 +127,7 @@ defmodule BeatgridWeb.MixLive do
 
   def handle_event("dj_clear", _params, socket) do
     mix = socket.assigns.mix
-    Mixes.clear_dj_parts(mix)
+    {_deleted, nil} = Mixes.clear_dj_parts(mix)
 
     {:noreply,
      socket
@@ -250,7 +250,7 @@ defmodule BeatgridWeb.MixLive do
               <details open class="rounded-lg border border-white/8">
                 <summary class="cursor-pointer select-none px-4 py-2 flex items-center gap-3">
                   <span class="font-semibold text-[14px] text-ink">
-                    {if part, do: part.dj_name, else: "Sem DJ"}
+                    {(part && part.dj_name) || "Sem DJ"}
                   </span>
                   <%= if part do %>
                     <span class="text-body-sm text-ink-muted font-mono">
