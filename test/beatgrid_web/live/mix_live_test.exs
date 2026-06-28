@@ -104,4 +104,11 @@ defmodule BeatgridWeb.MixLiveTest do
     render_submit(element(view, "#dj-manual-form"), %{"timestamps" => "0:00 A\n5:00 B"})
     assert render(view) =~ "A" and render(view) =~ "B"
   end
+
+  test "shows live analysis progress", %{conn: conn} do
+    mix = insert(:mix, status: :analyzing, duration_ms: 600_000)
+    {:ok, view, _} = live(conn, ~p"/sets-online/#{mix.id}")
+    Beatgrid.Mixes.broadcast(%{mix_id: mix.id, stage: "segments", done: 12, total: 40})
+    assert render(view) =~ "12/40"
+  end
 end

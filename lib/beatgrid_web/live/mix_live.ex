@@ -17,13 +17,13 @@ defmodule BeatgridWeb.MixLive do
 
       mix ->
         if connected?(socket), do: Mixes.subscribe()
-        {:ok, assign(socket, page_title: mix.title || "Set", mix: mix)}
+        {:ok, assign(socket, page_title: mix.title || "Set", mix: mix, progress: nil)}
     end
   end
 
   @impl true
-  def handle_info({:mix_progress, %{mix_id: id}}, %{assigns: %{mix: %{id: id}}} = socket) do
-    {:noreply, assign(socket, mix: Mixes.get_with_dj_parts(id))}
+  def handle_info({:mix_progress, %{mix_id: id} = payload}, %{assigns: %{mix: %{id: id}}} = socket) do
+    {:noreply, assign(socket, mix: Mixes.get_with_dj_parts(id), progress: progress_label(payload))}
   end
 
   def handle_info({:mix_progress, _}, socket), do: {:noreply, socket}
@@ -186,6 +186,9 @@ defmodule BeatgridWeb.MixLive do
 
         <p :if={@mix.status == :analyzing} class="mt-4 text-body-sm text-ink-muted">
           Analisando o set… as faixas aparecem quando terminar.
+        </p>
+        <p :if={@progress} class="mt-1 text-body-sm text-ink-muted font-mono">
+          {@progress}
         </p>
         <p :if={@mix.status == :failed} class="mt-4 text-body-sm text-coral">
           A análise falhou. Tente "Re-analisar".
@@ -395,6 +398,18 @@ defmodule BeatgridWeb.MixLive do
     </a>
     """
   end
+
+  defp progress_label(%{stage: stage, done: done, total: total})
+       when is_integer(done) and is_integer(total),
+       do: "#{stage_pt(stage)} #{done}/#{total}"
+
+  defp progress_label(_), do: nil
+
+  defp stage_pt("segments"), do: "Analisando faixa"
+  defp stage_pt("boundaries"), do: "Detectando faixas"
+  defp stage_pt("dj_vision"), do: "Lendo frame"
+  defp stage_pt("dj_audio"), do: "Detectando DJs"
+  defp stage_pt(_), do: "…"
 
   defp blank_to_nil(s) when is_binary(s), do: if(String.trim(s) == "", do: nil, else: s)
   defp blank_to_nil(_), do: nil
