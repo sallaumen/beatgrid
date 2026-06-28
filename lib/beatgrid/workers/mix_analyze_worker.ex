@@ -48,7 +48,8 @@ defmodule Beatgrid.Workers.MixAnalyzeWorker do
 
         {:ok, _} =
           Mixes.set_status(mix, :ready, %{
-            analyzed_at: DateTime.utc_now() |> DateTime.truncate(:second)
+            analyzed_at: DateTime.utc_now() |> DateTime.truncate(:second),
+            error: nil
           })
 
         schedule_cleanup(mix)
