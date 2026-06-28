@@ -1,5 +1,5 @@
 defmodule Beatgrid.MixesTest do
-  use Beatgrid.DataCase, async: true
+  use Beatgrid.DataCase, async: true, oban: true
 
   import Beatgrid.Factory
 
@@ -34,6 +34,15 @@ defmodule Beatgrid.MixesTest do
              Mixes.update_segment(seg, %{artist: "Djavan", title: "Sina", name_source: :manual})
 
     assert seg.artist == "Djavan" and seg.name_source == :manual
+  end
+
+  describe "import_url/1" do
+    test "creates a downloading mix and enqueues a MixDownloadWorker" do
+      assert {:ok, mix} = Beatgrid.Mixes.import_url("https://soundcloud.com/dj/set")
+      assert mix.status == :downloading
+      assert mix.source == "soundcloud"
+      assert_enqueued(worker: Beatgrid.Workers.MixDownloadWorker, args: %{mix_id: mix.id})
+    end
   end
 
   describe "match_track/2" do
