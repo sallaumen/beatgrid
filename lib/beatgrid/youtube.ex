@@ -121,6 +121,12 @@ defmodule Beatgrid.YouTube do
         # Surface real failures (HTTP/timeout) instead of silently calling them
         # "no match" — :no_match is a legitimate outcome, other errors are not.
         case result do
+          {:error, :no_credentials} ->
+            Logger.error(
+              "enrich: Soundcharts SEM CREDENCIAIS — carregue o .env " <>
+                "(SOUNDCHARTS_APP_ID/SOUNDCHARTS_API_KEY) e reinicie o servidor"
+            )
+
           {:error, reason} when reason != :no_match ->
             Logger.warning("enrich: Soundcharts falhou na faixa #{id}: #{inspect(reason)}")
 

@@ -48,6 +48,9 @@ config :beatgrid, Beatgrid.Audio.Loudness, adapter: Beatgrid.Audio.LoudnessMock
 config :beatgrid, Beatgrid.YouTube.Downloader, adapter: Beatgrid.YouTube.DownloaderMock
 
 # The Http adapter, when exercised directly, routes through Req.Test instead of
-# the network (see test/beatgrid/soundcharts/http_test.exs).
+# the network (see test/beatgrid/soundcharts/http_test.exs). A dummy account gives
+# it credentials so the adapter doesn't refuse with :no_credentials (the Mock used
+# elsewhere ignores these values).
 config :beatgrid, Beatgrid.Soundcharts.Http,
-  req_options: [plug: {Req.Test, Beatgrid.Soundcharts.Http}]
+  req_options: [plug: {Req.Test, Beatgrid.Soundcharts.Http}],
+  accounts: [%{id: "1", app_id: "test-app-id", api_key: "test-api-key"}]

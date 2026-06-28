@@ -35,14 +35,20 @@ defmodule Beatgrid.Soundcharts.Http do
 
   # --- request plumbing ---
 
-  # Use the active account's credentials. The context already guards the budget,
-  # so a nil here only happens when every account is exhausted.
+  # Use the active account's credentials. The context already guards the budget, so
+  # nil only happens when every account is exhausted. A configured-but-credential-less
+  # account (e.g. the .env wasn't loaded) would otherwise send empty auth headers and
+  # get a cryptic 401 per track — refuse up front with a named error instead, and
+  # don't hammer the API with unauthenticated requests.
   defp with_account(fun) do
     case Accounts.active() do
       nil -> {:error, :budget_exhausted}
-      account -> fun.(account)
+      account -> if credentialed?(account), do: fun.(account), else: {:error, :no_credentials}
     end
   end
+
+  defp credentialed?(%{app_id: app_id, api_key: api_key}),
+    do: is_binary(app_id) and app_id != "" and is_binary(api_key) and api_key != ""
 
   defp client(account) do
     # Explicit request timeouts so a single Soundcharts call can never hang a job

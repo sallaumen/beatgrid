@@ -1,9 +1,23 @@
 defmodule Beatgrid.Soundcharts.HttpTest do
   # DataCase (sandboxed DB) because the real adapter resolves the active account
-  # from the `api_calls` ledger before each call.
-  use Beatgrid.DataCase, async: true
+  # from the `api_calls` ledger before each call. async: false + an own-config setup
+  # so a credentialed account is guaranteed regardless of other tests that mutate the
+  # global Soundcharts.Http config (the adapter now refuses calls without credentials).
+  use Beatgrid.DataCase, async: false
 
   alias Beatgrid.Soundcharts.{Http, Response}
+
+  setup do
+    prev = Application.get_env(:beatgrid, Beatgrid.Soundcharts.Http)
+
+    Application.put_env(:beatgrid, Beatgrid.Soundcharts.Http,
+      req_options: [plug: {Req.Test, Beatgrid.Soundcharts.Http}],
+      accounts: [%{id: "1", app_id: "test-app-id", api_key: "test-api-key"}]
+    )
+
+    on_exit(fn -> Application.put_env(:beatgrid, Beatgrid.Soundcharts.Http, prev) end)
+    :ok
+  end
 
   describe "search_song/1" do
     test "parses items and the x-quota-remaining header" do

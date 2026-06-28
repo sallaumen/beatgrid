@@ -3,7 +3,7 @@ defmodule Beatgrid.Soundcharts.AccountsTest do
   use Beatgrid.DataCase, async: false
 
   alias Beatgrid.Soundcharts
-  alias Beatgrid.Soundcharts.{Accounts, ApiCall, Mock, Response}
+  alias Beatgrid.Soundcharts.{Accounts, ApiCall, Http, Mock, Response}
 
   setup do
     prev_http = Application.get_env(:beatgrid, Beatgrid.Soundcharts.Http)
@@ -128,5 +128,13 @@ defmodule Beatgrid.Soundcharts.AccountsTest do
 
     # Both new successful calls were billed to account 2, not the exhausted account 1.
     assert Accounts.account_budget("2").used == 2
+  end
+
+  test "the Http adapter refuses with :no_credentials instead of a cryptic 401" do
+    # No account has credentials (e.g. the .env wasn't loaded) → don't send empty
+    # auth headers and get a 401 per track; refuse up front with a clear error.
+    put_accounts([%{id: "1", app_id: nil, api_key: nil}])
+
+    assert {:error, :no_credentials} = Http.search_song("anything")
   end
 end
