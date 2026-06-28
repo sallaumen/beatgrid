@@ -268,6 +268,9 @@ defmodule BeatgridWeb.DashboardLive do
   defp enrich_label(%{status: :refining, done: d, total: t}),
     do: "Refinando títulos com IA #{d}/#{t}…"
 
+  defp enrich_label(%{scope: "rare", status: :running, done: d, total: t}),
+    do: "Enriquecendo raras (IA + análise) #{d}/#{t}…"
+
   defp enrich_label(%{status: :running, done: d, total: t}),
     do: "Resolvendo no Soundcharts #{d}/#{t}…"
 

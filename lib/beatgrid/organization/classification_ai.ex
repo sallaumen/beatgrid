@@ -5,6 +5,7 @@ defmodule Beatgrid.Organization.ClassificationAI do
   with the current folder into pending `:claude` `MoveSuggestion`s — reusing approve →
   apply → undo. Nothing moves on disk until approved.
   """
+  require Logger
   import Ecto.Query
 
   alias Beatgrid.AI
@@ -87,11 +88,21 @@ defmodule Beatgrid.Organization.ClassificationAI do
             batch_id: batch_id
           })
 
-        if is_number(result.confidence) and result.confidence >= @auto_file_confidence do
-          Organization.apply_batch([suggestion])
-        end
+        maybe_auto_file(suggestion, result.confidence, track, folder)
 
         %{acc | suggested: acc.suggested + 1}
+    end
+  end
+
+  defp maybe_auto_file(suggestion, confidence, track, folder) do
+    if is_number(confidence) and confidence >= @auto_file_confidence do
+      case Organization.apply_batch([suggestion]) do
+        {:ok, %{failed: f}} when f > 0 ->
+          Logger.warning("auto-arquivar falhou para track #{track.id} (#{folder})")
+
+        _ ->
+          :ok
+      end
     end
   end
 

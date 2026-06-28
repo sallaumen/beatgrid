@@ -3,10 +3,12 @@ defmodule Beatgrid.Workers.EnrichWorker do
   Enriches downloaded tracks against Soundcharts in the background, broadcasting
   `{:enrich_progress, …}` per item so the LiveView shows live progress. Runs on
   the `:soundcharts` queue (concurrency 1) so it serializes the quota-spending with
-  the other Soundcharts workers. Two scopes:
+  the other Soundcharts workers. Three scopes:
 
     * `"track"`  — one track, enqueued by the per-track "Atualizar metadados" button.
     * `"pending"` — every downloaded-but-unfiled track, enqueued by the dashboard.
+    * `"rare"`   — faixas que o Soundcharts não achou; enriquecimento sem chamada de API:
+                   análise local (BPM + tom) + classificação via IA.
 
   Soundcharts is button-triggered: this worker is only ever *enqueued by a UI
   click*, never auto. Budget exhaustion returns `:ok` (so Oban doesn't retry
