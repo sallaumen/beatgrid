@@ -183,7 +183,11 @@ defmodule Beatgrid.Mixes do
 
     snapped = if Enum.any?(snapped, &(&1.start_ms == 0)), do: snapped, else: [%{start_ms: 0, dj_name: nil} | snapped]
 
-    snapped = snapped |> Enum.sort_by(& &1.start_ms) |> Enum.dedup_by(& &1.start_ms)
+    snapped =
+      snapped
+      |> Enum.group_by(& &1.start_ms)
+      |> Enum.map(fn {_start, entries} -> Enum.find(entries, & &1.dj_name) || hd(entries) end)
+      |> Enum.sort_by(& &1.start_ms)
 
     rows =
       snapped

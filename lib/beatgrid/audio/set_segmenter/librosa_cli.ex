@@ -7,6 +7,8 @@ defmodule Beatgrid.Audio.SetSegmenter.LibrosaCli do
   """
   @behaviour Beatgrid.Audio.SetSegmenter
 
+  @run_timeout_ms (Application.compile_env(:beatgrid, [__MODULE__, :run_timeout_ms]) || 2_700_000)
+
   @thread_env [
     {"OMP_NUM_THREADS", "1"},
     {"OPENBLAS_NUM_THREADS", "1"},
@@ -61,7 +63,22 @@ defmodule Beatgrid.Audio.SetSegmenter.LibrosaCli do
 
       {^port, {:exit_status, code}} ->
         {:error, {:segment_exit, code}}
+    after
+      @run_timeout_ms ->
+        kill_port(port)
+        {:error, :segment_timeout}
     end
+  end
+
+  defp kill_port(port) do
+    case Port.info(port, :os_pid) do
+      {:os_pid, os_pid} -> System.cmd("kill", ["-9", Integer.to_string(os_pid)])
+      _ -> :ok
+    end
+
+    if Port.info(port), do: Port.close(port)
+  rescue
+    _ -> :ok
   end
 
   defp handle_line(line, final_key, on_progress, result) do

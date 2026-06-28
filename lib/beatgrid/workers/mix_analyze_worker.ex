@@ -6,7 +6,14 @@ defmodule Beatgrid.Workers.MixAnalyzeWorker do
   persists the segments. Marks the mix `:ready` and schedules a cancelable 24h audio
   cleanup. Quota-free (local librosa + Claude-Max).
   """
-  use Oban.Worker, queue: :mixes, max_attempts: 3
+  use Oban.Worker,
+    queue: :mixes,
+    max_attempts: 3,
+    unique: [
+      period: 3600,
+      keys: [:mix_id],
+      states: [:available, :scheduled, :executing, :retryable, :suspended]
+    ]
 
   alias Beatgrid.Mixes
   alias Beatgrid.Mixes.TracklistAI
@@ -118,6 +125,9 @@ defmodule Beatgrid.Workers.MixAnalyzeWorker do
   end
 
   defp schedule_cleanup(mix) do
+    mix = Mixes.get_mix(mix.id)
+    if is_integer(mix.cleanup_job_id), do: Oban.cancel_job(mix.cleanup_job_id)
+
     {:ok, job} =
       Oban.insert(MixCleanupWorker.new(%{mix_id: mix.id}, schedule_in: 86_400))
 

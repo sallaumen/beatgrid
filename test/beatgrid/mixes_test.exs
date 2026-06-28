@@ -181,5 +181,25 @@ defmodule Beatgrid.MixesTest do
       mix = insert(:mix, chapters: [])
       assert Mixes.set_dj_parts_from_chapters(mix) == {:error, :no_chapters}
     end
+
+    test "snap-collision: a nil-name part and a named part at the same boundary keep the named one" do
+      # The :audio/:image source can pass dj_name: nil for boundary markers. If another
+      # part snaps to the same start_ms, Enum.dedup_by (pre-fix) keeps the first-sorted
+      # entry — which may be the nil one. The fix uses group_by + Enum.find to keep the
+      # named entry when available.
+      mix = insert(:mix, duration_ms: 600_000)
+      insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+      insert(:mix_segment, mix: mix, position: 1, start_ms: 300_000)
+
+      # Call replace_dj_parts directly with a nil-named part at 0 and a named part also
+      # at 0 — simulating the :audio source producing a collision at the same segment.
+      # After fix: the named entry "DJ A" must survive.
+      parts = [%{start_ms: 0, dj_name: nil}, %{start_ms: 0, dj_name: "DJ A"}]
+      assert {:ok, _} = Mixes.replace_dj_parts(mix, :audio, parts)
+      persisted = Mixes.get_with_dj_parts(mix.id).dj_parts
+      part_at_zero = Enum.find(persisted, &(&1.start_ms == 0))
+      assert part_at_zero != nil
+      assert part_at_zero.dj_name == "DJ A"
+    end
   end
 end

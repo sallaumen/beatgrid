@@ -435,7 +435,10 @@ defmodule BeatgridWeb.MixLive do
 
   defp format_clock(ms) do
     total = div(ms, 1000)
-    "#{pad(div(total, 60))}:#{pad(rem(total, 60))}"
+    h = div(total, 3600)
+    m = total |> div(60) |> rem(60)
+    s = rem(total, 60)
+    if h > 0, do: "#{h}:#{pad(m)}:#{pad(s)}", else: "#{pad(m)}:#{pad(s)}"
   end
 
   defp pad(n), do: n |> Integer.to_string() |> String.pad_leading(2, "0")

@@ -47,9 +47,11 @@ config :beatgrid, Oban,
   ],
   plugins: [
     {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7},
-    # Rescue jobs orphaned in `executing` when a node dies mid-run (common in dev
-    # on recompile/restart) back to `available` for retry. 15min > any real batch,
-    # and the :soundcharts queue is concurrency 1, so a rescue never double-runs.
+    # Rescue jobs orphaned in :executing (e.g. node crash / dev recompile) back to
+    # :available for retry. NOTE: a multi-hour mix analyze/vision job can legitimately
+    # exceed 15min and be re-run by Lifeline; that's wasteful but idempotent —
+    # replace_segments/replace_dj_parts are transactional, and schedule_cleanup cancels
+    # a prior cleanup before scheduling a new one.
     {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(15)}
   ]
 

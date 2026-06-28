@@ -111,4 +111,12 @@ defmodule BeatgridWeb.MixLiveTest do
     Beatgrid.Mixes.broadcast(%{mix_id: mix.id, stage: "segments", done: 12, total: 40})
     assert render(view) =~ "12/40"
   end
+
+  test "format_clock renders a 3-hour mix as H:MM:SS, not as MM:SS", %{conn: conn} do
+    # 10_800_000 ms = 3 h exactly; the old MM:SS code would render "180:00"
+    mix = insert(:mix, status: :ready, duration_ms: 10_800_000)
+    {:ok, _view, html} = live(conn, ~p"/sets-online/#{mix.id}")
+    assert html =~ "3:00:00"
+    refute html =~ "180:00"
+  end
 end
