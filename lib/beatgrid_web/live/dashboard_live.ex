@@ -199,10 +199,10 @@ defmodule BeatgridWeb.DashboardLive do
   defp enrich_summary(%{total: 0}), do: "Nada pendente para enriquecer."
 
   defp enrich_summary(%{done: 0, budget_exhausted: true}),
-    do: "Cota do Soundcharts esgotada — 0 enriquecida(s). Configure/carregue a 2ª conta no .env."
+    do: "Cota do Soundcharts esgotada em todas as contas."
 
   defp enrich_summary(%{done: 0}),
-    do: "Nada enriquecido — sem cota ou credenciais? Veja os logs do servidor."
+    do: "Nada enriquecido — verifique a conta do Soundcharts (veja os logs)."
 
   defp enrich_summary(%{done: n, resolved: r} = p) do
     base = "#{n} enriquecida(s) (#{r} com match)"
