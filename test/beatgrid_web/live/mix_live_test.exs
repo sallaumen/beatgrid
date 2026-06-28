@@ -85,4 +85,23 @@ defmodule BeatgridWeb.MixLiveTest do
     view |> element("button[phx-click=reanalyze]") |> render_click()
     assert_enqueued(worker: MixAnalyzeWorker, args: %{mix_id: mix.id})
   end
+
+  test "renders DJ section headers when dj parts exist", %{conn: conn} do
+    mix = insert(:mix, status: :ready, duration_ms: 600_000)
+    insert(:mix_segment, mix: mix, position: 0, start_ms: 0, title: "T1")
+    insert(:dj_part, mix: mix, position: 0, start_ms: 0, end_ms: 600_000, dj_name: "DJ A", source: :manual)
+
+    {:ok, _view, html} = live(conn, ~p"/sets-online/#{mix.id}")
+    assert html =~ "DJ A"
+  end
+
+  test "manual timestamps create dj sections", %{conn: conn} do
+    mix = insert(:mix, status: :ready, duration_ms: 600_000)
+    insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+    insert(:mix_segment, mix: mix, position: 1, start_ms: 300_000)
+
+    {:ok, view, _} = live(conn, ~p"/sets-online/#{mix.id}")
+    render_submit(element(view, "#dj-manual-form"), %{"timestamps" => "0:00 A\n5:00 B"})
+    assert render(view) =~ "A" and render(view) =~ "B"
+  end
 end
