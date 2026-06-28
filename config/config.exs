@@ -42,7 +42,8 @@ config :beatgrid, Oban,
     ai: 3,
     analysis: 5,
     loudness: 5,
-    youtube: 2
+    youtube: 2,
+    mixes: 2
   ],
   plugins: [
     {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7},
