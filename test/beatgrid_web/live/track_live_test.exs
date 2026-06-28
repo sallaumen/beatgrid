@@ -177,25 +177,50 @@ defmodule BeatgridWeb.TrackLiveTest do
     assert Enum.map(Beatgrid.Sets.tracks(set), & &1.id) == [track.id]
   end
 
-  test "renders the waveform player and adds/removes a marker", %{conn: conn} do
+  test "uses the unified player and renders manageable markers", %{conn: conn} do
     track =
       insert(:track,
         status: :present,
         tag_title: "X",
         tag_artist: "Y",
+        cue_points: [%{"ms" => 30_000, "label" => nil}],
         analyzed_at: ~U[2026-01-01 00:00:00Z]
       )
 
     {:ok, view, html} = live(conn, ~p"/track/#{track.id}")
-    assert html =~ "track-waveform"
-    assert html =~ ~s(phx-hook="Waveform")
 
-    render_hook(view, "add_marker", %{"ms" => 30_000})
-    assert [%{"ms" => 30_000}] = Tracks.get(track.id).cue_points
-    assert render(view) =~ "0:30"
+    # No more track-local waveform — playback goes through the global player.
+    refute html =~ "track-waveform"
+    refute html =~ ~s(phx-hook="Waveform")
+    # Prominent play button dispatches to the shared #player-audio.
+    assert html =~ "beatgrid:play"
+    assert html =~ "player-audio"
+    # Marker section shows the existing cue at 0:30.
+    assert html =~ "Marcadores"
+    assert html =~ "0:30"
 
+    # Rename it inline (the marker_list form submits rename_marker).
+    render_hook(view, "rename_marker", %{"ms" => "30000", "label" => "drop"})
+    assert Enum.find(Tracks.get(track.id).cue_points, &(&1["ms"] == 30_000))["label"] == "drop"
+    assert render(view) =~ "drop"
+
+    # Remove it.
     view |> element("button[phx-click=remove_marker][phx-value-ms='30000']") |> render_click()
     assert Tracks.get(track.id).cue_points == []
+  end
+
+  test "a markers_changed broadcast reloads this track's markers", %{conn: conn} do
+    track = insert(:track, status: :present, tag_title: "X", tag_artist: "Y")
+    {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
+    refute render(view) =~ "1:00"
+
+    # A marker added elsewhere (e.g. from the player) → the page refreshes on the broadcast.
+    {:ok, _} = Tracks.add_marker(track, 60_000, "refrão")
+    send(view.pid, {:markers_changed, track.id})
+
+    html = render(view)
+    assert html =~ "1:00"
+    assert html =~ "refrão"
   end
 
   test "redirects to the library when the track is not found", %{conn: conn} do

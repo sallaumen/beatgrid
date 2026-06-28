@@ -306,6 +306,86 @@ defmodule BeatgridWeb.UI do
     """
   end
 
+  @doc """
+  Manageable list of a track's cue-point markers. Display-only: the host LiveView
+  handles `rename_marker` (form submit, Enter saves) and `remove_marker` (✕). The
+  time button either seeks the live player (`seekable: true`) or plays this track
+  from that marker. Shared by the player popover and the track page.
+  """
+  attr :markers, :list, required: true, doc: ~s(list of %{"ms" => int, "label" => str | nil})
+  attr :track_id, :string, required: true
+  attr :play_src, :string, required: true, doc: "the /audio/:id URL (for play-from-marker)"
+
+  attr :seekable, :boolean,
+    default: false,
+    doc: "true → time button seeks the live player; false → plays this track from the marker"
+
+  attr :id_prefix, :string,
+    default: "marker",
+    doc:
+      "scopes the per-row form ids so two instances (player popover + track page) don't collide"
+
+  attr :empty_hint, :string, default: "Nenhum marcador ainda — toque a faixa e use ＋ para marcar."
+
+  def marker_list(assigns) do
+    ~H"""
+    <div class="flex flex-col gap-1.5">
+      <p :if={@markers == []} class="text-caption text-ink-faint">{@empty_hint}</p>
+      <div
+        :for={m <- @markers}
+        class="flex items-center gap-2 rounded-md border border-amber/30 bg-amber/5 px-2 py-1"
+      >
+        <button
+          type="button"
+          phx-click={
+            if @seekable,
+              do: JS.dispatch("beatgrid:seek", to: "#player-audio", detail: %{ms: m["ms"]}),
+              else:
+                JS.dispatch("beatgrid:play",
+                  to: "#player-audio",
+                  detail: %{src: @play_src, id: @track_id, at_ms: m["ms"]}
+                )
+          }
+          class="shrink-0 font-mono text-[11px] text-amber hover:underline"
+          title="Pular para este ponto"
+        >
+          {format_ms(m["ms"])}
+        </button>
+        <form id={"#{@id_prefix}-rename-#{m["ms"]}"} phx-submit="rename_marker" class="min-w-0 flex-1">
+          <input type="hidden" name="ms" value={m["ms"]} />
+          <input
+            type="text"
+            name="label"
+            value={m["label"]}
+            placeholder="nomear (Enter salva)…"
+            aria-label={"Nome do marcador em #{format_ms(m["ms"])}"}
+            class="w-full rounded bg-transparent px-1 py-0.5 text-[12px] text-ink placeholder:text-ink-faint focus:bg-white/5 focus:outline-none"
+          />
+        </form>
+        <button
+          type="button"
+          phx-click="remove_marker"
+          phx-value-ms={m["ms"]}
+          class="text-ink-muted hover:text-coral shrink-0"
+          title="Remover marcador"
+          aria-label="Remover marcador"
+        >
+          ✕
+        </button>
+      </div>
+    </div>
+    """
+  end
+
+  @doc "Formats milliseconds as `m:ss` (cue-point display)."
+  @spec format_ms(integer() | any()) :: String.t()
+  def format_ms(ms) when is_integer(ms) do
+    total = div(ms, 1000)
+    "#{div(total, 60)}:#{String.pad_leading(Integer.to_string(rem(total, 60)), 2, "0")}"
+  end
+
+  def format_ms(_ms), do: "0:00"
+
   @doc "App shell: left nav rail + main content + the sticky global player."
   attr :active, :atom, default: :biblioteca
   attr :socket, Phoenix.LiveView.Socket, required: true
