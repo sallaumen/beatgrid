@@ -18,6 +18,9 @@ defmodule Beatgrid.Audio.SetSegmenter.LibrosaCli do
     {"VECLIB_MAXIMUM_THREADS", "1"}
   ]
 
+  # Port.open/2's :env requires charlist tuples (unlike System.cmd, which takes binaries).
+  @port_env Enum.map(@thread_env, fn {k, v} -> {String.to_charlist(k), String.to_charlist(v)} end)
+
   @impl Beatgrid.Audio.SetSegmenter
   def analyze(audio_path, boundaries_ms, opts \\ []) do
     on_progress = Keyword.get(opts, :on_progress, fn _ -> :ok end)
@@ -40,7 +43,7 @@ defmodule Beatgrid.Audio.SetSegmenter.LibrosaCli do
         :use_stdio,
         {:line, 1_000_000},
         args: args,
-        env: @thread_env
+        env: @port_env
       ])
 
     collect(port, final_key, on_progress, "", nil)
@@ -134,5 +137,9 @@ defmodule Beatgrid.Audio.SetSegmenter.LibrosaCli do
   defp num(_), do: nil
 
   defp python, do: Application.get_env(:beatgrid, __MODULE__, [])[:python] || "python3"
-  defp script, do: Application.app_dir(:beatgrid, "priv/scripts/segment_analyze.py")
+
+  defp script,
+    do:
+      Application.get_env(:beatgrid, __MODULE__, [])[:script] ||
+        Application.app_dir(:beatgrid, "priv/scripts/segment_analyze.py")
 end
