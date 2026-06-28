@@ -351,7 +351,13 @@ defmodule BeatgridWeb.DedupLive do
         <span :if={@chosen} class="size-2 rounded-full bg-[#0b0c10]" />
       </span>
 
-      <.cover src={cover_src(@member.track)} artist={@artist} size={40} />
+      <.cover_play
+        src={cover_src(@member.track)}
+        artist={@artist}
+        size={40}
+        play_src={~p"/audio/#{@member.track.id}"}
+        track_id={@member.track.id}
+      />
 
       <div class="min-w-0 flex-1">
         <p class="truncate text-body font-medium">

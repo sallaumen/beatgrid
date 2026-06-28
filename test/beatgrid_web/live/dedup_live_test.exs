@@ -85,6 +85,20 @@ defmodule BeatgridWeb.DedupLiveTest do
     assert html =~ "128"
   end
 
+  @tag :tmp_dir
+  test "cada membro tem play na capa (cover_play) pra ouvir e comparar as versões", %{
+    conn: conn,
+    tmp_dir: root
+  } do
+    %{keep: keep, dup: dup} = exact_pair(root)
+
+    {:ok, _view, html} = live(conn, ~p"/dedup")
+
+    assert html =~ "beatgrid:play"
+    assert html =~ "/audio/#{keep.id}"
+    assert html =~ "/audio/#{dup.id}"
+  end
+
   test "Procurar duplicatas enqueues a DedupWorker and shows the scanning label", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/dedup")
 
