@@ -28,6 +28,9 @@ def best_key(profile, chroma_mean):
 def analyze_window(y, sr):
     tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
     bpm = round(float(np.atleast_1d(tempo)[0]), 2)
+    # beat_track returns 0.0 on segments with no detectable beat (fades/ambient) —
+    # report that as "unknown" (null) rather than a misleading 0 BPM.
+    bpm = None if bpm == 0.0 else bpm
     chroma_mean = librosa.feature.chroma_cqt(y=y, sr=sr).mean(axis=1)
     maj_i, maj_c = best_key(MAJOR, chroma_mean)
     min_i, min_c = best_key(MINOR, chroma_mean)
