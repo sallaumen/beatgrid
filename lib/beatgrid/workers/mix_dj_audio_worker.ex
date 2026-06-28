@@ -6,7 +6,7 @@ defmodule Beatgrid.Workers.MixDjAudioWorker do
     unique: [
       period: 3600,
       keys: [:mix_id],
-      states: [:available, :scheduled, :executing, :retryable]
+      states: [:available, :scheduled, :executing, :retryable, :suspended]
     ]
 
   alias Beatgrid.Mixes
