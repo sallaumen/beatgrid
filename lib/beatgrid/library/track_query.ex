@@ -16,6 +16,7 @@ defmodule Beatgrid.Library.TrackQuery do
           | {:analyzed, boolean()}
           | {:loudness, boolean()}
           | {:loudness_attempted, boolean()}
+          | {:sc_attempted, boolean()}
           | {:order_by, term()}
 
   @spec list_by([list_opt()]) :: [Track.t()]
@@ -388,6 +389,12 @@ defmodule Beatgrid.Library.TrackQuery do
 
   defp reduce_opt({:loudness_attempted, false}, q),
     do: where(q, [t], is_nil(t.loudness_attempted_at))
+
+  defp reduce_opt({:sc_attempted, true}, q),
+    do: where(q, [t], not is_nil(t.sc_attempted_at))
+
+  defp reduce_opt({:sc_attempted, false}, q),
+    do: where(q, [t], is_nil(t.sc_attempted_at))
 
   defp reduce_opt({:order_by, order}, q), do: order_by(q, ^order)
 end

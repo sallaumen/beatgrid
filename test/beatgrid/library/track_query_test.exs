@@ -202,6 +202,17 @@ defmodule Beatgrid.Library.TrackQueryTest do
     end
   end
 
+  describe "count :sc_attempted" do
+    test "filtra por sc_attempted_at presente/ausente" do
+      now = DateTime.truncate(DateTime.utc_now(), :second)
+      _never = insert(:track, status: :present)
+      _tried = insert(:track, status: :present, sc_attempted_at: now)
+
+      assert TrackQuery.count(status: :present, sc_attempted: false) == 1
+      assert TrackQuery.count(status: :present, sc_attempted: true) == 1
+    end
+  end
+
   describe "youtube_imports/1" do
     test "só faixas youtube; filtros e ordem por views" do
       a = insert(:track, status: :present, source_playlist: "youtube", youtube_views: 10)

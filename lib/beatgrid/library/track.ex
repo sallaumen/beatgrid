@@ -64,6 +64,7 @@ defmodule Beatgrid.Library.Track do
     field :loudness_lufs, :float
     field :true_peak_dbtp, :float
     field :loudness_attempted_at, :utc_datetime
+    field :sc_attempted_at, :utc_datetime
 
     field :bpm_manual, :float
     field :camelot_manual, :string
@@ -89,7 +90,7 @@ defmodule Beatgrid.Library.Track do
                source_playlist genre_folder status quality_issues
                rating personal_note tags cue_points last_scanned_at sc_match_confidence
                sc_art_trusted bpm_detected camelot_detected analyzed_at
-               loudness_lufs true_peak_dbtp loudness_attempted_at
+               loudness_lufs true_peak_dbtp loudness_attempted_at sc_attempted_at
                bpm_manual camelot_manual manual_fields
                gold_status gold_manual youtube_views youtube_published_at
                soundcharts_song_id)a
