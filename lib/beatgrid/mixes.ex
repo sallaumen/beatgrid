@@ -6,11 +6,12 @@ defmodule Beatgrid.Mixes do
   """
   import Ecto.Query
 
+  alias Beatgrid.Integrations
   alias Beatgrid.Library
   alias Beatgrid.Library.{Normalize, Track}
   alias Beatgrid.Mixes.{DjPart, DjTimestamps, Mix, Segment}
   alias Beatgrid.Repo
-  alias Beatgrid.Workers.{MixAnalyzeWorker, MixDjAudioWorker, MixDjVisionWorker, MixDownloadWorker}
+  alias Beatgrid.Workers.{MixAnalyzeWorker, MixDjAudioWorker, MixDjVisionWorker, MixDownloadWorker, MixRecognizeWorker}
 
   @adapter Application.compile_env(
              :beatgrid,
@@ -239,6 +240,20 @@ defmodule Beatgrid.Mixes do
   @spec detect_djs_by_image(Mix.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
   def detect_djs_by_image(%Mix{} = mix),
     do: Oban.insert(MixDjVisionWorker.new(%{mix_id: mix.id}))
+
+  @spec recognize_unnamed(Mix.t()) :: {:ok, Oban.Job.t()} | {:error, :no_credentials}
+  def recognize_unnamed(%Mix{} = mix) do
+    if Integrations.configured?(:audd),
+      do: Oban.insert(MixRecognizeWorker.new(%{mix_id: mix.id})),
+      else: {:error, :no_credentials}
+  end
+
+  @spec recognize_segment(Segment.t()) :: {:ok, Oban.Job.t()} | {:error, :no_credentials}
+  def recognize_segment(%Segment{} = seg) do
+    if Integrations.configured?(:audd),
+      do: Oban.insert(MixRecognizeWorker.new(%{segment_id: seg.id})),
+      else: {:error, :no_credentials}
+  end
 
   @spec match_track(String.t() | nil, String.t() | nil) ::
           %{track_id: binary(), confidence: :high} | nil
