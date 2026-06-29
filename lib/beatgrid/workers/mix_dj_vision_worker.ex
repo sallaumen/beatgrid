@@ -29,7 +29,7 @@ defmodule Beatgrid.Workers.MixDjVisionWorker do
 
   defp run(mix) do
     interval = config(:frame_interval_ms, 30_000)
-    per_grid = config(:tiles_per_grid, 16)
+    per_grid = config(:tiles_per_grid, 9)
     dir = Path.join(System.tmp_dir!(), "beatgrid-dj-vision-#{mix.id}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     File.chmod(dir, 0o700)

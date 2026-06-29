@@ -18,7 +18,7 @@ defmodule Beatgrid.Video.FrameSampler.FfmpegCli do
   @impl true
   def download_video(url, dir) do
     out = Path.join(dir, "video.%(ext)s")
-    args = ["-f", "bv*[height<=360]/b[height<=360]/worst", "--no-playlist", "-o", out, url]
+    args = ["-f", "bv*[height<=720]/b[height<=720]/worst", "--no-playlist", "-o", out, url]
 
     case System.cmd(ytdlp(), args, stderr_to_stdout: true) do
       {_o, 0} ->
@@ -36,7 +36,7 @@ defmodule Beatgrid.Video.FrameSampler.FfmpegCli do
   def extract_frames(video_path, %{interval_ms: interval_ms, dir: dir}) do
     secs = max(1, div(interval_ms, 1000))
     pattern = Path.join(dir, "f%05d.jpg")
-    args = ["-nostdin", "-i", video_path, "-vf", "fps=1/#{secs},crop=iw:ih/3:0:ih*2/3,scale=320:-2", "-q:v", "4", pattern]
+    args = ["-nostdin", "-i", video_path, "-vf", "fps=1/#{secs},crop=iw:ih/4:0:ih*3/4,scale=640:-2", "-q:v", "2", pattern]
 
     case System.cmd(ffmpeg(), args, stderr_to_stdout: true) do
       {_out, 0} -> {:ok, dir |> Path.join("f*.jpg") |> Path.wildcard() |> Enum.sort()}
