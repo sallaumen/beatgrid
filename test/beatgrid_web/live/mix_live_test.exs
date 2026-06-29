@@ -247,4 +247,35 @@ defmodule BeatgridWeb.MixLiveTest do
     view |> element("button[phx-click=delete_dj][phx-value-id=\"#{part.id}\"]") |> render_click()
     refute render(view) =~ "DJ X"
   end
+
+  test "delete a DJ divider asks for confirmation first", %{conn: conn} do
+    mix = insert(:mix, status: :ready, duration_ms: 600_000)
+    insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+    insert(:dj_part, mix: mix, position: 0, start_ms: 0, end_ms: 600_000, dj_name: "DJ X", source: :image)
+
+    {:ok, _view, html} = live(conn, ~p"/sets-online/#{mix.id}")
+    assert html =~ ~s(data-confirm="Apagar esta divisória?")
+  end
+
+  test "rename persists on change/blur, not only on Enter", %{conn: conn} do
+    mix = insert(:mix, status: :ready, duration_ms: 600_000)
+    insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+    part = insert(:dj_part, mix: mix, position: 0, start_ms: 0, end_ms: 600_000, dj_name: "DJ OLD", source: :image)
+
+    {:ok, view, _} = live(conn, ~p"/sets-online/#{mix.id}")
+
+    render_change(element(view, "#dj-rename-#{part.id}"), %{"part_id" => part.id, "name" => "DJ NEW"})
+
+    [reloaded] = Beatgrid.Mixes.get_with_dj_parts(mix.id).dj_parts
+    assert reloaded.dj_name == "DJ NEW"
+  end
+
+  test "rename input carries an accessible label", %{conn: conn} do
+    mix = insert(:mix, status: :ready, duration_ms: 600_000)
+    insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+    insert(:dj_part, mix: mix, position: 0, start_ms: 0, end_ms: 600_000, dj_name: "DJ RATA", source: :image)
+
+    {:ok, _v, html} = live(conn, ~p"/sets-online/#{mix.id}")
+    assert html =~ ~s(aria-label="Renomear DJ: DJ RATA")
+  end
 end
