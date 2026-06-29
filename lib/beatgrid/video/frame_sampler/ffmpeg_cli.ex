@@ -1,12 +1,13 @@
 defmodule Beatgrid.Video.FrameSampler.FfmpegCli do
   @moduledoc """
-  FrameSampler adapter: two-step pipeline.
+  FrameSampler adapter: three-step pipeline.
 
-  1. `resolve_stream/1` — yt-dlp -g to get a direct stream URL.
-  2. `extract_frames/2` — ONE sequential ffmpeg pass (no random -ss seeks): extracts a
-     cropped lower-third frame every N seconds into a local directory. Sequential
-     range reads are range-friendly and avoid HTTP 429 / exit-234 throttling that
-     random per-frame seeks cause on long streams.
+  1. `download_video/2` — yt-dlp downloads a low-res (<=360p) copy of the video into a
+     local directory. Downloading beats googlevideo stream throttling (which limits to
+     ~realtime, making frame extraction from a 4h video take ~3 hours).
+  2. `extract_frames/2` — ONE sequential ffmpeg pass from the LOCAL file (no random -ss
+     seeks): extracts a cropped lower-third frame every N seconds into a local directory.
+     Reading from disk is instant compared to streaming over HTTP.
   3. `montage/2` — assembles already-extracted local frames into one xstack image for OCR.
 
   No `drawtext` (not all ffmpeg builds ship libfreetype) — tiles are ordered
@@ -15,18 +16,27 @@ defmodule Beatgrid.Video.FrameSampler.FfmpegCli do
   @behaviour Beatgrid.Video.FrameSampler
 
   @impl true
-  def resolve_stream(url) do
-    case System.cmd(ytdlp(), ["-g", "-f", "bv*[height<=720]/b", "--no-playlist", url], stderr_to_stdout: true) do
-      {out, 0} -> {:ok, out |> String.split("\n", trim: true) |> List.first()}
-      {out, code} -> {:error, {:ytdlp_exit, code, tail_excerpt(out)}}
+  def download_video(url, dir) do
+    out = Path.join(dir, "video.%(ext)s")
+    args = ["-f", "bv*[height<=360]/b[height<=360]/worst", "--no-playlist", "-o", out, url]
+
+    case System.cmd(ytdlp(), args, stderr_to_stdout: true) do
+      {_o, 0} ->
+        case dir |> Path.join("video.*") |> Path.wildcard() |> List.first() do
+          nil -> {:error, :no_video_file}
+          path -> {:ok, path}
+        end
+
+      {o, code} ->
+        {:error, {:ytdlp_exit, code, tail_excerpt(o)}}
     end
   end
 
   @impl true
-  def extract_frames(stream_url, %{interval_ms: interval_ms, dir: dir}) do
+  def extract_frames(video_path, %{interval_ms: interval_ms, dir: dir}) do
     secs = max(1, div(interval_ms, 1000))
     pattern = Path.join(dir, "f%05d.jpg")
-    args = ["-nostdin", "-i", stream_url, "-vf", "fps=1/#{secs},crop=iw:ih/3:0:ih*2/3,scale=320:-2", "-q:v", "4", pattern]
+    args = ["-nostdin", "-i", video_path, "-vf", "fps=1/#{secs},crop=iw:ih/3:0:ih*2/3,scale=320:-2", "-q:v", "4", pattern]
 
     case System.cmd(ffmpeg(), args, stderr_to_stdout: true) do
       {_out, 0} -> {:ok, dir |> Path.join("f*.jpg") |> Path.wildcard() |> Enum.sort()}

@@ -28,30 +28,27 @@ defmodule Beatgrid.Workers.MixDjVisionWorker do
   end
 
   defp run(mix) do
-    with {:ok, stream} <- @sampler.resolve_stream(mix.source_url) do
-      interval = config(:frame_interval_ms, 30_000)
-      per_grid = config(:tiles_per_grid, 16)
-      dir = Path.join(System.tmp_dir!(), "beatgrid-dj-vision-#{mix.id}")
-      File.mkdir_p!(dir)
-      File.chmod(dir, 0o700)
+    interval = config(:frame_interval_ms, 30_000)
+    per_grid = config(:tiles_per_grid, 16)
+    dir = Path.join(System.tmp_dir!(), "beatgrid-dj-vision-#{mix.id}-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    File.chmod(dir, 0o700)
 
-      try do
-        case @sampler.extract_frames(stream, %{interval_ms: interval, dir: dir}) do
-          {:ok, frames} ->
-            reads = ocr_frames(mix, frames, interval, per_grid)
-            parts = reads |> DjVisionAI.group_consecutive() |> Enum.map(&%{start_ms: &1.start_ms, dj_name: &1.dj_name})
+    try do
+      with {:ok, video} <- @sampler.download_video(mix.source_url, dir),
+           {:ok, frames} <- @sampler.extract_frames(video, %{interval_ms: interval, dir: dir}) do
+        reads = ocr_frames(mix, frames, interval, per_grid)
+        parts = reads |> DjVisionAI.group_consecutive() |> Enum.map(&%{start_ms: &1.start_ms, dj_name: &1.dj_name})
 
-            case Mixes.replace_dj_parts(mix, :image, parts) do
-              {:ok, _} -> :ok
-              {:error, :manual_present} -> :ok
-            end
-
-          {:error, _} = err ->
-            err
+        case Mixes.replace_dj_parts(mix, :image, parts) do
+          {:ok, _} -> :ok
+          {:error, :manual_present} -> :ok
         end
-      after
-        File.rm_rf(dir)
+      else
+        {:error, _} = err -> err
       end
+    after
+      File.rm_rf(dir)
     end
   end
 

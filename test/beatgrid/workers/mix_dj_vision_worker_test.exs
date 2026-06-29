@@ -23,9 +23,11 @@ defmodule Beatgrid.Workers.MixDjVisionWorkerTest do
     insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
     insert(:mix_segment, mix: mix, position: 1, start_ms: 4_000)
 
-    expect(Beatgrid.Video.FrameSamplerMock, :resolve_stream, fn _ -> {:ok, "http://stream"} end)
+    expect(Beatgrid.Video.FrameSamplerMock, :download_video, fn _url, dir ->
+      {:ok, Path.join(dir, "video.mp4")}
+    end)
 
-    expect(Beatgrid.Video.FrameSamplerMock, :extract_frames, fn _stream, %{dir: dir} ->
+    expect(Beatgrid.Video.FrameSamplerMock, :extract_frames, fn _video, %{dir: dir} ->
       {:ok, [Path.join(dir, "f00001.jpg"), Path.join(dir, "f00002.jpg")]}
     end)
 
