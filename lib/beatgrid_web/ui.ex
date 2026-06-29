@@ -968,6 +968,17 @@ defmodule BeatgridWeb.UI do
     """
   end
 
+  attr :key, :atom, required: true
+
+  @doc "Inline warning when an integration isn't configured; renders nothing when it is."
+  def integration_gate(assigns) do
+    ~H"""
+    <span :if={not Beatgrid.Integrations.configured?(@key)} class="text-[11px] text-amber-300/90">
+      Configure {Beatgrid.Integrations.missing_env(@key)} no <code>.env</code>
+    </span>
+    """
+  end
+
   defp suggestion_card_class(_selected, :rejected),
     do: "border border-coral/35 bg-coral/5 opacity-60"
 
