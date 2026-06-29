@@ -132,6 +132,29 @@ defmodule Beatgrid.MixesTest do
     end
   end
 
+  describe "rename_dj_part/2 and delete_dj_part/1" do
+    test "rename_dj_part updates the name" do
+      mix = insert(:mix)
+      part = insert(:dj_part, mix: mix, dj_name: "DJ VHSFNTG", source: :image)
+      assert {:ok, p} = Mixes.rename_dj_part(part.id, "DJ VHANNY")
+      assert p.dj_name == "DJ VHANNY"
+    end
+
+    test "rename_dj_part blank -> nil (Sem DJ)" do
+      mix = insert(:mix)
+      part = insert(:dj_part, mix: mix, dj_name: "X", source: :image)
+      assert {:ok, p} = Mixes.rename_dj_part(part.id, "   ")
+      assert p.dj_name == nil
+    end
+
+    test "delete_dj_part removes it" do
+      mix = insert(:mix)
+      part = insert(:dj_part, mix: mix, source: :image)
+      assert {:ok, _} = Mixes.delete_dj_part(part.id)
+      assert Mixes.get_with_dj_parts(mix.id).dj_parts == []
+    end
+  end
+
   describe "dj parts" do
     test "set_dj_parts_manual builds contiguous parts snapped to segment starts" do
       mix = insert(:mix, duration_ms: 600_000)

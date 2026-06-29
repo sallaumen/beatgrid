@@ -226,4 +226,25 @@ defmodule BeatgridWeb.MixLiveTest do
     view |> element("button[phx-click=analyze_all]") |> render_click()
     assert_enqueued(worker: Beatgrid.Workers.MixAnalyzeWorker, args: %{mix_id: mix.id, free_djs: true})
   end
+
+  test "rename a DJ divider inline", %{conn: conn} do
+    mix = insert(:mix, status: :ready, duration_ms: 600_000)
+    insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+    part = insert(:dj_part, mix: mix, position: 0, start_ms: 0, end_ms: 600_000, dj_name: "DJ VHSFNTG", source: :image)
+
+    {:ok, view, _} = live(conn, ~p"/sets-online/#{mix.id}")
+    render_submit(element(view, "#dj-rename-#{part.id}"), %{"name" => "DJ VHANNY"})
+    assert render(view) =~ "DJ VHANNY"
+    refute render(view) =~ "DJ VHSFNTG"
+  end
+
+  test "delete a DJ divider", %{conn: conn} do
+    mix = insert(:mix, status: :ready, duration_ms: 600_000)
+    insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+    part = insert(:dj_part, mix: mix, position: 0, start_ms: 0, end_ms: 600_000, dj_name: "DJ X", source: :image)
+
+    {:ok, view, _} = live(conn, ~p"/sets-online/#{mix.id}")
+    view |> element("button[phx-click=delete_dj][phx-value-id=\"#{part.id}\"]") |> render_click()
+    refute render(view) =~ "DJ X"
+  end
 end

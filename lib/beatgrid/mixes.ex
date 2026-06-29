@@ -213,6 +213,32 @@ defmodule Beatgrid.Mixes do
   defp end_of([]), do: 0
   defp end_of(segments), do: segments |> List.last() |> Map.get(:end_ms) || 0
 
+  @spec rename_dj_part(binary() | DjPart.t(), String.t() | nil) ::
+          {:ok, DjPart.t()} | {:error, term()}
+  def rename_dj_part(%DjPart{} = part, name) do
+    part |> DjPart.changeset(%{dj_name: blank_to_nil(name)}) |> Repo.update()
+  end
+
+  def rename_dj_part(id, name) when is_binary(id) do
+    case Repo.get(DjPart, id) do
+      nil -> {:error, :not_found}
+      part -> rename_dj_part(part, name)
+    end
+  end
+
+  @spec delete_dj_part(binary() | DjPart.t()) :: {:ok, DjPart.t()} | {:error, term()}
+  def delete_dj_part(%DjPart{} = part), do: Repo.delete(part)
+
+  def delete_dj_part(id) when is_binary(id) do
+    case Repo.get(DjPart, id) do
+      nil -> {:error, :not_found}
+      part -> Repo.delete(part)
+    end
+  end
+
+  defp blank_to_nil(s) when is_binary(s), do: if(String.trim(s) == "", do: nil, else: String.trim(s))
+  defp blank_to_nil(_), do: nil
+
   defp under_mixes_dir?(path) do
     root = Path.expand(Path.join(Library.library_root(), "_Mixes"))
     String.starts_with?(Path.expand(path), root <> "/")

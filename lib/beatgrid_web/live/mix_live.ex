@@ -174,6 +174,16 @@ defmodule BeatgridWeb.MixLive do
      |> assign(mix: Mixes.get_with_dj_parts(mix.id))}
   end
 
+  def handle_event("rename_dj", %{"part_id" => id, "name" => name}, socket) do
+    {:ok, _} = Mixes.rename_dj_part(id, name)
+    {:noreply, assign(socket, mix: Mixes.get_with_dj_parts(socket.assigns.mix.id))}
+  end
+
+  def handle_event("delete_dj", %{"id" => id}, socket) do
+    {:ok, _} = Mixes.delete_dj_part(id)
+    {:noreply, socket |> put_flash(:info, "Divisória removida.") |> assign(mix: Mixes.get_with_dj_parts(socket.assigns.mix.id))}
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -409,9 +419,28 @@ defmodule BeatgridWeb.MixLive do
     ~H"""
     <div class="flex items-center gap-2.5 mt-4 mb-2">
       <span class="h-px w-3 bg-white/15"></span>
-      <span class="inline-flex items-center gap-2 rounded-full bg-primary/15 px-3 py-0.5 text-[13px] font-semibold text-primary">
-        {(@part && @part.dj_name) || "Sem DJ"}
-      </span>
+      <%= if @part do %>
+        <form id={"dj-rename-#{@part.id}"} phx-submit="rename_dj" class="inline-flex items-center gap-1.5">
+          <input type="hidden" name="part_id" value={@part.id} />
+          <input
+            name="name"
+            value={@part.dj_name}
+            class="rounded-full bg-primary/15 px-3 py-0.5 text-[13px] font-semibold text-primary border-0 outline-none focus:ring-1 focus:ring-primary/50 min-w-0 w-auto"
+            placeholder="Sem DJ"
+          />
+        </form>
+        <button
+          type="button"
+          phx-click="delete_dj"
+          phx-value-id={@part.id}
+          title="Apagar divisória"
+          class="rounded px-1 py-0.5 text-[12px] text-ink-faint hover:text-coral"
+        >×</button>
+      <% else %>
+        <span class="inline-flex items-center gap-2 rounded-full bg-primary/15 px-3 py-0.5 text-[13px] font-semibold text-primary">
+          Sem DJ
+        </span>
+      <% end %>
       <span :if={@part} class="font-mono text-[12px] text-ink-secondary">
         {format_clock(@part.start_ms)}–{format_clock(@part.end_ms)}
       </span>
