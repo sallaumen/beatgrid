@@ -184,6 +184,15 @@ defmodule BeatgridWeb.MixLive do
           Áudio apagado (análise preservada).
         </p>
 
+        <div
+          :if={playable?(@mix)}
+          id="mix-player"
+          phx-hook=".MixPlayer"
+          class="sticky top-0 z-10 mt-3 rounded-lg border border-white/8 bg-surface/95 backdrop-blur px-3 py-2"
+        >
+          <audio id="mix-audio" controls preload="none" src={~p"/sets-online/#{@mix.id}/audio"} class="w-full" />
+        </div>
+
         <p :if={@mix.status == :analyzing} class="mt-4 text-body-sm text-ink-muted">
           Analisando o set… as faixas aparecem quando terminar.
         </p>
@@ -270,41 +279,7 @@ defmodule BeatgridWeb.MixLive do
                       :if={i > 0}
                       t={Transition.between(Enum.at(segs, i - 1), seg)}
                     />
-                    <div class="flex items-center gap-3 rounded-lg border border-white/6 bg-surface px-3 py-2">
-                      <span class="w-12 shrink-0 font-mono text-body-sm text-ink-muted">{format_clock(
-                        seg.start_ms
-                      )}</span>
-                      <form
-                        id={"seg-form-#{seg.id}"}
-                        phx-submit="save_segment"
-                        class="min-w-0 flex-1 flex items-center gap-2"
-                      >
-                        <input type="hidden" name="segment_id" value={seg.id} />
-                        <input
-                          name="artist"
-                          value={seg.artist || ""}
-                          placeholder="Artista"
-                          class="w-32 shrink-0 rounded border border-white/10 bg-transparent px-1.5 py-0.5 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary/50 focus:outline-none"
-                        />
-                        <input
-                          name="title"
-                          value={seg.title || ""}
-                          placeholder="Título"
-                          class="min-w-0 flex-1 rounded border border-white/10 bg-transparent px-1.5 py-0.5 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary/50 focus:outline-none"
-                        />
-                        <button
-                          type="submit"
-                          class="shrink-0 rounded px-2 py-0.5 text-[11px] text-ink-faint hover:text-ink"
-                        >
-                          ✓
-                        </button>
-                      </form>
-                      <span :if={seg.bpm_detected} class="shrink-0 text-body-sm text-primary">{round(
-                        seg.bpm_detected
-                      )} BPM</span>
-                      <.camelot_seal value={seg.camelot_detected} />
-                      <.coverage_badge seg={seg} />
-                    </div>
+                    <.segment_row seg={seg} playable={playable?(@mix)} />
                   </li>
                 </ol>
               </details>
@@ -314,41 +289,7 @@ defmodule BeatgridWeb.MixLive do
           <ol :if={@mix.segments != []} class="mt-5 space-y-1">
             <li :for={{seg, i} <- Enum.with_index(@mix.segments)}>
               <.transition_row :if={i > 0} t={Transition.between(Enum.at(@mix.segments, i - 1), seg)} />
-              <div class="flex items-center gap-3 rounded-lg border border-white/6 bg-surface px-3 py-2">
-                <span class="w-12 shrink-0 font-mono text-body-sm text-ink-muted">{format_clock(
-                  seg.start_ms
-                )}</span>
-                <form
-                  id={"seg-form-#{seg.id}"}
-                  phx-submit="save_segment"
-                  class="min-w-0 flex-1 flex items-center gap-2"
-                >
-                  <input type="hidden" name="segment_id" value={seg.id} />
-                  <input
-                    name="artist"
-                    value={seg.artist || ""}
-                    placeholder="Artista"
-                    class="w-32 shrink-0 rounded border border-white/10 bg-transparent px-1.5 py-0.5 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary/50 focus:outline-none"
-                  />
-                  <input
-                    name="title"
-                    value={seg.title || ""}
-                    placeholder="Título"
-                    class="min-w-0 flex-1 rounded border border-white/10 bg-transparent px-1.5 py-0.5 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary/50 focus:outline-none"
-                  />
-                  <button
-                    type="submit"
-                    class="shrink-0 rounded px-2 py-0.5 text-[11px] text-ink-faint hover:text-ink"
-                  >
-                    ✓
-                  </button>
-                </form>
-                <span :if={seg.bpm_detected} class="shrink-0 text-body-sm text-primary">{round(
-                  seg.bpm_detected
-                )} BPM</span>
-                <.camelot_seal value={seg.camelot_detected} />
-                <.coverage_badge seg={seg} />
-              </div>
+              <.segment_row seg={seg} playable={playable?(@mix)} />
             </li>
           </ol>
         <% end %>
@@ -361,6 +302,81 @@ defmodule BeatgridWeb.MixLive do
         </p>
       </div>
     </.app_shell>
+    <script :type={Phoenix.LiveView.ColocatedHook} name=".MixPlayer">
+      export default {
+        mounted() {
+          this.audio = document.getElementById("mix-audio")
+          if (!this.audio) return
+          this.onClick = (e) => {
+            const btn = e.target.closest("[data-seg-play]")
+            if (!btn) return
+            this.audio.currentTime = Number(btn.dataset.startMs) / 1000
+            this.audio.play()
+          }
+          this.onTime = () => {
+            const ms = this.audio.currentTime * 1000
+            document.querySelectorAll("[data-seg]").forEach((row) => {
+              const s = Number(row.dataset.startMs)
+              const e = Number(row.dataset.endMs)
+              row.classList.toggle("seg-playing", !Number.isNaN(e) && ms >= s && ms < e)
+            })
+          }
+          document.addEventListener("click", this.onClick)
+          this.audio.addEventListener("timeupdate", this.onTime)
+        },
+        destroyed() {
+          document.removeEventListener("click", this.onClick)
+          if (this.audio) this.audio.removeEventListener("timeupdate", this.onTime)
+        },
+      }
+    </script>
+    """
+  end
+
+  defp playable?(mix), do: is_nil(mix.audio_deleted_at) and is_binary(mix.audio_path)
+
+  attr :seg, :map, required: true
+  attr :playable, :boolean, required: true
+
+  defp segment_row(assigns) do
+    ~H"""
+    <div
+      data-seg
+      data-start-ms={@seg.start_ms}
+      data-end-ms={@seg.end_ms}
+      class="flex items-center gap-3 rounded-lg border border-white/6 bg-surface px-3 py-2"
+    >
+      <button
+        :if={@playable}
+        type="button"
+        data-seg-play
+        data-start-ms={@seg.start_ms}
+        title="Ouvir a partir daqui"
+        class="shrink-0 rounded px-1.5 py-0.5 text-[12px] text-ink-muted hover:text-ink"
+      >
+        ▶
+      </button>
+      <span class="w-12 shrink-0 font-mono text-body-sm text-ink-muted">{format_clock(@seg.start_ms)}</span>
+      <form id={"seg-form-#{@seg.id}"} phx-submit="save_segment" class="min-w-0 flex-1 flex items-center gap-2">
+        <input type="hidden" name="segment_id" value={@seg.id} />
+        <input
+          name="artist"
+          value={@seg.artist || ""}
+          placeholder="Artista"
+          class="w-32 shrink-0 rounded border border-white/10 bg-transparent px-1.5 py-0.5 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary/50 focus:outline-none"
+        />
+        <input
+          name="title"
+          value={@seg.title || ""}
+          placeholder="Título"
+          class="min-w-0 flex-1 rounded border border-white/10 bg-transparent px-1.5 py-0.5 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary/50 focus:outline-none"
+        />
+        <button type="submit" class="shrink-0 rounded px-2 py-0.5 text-[11px] text-ink-faint hover:text-ink">✓</button>
+      </form>
+      <span :if={@seg.bpm_detected} class="shrink-0 text-body-sm text-primary">{round(@seg.bpm_detected)} BPM</span>
+      <.camelot_seal value={@seg.camelot_detected} />
+      <.coverage_badge seg={@seg} />
+    </div>
     """
   end
 

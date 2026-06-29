@@ -135,4 +135,31 @@ defmodule BeatgridWeb.MixLiveTest do
     assert html =~ "3:00:00"
     refute html =~ "180:00"
   end
+
+  test "shows the player bar + per-segment play buttons when audio is present", %{conn: conn} do
+    mix = insert(:mix, status: :ready, audio_path: "/tmp/_Mixes/x.mp3", audio_deleted_at: nil)
+    insert(:mix_segment, mix: mix, position: 0, start_ms: 0, end_ms: 60_000)
+
+    {:ok, _view, html} = live(conn, ~p"/sets-online/#{mix.id}")
+    assert html =~ ~s(id="mix-audio")
+    assert html =~ "/sets-online/#{mix.id}/audio"
+    assert html =~ "data-seg-play"
+    assert html =~ ~s(data-start-ms="0")
+  end
+
+  test "hides the player when the audio was purged", %{conn: conn} do
+    mix =
+      insert(:mix,
+        status: :ready,
+        audio_path: nil,
+        audio_deleted_at: ~U[2026-06-29 00:00:00Z]
+      )
+
+    insert(:mix_segment, mix: mix, position: 0, start_ms: 0, end_ms: 60_000)
+
+    {:ok, _view, html} = live(conn, ~p"/sets-online/#{mix.id}")
+    refute html =~ ~s(id="mix-audio")
+    refute html =~ "data-seg-play"
+    assert html =~ "Áudio apagado"
+  end
 end

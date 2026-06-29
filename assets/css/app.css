@@ -177,4 +177,9 @@ body[data-playing="true"] .now-playing-disc { animation-play-state: running; }
 /* Camelot wheel (Tom filter): wedges rest dim and light up on hover. The base
    opacity is a presentation attribute, so this CSS rule overrides it on hover. */
 .camelot-wedge { transition: opacity 0.14s ease, stroke 0.14s ease; }
+
+.seg-playing {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary, #8b5cf6) 60%, transparent);
+  background-color: color-mix(in srgb, var(--color-primary, #8b5cf6) 10%, transparent);
+}
 .camelot-wedge:hover { opacity: 1; }
