@@ -64,6 +64,7 @@ config :beatgrid, Beatgrid.Audio.Analyzer, adapter: Beatgrid.Audio.LibrosaCli
 config :beatgrid, Beatgrid.Audio.Loudness, adapter: Beatgrid.Audio.FfmpegLoudness
 config :beatgrid, Beatgrid.YouTube.Downloader, adapter: Beatgrid.YouTube.YtDlp
 config :beatgrid, Beatgrid.Video.FrameSampler, adapter: Beatgrid.Video.FrameSampler.FfmpegCli
+config :beatgrid, Beatgrid.Recognition, adapter: Beatgrid.Recognition.Audd
 
 # AI classifier: which `claude` model and how many tracks per classification call.
 config :beatgrid, Beatgrid.AI, model: "sonnet", batch_size: 15

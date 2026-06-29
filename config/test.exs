@@ -49,6 +49,7 @@ config :beatgrid, Beatgrid.YouTube.Downloader, adapter: Beatgrid.YouTube.Downloa
 config :beatgrid, Beatgrid.Mixes.Source, adapter: Beatgrid.Mixes.SourceMock
 config :beatgrid, Beatgrid.Audio.SetSegmenter, adapter: Beatgrid.Audio.SetSegmenterMock
 config :beatgrid, Beatgrid.Video.FrameSampler, adapter: Beatgrid.Video.FrameSamplerMock
+config :beatgrid, Beatgrid.Recognition, adapter: Beatgrid.Recognition.Mock
 
 # The Http adapter, when exercised directly, routes through Req.Test instead of
 # the network (see test/beatgrid/soundcharts/http_test.exs). A dummy account gives

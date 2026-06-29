@@ -54,6 +54,8 @@ if config_env() != :test do
         api_key: env!("SOUNDCHARTS_API_KEY_2", :string, nil)
       }
     ]
+
+  config :beatgrid, Beatgrid.Recognition.Audd, api_token: env!("AUDD_API_TOKEN", :string, nil)
 end
 
 if config_env() == :prod do
