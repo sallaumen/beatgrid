@@ -41,4 +41,122 @@ defmodule Beatgrid.Workers.MixDjVisionWorkerTest do
     assert Enum.map(parts, & &1.dj_name) == ["A", "B"]
     assert Enum.all?(parts, &(&1.source == :image))
   end
+
+  describe "resilience + coverage" do
+    setup do
+      prev = Application.get_env(:beatgrid, MixDjVisionWorker)
+
+      on_exit(fn ->
+        if prev,
+          do: Application.put_env(:beatgrid, MixDjVisionWorker, prev),
+          else: Application.delete_env(:beatgrid, MixDjVisionWorker)
+      end)
+
+      :ok
+    end
+
+    test "is configured for long-job resilience: 10 attempts, 24h unique window on mix_id" do
+      opts = MixDjVisionWorker.__opts__()
+      assert opts[:max_attempts] == 10
+      assert opts[:unique][:period] == 86_400
+      assert opts[:unique][:keys] == [:mix_id]
+    end
+
+    test "defines a timeout below the Lifeline rescue window" do
+      assert MixDjVisionWorker.timeout(%Oban.Job{}) == :timer.minutes(70)
+    end
+
+    test "work_dir is deterministic per mix (no per-run unique suffix)" do
+      mix = insert(:mix)
+      assert MixDjVisionWorker.work_dir(mix) ==
+               Path.join(System.tmp_dir!(), "beatgrid-dj-vision-#{mix.id}")
+    end
+
+    test "over the failure threshold, returns {:error, {:partial_coverage,...}} and persists nothing" do
+      Application.put_env(:beatgrid, MixDjVisionWorker,
+        frame_interval_ms: 4_000,
+        tiles_per_grid: 1,
+        max_failure_ratio: 0.5
+      )
+
+      mix = insert(:mix, duration_ms: 16_000, source_url: "https://youtu.be/x")
+      insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+      on_exit(fn -> File.rm_rf(MixDjVisionWorker.work_dir(mix)) end)
+
+      stub(Beatgrid.Video.FrameSamplerMock, :download_video, fn _u, dir ->
+        {:ok, Path.join(dir, "video.mp4")}
+      end)
+
+      stub(Beatgrid.Video.FrameSamplerMock, :extract_frames, fn _v, %{dir: dir} ->
+        {:ok, for(i <- 1..4, do: Path.join(dir, "f0000#{i}.jpg"))}
+      end)
+
+      # 4 grids (tiles_per_grid 1); only grid 0 montages, rest fail -> 3/4 = 75% > 50%
+      stub(Beatgrid.Video.FrameSamplerMock, :montage, fn _p, dest ->
+        if String.contains?(dest, "montage-0.jpg"),
+          do: {:ok, dest},
+          else: {:error, {:ffmpeg_exit, 254, "missing"}}
+      end)
+
+      stub(Beatgrid.AI.Mock, :complete, fn _p, _s, _o -> {:ok, %{"names" => ["A"]}} end)
+
+      assert {:error, {:partial_coverage, 1, 4}} = perform_job(MixDjVisionWorker, %{mix_id: mix.id})
+      assert Mixes.get_with_dj_parts(mix.id).dj_parts == []
+    end
+
+    test "under the failure threshold, persists covered grids and marks the uncovered tail no-DJ" do
+      Application.put_env(:beatgrid, MixDjVisionWorker,
+        frame_interval_ms: 4_000,
+        tiles_per_grid: 1,
+        max_failure_ratio: 0.9
+      )
+
+      mix = insert(:mix, duration_ms: 16_000, source_url: "https://youtu.be/x")
+      for i <- 0..3, do: insert(:mix_segment, mix: mix, position: i, start_ms: i * 4_000)
+
+      stub(Beatgrid.Video.FrameSamplerMock, :download_video, fn _u, dir ->
+        {:ok, Path.join(dir, "video.mp4")}
+      end)
+
+      stub(Beatgrid.Video.FrameSamplerMock, :extract_frames, fn _v, %{dir: dir} ->
+        {:ok, for(i <- 1..4, do: Path.join(dir, "f0000#{i}.jpg"))}
+      end)
+
+      # grids 0,1 ok (ts 0, 4000); grids 2,3 fail -> 2/4 = 50% < 90%
+      stub(Beatgrid.Video.FrameSamplerMock, :montage, fn _p, dest ->
+        if String.contains?(dest, "montage-0.jpg") or String.contains?(dest, "montage-1.jpg"),
+          do: {:ok, dest},
+          else: {:error, {:ffmpeg_exit, 254, "missing"}}
+      end)
+
+      stub(Beatgrid.AI.Mock, :complete, fn _p, _s, _o -> {:ok, %{"names" => ["A"]}} end)
+
+      assert :ok = perform_job(MixDjVisionWorker, %{mix_id: mix.id})
+      parts = Mixes.get_with_dj_parts(mix.id).dj_parts
+      # coverage ended at grid 1 (ts 4000 + interval 4000 = 8000): a nil tail spans to duration
+      assert Enum.any?(parts, &(&1.dj_name == nil and &1.end_ms == 16_000))
+      assert Enum.any?(parts, & &1.dj_name)
+    end
+
+    test "reuses an already-downloaded video instead of downloading again" do
+      Application.put_env(:beatgrid, MixDjVisionWorker, frame_interval_ms: 4_000, tiles_per_grid: 16)
+      mix = insert(:mix, duration_ms: 8_000, source_url: "https://youtu.be/x")
+      insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+
+      dir = MixDjVisionWorker.work_dir(mix)
+      File.mkdir_p!(dir)
+      File.write!(Path.join(dir, "video.mp4"), "x")
+      on_exit(fn -> File.rm_rf(dir) end)
+
+      # download_video must NOT be called (no stub) — the existing file is reused.
+      stub(Beatgrid.Video.FrameSamplerMock, :extract_frames, fn _v, %{dir: d} ->
+        {:ok, [Path.join(d, "f00001.jpg")]}
+      end)
+
+      stub(Beatgrid.Video.FrameSamplerMock, :montage, fn _p, dest -> {:ok, dest} end)
+      stub(Beatgrid.AI.Mock, :complete, fn _p, _s, _o -> {:ok, %{"names" => ["A"]}} end)
+
+      assert :ok = perform_job(MixDjVisionWorker, %{mix_id: mix.id})
+    end
+  end
 end

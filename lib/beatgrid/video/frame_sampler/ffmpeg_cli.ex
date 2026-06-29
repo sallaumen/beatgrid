@@ -2,9 +2,10 @@ defmodule Beatgrid.Video.FrameSampler.FfmpegCli do
   @moduledoc """
   FrameSampler adapter: three-step pipeline.
 
-  1. `download_video/2` — yt-dlp downloads a low-res (<=360p) copy of the video into a
+  1. `download_video/2` — yt-dlp downloads a low-res (<=720p) copy of the video into a
      local directory. Downloading beats googlevideo stream throttling (which limits to
-     ~realtime, making frame extraction from a 4h video take ~3 hours).
+     ~realtime, making frame extraction from a 4h video take ~3 hours). It resumes a
+     partial file (`--continue`) and rides out flaky networks (`--socket-timeout`/`--retries`).
   2. `extract_frames/2` — ONE sequential ffmpeg pass from the LOCAL file (no random -ss
      seeks): extracts a cropped lower-third frame every N seconds into a local directory.
      Reading from disk is instant compared to streaming over HTTP.
@@ -17,12 +18,9 @@ defmodule Beatgrid.Video.FrameSampler.FfmpegCli do
 
   @impl true
   def download_video(url, dir) do
-    out = Path.join(dir, "video.%(ext)s")
-    args = ["-f", "bv*[height<=720]/b[height<=720]/worst", "--no-playlist", "-o", out, url]
-
-    case System.cmd(ytdlp(), args, stderr_to_stdout: true) do
+    case System.cmd(ytdlp(), download_args(url, dir), stderr_to_stdout: true) do
       {_o, 0} ->
-        case dir |> Path.join("video.*") |> Path.wildcard() |> List.first() do
+        case completed_video(dir) do
           nil -> {:error, :no_video_file}
           path -> {:ok, path}
         end
@@ -30,6 +28,34 @@ defmodule Beatgrid.Video.FrameSampler.FfmpegCli do
       {o, code} ->
         {:error, {:ytdlp_exit, code, tail_excerpt(o)}}
     end
+  end
+
+  @doc "yt-dlp argv: a low-res, single-video download that resumes partials and retries flaky sockets."
+  @spec download_args(String.t(), String.t()) :: [String.t()]
+  def download_args(url, dir) do
+    out = Path.join(dir, "video.%(ext)s")
+
+    [
+      "-f",
+      "bv*[height<=720]/b[height<=720]/worst",
+      "--no-playlist",
+      "--continue",
+      "--socket-timeout",
+      "30",
+      "--retries",
+      "10",
+      "-o",
+      out,
+      url
+    ]
+  end
+
+  defp completed_video(dir) do
+    dir
+    |> Path.join("video.*")
+    |> Path.wildcard()
+    |> Enum.reject(&(String.ends_with?(&1, ".part") or String.ends_with?(&1, ".ytdl")))
+    |> List.first()
   end
 
   @impl true

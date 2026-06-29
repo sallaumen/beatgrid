@@ -2,12 +2,14 @@ defmodule Beatgrid.Workers.MixDjVisionWorker do
   @moduledoc "DJ boundaries from on-screen names: one sequential frame-extraction pass, montage locally, OCR via vision, group."
   use Oban.Worker,
     queue: :mixes,
-    max_attempts: 3,
+    max_attempts: 10,
     unique: [
-      period: 3600,
+      period: 86_400,
       keys: [:mix_id],
       states: [:available, :scheduled, :executing, :retryable, :suspended]
     ]
+
+  require Logger
 
   alias Beatgrid.Mixes
   alias Beatgrid.Mixes.DjVisionAI
@@ -27,29 +29,50 @@ defmodule Beatgrid.Workers.MixDjVisionWorker do
     end
   end
 
+  # Keep the per-task timeout under the Lifeline rescue window (90 min, see config.exs)
+  # so Oban terminates + retries a hung yt-dlp/ffmpeg instead of letting Lifeline burn
+  # an attempt and block a scarce :mixes queue slot for an hour and a half.
+  @impl Oban.Worker
+  def timeout(_job), do: :timer.minutes(70)
+
+  @doc "Deterministic per-mix work dir so a retry/Lifeline-rescue reuses an already-downloaded video."
+  @spec work_dir(map()) :: String.t()
+  def work_dir(mix), do: Path.join(System.tmp_dir!(), "beatgrid-dj-vision-#{mix.id}")
+
   defp run(mix) do
     interval = config(:frame_interval_ms, 30_000)
     per_grid = config(:tiles_per_grid, 9)
-    dir = Path.join(System.tmp_dir!(), "beatgrid-dj-vision-#{mix.id}-#{System.unique_integer([:positive])}")
+    threshold = config(:max_failure_ratio, 0.5)
+    dir = work_dir(mix)
     File.mkdir_p!(dir)
     File.chmod(dir, 0o700)
 
-    try do
-      with {:ok, video} <- @sampler.download_video(mix.source_url, dir),
-           {:ok, frames} <- @sampler.extract_frames(video, %{interval_ms: interval, dir: dir}) do
-        reads = ocr_frames(mix, frames, interval, per_grid)
-        parts = reads |> DjVisionAI.group_consecutive() |> Enum.map(&%{start_ms: &1.start_ms, dj_name: &1.dj_name})
-
-        case Mixes.replace_dj_parts(mix, :image, parts) do
-          {:ok, _} -> :ok
-          {:error, :manual_present} -> :ok
-        end
-      else
-        {:error, _} = err -> err
-      end
-    after
-      File.rm_rf(dir)
+    with {:ok, video} <- ensure_video(mix, dir),
+         {:ok, frames} <- @sampler.extract_frames(video, %{interval_ms: interval, dir: dir}) do
+      mix |> ocr_frames(frames, interval, per_grid) |> finish(mix, dir, threshold)
+    else
+      # Leave the work dir in place: a transient download/extract error can resume on the
+      # next attempt from the partially-downloaded file (yt-dlp --continue).
+      {:error, _} = err -> err
     end
+  end
+
+  # Reuse a completed download across retries / Lifeline rescues. yt-dlp writes to a
+  # `.part` file and renames to the final name only on success, so a non-`.part`
+  # `video.<ext>` is a safe completion marker — never feed a partial file to ffmpeg.
+  defp ensure_video(mix, dir) do
+    case completed_video(dir) do
+      nil -> @sampler.download_video(mix.source_url, dir)
+      path -> {:ok, path}
+    end
+  end
+
+  defp completed_video(dir) do
+    dir
+    |> Path.join("video.*")
+    |> Path.wildcard()
+    |> Enum.reject(&(String.ends_with?(&1, ".part") or String.ends_with?(&1, ".ytdl")))
+    |> List.first()
   end
 
   defp ocr_frames(mix, frames, interval, per_grid) do
@@ -58,7 +81,7 @@ defmodule Beatgrid.Workers.MixDjVisionWorker do
 
     groups
     |> Enum.with_index()
-    |> Enum.flat_map(fn {group, gi} ->
+    |> Enum.reduce(%{reads: [], ok: 0, fail: 0, coverage_until_ms: 0}, fn {group, gi}, acc ->
       Mixes.broadcast(%{mix_id: mix.id, stage: "dj_vision", done: gi + 1, total: total})
       paths = Enum.map(group, fn {p, _i} -> p end)
       tiles_ms = Enum.map(group, fn {_p, i} -> i * interval end)
@@ -67,11 +90,49 @@ defmodule Beatgrid.Workers.MixDjVisionWorker do
       with {:ok, m} <- @sampler.montage(paths, dest),
            {:ok, r} <- DjVisionAI.read_grid(m, tiles_ms) do
         File.rm(m)
-        r
+        covered = List.last(tiles_ms) + interval
+        %{acc | reads: acc.reads ++ r, ok: acc.ok + 1, coverage_until_ms: max(acc.coverage_until_ms, covered)}
       else
-        _ -> []
+        err ->
+          Logger.warning("dj_vision mix #{mix.id} grid #{gi + 1}/#{total} failed: #{inspect(err)}")
+          %{acc | fail: acc.fail + 1}
       end
     end)
+    |> Map.put(:total, total)
+  end
+
+  # Every grid failed: don't persist a phantom "complete" result — fail so Oban retries.
+  defp finish(%{ok: 0, total: total}, _mix, _dir, _threshold) when total > 0,
+    do: {:error, {:partial_coverage, 0, total}}
+
+  defp finish(%{ok: ok, fail: fail, total: total} = summary, mix, dir, threshold) do
+    if total > 0 and fail / total > threshold do
+      Logger.warning(
+        "dj_vision mix #{mix.id}: only #{ok}/#{total} grids covered (>#{threshold} failed) — retrying instead of recording a truncated set"
+      )
+
+      {:error, {:partial_coverage, ok, total}}
+    else
+      persist(summary, mix, dir)
+    end
+  end
+
+  defp persist(%{ok: ok, fail: fail, total: total, reads: reads, coverage_until_ms: cov}, mix, dir) do
+    parts = reads |> DjVisionAI.group_consecutive() |> Enum.map(&%{start_ms: &1.start_ms, dj_name: &1.dj_name})
+    opts = if fail == 0, do: [], else: [coverage_until_ms: cov]
+
+    Logger.info(
+      "dj_vision mix #{mix.id}: #{ok}/#{total} grids ok, #{length(parts)} parts, coverage=#{if fail == 0, do: "full", else: cov}"
+    )
+
+    result =
+      case Mixes.replace_dj_parts(mix, :image, parts, opts) do
+        {:ok, _} -> :ok
+        {:error, :manual_present} -> :ok
+      end
+
+    File.rm_rf(dir)
+    result
   end
 
   defp config(key, default),
