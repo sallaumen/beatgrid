@@ -72,6 +72,32 @@ defmodule BeatgridWeb.MixLive do
     {:noreply, assign(socket, mix: Mixes.get_with_dj_parts(mix.id))}
   end
 
+  def handle_event("recognize_all", _params, socket) do
+    case Mixes.recognize_unnamed(socket.assigns.mix) do
+      {:ok, _} ->
+        {:noreply, put_flash(socket, :info, "Reconhecimento iniciado — atualiza quando terminar.")}
+
+      {:error, :no_credentials} ->
+        {:noreply, put_flash(socket, :error, "Configure AUDD_API_TOKEN no .env.")}
+    end
+  end
+
+  def handle_event("recognize_seg", %{"id" => id}, socket) do
+    case Enum.find(socket.assigns.mix.segments, &(&1.id == id)) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Segmento não encontrado.")}
+
+      seg ->
+        case Mixes.recognize_segment(seg) do
+          {:ok, _} ->
+            {:noreply, put_flash(socket, :info, "Reconhecendo a faixa…")}
+
+          {:error, :no_credentials} ->
+            {:noreply, put_flash(socket, :error, "Configure AUDD_API_TOKEN no .env.")}
+        end
+    end
+  end
+
   def handle_event("dj_manual", %{"timestamps" => text}, socket) do
     mix = socket.assigns.mix
 
@@ -161,6 +187,15 @@ defmodule BeatgridWeb.MixLive do
             >
               Re-analisar
             </button>
+            <button
+              :if={playable?(@mix)}
+              phx-click="recognize_all"
+              disabled={not Beatgrid.Integrations.configured?(:audd)}
+              class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Reconhecer faixas
+            </button>
+            <.integration_gate :if={playable?(@mix)} key={:audd} />
           </div>
         </header>
 
@@ -357,6 +392,23 @@ defmodule BeatgridWeb.MixLive do
         ▶
       </button>
       <span class="w-12 shrink-0 font-mono text-body-sm text-ink-muted">{format_clock(@seg.start_ms)}</span>
+      <button
+        :if={@playable and not named?(@seg)}
+        type="button"
+        phx-click="recognize_seg"
+        phx-value-id={@seg.id}
+        disabled={not Beatgrid.Integrations.configured?(:audd)}
+        title="Identificar faixa (AudD)"
+        class="shrink-0 rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[11px] text-ink-muted hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        ?
+      </button>
+      <span
+        :if={@seg.name_source == :fingerprint}
+        class="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary/80"
+      >
+        via AudD
+      </span>
       <form id={"seg-form-#{@seg.id}"} phx-submit="save_segment" class="min-w-0 flex-1 flex items-center gap-2">
         <input type="hidden" name="segment_id" value={@seg.id} />
         <input
@@ -435,6 +487,7 @@ defmodule BeatgridWeb.MixLive do
   defp stage_pt("boundaries"), do: "Detectando faixas"
   defp stage_pt("dj_vision"), do: "Lendo frame"
   defp stage_pt("dj_audio"), do: "Detectando DJs"
+  defp stage_pt("recognize"), do: "Reconhecendo faixa"
   defp stage_pt(_), do: "…"
 
   defp blank_to_nil(s) when is_binary(s), do: if(String.trim(s) == "", do: nil, else: s)

@@ -162,4 +162,38 @@ defmodule BeatgridWeb.MixLiveTest do
     refute html =~ "data-seg-play"
     assert html =~ "Áudio apagado"
   end
+
+  test "AudD recognize button + gate when no token", %{conn: conn} do
+    original = Application.get_env(:beatgrid, Beatgrid.Recognition.Audd)
+
+    on_exit(fn ->
+      Application.put_env(:beatgrid, Beatgrid.Recognition.Audd, original || [])
+    end)
+
+    Application.put_env(:beatgrid, Beatgrid.Recognition.Audd, api_token: nil)
+
+    mix = insert(:mix, status: :ready, audio_path: "/tmp/_Mixes/x.mp3")
+    insert(:mix_segment, mix: mix, position: 0, start_ms: 0, end_ms: 60_000, artist: nil, title: nil)
+
+    {:ok, _v, html} = live(conn, ~p"/sets-online/#{mix.id}")
+    assert html =~ "Reconhecer faixas"
+    assert html =~ "AUDD_API_TOKEN"
+  end
+
+  test "via-AudD tag on fingerprint segments", %{conn: conn} do
+    mix = insert(:mix, status: :ready, audio_path: "/tmp/_Mixes/x.mp3")
+
+    insert(:mix_segment,
+      mix: mix,
+      position: 0,
+      start_ms: 0,
+      end_ms: 60_000,
+      artist: "X",
+      title: "Y",
+      name_source: :fingerprint
+    )
+
+    {:ok, _v, html} = live(conn, ~p"/sets-online/#{mix.id}")
+    assert html =~ "via AudD"
+  end
 end
