@@ -175,13 +175,18 @@ defmodule BeatgridWeb.MixLive do
   end
 
   def handle_event("rename_dj", %{"part_id" => id, "name" => name}, socket) do
-    {:ok, _} = Mixes.rename_dj_part(id, name)
+    # Ignore the result (a concurrent delete → {:error, :not_found}); the reload reflects reality.
+    Mixes.rename_dj_part(id, name)
     {:noreply, assign(socket, mix: Mixes.get_with_dj_parts(socket.assigns.mix.id))}
   end
 
   def handle_event("delete_dj", %{"id" => id}, socket) do
-    {:ok, _} = Mixes.delete_dj_part(id)
-    {:noreply, socket |> put_flash(:info, "Divisória removida.") |> assign(mix: Mixes.get_with_dj_parts(socket.assigns.mix.id))}
+    Mixes.delete_dj_part(id)
+
+    {:noreply,
+     socket
+     |> put_flash(:info, "Divisória removida.")
+     |> assign(mix: Mixes.get_with_dj_parts(socket.assigns.mix.id))}
   end
 
   @impl true
