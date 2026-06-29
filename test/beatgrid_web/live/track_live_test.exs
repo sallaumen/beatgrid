@@ -596,4 +596,30 @@ defmodule BeatgridWeb.TrackLiveTest do
     send(view.pid, {:now_playing, %{track_id: track.id, set_id: nil}})
     assert render(view) =~ "Tocando agora"
   end
+
+  test "enrich button shows the soundcharts gate when no credentials are configured",
+       %{conn: conn} do
+    track =
+      insert(:track,
+        status: :present,
+        tag_title: "Sina",
+        tag_artist: "Djavan",
+        analyzed_at: ~U[2026-01-01 00:00:00Z]
+      )
+
+    # Temporarily strip Soundcharts credentials so the gate renders.
+    original = Application.get_env(:beatgrid, Beatgrid.Soundcharts.Http, [])
+
+    Application.put_env(
+      :beatgrid,
+      Beatgrid.Soundcharts.Http,
+      Keyword.put(original, :accounts, [])
+    )
+
+    on_exit(fn -> Application.put_env(:beatgrid, Beatgrid.Soundcharts.Http, original) end)
+
+    {:ok, _view, html} = live(conn, ~p"/track/#{track.id}")
+    # Gate hint appears when Soundcharts is not configured.
+    assert html =~ "SOUNDCHARTS_APP_ID"
+  end
 end

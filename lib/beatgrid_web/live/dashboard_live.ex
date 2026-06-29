@@ -94,20 +94,29 @@ defmodule BeatgridWeb.DashboardLive do
   end
 
   def handle_event("enrich_youtube", _params, socket) do
-    bid = Uniq.UUID.uuid7()
+    if Beatgrid.Integrations.configured?(:soundcharts) do
+      bid = Uniq.UUID.uuid7()
 
-    # The worker is `unique` per scope, so a click while one is already running is a
-    # no-op (conflict) — surface that instead of faking a fresh "queued" progress.
-    case Oban.insert(EnrichWorker.new(%{"scope" => "pending", "batch_id" => bid})) do
-      {:ok, %Oban.Job{conflict?: true}} ->
-        {:noreply,
-         assign(socket, youtube_note: "Já existe um enriquecimento em andamento — veja em Jobs.")}
+      # The worker is `unique` per scope, so a click while one is already running is a
+      # no-op (conflict) — surface that instead of faking a fresh "queued" progress.
+      case Oban.insert(EnrichWorker.new(%{"scope" => "pending", "batch_id" => bid})) do
+        {:ok, %Oban.Job{conflict?: true}} ->
+          {:noreply,
+           assign(socket, youtube_note: "Já existe um enriquecimento em andamento — veja em Jobs.")}
 
-      {:ok, _job} ->
-        {:noreply, assign(socket, enrich: %{status: :queued}, youtube_note: nil)}
+        {:ok, _job} ->
+          {:noreply, assign(socket, enrich: %{status: :queued}, youtube_note: nil)}
 
-      {:error, _reason} ->
-        {:noreply, assign(socket, youtube_note: "Não foi possível iniciar o enriquecimento.")}
+        {:error, _reason} ->
+          {:noreply, assign(socket, youtube_note: "Não foi possível iniciar o enriquecimento.")}
+      end
+    else
+      {:noreply,
+       put_flash(
+         socket,
+         :error,
+         "Configure SOUNDCHARTS_APP_ID + SOUNDCHARTS_API_KEY no .env."
+       )}
     end
   end
 
@@ -400,13 +409,17 @@ defmodule BeatgridWeb.DashboardLive do
               </span>
               <button
                 phx-click="enrich_youtube"
-                disabled={enrich_running?(@enrich) or @youtube_pending == 0}
-                class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm text-ink-secondary hover:text-ink disabled:opacity-40"
+                disabled={
+                  enrich_running?(@enrich) or @youtube_pending == 0 or
+                    not Beatgrid.Integrations.configured?(:soundcharts)
+                }
+                class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm text-ink-secondary hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {if enrich_running?(@enrich),
                   do: "Enriquecendo…",
                   else: "Enriquecer pendentes (#{@youtube_pending})"}
               </button>
+              <.integration_gate key={:soundcharts} />
             </div>
 
             <div

@@ -184,10 +184,19 @@ defmodule BeatgridWeb.TrackLive do
   end
 
   def handle_event("enrich_track", _params, socket) do
-    id = socket.assigns.track.id
-    bid = Uniq.UUID.uuid7()
-    Oban.insert(EnrichWorker.new(%{"scope" => "track", "id" => id, "batch_id" => bid}))
-    {:noreply, assign(socket, enriching?: true, toast: nil)}
+    if Beatgrid.Integrations.configured?(:soundcharts) do
+      id = socket.assigns.track.id
+      bid = Uniq.UUID.uuid7()
+      Oban.insert(EnrichWorker.new(%{"scope" => "track", "id" => id, "batch_id" => bid}))
+      {:noreply, assign(socket, enriching?: true, toast: nil)}
+    else
+      {:noreply,
+       put_flash(
+         socket,
+         :error,
+         "Configure SOUNDCHARTS_APP_ID + SOUNDCHARTS_API_KEY no .env."
+       )}
+    end
   end
 
   def handle_event("fetch_matches", _params, socket) do
@@ -476,11 +485,12 @@ defmodule BeatgridWeb.TrackLive do
               <button
                 phx-click="enrich_track"
                 data-confirm="Atualizar metadados consulta o Soundcharts (gasta cota). Continuar?"
-                disabled={@enriching?}
-                class="ml-auto rounded-md border border-primary/40 bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary hover:bg-primary/20 disabled:opacity-50"
+                disabled={@enriching? or not Beatgrid.Integrations.configured?(:soundcharts)}
+                class="ml-auto rounded-md border border-primary/40 bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary hover:bg-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {if @enriching?, do: "Atualizando…", else: "Atualizar metadados"}
               </button>
+              <.integration_gate key={:soundcharts} />
               <button
                 phx-click="delete_track"
                 data-confirm="Apagar esta faixa de vez? O arquivo sai do disco e não tem volta."

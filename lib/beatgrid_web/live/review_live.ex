@@ -104,13 +104,22 @@ defmodule BeatgridWeb.ReviewLive do
   end
 
   def handle_event("re_resolve", %{"id" => id}, socket) do
-    toast =
-      case %{"suggestion_id" => id} |> ReResolveWorker.new() |> Oban.insert() do
-        {:ok, _job} -> {:resolving, %{}}
-        _ -> {:error, :re_resolve}
-      end
+    if Beatgrid.Integrations.configured?(:soundcharts) do
+      toast =
+        case %{"suggestion_id" => id} |> ReResolveWorker.new() |> Oban.insert() do
+          {:ok, _job} -> {:resolving, %{}}
+          _ -> {:error, :re_resolve}
+        end
 
-    {:noreply, assign(socket, toast: toast)}
+      {:noreply, assign(socket, toast: toast)}
+    else
+      {:noreply,
+       put_flash(
+         socket,
+         :error,
+         "Configure SOUNDCHARTS_APP_ID + SOUNDCHARTS_API_KEY no .env."
+       )}
+    end
   end
 
   # --- apply to disk + undo (async so the UI stays responsive) ---
@@ -427,10 +436,12 @@ defmodule BeatgridWeb.ReviewLive do
                     phx-click="re_resolve"
                     phx-value-id={s.id}
                     data-confirm="Re-resolver gasta chamadas da cota Soundcharts. Continuar?"
-                    class="rounded-md bg-input px-2.5 py-1 text-[11px] text-ink-muted hover:text-ink"
+                    disabled={not Beatgrid.Integrations.configured?(:soundcharts)}
+                    class="rounded-md bg-input px-2.5 py-1 text-[11px] text-ink-muted hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     Re-resolver
                   </button>
+                  <.integration_gate key={:soundcharts} />
                   <button
                     phx-click="dismiss_audit"
                     phx-value-id={s.id}
