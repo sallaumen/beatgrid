@@ -28,7 +28,7 @@ defmodule Beatgrid.Recognition.Audd do
     try do
       case System.cmd(ffmpeg(), args, stderr_to_stdout: true) do
         {_out, 0} -> fun.(dest)
-        {out, code} -> {:error, {:ffmpeg_exit, code, String.slice(out, max(0, byte_size(out) - 300), 300)}}
+        {out, code} -> {:error, {:ffmpeg_exit, code, String.slice(out, -300..-1//1)}}
       end
     after
       File.rm(dest)
@@ -40,12 +40,18 @@ defmodule Beatgrid.Recognition.Audd do
   # AudD expects multipart fields `api_token` + `file`. Validate against the real AudD
   # API before shipping the controller (the file part is not covered by unit tests here).
   defp post(snippet, tok) do
-    file_part = {File.read!(snippet), filename: "snippet.mp3", content_type: "audio/mpeg"}
+    case File.read(snippet) do
+      {:ok, bytes} ->
+        file_part = {bytes, filename: "snippet.mp3", content_type: "audio/mpeg"}
 
-    case Req.post(@endpoint, form_multipart: [api_token: tok, file: file_part]) do
-      {:ok, %Req.Response{status: 200, body: body}} -> parse_response(body)
-      {:ok, %Req.Response{status: status}} -> {:error, {:audd_http, status}}
-      {:error, reason} -> {:error, reason}
+        case Req.post(@endpoint, form_multipart: [api_token: tok, file: file_part]) do
+          {:ok, %Req.Response{status: 200, body: body}} -> parse_response(body)
+          {:ok, %Req.Response{status: status}} -> {:error, {:audd_http, status}}
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, {:read_snippet, reason}}
     end
   end
 
