@@ -119,6 +119,19 @@ defmodule Beatgrid.MixesTest do
     assert mix.chapters_role == :djs
   end
 
+  describe "analyze_all/1" do
+    test "analyze_all enqueues MixAnalyzeWorker with free_djs" do
+      mix = insert(:mix, status: :ready, audio_path: "/tmp/_Mixes/x.mp3")
+      assert {:ok, _} = Mixes.analyze_all(mix)
+      assert_enqueued(worker: Beatgrid.Workers.MixAnalyzeWorker, args: %{mix_id: mix.id, free_djs: true})
+    end
+
+    test "analyze_all without audio -> :no_audio" do
+      mix = insert(:mix, status: :ready, audio_path: nil, audio_deleted_at: ~U[2026-06-29 00:00:00Z])
+      assert Mixes.analyze_all(mix) == {:error, :no_audio}
+    end
+  end
+
   describe "dj parts" do
     test "set_dj_parts_manual builds contiguous parts snapped to segment starts" do
       mix = insert(:mix, duration_ms: 600_000)

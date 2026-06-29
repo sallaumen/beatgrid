@@ -27,15 +27,15 @@ defmodule Beatgrid.Workers.MixAnalyzeWorker do
              )
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"mix_id" => mix_id}}) do
+  def perform(%Oban.Job{args: %{"mix_id" => mix_id}} = job) do
     case Mixes.get_mix(mix_id) do
       nil -> :ok
       %{audio_path: nil} = mix -> fail(mix, :no_audio)
-      mix -> run(mix)
+      mix -> run(job, mix)
     end
   end
 
-  defp run(mix) do
+  defp run(job, mix) do
     tracklist = TracklistAI.parse(mix.description)
     boundaries = boundaries_for(mix, tracklist)
 
@@ -54,12 +54,31 @@ defmodule Beatgrid.Workers.MixAnalyzeWorker do
 
         schedule_cleanup(mix)
         Mixes.broadcast(%{mix_id: mix.id, status: :ready})
+        maybe_free_djs(job, mix)
         :ok
 
       {:error, reason} ->
         fail(mix, reason)
     end
   end
+
+  defp maybe_free_djs(%Oban.Job{args: %{"free_djs" => true}}, mix) do
+    if mix.chapters in [nil, []] do
+      case @segmenter.dj_candidates(mix.audio_path) do
+        {:ok, cands} ->
+          parts = Enum.map(cands, &%{start_ms: &1.start_ms, dj_name: nil})
+          _ = Mixes.replace_dj_parts(mix, :audio, parts)
+          Mixes.broadcast(%{mix_id: mix.id, stage: "dj_audio", done: 1, total: 1})
+
+        _ ->
+          :ok
+      end
+    end
+
+    :ok
+  end
+
+  defp maybe_free_djs(_job, _mix), do: :ok
 
   defp boundaries_for(mix, tracklist) do
     case boundaries_from(tracklist) do

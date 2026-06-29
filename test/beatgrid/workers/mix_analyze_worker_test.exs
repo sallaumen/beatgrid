@@ -147,6 +147,28 @@ defmodule Beatgrid.Workers.MixAnalyzeWorkerTest do
     assert seg2.name_source == :description
   end
 
+  test "free_djs: after analyzing, derives :audio dj parts from candidates" do
+    mix = insert(:mix, status: :analyzing, audio_path: "/tmp/_Mixes/f.mp3", description: "", chapters: [])
+
+    stub(Beatgrid.AI.Mock, :complete, fn _p, _s, _o -> {:ok, %{"tracklist" => []}} end)
+
+    expect(Beatgrid.Audio.SetSegmenterMock, :analyze, fn _p, _b, _opts ->
+      {:ok,
+       [
+         %{start_ms: 0, end_ms: 120_000, bpm: 124.0, key: 7, mode: 1},
+         %{start_ms: 120_000, end_ms: 300_000, bpm: 126.0, key: 2, mode: 1}
+       ]}
+    end)
+
+    expect(Beatgrid.Audio.SetSegmenterMock, :dj_candidates, fn "/tmp/_Mixes/f.mp3" ->
+      {:ok, [%{start_ms: 120_000, strength: 0.9}]}
+    end)
+
+    assert :ok = perform_job(MixAnalyzeWorker, %{mix_id: mix.id, free_djs: true})
+    parts = Mixes.get_with_dj_parts(mix.id).dj_parts
+    assert parts != [] and Enum.all?(parts, &(&1.source == :audio))
+  end
+
   test "broadcasts per-segment progress" do
     Mixes.subscribe()
     mix = insert(:mix, status: :analyzing, audio_path: "/tmp/_Mixes/p.mp3", description: "")

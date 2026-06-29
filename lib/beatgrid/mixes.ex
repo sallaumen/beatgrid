@@ -233,6 +233,16 @@ defmodule Beatgrid.Mixes do
 
   def set_dj_parts_from_chapters(_mix), do: {:error, :no_chapters}
 
+  @spec analyze_all(Mix.t()) :: {:ok, Oban.Job.t()} | {:error, :no_audio}
+  def analyze_all(%Mix{} = mix) do
+    if is_binary(mix.audio_path) and is_nil(mix.audio_deleted_at) do
+      {:ok, _} = set_status(mix, :analyzing)
+      Oban.insert(MixAnalyzeWorker.new(%{mix_id: mix.id, free_djs: true}))
+    else
+      {:error, :no_audio}
+    end
+  end
+
   @spec detect_djs_by_audio(Mix.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
   def detect_djs_by_audio(%Mix{} = mix),
     do: Oban.insert(MixDjAudioWorker.new(%{mix_id: mix.id}))
