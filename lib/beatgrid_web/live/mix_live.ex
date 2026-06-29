@@ -225,7 +225,7 @@ defmodule BeatgridWeb.MixLive do
           phx-hook=".MixPlayer"
           class="sticky top-0 z-10 mt-3 rounded-lg border border-white/8 bg-surface/95 backdrop-blur px-3 py-2"
         >
-          <audio id="mix-audio" controls preload="none" src={~p"/sets-online/#{@mix.id}/audio"} class="w-full" />
+          <audio id="mix-audio" controls preload="metadata" src={~p"/sets-online/#{@mix.id}/audio"} class="w-full" />
         </div>
 
         <p :if={@mix.status == :analyzing} class="mt-4 text-body-sm text-ink-muted">
@@ -344,9 +344,11 @@ defmodule BeatgridWeb.MixLive do
           if (!this.audio) return
           this.onClick = (e) => {
             const btn = e.target.closest("[data-seg-play]")
-            if (!btn) return
-            this.audio.currentTime = Number(btn.dataset.startMs) / 1000
-            this.audio.play()
+            if (!btn || !this.audio) return
+            const t = Number(btn.dataset.startMs) / 1000
+            const go = () => { try { this.audio.currentTime = t } catch (_) {} ; this.audio.play().catch(() => {}) }
+            if (this.audio.readyState >= 1) go()
+            else { this.audio.addEventListener("loadedmetadata", go, { once: true }); this.audio.load() }
           }
           this.onTime = () => {
             const ms = this.audio.currentTime * 1000
@@ -391,7 +393,15 @@ defmodule BeatgridWeb.MixLive do
       >
         ▶
       </button>
-      <span class="w-12 shrink-0 font-mono text-body-sm text-ink-muted">{format_clock(@seg.start_ms)}</span>
+      <button
+        :if={@playable}
+        type="button"
+        data-seg-play
+        data-start-ms={@seg.start_ms}
+        title="Ouvir a partir daqui"
+        class="w-12 shrink-0 font-mono text-body-sm text-ink-muted hover:text-ink"
+      >{format_clock(@seg.start_ms)}</button>
+      <span :if={not @playable} class="w-12 shrink-0 font-mono text-body-sm text-ink-muted">{format_clock(@seg.start_ms)}</span>
       <button
         :if={@playable and not named?(@seg)}
         type="button"

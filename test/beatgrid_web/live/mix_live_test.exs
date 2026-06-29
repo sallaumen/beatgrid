@@ -196,4 +196,14 @@ defmodule BeatgridWeb.MixLiveTest do
     {:ok, _v, html} = live(conn, ~p"/sets-online/#{mix.id}")
     assert html =~ "via AudD"
   end
+
+  test "player preloads metadata and the segment time is clickable to seek", %{conn: conn} do
+    mix = insert(:mix, status: :ready, audio_path: "/tmp/_Mixes/x.mp3", audio_deleted_at: nil)
+    insert(:mix_segment, mix: mix, position: 0, start_ms: 90_000, end_ms: 180_000)
+    {:ok, _v, html} = live(conn, ~p"/sets-online/#{mix.id}")
+    assert html =~ ~s(preload="metadata")
+    # the clock (mm:ss) carries data-seg-play so clicking it seeks
+    assert html =~ "data-seg-play"
+    assert html =~ ~s(data-start-ms="90000")
+  end
 end
