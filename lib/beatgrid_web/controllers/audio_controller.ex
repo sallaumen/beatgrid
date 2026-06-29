@@ -12,10 +12,20 @@ defmodule BeatgridWeb.AudioController do
 
   alias Beatgrid.Library
   alias Beatgrid.Library.Tracks
+  alias Beatgrid.Mixes
 
   def show(conn, %{"id" => id}) do
     with %{rel_path: rel} <- Tracks.get(id),
          path = Path.join(Library.library_root(), rel),
+         true <- within_root?(path) and File.exists?(path) do
+      serve(conn, path)
+    else
+      _ -> conn |> put_status(:not_found) |> text("Not found")
+    end
+  end
+
+  def mix(conn, %{"id" => id}) do
+    with %{audio_path: path} when is_binary(path) <- Mixes.get_mix(id),
          true <- within_root?(path) and File.exists?(path) do
       serve(conn, path)
     else

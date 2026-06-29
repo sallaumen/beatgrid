@@ -39,6 +39,7 @@ defmodule BeatgridWeb.Router do
     end
 
     get "/audio/:id", AudioController, :show
+    get "/sets-online/:id/audio", AudioController, :mix
   end
 
   # Other scopes may use custom stacks.
