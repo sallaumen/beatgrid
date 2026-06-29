@@ -22,7 +22,8 @@ defmodule Beatgrid.Workers.MixRecognizeWorker do
   defp run(%{"segment_id" => sid}) do
     case Segment |> Repo.get(sid) |> Repo.preload(:mix) do
       %Segment{mix: %{audio_path: path, audio_deleted_at: nil} = mix} = seg when is_binary(path) ->
-        recognize(seg, path, mix.id)
+        # Never re-identify (or risk overwriting) an already-named segment.
+        if named?(seg), do: :ok, else: recognize(seg, path, mix.id)
 
       _ ->
         :ok

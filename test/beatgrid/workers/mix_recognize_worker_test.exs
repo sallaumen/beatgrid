@@ -36,4 +36,14 @@ defmodule Beatgrid.Workers.MixRecognizeWorkerTest do
     insert(:mix_segment, mix: mix, position: 0, start_ms: 0, end_ms: 10_000, artist: nil, title: nil)
     assert :ok = perform_job(MixRecognizeWorker, %{mix_id: mix.id})
   end
+
+  test "segment_id job on an already-named segment is a no-op (never overwrites)" do
+    mix = insert(:mix, audio_path: "/tmp/_Mixes/x.mp3")
+    named = insert(:mix_segment, mix: mix, position: 0, start_ms: 0, end_ms: 10_000, artist: "Keep", title: "Me")
+
+    # No Mock expectation: verify_on_exit! fails if identify/3 is called.
+    assert :ok = perform_job(MixRecognizeWorker, %{segment_id: named.id})
+    seg = Beatgrid.Repo.get(Beatgrid.Mixes.Segment, named.id)
+    assert seg.artist == "Keep" and seg.title == "Me"
+  end
 end
