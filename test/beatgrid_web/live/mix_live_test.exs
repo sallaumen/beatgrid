@@ -206,4 +206,24 @@ defmodule BeatgridWeb.MixLiveTest do
     assert html =~ "data-seg-play"
     assert html =~ ~s(data-start-ms="90000")
   end
+
+  test "set summary cards show DJ count, tracks, duration and library coverage", %{conn: conn} do
+    track = insert(:track, status: :present)
+    mix = insert(:mix, status: :ready, duration_ms: 600_000)
+    insert(:mix_segment, mix: mix, position: 0, start_ms: 0, end_ms: 300_000, matched_track_id: track.id)
+    insert(:mix_segment, mix: mix, position: 1, start_ms: 300_000, end_ms: 600_000)
+    insert(:dj_part, mix: mix, position: 0, start_ms: 0, end_ms: 600_000, dj_name: "DJ A", source: :image)
+
+    {:ok, _v, html} = live(conn, ~p"/sets-online/#{mix.id}")
+    assert html =~ "Na biblioteca" and html =~ "50%"
+    assert html =~ "DJ A" and html =~ "via OCR"
+  end
+
+  test "analyze_all button enqueues the free pipeline", %{conn: conn} do
+    mix = insert(:mix, status: :ready, audio_path: "/tmp/_Mixes/x.mp3")
+    insert(:mix_segment, mix: mix, position: 0, start_ms: 0, end_ms: 60_000)
+    {:ok, view, _} = live(conn, ~p"/sets-online/#{mix.id}")
+    view |> element("button[phx-click=analyze_all]") |> render_click()
+    assert_enqueued(worker: Beatgrid.Workers.MixAnalyzeWorker, args: %{mix_id: mix.id, free_djs: true})
+  end
 end

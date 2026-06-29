@@ -72,6 +72,19 @@ defmodule BeatgridWeb.MixLive do
     {:noreply, assign(socket, mix: Mixes.get_with_dj_parts(mix.id))}
   end
 
+  def handle_event("analyze_all", _p, socket) do
+    case Mixes.analyze_all(socket.assigns.mix) do
+      {:ok, _} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Analisando tudo — atualiza quando terminar.")
+         |> assign(mix: Mixes.get_with_dj_parts(socket.assigns.mix.id))}
+
+      {:error, :no_audio} ->
+        {:noreply, put_flash(socket, :error, "Áudio apagado — não dá pra reanalisar.")}
+    end
+  end
+
   def handle_event("recognize_all", _params, socket) do
     case Mixes.recognize_unnamed(socket.assigns.mix) do
       {:ok, _} ->
@@ -188,6 +201,12 @@ defmodule BeatgridWeb.MixLive do
               Re-analisar
             </button>
             <button
+              phx-click="analyze_all"
+              class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink"
+            >
+              Analisar tudo
+            </button>
+            <button
               :if={playable?(@mix)}
               phx-click="recognize_all"
               disabled={not Beatgrid.Integrations.configured?(:audd)}
@@ -198,6 +217,28 @@ defmodule BeatgridWeb.MixLive do
             <.integration_gate :if={playable?(@mix)} key={:audd} />
           </div>
         </header>
+
+        <%!-- Set summary cards --%>
+        <div class="mt-4 grid grid-cols-4 gap-3">
+          <div class="rounded-lg border border-white/8 bg-surface px-4 py-3">
+            <p class="text-[11px] text-ink-secondary">DJs</p>
+            <p class="mt-0.5 text-[22px] font-semibold">
+              {if length(@mix.dj_parts) == 0, do: "—", else: length(@mix.dj_parts)}
+            </p>
+          </div>
+          <div class="rounded-lg border border-white/8 bg-surface px-4 py-3">
+            <p class="text-[11px] text-ink-secondary">Faixas</p>
+            <p class="mt-0.5 text-[22px] font-semibold">{length(@mix.segments)}</p>
+          </div>
+          <div class="rounded-lg border border-white/8 bg-surface px-4 py-3">
+            <p class="text-[11px] text-ink-secondary">Duração</p>
+            <p class="mt-0.5 text-[22px] font-semibold">{format_clock(@mix.duration_ms)}</p>
+          </div>
+          <div class="rounded-lg border border-white/8 bg-surface px-4 py-3">
+            <p class="text-[11px] text-ink-secondary">Na biblioteca</p>
+            <p class="mt-0.5 text-[22px] font-semibold">{library_coverage(@mix.segments)}%</p>
+          </div>
+        </div>
 
         <%!-- Cleanup / audio-deleted banner --%>
         <div
@@ -291,43 +332,15 @@ defmodule BeatgridWeb.MixLive do
         </details>
 
         <%!-- Segment timeline --%>
-        <%= if @mix.dj_parts != [] do %>
-          <div class="mt-5 space-y-4">
-            <%= for {part, segs} <- Mixes.group_by_dj(@mix.segments, @mix.dj_parts) do %>
-              <details open class="rounded-lg border border-white/8">
-                <summary class="cursor-pointer select-none px-4 py-2 flex items-center gap-3">
-                  <span class="font-semibold text-[14px] text-ink">
-                    {(part && part.dj_name) || "Sem DJ"}
-                  </span>
-                  <%= if part do %>
-                    <span class="text-body-sm text-ink-muted font-mono">
-                      {format_clock(part.start_ms)}–{format_clock(part.end_ms)}
-                    </span>
-                  <% end %>
-                  <span class="text-[11px] text-ink-faint ml-auto">
-                    {length(segs)} faixa{if length(segs) != 1, do: "s"}
-                  </span>
-                </summary>
-                <ol class="border-t border-white/8 space-y-1 px-2 py-2">
-                  <li :for={{seg, i} <- Enum.with_index(segs)}>
-                    <.transition_row
-                      :if={i > 0}
-                      t={Transition.between(Enum.at(segs, i - 1), seg)}
-                    />
-                    <.segment_row seg={seg} playable={playable?(@mix)} />
-                  </li>
-                </ol>
-              </details>
-            <% end %>
-          </div>
-        <% else %>
-          <ol :if={@mix.segments != []} class="mt-5 space-y-1">
-            <li :for={{seg, i} <- Enum.with_index(@mix.segments)}>
-              <.transition_row :if={i > 0} t={Transition.between(Enum.at(@mix.segments, i - 1), seg)} />
+        <ol :if={@mix.segments != []} class="mt-5 space-y-1">
+          <%= for {part, segs} <- Mixes.group_by_dj(@mix.segments, @mix.dj_parts) do %>
+            <.dj_divider :if={@mix.dj_parts != []} part={part} count={length(segs)} />
+            <li :for={{seg, i} <- Enum.with_index(segs)}>
+              <.transition_row :if={i > 0} t={Transition.between(Enum.at(segs, i - 1), seg)} />
               <.segment_row seg={seg} playable={playable?(@mix)} />
             </li>
-          </ol>
-        <% end %>
+          <% end %>
+        </ol>
 
         <p
           :if={@mix.status == :ready and @mix.segments == []}
@@ -372,6 +385,48 @@ defmodule BeatgridWeb.MixLive do
 
   defp playable?(mix), do: is_nil(mix.audio_deleted_at) and is_binary(mix.audio_path)
 
+  defp source_label(:manual), do: "manual"
+  defp source_label(:chapter), do: "capítulos"
+  defp source_label(:image), do: "via OCR"
+  defp source_label(:audio), do: "via áudio"
+  defp source_label(_), do: nil
+
+  defp name_source_label(:fingerprint), do: "via AudD"
+  defp name_source_label(:manual), do: "manual"
+  defp name_source_label(_), do: nil
+
+  defp library_coverage([]), do: 0
+
+  defp library_coverage(segs),
+    do: round(Enum.count(segs, & &1.matched_track_id) / length(segs) * 100)
+
+  attr :part, :map, default: nil
+  attr :count, :integer, required: true
+
+  defp dj_divider(assigns) do
+    ~H"""
+    <div class="flex items-center gap-2.5 mt-4 mb-2">
+      <span class="h-px w-3 bg-white/15"></span>
+      <span class="inline-flex items-center gap-2 rounded-full bg-primary/15 px-3 py-0.5 text-[13px] font-semibold text-primary">
+        {(@part && @part.dj_name) || "Sem DJ"}
+      </span>
+      <span :if={@part} class="font-mono text-[12px] text-ink-secondary">
+        {format_clock(@part.start_ms)}–{format_clock(@part.end_ms)}
+      </span>
+      <span
+        :if={@part && source_label(@part.source)}
+        class="rounded-full border border-white/10 px-2 py-0.5 text-[11px] text-ink-secondary"
+      >
+        {source_label(@part.source)}
+      </span>
+      <span class="text-[11px] text-ink-faint">
+        {@count} faixa{if @count != 1, do: "s"}
+      </span>
+      <span class="h-px flex-1 bg-white/8"></span>
+    </div>
+    """
+  end
+
   attr :seg, :map, required: true
   attr :playable, :boolean, required: true
 
@@ -399,7 +454,7 @@ defmodule BeatgridWeb.MixLive do
         data-seg-play
         data-start-ms={@seg.start_ms}
         title="Ouvir a partir daqui"
-        class="w-12 shrink-0 font-mono text-body-sm text-ink-muted hover:text-ink"
+        class="w-12 shrink-0 rounded px-1 py-0.5 font-mono text-body-sm text-ink-muted hover:text-ink"
       >{format_clock(@seg.start_ms)}</button>
       <span :if={not @playable} class="w-12 shrink-0 font-mono text-body-sm text-ink-muted">{format_clock(@seg.start_ms)}</span>
       <button
@@ -414,10 +469,10 @@ defmodule BeatgridWeb.MixLive do
         ?
       </button>
       <span
-        :if={@seg.name_source == :fingerprint}
+        :if={name_source_label(@seg.name_source)}
         class="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary/80"
       >
-        via AudD
+        {name_source_label(@seg.name_source)}
       </span>
       <form id={"seg-form-#{@seg.id}"} phx-submit="save_segment" class="min-w-0 flex-1 flex items-center gap-2">
         <input type="hidden" name="segment_id" value={@seg.id} />
