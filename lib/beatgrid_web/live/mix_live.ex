@@ -334,7 +334,9 @@ defmodule BeatgridWeb.MixLive do
         <%!-- Segment timeline --%>
         <ol :if={@mix.segments != []} class="mt-5 space-y-1">
           <%= for {part, segs} <- Mixes.group_by_dj(@mix.segments, @mix.dj_parts) do %>
-            <.dj_divider :if={@mix.dj_parts != []} part={part} count={length(segs)} />
+            <li :if={@mix.dj_parts != []} class="list-none">
+              <.dj_divider part={part} count={length(segs)} />
+            </li>
             <li :for={{seg, i} <- Enum.with_index(segs)}>
               <.transition_row :if={i > 0} t={Transition.between(Enum.at(segs, i - 1), seg)} />
               <.segment_row seg={seg} playable={playable?(@mix)} />
