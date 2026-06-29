@@ -388,7 +388,7 @@ defmodule BeatgridWeb.MixLive do
       ✓ tenho
     </.link>
     <a
-      :if={is_nil(@seg.matched_track_id)}
+      :if={is_nil(@seg.matched_track_id) and named?(@seg)}
       href={youtube_search_url(@seg)}
       target="_blank"
       rel="noopener"
@@ -396,8 +396,18 @@ defmodule BeatgridWeb.MixLive do
     >
       não tenho ↗
     </a>
+    <span
+      :if={is_nil(@seg.matched_track_id) and not named?(@seg)}
+      title="Faixa sem nome — preencha artista/título acima (ou use o reconhecimento depois)"
+      class="shrink-0 rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-ink-faint"
+    >
+      sem nome
+    </span>
     """
   end
+
+  defp named?(%{artist: a, title: t}), do: present?(a) or present?(t)
+  defp present?(s), do: is_binary(s) and String.trim(s) != ""
 
   defp progress_label(%{stage: stage, done: done, total: total})
        when is_integer(done) and is_integer(total),

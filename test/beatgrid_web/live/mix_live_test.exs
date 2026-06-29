@@ -49,6 +49,22 @@ defmodule BeatgridWeb.MixLiveTest do
     assert html =~ "/track/#{track.id}"
   end
 
+  test "unnamed unmatched segment shows 'sem nome' instead of a broken empty YouTube link", %{
+    conn: conn
+  } do
+    mix = insert(:mix, status: :ready)
+    insert(:mix_segment, mix: mix, position: 0, start_ms: 0, artist: "Some", title: "Song")
+    insert(:mix_segment, mix: mix, position: 1, start_ms: 60_000, artist: nil, title: nil)
+
+    {:ok, _view, html} = live(conn, ~p"/sets-online/#{mix.id}")
+
+    # named-but-unmatched → real YouTube search; unnamed → "sem nome", no empty search link
+    assert html =~ "não tenho"
+    assert html =~ "search_query=Some"
+    assert html =~ "sem nome"
+    refute html =~ ~s|search_query="|
+  end
+
   test "redirects to the index when the mix is missing", %{conn: conn} do
     assert {:error, {:live_redirect, %{to: "/sets-online"}}} =
              live(conn, ~p"/sets-online/#{Ecto.UUID.generate()}")
