@@ -49,4 +49,13 @@ defmodule Beatgrid.Mixes.DjVisionAITest do
     assert {:ok, [%{ts_ms: 0, dj_name: "A"}, %{ts_ms: 10_000, dj_name: nil}]} =
              DjVisionAI.read_grid("/tmp/grid.jpg", [0, 10_000])
   end
+
+  test "read_grid treats literal no-name strings ('null', 'none', 'n/a') as nil" do
+    expect(Beatgrid.AI.Mock, :complete, fn _p, _s, _o ->
+      {:ok, %{"names" => ["null", "DJ A", "NONE", "n/a"]}}
+    end)
+
+    assert {:ok, reads} = DjVisionAI.read_grid("/tmp/grid.jpg", [0, 10_000, 20_000, 30_000])
+    assert Enum.map(reads, & &1.dj_name) == [nil, "DJ A", nil, nil]
+  end
 end

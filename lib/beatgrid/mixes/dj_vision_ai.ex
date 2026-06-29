@@ -78,6 +78,14 @@ defmodule Beatgrid.Mixes.DjVisionAI do
     }
   end
 
-  defp blank_to_nil(s) when is_binary(s), do: if(String.trim(s) == "", do: nil, else: String.trim(s))
+  # The vision model sometimes transcribes "no name visible" as the literal string
+  # "null"/"none"/"n/a"/"-" instead of returning JSON null — treat those as no DJ.
+  @no_name ~w(null nil none n/a na - --)
+
+  defp blank_to_nil(s) when is_binary(s) do
+    trimmed = String.trim(s)
+    if trimmed == "" or String.downcase(trimmed) in @no_name, do: nil, else: trimmed
+  end
+
   defp blank_to_nil(_), do: nil
 end
