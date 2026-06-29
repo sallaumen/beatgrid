@@ -268,6 +268,27 @@ defmodule Beatgrid.MixesTest do
       assert part.dj_name == "DJ A" and part.end_ms == 600_000
     end
 
+    test "coverage tail survives even when no segment exists after the last DJ" do
+      mix = insert(:mix, duration_ms: 600_000)
+      # only ONE segment, at 0 — the coverage boundary would snap BACKWARD onto DJ A's
+      # start under naive nearest-snap and be dropped by the dedup; it must not be.
+      insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+
+      {:ok, _} =
+        Mixes.replace_dj_parts(mix, :image, [%{start_ms: 0, dj_name: "DJ A"}],
+          coverage_until_ms: 120_000
+        )
+
+      parts = Mixes.get_with_dj_parts(mix.id).dj_parts |> Enum.sort_by(& &1.start_ms)
+      named = Enum.filter(parts, & &1.dj_name)
+      assert List.last(named).end_ms == 120_000
+
+      assert Enum.any?(
+               parts,
+               &(&1.dj_name == nil and &1.start_ms == 120_000 and &1.end_ms == 600_000)
+             )
+    end
+
     test "overlapping parts that snap to the same segment collapse to distinct boundaries" do
       mix = insert(:mix, duration_ms: 600_000)
       insert(:mix_segment, mix: mix, position: 0, start_ms: 0)

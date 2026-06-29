@@ -158,5 +158,76 @@ defmodule Beatgrid.Workers.MixDjVisionWorkerTest do
 
       assert :ok = perform_job(MixDjVisionWorker, %{mix_id: mix.id})
     end
+
+    test "a zero-frame extraction errors out without wiping existing dj parts" do
+      Application.put_env(:beatgrid, MixDjVisionWorker, frame_interval_ms: 4_000, tiles_per_grid: 9)
+      mix = insert(:mix, duration_ms: 16_000, source_url: "https://youtu.be/x")
+      insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+      # a previously-detected part that must NOT be wiped by a transient empty extraction
+      insert(:dj_part, mix: mix, position: 0, start_ms: 0, end_ms: 16_000, dj_name: "KEEP", source: :image)
+      on_exit(fn -> File.rm_rf(MixDjVisionWorker.work_dir(mix)) end)
+
+      stub(Beatgrid.Video.FrameSamplerMock, :download_video, fn _u, dir ->
+        {:ok, Path.join(dir, "video.mp4")}
+      end)
+
+      stub(Beatgrid.Video.FrameSamplerMock, :extract_frames, fn _v, _o -> {:ok, []} end)
+
+      assert {:error, :no_frames} = perform_job(MixDjVisionWorker, %{mix_id: mix.id})
+      assert Enum.map(Mixes.get_with_dj_parts(mix.id).dj_parts, & &1.dj_name) == ["KEEP"]
+    end
+
+    test "the final failed attempt cleans up the work dir (no permanent multi-GB leak)" do
+      Application.put_env(:beatgrid, MixDjVisionWorker,
+        frame_interval_ms: 4_000,
+        tiles_per_grid: 1,
+        max_failure_ratio: 0.5
+      )
+
+      mix = insert(:mix, duration_ms: 16_000, source_url: "https://youtu.be/x")
+      insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+
+      stub(Beatgrid.Video.FrameSamplerMock, :download_video, fn _u, dir ->
+        {:ok, Path.join(dir, "video.mp4")}
+      end)
+
+      stub(Beatgrid.Video.FrameSamplerMock, :extract_frames, fn _v, %{dir: dir} ->
+        {:ok, for(i <- 1..4, do: Path.join(dir, "f0000#{i}.jpg"))}
+      end)
+
+      stub(Beatgrid.Video.FrameSamplerMock, :montage, fn _p, _d -> {:error, {:ffmpeg_exit, 254, "x"}} end)
+
+      assert {:error, {:partial_coverage, 0, 4}} =
+               perform_job(MixDjVisionWorker, %{mix_id: mix.id}, attempt: 10)
+
+      refute File.dir?(MixDjVisionWorker.work_dir(mix))
+    end
+
+    test "a non-final failed attempt keeps the work dir for resume" do
+      Application.put_env(:beatgrid, MixDjVisionWorker,
+        frame_interval_ms: 4_000,
+        tiles_per_grid: 1,
+        max_failure_ratio: 0.5
+      )
+
+      mix = insert(:mix, duration_ms: 16_000, source_url: "https://youtu.be/x")
+      insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+      on_exit(fn -> File.rm_rf(MixDjVisionWorker.work_dir(mix)) end)
+
+      stub(Beatgrid.Video.FrameSamplerMock, :download_video, fn _u, dir ->
+        {:ok, Path.join(dir, "video.mp4")}
+      end)
+
+      stub(Beatgrid.Video.FrameSamplerMock, :extract_frames, fn _v, %{dir: dir} ->
+        {:ok, for(i <- 1..4, do: Path.join(dir, "f0000#{i}.jpg"))}
+      end)
+
+      stub(Beatgrid.Video.FrameSamplerMock, :montage, fn _p, _d -> {:error, {:ffmpeg_exit, 254, "x"}} end)
+
+      assert {:error, {:partial_coverage, 0, 4}} =
+               perform_job(MixDjVisionWorker, %{mix_id: mix.id}, attempt: 1)
+
+      assert File.dir?(MixDjVisionWorker.work_dir(mix))
+    end
   end
 end

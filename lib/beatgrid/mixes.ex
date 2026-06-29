@@ -184,10 +184,6 @@ defmodule Beatgrid.Mixes do
     segments = Repo.all(from s in Segment, where: s.mix_id == ^id, order_by: [asc: s.start_ms])
     duration = mix.duration_ms || end_of(segments)
 
-    # When OCR/audio detection covered only part of the set, mark the uncovered tail as
-    # "no DJ" instead of stretching the last detected DJ across frames we never read.
-    parts = maybe_add_coverage_tail(parts, opts[:coverage_until_ms], duration)
-
     snapped =
       parts
       |> Enum.sort_by(& &1.start_ms)
@@ -206,6 +202,12 @@ defmodule Beatgrid.Mixes do
         "dj_parts: snapping collapsed #{length(snapped) - length(deduped)} overlapping part(s) for mix #{id}"
       )
     end
+
+    # When OCR/audio detection covered only part of the set, mark the uncovered tail as
+    # "no DJ" instead of stretching the last detected DJ across frames we never read.
+    # Done AFTER dedup, snapping the boundary FORWARD, so it can never collapse onto the
+    # last detected DJ's start and silently re-stretch it.
+    deduped = maybe_append_coverage_tail(deduped, opts[:coverage_until_ms], segments, duration)
 
     rows =
       deduped
@@ -230,10 +232,28 @@ defmodule Beatgrid.Mixes do
   defp end_of([]), do: 0
   defp end_of(segments), do: segments |> List.last() |> Map.get(:end_ms) || 0
 
-  defp maybe_add_coverage_tail(parts, cov, duration) when is_integer(cov) and cov < duration,
-    do: parts ++ [%{start_ms: cov, dj_name: nil}]
+  defp maybe_append_coverage_tail(parts, cov, segments, duration)
+       when is_integer(cov) and cov < duration do
+    cov_snapped = snap_forward(cov, segments)
+    last_start = parts |> List.last() |> Map.get(:start_ms)
 
-  defp maybe_add_coverage_tail(parts, _cov, _duration), do: parts
+    if cov_snapped > last_start and cov_snapped < duration do
+      Enum.sort_by(parts ++ [%{start_ms: cov_snapped, dj_name: nil}], & &1.start_ms)
+    else
+      parts
+    end
+  end
+
+  defp maybe_append_coverage_tail(parts, _cov, _segments, _duration), do: parts
+
+  # Snap a coverage boundary to the nearest segment start at or after it (never backward
+  # onto an already-detected part). Falls back to the raw boundary past the last segment.
+  defp snap_forward(b, segments) do
+    case segments |> Enum.map(& &1.start_ms) |> Enum.filter(&(&1 >= b)) do
+      [] -> b
+      forward -> Enum.min(forward)
+    end
+  end
 
   @spec rename_dj_part(binary() | DjPart.t(), String.t() | nil) ::
           {:ok, DjPart.t()} | {:error, term()}
