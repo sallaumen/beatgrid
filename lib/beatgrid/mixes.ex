@@ -5,6 +5,7 @@ defmodule Beatgrid.Mixes do
   download, audio analysis, and AI naming live in their own ports/workers.
   """
   import Ecto.Query
+  require Logger
 
   alias Beatgrid.Integrations
   alias Beatgrid.Library
@@ -163,19 +164,29 @@ defmodule Beatgrid.Mixes do
     do_replace_dj_parts(mix, :manual, parts)
   end
 
-  @spec replace_dj_parts(Mix.t(), atom(), [map()]) :: {:ok, non_neg_integer()} | {:error, :manual_present}
-  def replace_dj_parts(%Mix{} = mix, source, parts) when source in [:chapter, :image, :audio] do
-    if has_manual_dj_parts?(mix), do: {:error, :manual_present}, else: do_replace_dj_parts(mix, source, parts)
+  @spec replace_dj_parts(Mix.t(), atom(), [map()], keyword()) ::
+          {:ok, non_neg_integer()} | {:error, :manual_present}
+  def replace_dj_parts(mix, source, parts, opts \\ [])
+
+  def replace_dj_parts(%Mix{} = mix, source, parts, opts) when source in [:chapter, :image, :audio] do
+    if has_manual_dj_parts?(mix),
+      do: {:error, :manual_present},
+      else: do_replace_dj_parts(mix, source, parts, opts)
   end
 
-  def replace_dj_parts(%Mix{} = mix, :manual, parts), do: do_replace_dj_parts(mix, :manual, parts)
+  def replace_dj_parts(%Mix{} = mix, :manual, parts, opts),
+    do: do_replace_dj_parts(mix, :manual, parts, opts)
 
   defp has_manual_dj_parts?(%Mix{id: id}),
     do: Repo.exists?(from p in DjPart, where: p.mix_id == ^id and p.source == :manual)
 
-  defp do_replace_dj_parts(%Mix{id: id} = mix, source, parts) do
+  defp do_replace_dj_parts(%Mix{id: id} = mix, source, parts, opts \\ []) do
     segments = Repo.all(from s in Segment, where: s.mix_id == ^id, order_by: [asc: s.start_ms])
     duration = mix.duration_ms || end_of(segments)
+
+    # When OCR/audio detection covered only part of the set, mark the uncovered tail as
+    # "no DJ" instead of stretching the last detected DJ across frames we never read.
+    parts = maybe_add_coverage_tail(parts, opts[:coverage_until_ms], duration)
 
     snapped =
       parts
@@ -184,18 +195,24 @@ defmodule Beatgrid.Mixes do
 
     snapped = if Enum.any?(snapped, &(&1.start_ms == 0)), do: snapped, else: [%{start_ms: 0, dj_name: nil} | snapped]
 
-    snapped =
+    deduped =
       snapped
       |> Enum.group_by(& &1.start_ms)
       |> Enum.map(fn {_start, entries} -> Enum.find(entries, & &1.dj_name) || hd(entries) end)
       |> Enum.sort_by(& &1.start_ms)
 
+    if length(deduped) < length(snapped) do
+      Logger.info(
+        "dj_parts: snapping collapsed #{length(snapped) - length(deduped)} overlapping part(s) for mix #{id}"
+      )
+    end
+
     rows =
-      snapped
+      deduped
       |> Enum.with_index()
       |> Enum.map(fn {%{start_ms: start, dj_name: name}, i} ->
         end_ms =
-          case Enum.at(snapped, i + 1) do
+          case Enum.at(deduped, i + 1) do
             nil -> duration
             next -> next.start_ms
           end
@@ -212,6 +229,11 @@ defmodule Beatgrid.Mixes do
 
   defp end_of([]), do: 0
   defp end_of(segments), do: segments |> List.last() |> Map.get(:end_ms) || 0
+
+  defp maybe_add_coverage_tail(parts, cov, duration) when is_integer(cov) and cov < duration,
+    do: parts ++ [%{start_ms: cov, dj_name: nil}]
+
+  defp maybe_add_coverage_tail(parts, _cov, _duration), do: parts
 
   @spec rename_dj_part(binary() | DjPart.t(), String.t() | nil) ::
           {:ok, DjPart.t()} | {:error, term()}

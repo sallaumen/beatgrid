@@ -18,6 +18,20 @@ defmodule Beatgrid.Mixes.DjVisionAITest do
            ]
   end
 
+  test "group_consecutive merges casing and trailing (city) variants, keeping the first-seen name" do
+    reads = [
+      %{ts_ms: 0, dj_name: "DJ RATA"},
+      %{ts_ms: 10_000, dj_name: "Dj Rata"},
+      %{ts_ms: 20_000, dj_name: "DJ RATA (SP)"},
+      %{ts_ms: 30_000, dj_name: "DJ OUTRO"}
+    ]
+
+    assert DjVisionAI.group_consecutive(reads) == [
+             %{start_ms: 0, dj_name: "DJ RATA"},
+             %{start_ms: 30_000, dj_name: "DJ OUTRO"}
+           ]
+  end
+
   test "read_grid asks the AI and aligns names to tiles by reading order" do
     expect(Beatgrid.AI.Mock, :complete, fn prompt, _schema, opts ->
       assert prompt =~ "/tmp/grid.jpg"

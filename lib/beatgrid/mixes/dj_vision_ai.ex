@@ -31,12 +31,26 @@ defmodule Beatgrid.Mixes.DjVisionAI do
     |> Enum.reduce({[], nil}, fn %{ts_ms: ts, dj_name: name}, {acc, last} ->
       cond do
         is_nil(name) -> {acc, last}
-        name == last -> {acc, last}
+        same_dj?(name, last) -> {acc, last}
+        # keep the first-seen original spelling as the part's name
         true -> {[%{start_ms: ts, dj_name: name} | acc], name}
       end
     end)
     |> elem(0)
     |> Enum.reverse()
+  end
+
+  # OCR transcribes the same continuing DJ with varying casing / a trailing city tag
+  # ("DJ RATA" vs "Dj Rata" vs "DJ RATA (SP)"); treat those as the same DJ so we don't
+  # emit a phantom new part. Comparison is normalized; the stored name stays original.
+  defp same_dj?(_name, nil), do: false
+  defp same_dj?(name, last), do: normalize_name(name) == normalize_name(last)
+
+  defp normalize_name(name) do
+    name
+    |> String.downcase()
+    |> String.replace(~r/\s*\([^)]*\)\s*$/u, "")
+    |> String.trim()
   end
 
   defp prompt(image_path, tiles_ms) do

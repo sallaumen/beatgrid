@@ -237,5 +237,51 @@ defmodule Beatgrid.MixesTest do
       assert part_at_zero != nil
       assert part_at_zero.dj_name == "DJ A"
     end
+
+    test "replace_dj_parts with coverage_until_ms emits a nil tail instead of stretching the last DJ" do
+      mix = insert(:mix, duration_ms: 600_000)
+      insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+      insert(:mix_segment, mix: mix, position: 1, start_ms: 300_000)
+
+      {:ok, _} =
+        Mixes.replace_dj_parts(mix, :image, [%{start_ms: 0, dj_name: "DJ A"}],
+          coverage_until_ms: 300_000
+        )
+
+      parts = Mixes.get_with_dj_parts(mix.id).dj_parts |> Enum.sort_by(& &1.start_ms)
+      named = Enum.filter(parts, & &1.dj_name)
+      assert List.last(named).dj_name == "DJ A"
+      assert List.last(named).end_ms == 300_000
+
+      assert Enum.any?(
+               parts,
+               &(&1.dj_name == nil and &1.start_ms == 300_000 and &1.end_ms == 600_000)
+             )
+    end
+
+    test "replace_dj_parts without coverage stretches the last DJ to full duration (unchanged)" do
+      mix = insert(:mix, duration_ms: 600_000)
+      insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+
+      {:ok, _} = Mixes.replace_dj_parts(mix, :image, [%{start_ms: 0, dj_name: "DJ A"}])
+      [part] = Mixes.get_with_dj_parts(mix.id).dj_parts
+      assert part.dj_name == "DJ A" and part.end_ms == 600_000
+    end
+
+    test "overlapping parts that snap to the same segment collapse to distinct boundaries" do
+      mix = insert(:mix, duration_ms: 600_000)
+      insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+      insert(:mix_segment, mix: mix, position: 1, start_ms: 300_000)
+
+      # Both parts snap to the nearest segment start (0) and collapse into one;
+      # the named entry survives. (The collapse is also logged at :info in dev/prod.)
+      parts = [%{start_ms: 0, dj_name: "DJ A"}, %{start_ms: 1_000, dj_name: "DJ B"}]
+      {:ok, count} = Mixes.replace_dj_parts(mix, :image, parts)
+
+      persisted = Mixes.get_with_dj_parts(mix.id).dj_parts
+      assert count == 1
+      assert Enum.map(persisted, & &1.start_ms) == [0]
+      assert Enum.map(persisted, & &1.dj_name) == ["DJ A"]
+    end
   end
 end
