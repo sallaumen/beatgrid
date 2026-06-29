@@ -48,11 +48,14 @@ config :beatgrid, Oban,
   plugins: [
     {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7},
     # Rescue jobs orphaned in :executing (e.g. node crash / dev recompile) back to
-    # :available for retry. NOTE: a multi-hour mix analyze/vision job can legitimately
-    # exceed 15min and be re-run by Lifeline; that's wasteful but idempotent —
-    # replace_segments/replace_dj_parts are transactional, and schedule_cleanup cancels
-    # a prior cleanup before scheduling a new one.
-    {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(15)}
+    # :available for retry. rescue_after is 90min (not 15) because a multi-hour set's
+    # analyze/vision/OCR job legitimately runs many minutes — at 15min Lifeline would
+    # rescue + RE-RUN a live long job (Lifeline can't tell a busy job from an orphaned
+    # one). 90min comfortably exceeds the longest real job (a ~4h video OCR ≈ 20-30min),
+    # so a real orphan still recovers, just later. Even so, those jobs are idempotent
+    # (transactional replace_segments/replace_dj_parts; schedule_cleanup cancels the
+    # prior cleanup before scheduling a new one).
+    {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(90)}
   ]
 
 # Integration ports (ports & adapters). Tests override these with Mox mocks.
