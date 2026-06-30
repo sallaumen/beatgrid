@@ -90,6 +90,31 @@ defmodule Beatgrid.SetsTest do
     assert orders |> Enum.uniq() |> length() > 1
   end
 
+  test "remix puts the strongest track in the middle, never at the edges" do
+    {:ok, set} = Sets.create("Peak")
+
+    e = fn energy, attrs ->
+      song = insert(:soundcharts_song, camelot: "8A", tempo_bpm: 120.0, energy: energy)
+      insert(:track, Keyword.merge([soundcharts_song_id: song.id, status: :present], attrs))
+    end
+
+    star = e.(0.98, gold_manual: true)
+    others = for _ <- 1..10, do: e.(0.3, [])
+    Enum.each([star | others], &Sets.append(set, &1))
+    n = 11
+
+    positions =
+      for _ <- 1..15 do
+        {:ok, _} = Sets.remix(set)
+        Sets.tracks(set) |> Enum.map(& &1.id) |> Enum.find_index(&(&1 == star.id))
+      end
+
+    # the standout never opens/closes the set and sits around the middle
+    refute Enum.any?(positions, &(&1 <= 1 or &1 >= n - 2))
+    avg = Enum.sum(positions) / length(positions)
+    assert avg > n * 0.3 and avg < n * 0.7
+  end
+
   test "next_after returns the next ordered track and is reorder-safe (the set pointer)" do
     {:ok, set} = Sets.create("Chain")
     a = track_with("8A", 120.0)

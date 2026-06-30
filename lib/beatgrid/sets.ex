@@ -393,32 +393,51 @@ defmodule Beatgrid.Sets do
     {:ok, set}
   end
 
-  @remix_topk 4
+  @remix_jitter 0.08
 
-  # Walk the arc slots in order, giving each a track sampled from its top-K best fits.
-  # The arc/gold bias stays, but the exact order — especially which ouro lands on each
-  # peak — changes each click, so repeated remixes feel different (the user rolls until
-  # they like one).
+  # Assigns a track to each arc slot, but visits the CENTER slots first so the best /
+  # gold / highest-energy tracks get claimed for the middle of the set (the peak the
+  # crowd actually hears) instead of being grabbed by the early slots; edge slots take
+  # what's left. Reassembled in position order. Top-K sampling keeps each remix varied.
   defp assign_arc(plan, cards) do
-    {picked, _} =
-      Enum.reduce(plan, {[], cards}, fn slot, {acc, remaining} ->
-        chosen = pick_card(slot, remaining)
-        {[{chosen.track, slot.role} | acc], List.delete(remaining, chosen)}
+    n = length(plan)
+
+    {assigned, _} =
+      plan
+      |> Enum.with_index()
+      |> Enum.sort_by(fn {_slot, i} -> -centrality(i, n) end)
+      |> Enum.reduce({%{}, cards}, fn {slot, i}, {acc, remaining} ->
+        chosen = pick_card(slot, centrality(i, n), remaining)
+        {Map.put(acc, i, {chosen.track, slot.role}), List.delete(remaining, chosen)}
       end)
 
-    Enum.reverse(picked)
+    Enum.map(0..(n - 1)//1, &Map.fetch!(assigned, &1))
   end
 
-  defp pick_card(slot, cards) do
-    cards
-    |> Enum.sort_by(&slot_fit(slot, &1), :desc)
-    |> Enum.take(@remix_topk)
+  # 1.0 at the center of the set, tapering to 0.0 at the very ends.
+  defp centrality(_i, n) when n <= 1, do: 1.0
+  defp centrality(i, n), do: 1.0 - abs(i - (n - 1) / 2) / ((n - 1) / 2)
+
+  # Random among the tracks whose fit is within a small margin of the best: when one
+  # track clearly fits best (a standout/gold for a center peak) it's placed decisively;
+  # when several fit similarly, it samples among them so each remix varies.
+  defp pick_card(slot, c, cards) do
+    scored = Enum.map(cards, &{&1, slot_fit(slot, c, &1)})
+    best = scored |> Enum.map(&elem(&1, 1)) |> Enum.max()
+
+    scored
+    |> Enum.filter(fn {_card, s} -> s >= best - @remix_jitter end)
     |> Enum.random()
+    |> elem(0)
   end
 
-  defp slot_fit(%{target_intensity: ti, role: role}, %{intensity: i, gold: gold}) do
-    fit = 1.0 - abs(ti - i)
-    if role == "pico" and gold, do: fit + 0.3, else: fit
+  # Center slots aim for the full target intensity; edge slots aim lower — so the
+  # high-energy tracks fit the middle. Gold gets a centrality-scaled nudge, pulling
+  # the rare gems toward the peak instead of the warm-up.
+  defp slot_fit(%{target_intensity: ti, role: role}, c, %{intensity: i, gold: gold}) do
+    target = ti * (0.68 + 0.32 * c)
+    fit = 1.0 - abs(target - i)
+    if role == "pico" and gold, do: fit + 0.35 * c, else: fit
   end
 
   defp gold?(track), do: track |> Library.gold() |> elem(0)
