@@ -508,20 +508,26 @@ defmodule BeatgridWeb.PlayerLive do
             const W = 8000                                               // overlap window (ms)
 
             const handBackToA = (next, posSec) => {
-              const resume = () => {
-                a.removeEventListener("loadedmetadata", resume)
+              const seekReady = () => {
+                a.removeEventListener("loadedmetadata", seekReady)
                 a.currentTime = posSec
                 a.volume = 1
                 a.playbackRate = 1
-                a.play()
-                deckB.pause()
-                this.planIdx++
-                this.xfading = false
-                this.pushEvent("now_playing", {id: next.id, set_id: this.setId})
+                // B keeps playing (same track, same spot) until A has buffered, then we
+                // swap in one shot — no silent gap (the old "engasgadinha" on handback).
+                const swap = () => {
+                  a.removeEventListener("canplay", swap)
+                  a.play()
+                  deckB.pause()
+                  this.planIdx++
+                  this.xfading = false
+                  this.pushEvent("now_playing", {id: next.id, set_id: this.setId})
+                }
+                if (a.readyState >= 3) swap(); else a.addEventListener("canplay", swap)
               }
               a.src = next.src
               a.load()
-              a.addEventListener("loadedmetadata", resume)
+              a.addEventListener("loadedmetadata", seekReady)
             }
 
             const startCrossfade = (next) => {
@@ -547,16 +553,21 @@ defmodule BeatgridWeb.PlayerLive do
                 deckB.currentTime = toMs / 1000
                 deckB.volume = 0
                 deckB.playbackRate = (type === "crossfade" && bpmA && bpmB) ? clampRate(bpmA / bpmB) : 1
-                deckB.play()
-                const t0 = performance.now()
-                const ramp = () => {
-                  const p = Math.min(1, (performance.now() - t0) / W)
-                  a.volume = Math.cos(p * Math.PI / 2)        // equal-power: A falls
-                  deckB.volume = Math.sin(p * Math.PI / 2)    // B rises
-                  if (p < 1) requestAnimationFrame(ramp)
-                  else handBackToA(next, deckB.currentTime)
+                // Wait until B has buffered enough to play, so the fade-in doesn't stall.
+                const begin = () => {
+                  deckB.removeEventListener("canplay", begin)
+                  deckB.play()
+                  const t0 = performance.now()
+                  const ramp = () => {
+                    const p = Math.min(1, (performance.now() - t0) / W)
+                    a.volume = Math.cos(p * Math.PI / 2)        // equal-power: A falls
+                    deckB.volume = Math.sin(p * Math.PI / 2)    // B rises
+                    if (p < 1) requestAnimationFrame(ramp)
+                    else handBackToA(next, deckB.currentTime)
+                  }
+                  requestAnimationFrame(ramp)
                 }
-                requestAnimationFrame(ramp)
+                if (deckB.readyState >= 3) begin(); else deckB.addEventListener("canplay", begin)
               }
               deckB.addEventListener("loadedmetadata", startB)
             }
@@ -567,9 +578,15 @@ defmodule BeatgridWeb.PlayerLive do
               if (this.xfading || !this.plan) return
               const next = this.plan[this.planIdx + 1]
               if (!next || !(next.transition && next.transition.enabled)) return
-              const fromMs =
-                next.transition.from_ms != null ? next.transition.from_ms : (a.duration || 0) * 1000 - 10000
-              if (a.duration && a.currentTime * 1000 >= fromMs) startCrossfade(next)
+              const dur = (a.duration || 0) * 1000
+              if (!dur) return
+              // Honor the outro marker only if it's in the back half of the track; a
+              // marker detected mid-song (energy dip/breakdown) would otherwise cut the
+              // track off early — the "jump". Always leave room for the W overlap.
+              const raw = next.transition.from_ms
+              const honored = (raw != null && raw >= dur * 0.5) ? raw : dur - W
+              const fromMs = Math.max(0, Math.min(honored, dur - W))
+              if (a.currentTime * 1000 >= fromMs) startCrossfade(next)
             })
 
             const seek = byId("player-seek")
