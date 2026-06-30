@@ -175,6 +175,7 @@ defmodule BeatgridWeb.PlayerLive do
           end)
 
         push_event(socket, "set_plan", %{
+          set_id: set_id,
           tracks: tracks,
           index: Enum.find_index(tracks, &(&1.id == id)) || 0
         })
@@ -427,6 +428,9 @@ defmodule BeatgridWeb.PlayerLive do
             // User-initiated play from a page (may carry a set_id for set playback, or
             // an at_ms to start straight at a cue-point marker).
             a.addEventListener("beatgrid:play", (e) => {
+              // Single-track play (no set) clears any set plan so no stray crossfade fires;
+              // set play leaves it — the server re-pushes set_plan in response to now_playing.
+              if (!e.detail.set_id) { this.plan = null; this.setId = null }
               playSrc(e.detail.src, e.detail.preview, e.detail.at_ms)
               this.pushEvent("now_playing", {id: e.detail.id, set_id: e.detail.set_id || null})
             })
@@ -480,13 +484,101 @@ defmodule BeatgridWeb.PlayerLive do
               if (seek && document.activeElement !== seek) seek.value = Math.floor(a.currentTime)
             })
 
+            // --- Part 4b: dual-deck crossfade for set autoplay -----------------------
+            // Deck A (#player-audio) stays primary (seek/markers/elapsed bound to it).
+            // Deck B (#player-audio-b) plays the INCOMING track during the overlap; at the
+            // end A reloads that track at B's exact position (same track, same spot = an
+            // inaudible switch) and B stops, so A is primary again. NOTE: the volume ramp
+            // runs on requestAnimationFrame — smooth in a foreground tab; a backgrounded
+            // tab throttles rAF (audio keeps playing, the fade just gets coarse).
+            const deckB = byId("player-audio-b")
+            this.plan = null
+            this.planIdx = 0
+            this.setId = null
+            this.xfading = false
+
+            this.handleEvent("set_plan", ({set_id, tracks, index}) => {
+              this.plan = tracks || null
+              this.planIdx = index || 0
+              this.setId = set_id
+            })
+
+            const currentBpm = () => (this.plan && this.plan[this.planIdx] && this.plan[this.planIdx].bpm) || null
+            const clampRate = (r) => Math.max(0.94, Math.min(1.06, r))   // BPM nudge ±6%
+            const W = 8000                                               // overlap window (ms)
+
+            const handBackToA = (next, posSec) => {
+              const resume = () => {
+                a.removeEventListener("loadedmetadata", resume)
+                a.currentTime = posSec
+                a.volume = 1
+                a.playbackRate = 1
+                a.play()
+                deckB.pause()
+                this.planIdx++
+                this.xfading = false
+                this.pushEvent("now_playing", {id: next.id, set_id: this.setId})
+              }
+              a.src = next.src
+              a.load()
+              a.addEventListener("loadedmetadata", resume)
+            }
+
+            const startCrossfade = (next) => {
+              if (!deckB || this.xfading) return
+              this.xfading = true
+              const tr = next.transition || {}
+              const type = tr.type || "crossfade"
+              const toMs = tr.to_ms || 0
+
+              if (type === "cut") {
+                this.planIdx++
+                playSrc(next.src, false, toMs)
+                this.pushEvent("now_playing", {id: next.id, set_id: this.setId})
+                this.xfading = false
+                return
+              }
+
+              const bpmA = currentBpm(), bpmB = next.bpm
+              deckB.src = next.src
+              deckB.load()
+              const startB = () => {
+                deckB.removeEventListener("loadedmetadata", startB)
+                deckB.currentTime = toMs / 1000
+                deckB.volume = 0
+                deckB.playbackRate = (type === "crossfade" && bpmA && bpmB) ? clampRate(bpmA / bpmB) : 1
+                deckB.play()
+                const t0 = performance.now()
+                const ramp = () => {
+                  const p = Math.min(1, (performance.now() - t0) / W)
+                  a.volume = Math.cos(p * Math.PI / 2)        // equal-power: A falls
+                  deckB.volume = Math.sin(p * Math.PI / 2)    // B rises
+                  if (p < 1) requestAnimationFrame(ramp)
+                  else handBackToA(next, deckB.currentTime)
+                }
+                requestAnimationFrame(ramp)
+              }
+              deckB.addEventListener("loadedmetadata", startB)
+            }
+
+            // Arm the crossfade when A reaches the next track's `from_ms` (or ~10s before
+            // the end when there's no outro marker). Only while a set plan is loaded.
+            a.addEventListener("timeupdate", () => {
+              if (this.xfading || !this.plan) return
+              const next = this.plan[this.planIdx + 1]
+              if (!next || !(next.transition && next.transition.enabled)) return
+              const fromMs =
+                next.transition.from_ms != null ? next.transition.from_ms : (a.duration || 0) * 1000 - 10000
+              if (a.duration && a.currentTime * 1000 >= fromMs) startCrossfade(next)
+            })
+
             const seek = byId("player-seek")
             if (seek) seek.addEventListener("input", () => { a.currentTime = Number(seek.value) })
             const vol = byId("player-volume")
             if (vol) vol.addEventListener("input", () => { a.volume = Number(vol.value) / 100 })
 
             window.addEventListener("beatgrid:playing", (e) => {
-              if (e.detail.source !== "player-audio") a.pause()
+              if (e.detail.source !== "player-audio") { a.pause(); if (deckB) deckB.pause() }
             })
           }
         }
