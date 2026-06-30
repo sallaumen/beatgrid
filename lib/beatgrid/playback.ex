@@ -6,6 +6,7 @@ defmodule Beatgrid.Playback do
   """
 
   alias Beatgrid.Playback.NowPlaying
+  alias Beatgrid.Playback.QuietMode
 
   @preview_offset_ms 20_000
   @preview_min_duration_ms 25_000
@@ -32,6 +33,15 @@ defmodule Beatgrid.Playback do
 
   @doc "Broadcast `{:markers_changed, track_id}` to the player + that track's page."
   defdelegate broadcast_markers_changed(track_id), to: NowPlaying
+
+  @doc "Pause background work while a set is actively playing."
+  defdelegate activate_quiet_mode(), to: QuietMode, as: :activate
+
+  @doc "Resume background work when set playback pauses or stops."
+  defdelegate deactivate_quiet_mode(), to: QuietMode, as: :deactivate
+
+  @doc "Whether playback quiet mode is currently active."
+  defdelegate quiet_mode_active?(), to: QuietMode, as: :active?
 
   @doc "Where a preview play starts (ms) for tracks at least `preview_min_duration_ms/0` long."
   @spec preview_offset_ms() :: pos_integer()

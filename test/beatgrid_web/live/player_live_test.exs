@@ -7,9 +7,45 @@ defmodule BeatgridWeb.PlayerLiveTest do
 
   alias Beatgrid.{Playback, Sets}
 
+  defmodule QuietModeController do
+    def pause(scope) do
+      send(test_pid(), {:quiet_pause, scope})
+      :ok
+    end
+
+    def resume(scope) do
+      send(test_pid(), {:quiet_resume, scope})
+      :ok
+    end
+
+    defp test_pid do
+      Application.fetch_env!(:beatgrid, :quiet_mode_test_pid)
+    end
+  end
+
   setup do
+    prev = Application.get_env(:beatgrid, Beatgrid.Playback.QuietMode)
+    Application.put_env(:beatgrid, :quiet_mode_test_pid, self())
+
+    Application.put_env(:beatgrid, Beatgrid.Playback.QuietMode,
+      controller: QuietModeController,
+      scope: :all
+    )
+
+    Playback.deactivate_quiet_mode()
     Playback.clear_now_playing()
-    on_exit(&Playback.clear_now_playing/0)
+
+    on_exit(fn ->
+      Playback.deactivate_quiet_mode()
+      Playback.clear_now_playing()
+
+      if prev do
+        Application.put_env(:beatgrid, Beatgrid.Playback.QuietMode, prev)
+      else
+        Application.delete_env(:beatgrid, Beatgrid.Playback.QuietMode)
+      end
+    end)
+
     :ok
   end
 
@@ -53,6 +89,22 @@ defmodule BeatgridWeb.PlayerLiveTest do
     assert html =~ "Raízes"
     assert html =~ "/set/#{set.id}"
     assert Playback.now_playing() == %{track_id: track.id, set_id: set.id}
+  end
+
+  test "now_playing with a set activates quiet mode until the player closes", %{conn: conn} do
+    track = insert(:track, tag_title: "Asa Branca", tag_artist: "Luiz")
+    {:ok, set} = Sets.create("Roots")
+    {:ok, view, _html} = live_isolated(conn, BeatgridWeb.PlayerLive)
+
+    render_hook(view, "now_playing", %{"id" => track.id, "set_id" => set.id})
+
+    assert_receive {:quiet_pause, :all}
+    assert Playback.quiet_mode_active?()
+
+    render_click(view, "close")
+
+    assert_receive {:quiet_resume, :all}
+    refute Playback.quiet_mode_active?()
   end
 
   test "track_ended advances to the next track in the set (the pointer)", %{conn: conn} do

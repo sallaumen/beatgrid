@@ -37,11 +37,13 @@ defmodule BeatgridWeb.PlayerLive do
         # The track vanished (deleted / stale row) — clear so no page ghosts a
         # highlight for a track the player can't show.
         Playback.clear_now_playing()
+        Playback.deactivate_quiet_mode()
         {:noreply, assign(socket, now_playing: nil, playing_set: nil)}
 
       track ->
-        set_id = params["set_id"]
+        set_id = blank_to_nil(params["set_id"])
         Playback.set_now_playing(%{track_id: id, set_id: set_id})
+        sync_quiet_mode(set_id)
 
         {:noreply,
          socket
@@ -53,8 +55,20 @@ defmodule BeatgridWeb.PlayerLive do
 
   def handle_event("track_ended", _params, socket), do: advance(socket)
 
+  def handle_event("playback_playing", %{"set_id" => set_id}, socket) do
+    set_id = blank_to_nil(set_id) || (socket.assigns.playing_set && socket.assigns.playing_set.id)
+    sync_quiet_mode(set_id)
+    {:noreply, socket}
+  end
+
+  def handle_event("playback_paused", _params, socket) do
+    Playback.deactivate_quiet_mode()
+    {:noreply, socket}
+  end
+
   def handle_event("close", _params, socket) do
     Playback.clear_now_playing()
+    Playback.deactivate_quiet_mode()
     {:noreply, assign(socket, now_playing: nil, playing_set: nil, show_markers: false)}
   end
 
@@ -124,7 +138,10 @@ defmodule BeatgridWeb.PlayerLive do
   # On teardown (refresh / tab close) the audio is gone — reset the pointer (silent,
   # no live subscribers to notify) so a freshly-mounted page won't read a stale one.
   @impl true
-  def terminate(_reason, _socket), do: Playback.reset_now_playing()
+  def terminate(_reason, _socket) do
+    Playback.reset_now_playing()
+    Playback.deactivate_quiet_mode()
+  end
 
   # End of a track. If a set is playing, advance to the next ordered track — the
   # pointer is `(set_id, current track)` and `next_after` reads the live order, so a
@@ -134,10 +151,12 @@ defmodule BeatgridWeb.PlayerLive do
     case Sets.next_after(set_id, current_id) do
       nil ->
         Playback.set_now_playing(%{track_id: current_id, set_id: nil})
+        Playback.deactivate_quiet_mode()
         {:noreply, assign(socket, playing_set: nil)}
 
       next ->
         Playback.set_now_playing(%{track_id: next.id, set_id: set_id})
+        Playback.activate_quiet_mode()
 
         {:noreply,
          socket
@@ -220,6 +239,12 @@ defmodule BeatgridWeb.PlayerLive do
       set -> %{id: set.id, name: set.name}
     end
   end
+
+  defp blank_to_nil(value) when value in [nil, ""], do: nil
+  defp blank_to_nil(value), do: value
+
+  defp sync_quiet_mode(nil), do: Playback.deactivate_quiet_mode()
+  defp sync_quiet_mode(_set_id), do: Playback.activate_quiet_mode()
 
   @impl true
   def render(assigns) do
@@ -370,6 +395,26 @@ defmodule BeatgridWeb.PlayerLive do
               return `${m}:${ss < 10 ? "0" : ""}${ss}`
             }
             const setIcon = (t) => { const el = byId("player-toggle-icon"); if (el) el.textContent = t }
+            this.playToken = 0
+            this.fadeToken = 0
+            this.loadingAudio = false
+            this.activeSetId = null
+
+            const safePlay = (el) => {
+              const attempt = el.play()
+              if (attempt && typeof attempt.catch === "function") {
+                attempt.catch((err) => {
+                  if (!err || err.name === "AbortError") return
+                  console.warn("Beatgrid playback failed", err)
+                })
+              }
+            }
+
+            const clearPendingStart = () => {
+              if (!a._pendingStart) return
+              a.removeEventListener("loadedmetadata", a._pendingStart)
+              a._pendingStart = null
+            }
 
             // --- cue-point markers drawn over the seek lane (data pushed from the server) ---
             this._markers = []
@@ -406,23 +451,38 @@ defmodule BeatgridWeb.PlayerLive do
             })
             a.addEventListener("beatgrid:seek", (e) => { if (a.duration) a.currentTime = e.detail.ms / 1000 })
 
+            const deckB = byId("player-audio-b")
+
             // Load + play a src. `atMs` (jump to a marker) wins; else a preview jumps
             // to the configured offset for long tracks; otherwise start at 0.
             const playSrc = (src, preview, atMs) => {
+              this.playToken++
+              this.fadeToken++
+              const token = this.playToken
+              this.xfading = false
+              if (deckB) deckB.pause()
               if (lane) lane.innerHTML = ""
-              a.src = src
-              a.load()
-              if (a._pendingStart) a.removeEventListener("loadedmetadata", a._pendingStart)
+              clearPendingStart()
               const start = () => {
+                a.removeEventListener("loadedmetadata", start)
+                if (token !== this.playToken) return
+                this.loadingAudio = false
                 const durMs = (a.duration || 0) * 1000
                 if (atMs != null) a.currentTime = atMs / 1000
                 else a.currentTime = (preview && durMs >= minDur) ? offset / 1000 : 0
-                a.play()
-                a.removeEventListener("loadedmetadata", start)
+                safePlay(a)
                 a._pendingStart = null
               }
+              const absoluteSrc = new URL(src, window.location.href).href
+              this.loadingAudio = true
               a._pendingStart = start
-              a.addEventListener("loadedmetadata", start)
+              if ((a.currentSrc === absoluteSrc || a.src === absoluteSrc) && a.readyState >= 1) {
+                start()
+              } else {
+                a.src = src
+                a.load()
+                a.addEventListener("loadedmetadata", start)
+              }
             }
 
             // User-initiated play from a page (may carry a set_id for set playback, or
@@ -430,6 +490,7 @@ defmodule BeatgridWeb.PlayerLive do
             a.addEventListener("beatgrid:play", (e) => {
               // Single-track play (no set) clears any set plan so no stray crossfade fires;
               // set play leaves it — the server re-pushes set_plan in response to now_playing.
+              this.activeSetId = e.detail.set_id || null
               if (!e.detail.set_id) { this.plan = null; this.setId = null }
               playSrc(e.detail.src, e.detail.preview, e.detail.at_ms)
               this.pushEvent("now_playing", {id: e.detail.id, set_id: e.detail.set_id || null})
@@ -439,7 +500,7 @@ defmodule BeatgridWeb.PlayerLive do
             // so just play the next src (full track), no now_playing push.
             this.handleEvent("play_track", ({src}) => playSrc(src, false))
 
-            a.addEventListener("beatgrid:toggle", () => a.paused ? a.play() : a.pause())
+            a.addEventListener("beatgrid:toggle", () => a.paused ? safePlay(a) : a.pause())
             a.addEventListener("beatgrid:stop", () => a.pause())
 
             // Body flag drives the now-playing disc spin (CSS), pause-aware + correct
@@ -449,16 +510,19 @@ defmodule BeatgridWeb.PlayerLive do
             a.addEventListener("play", () => {
               setIcon("⏸")
               setPlaying(true)
+              this.pushEvent("playback_playing", {set_id: this.activeSetId || this.setId || null})
               window.dispatchEvent(new CustomEvent("beatgrid:playing", {detail: {source: "player-audio"}}))
             })
             a.addEventListener("pause", () => {
               setIcon("▶")
               setPlaying(false)
+              if (!this.loadingAudio) this.pushEvent("playback_paused", {})
               window.dispatchEvent(new CustomEvent("beatgrid:paused"))
             })
             a.addEventListener("ended", () => {
               setIcon("▶")
               setPlaying(false)
+              this.pushEvent("playback_paused", {})
               window.dispatchEvent(new CustomEvent("beatgrid:paused"))
               this.pushEvent("track_ended", {})
             })
@@ -467,6 +531,7 @@ defmodule BeatgridWeb.PlayerLive do
             a.addEventListener("error", () => {
               setIcon("▶")
               setPlaying(false)
+              this.pushEvent("playback_paused", {})
               this.pushEvent("track_ended", {})
             })
 
@@ -491,7 +556,6 @@ defmodule BeatgridWeb.PlayerLive do
             // inaudible switch) and B stops, so A is primary again. NOTE: the volume ramp
             // runs on requestAnimationFrame — smooth in a foreground tab; a backgrounded
             // tab throttles rAF (audio keeps playing, the fade just gets coarse).
-            const deckB = byId("player-audio-b")
             this.plan = null
             this.planIdx = 0
             this.setId = null
@@ -501,6 +565,7 @@ defmodule BeatgridWeb.PlayerLive do
               this.plan = tracks || null
               this.planIdx = index || 0
               this.setId = set_id
+              this.activeSetId = set_id || this.activeSetId
             })
 
             const currentBpm = () => (this.plan && this.plan[this.planIdx] && this.plan[this.planIdx].bpm) || null
@@ -508,8 +573,12 @@ defmodule BeatgridWeb.PlayerLive do
             const W = 8000                                               // overlap window (ms)
 
             const handBackToA = (next, posSec) => {
+              this.playToken++
+              const token = this.playToken
+              clearPendingStart()
               const seekReady = () => {
                 a.removeEventListener("loadedmetadata", seekReady)
+                if (token !== this.playToken) return
                 a.currentTime = posSec
                 a.volume = 1
                 a.playbackRate = 1
@@ -517,7 +586,9 @@ defmodule BeatgridWeb.PlayerLive do
                 // swap in one shot — no silent gap (the old "engasgadinha" on handback).
                 const swap = () => {
                   a.removeEventListener("canplay", swap)
-                  a.play()
+                  if (token !== this.playToken) return
+                  this.loadingAudio = false
+                  safePlay(a)
                   deckB.pause()
                   this.planIdx++
                   this.xfading = false
@@ -525,6 +596,7 @@ defmodule BeatgridWeb.PlayerLive do
                 }
                 if (a.readyState >= 3) swap(); else a.addEventListener("canplay", swap)
               }
+              this.loadingAudio = true
               a.src = next.src
               a.load()
               a.addEventListener("loadedmetadata", seekReady)
@@ -533,6 +605,8 @@ defmodule BeatgridWeb.PlayerLive do
             const startCrossfade = (next) => {
               if (!deckB || this.xfading) return
               this.xfading = true
+              this.fadeToken++
+              const fadeToken = this.fadeToken
               const tr = next.transition || {}
               const type = tr.type || "crossfade"
               const toMs = tr.to_ms || 0
@@ -550,15 +624,18 @@ defmodule BeatgridWeb.PlayerLive do
               deckB.load()
               const startB = () => {
                 deckB.removeEventListener("loadedmetadata", startB)
+                if (fadeToken !== this.fadeToken) return
                 deckB.currentTime = toMs / 1000
                 deckB.volume = 0
                 deckB.playbackRate = (type === "crossfade" && bpmA && bpmB) ? clampRate(bpmA / bpmB) : 1
                 // Wait until B has buffered enough to play, so the fade-in doesn't stall.
                 const begin = () => {
                   deckB.removeEventListener("canplay", begin)
-                  deckB.play()
+                  if (fadeToken !== this.fadeToken) return
+                  safePlay(deckB)
                   const t0 = performance.now()
                   const ramp = () => {
+                    if (fadeToken !== this.fadeToken) return
                     const p = Math.min(1, (performance.now() - t0) / W)
                     a.volume = Math.cos(p * Math.PI / 2)        // equal-power: A falls
                     deckB.volume = Math.sin(p * Math.PI / 2)    // B rises

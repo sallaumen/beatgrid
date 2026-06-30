@@ -21,6 +21,15 @@ defmodule Beatgrid.Playback.NowPlayingTest do
     assert_receive {:now_playing, %{track_id: "t2", set_id: nil}}
   end
 
+  test "put does not broadcast when the pointer is unchanged" do
+    NowPlaying.put(%{track_id: "t2", set_id: nil})
+    NowPlaying.subscribe()
+
+    NowPlaying.put(%{track_id: "t2", set_id: nil})
+
+    refute_receive {:now_playing, _}, 50
+  end
+
   test "clear resets the pointer and broadcasts the empty state" do
     NowPlaying.put(%{track_id: "t3", set_id: "s3"})
     NowPlaying.subscribe()

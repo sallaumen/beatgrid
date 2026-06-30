@@ -32,6 +32,19 @@ defmodule BeatgridWeb.AudioControllerTest do
     assert ranged.resp_body == "2345"
   end
 
+  @tag :tmp_dir
+  test "returns 416 for a range beyond the end of the track file", %{conn: conn, tmp_dir: root} do
+    File.mkdir_p!(Path.join(root, "MPB"))
+    File.write!(Path.join(root, "MPB/song.mp3"), "0123456789")
+    track = insert(:track, rel_path: "MPB/song.mp3", filename: "song.mp3")
+
+    conn = conn |> put_req_header("range", "bytes=10-") |> get(~p"/audio/#{track.id}")
+
+    assert conn.status == 416
+    assert get_resp_header(conn, "content-range") == ["bytes */10"]
+    assert conn.resp_body == ""
+  end
+
   test "404 when the track does not exist", %{conn: conn} do
     assert get(conn, ~p"/audio/#{Ecto.UUID.generate()}").status == 404
   end
