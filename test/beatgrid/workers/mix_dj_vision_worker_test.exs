@@ -11,7 +11,11 @@ defmodule Beatgrid.Workers.MixDjVisionWorkerTest do
   test "samples frames sequentially, montages, OCRs, and writes :image dj parts" do
     # interval 4_000 → 2 frames from duration 8_000; tiles_per_grid 16 → one montage chunk
     prev = Application.get_env(:beatgrid, MixDjVisionWorker)
-    Application.put_env(:beatgrid, MixDjVisionWorker, frame_interval_ms: 4_000, tiles_per_grid: 16)
+
+    Application.put_env(:beatgrid, MixDjVisionWorker,
+      frame_interval_ms: 4_000,
+      tiles_per_grid: 16
+    )
 
     on_exit(fn ->
       if prev,
@@ -68,6 +72,7 @@ defmodule Beatgrid.Workers.MixDjVisionWorkerTest do
 
     test "work_dir is deterministic per mix (no per-run unique suffix)" do
       mix = insert(:mix)
+
       assert MixDjVisionWorker.work_dir(mix) ==
                Path.join(System.tmp_dir!(), "beatgrid-dj-vision-#{mix.id}")
     end
@@ -100,7 +105,9 @@ defmodule Beatgrid.Workers.MixDjVisionWorkerTest do
 
       stub(Beatgrid.AI.Mock, :complete, fn _p, _s, _o -> {:ok, %{"names" => ["A"]}} end)
 
-      assert {:error, {:partial_coverage, 1, 4}} = perform_job(MixDjVisionWorker, %{mix_id: mix.id})
+      assert {:error, {:partial_coverage, 1, 4}} =
+               perform_job(MixDjVisionWorker, %{mix_id: mix.id})
+
       assert Mixes.get_with_dj_parts(mix.id).dj_parts == []
     end
 
@@ -139,7 +146,11 @@ defmodule Beatgrid.Workers.MixDjVisionWorkerTest do
     end
 
     test "reuses an already-downloaded video instead of downloading again" do
-      Application.put_env(:beatgrid, MixDjVisionWorker, frame_interval_ms: 4_000, tiles_per_grid: 16)
+      Application.put_env(:beatgrid, MixDjVisionWorker,
+        frame_interval_ms: 4_000,
+        tiles_per_grid: 16
+      )
+
       mix = insert(:mix, duration_ms: 8_000, source_url: "https://youtu.be/x")
       insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
 
@@ -160,11 +171,23 @@ defmodule Beatgrid.Workers.MixDjVisionWorkerTest do
     end
 
     test "a zero-frame extraction errors out without wiping existing dj parts" do
-      Application.put_env(:beatgrid, MixDjVisionWorker, frame_interval_ms: 4_000, tiles_per_grid: 9)
+      Application.put_env(:beatgrid, MixDjVisionWorker,
+        frame_interval_ms: 4_000,
+        tiles_per_grid: 9
+      )
+
       mix = insert(:mix, duration_ms: 16_000, source_url: "https://youtu.be/x")
       insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
       # a previously-detected part that must NOT be wiped by a transient empty extraction
-      insert(:dj_part, mix: mix, position: 0, start_ms: 0, end_ms: 16_000, dj_name: "KEEP", source: :image)
+      insert(:dj_part,
+        mix: mix,
+        position: 0,
+        start_ms: 0,
+        end_ms: 16_000,
+        dj_name: "KEEP",
+        source: :image
+      )
+
       on_exit(fn -> File.rm_rf(MixDjVisionWorker.work_dir(mix)) end)
 
       stub(Beatgrid.Video.FrameSamplerMock, :download_video, fn _u, dir ->
@@ -195,7 +218,9 @@ defmodule Beatgrid.Workers.MixDjVisionWorkerTest do
         {:ok, for(i <- 1..4, do: Path.join(dir, "f0000#{i}.jpg"))}
       end)
 
-      stub(Beatgrid.Video.FrameSamplerMock, :montage, fn _p, _d -> {:error, {:ffmpeg_exit, 254, "x"}} end)
+      stub(Beatgrid.Video.FrameSamplerMock, :montage, fn _p, _d ->
+        {:error, {:ffmpeg_exit, 254, "x"}}
+      end)
 
       assert {:error, {:partial_coverage, 0, 4}} =
                perform_job(MixDjVisionWorker, %{mix_id: mix.id}, attempt: 10)
@@ -222,7 +247,9 @@ defmodule Beatgrid.Workers.MixDjVisionWorkerTest do
         {:ok, for(i <- 1..4, do: Path.join(dir, "f0000#{i}.jpg"))}
       end)
 
-      stub(Beatgrid.Video.FrameSamplerMock, :montage, fn _p, _d -> {:error, {:ffmpeg_exit, 254, "x"}} end)
+      stub(Beatgrid.Video.FrameSamplerMock, :montage, fn _p, _d ->
+        {:error, {:ffmpeg_exit, 254, "x"}}
+      end)
 
       assert {:error, {:partial_coverage, 0, 4}} =
                perform_job(MixDjVisionWorker, %{mix_id: mix.id}, attempt: 1)

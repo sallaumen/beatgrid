@@ -62,7 +62,17 @@ defmodule Beatgrid.Video.FrameSampler.FfmpegCli do
   def extract_frames(video_path, %{interval_ms: interval_ms, dir: dir}) do
     secs = max(1, div(interval_ms, 1000))
     pattern = Path.join(dir, "f%05d.jpg")
-    args = ["-nostdin", "-i", video_path, "-vf", "fps=1/#{secs},crop=iw:ih/4:0:ih*3/4,scale=640:-2", "-q:v", "2", pattern]
+
+    args = [
+      "-nostdin",
+      "-i",
+      video_path,
+      "-vf",
+      "fps=1/#{secs},crop=iw:ih/4:0:ih*3/4,scale=640:-2",
+      "-q:v",
+      "2",
+      pattern
+    ]
 
     case System.cmd(ffmpeg(), args, stderr_to_stdout: true) do
       {_out, 0} -> {:ok, dir |> Path.join("f*.jpg") |> Path.wildcard() |> Enum.sort()}
@@ -109,7 +119,13 @@ defmodule Beatgrid.Video.FrameSampler.FfmpegCli do
   defp xstack_coord(0, _unit), do: "0"
   defp xstack_coord(n, unit), do: Enum.map_join(1..n, "+", fn _ -> unit end)
 
-  defp tail_excerpt(out), do: out |> String.split("\n", trim: true) |> Enum.take(-4) |> Enum.join(" | ") |> String.slice(0, 500)
+  defp tail_excerpt(out),
+    do:
+      out
+      |> String.split("\n", trim: true)
+      |> Enum.take(-4)
+      |> Enum.join(" | ")
+      |> String.slice(0, 500)
 
   defp ytdlp, do: Application.get_env(:beatgrid, __MODULE__, [])[:ytdlp] || "yt-dlp"
   defp ffmpeg, do: Application.get_env(:beatgrid, __MODULE__, [])[:ffmpeg] || "ffmpeg"

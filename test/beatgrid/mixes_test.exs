@@ -117,11 +117,17 @@ defmodule Beatgrid.MixesTest do
     test "analyze_all enqueues MixAnalyzeWorker with free_djs" do
       mix = insert(:mix, status: :ready, audio_path: "/tmp/_Mixes/x.mp3")
       assert {:ok, _} = Mixes.analyze_all(mix)
-      assert_enqueued(worker: Beatgrid.Workers.MixAnalyzeWorker, args: %{mix_id: mix.id, free_djs: true})
+
+      assert_enqueued(
+        worker: Beatgrid.Workers.MixAnalyzeWorker,
+        args: %{mix_id: mix.id, free_djs: true}
+      )
     end
 
     test "analyze_all without audio -> :no_audio" do
-      mix = insert(:mix, status: :ready, audio_path: nil, audio_deleted_at: ~U[2026-06-29 00:00:00Z])
+      mix =
+        insert(:mix, status: :ready, audio_path: nil, audio_deleted_at: ~U[2026-06-29 00:00:00Z])
+
       assert Mixes.analyze_all(mix) == {:error, :no_audio}
     end
   end
@@ -133,13 +139,21 @@ defmodule Beatgrid.MixesTest do
       mix = insert(:mix, audio_path: "/tmp/_Mixes/x.mp3")
       assert {:ok, _} = Mixes.recognize_unnamed(mix)
       assert_enqueued(worker: Beatgrid.Workers.MixRecognizeWorker, args: %{mix_id: mix.id})
-      refute_enqueued(worker: Beatgrid.Workers.MixRecognizeWorker, args: %{mix_id: mix.id, retry_all: true})
+
+      refute_enqueued(
+        worker: Beatgrid.Workers.MixRecognizeWorker,
+        args: %{mix_id: mix.id, retry_all: true}
+      )
     end
 
     test "retry_all enqueues with the retry_all flag" do
       mix = insert(:mix, audio_path: "/tmp/_Mixes/x.mp3")
       assert {:ok, _} = Mixes.recognize_unnamed(mix, true)
-      assert_enqueued(worker: Beatgrid.Workers.MixRecognizeWorker, args: %{mix_id: mix.id, retry_all: true})
+
+      assert_enqueued(
+        worker: Beatgrid.Workers.MixRecognizeWorker,
+        args: %{mix_id: mix.id, retry_all: true}
+      )
     end
   end
 
@@ -204,7 +218,9 @@ defmodule Beatgrid.MixesTest do
       mix = insert(:mix, duration_ms: 600_000)
       insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
       {:ok, _} = Mixes.set_dj_parts_manual(mix, "0:00 A")
-      assert Mixes.replace_dj_parts(mix, :audio, [%{start_ms: 0, dj_name: nil}]) == {:error, :manual_present}
+
+      assert Mixes.replace_dj_parts(mix, :audio, [%{start_ms: 0, dj_name: nil}]) ==
+               {:error, :manual_present}
     end
 
     test "group_by_dj groups segments by containment, leftovers under nil" do
@@ -228,7 +244,10 @@ defmodule Beatgrid.MixesTest do
       mix =
         insert(:mix,
           duration_ms: 600_000,
-          chapters: [%{"start_ms" => 0, "title" => "DJ A"}, %{"start_ms" => 300_000, "title" => "DJ B"}],
+          chapters: [
+            %{"start_ms" => 0, "title" => "DJ A"},
+            %{"start_ms" => 300_000, "title" => "DJ B"}
+          ],
           chapters_role: :tracks
         )
 

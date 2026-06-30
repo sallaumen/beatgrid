@@ -756,24 +756,36 @@ defmodule BeatgridWeb.TrackLive do
               Loudness
               <span class="text-ink-faint">· alvo {format_lufs(Loudness.target_lufs())}</span>
             </p>
-            <div
-              :if={@track.loudness_lufs}
-              class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-body-sm"
-            >
-              <span>
+            <div :if={@track.loudness_lufs} class="mt-2 space-y-1.5 text-body-sm">
+              <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <span class="w-28 text-ink-faint">Current file</span>
                 <span class="text-amber font-mono">{format_lufs(@track.loudness_lufs)}</span>
-                <span class="text-ink-faint">integrado</span>
-              </span>
-              <span :if={@track.true_peak_dbtp}>
-                <span class="text-ink-secondary font-mono">{Float.round(@track.true_peak_dbtp, 1)} dBTP</span>
-                <span class="text-ink-faint">true-peak</span>
-              </span>
-              <span>
+                <span :if={@track.true_peak_dbtp} class="text-ink-secondary font-mono">
+                  {Float.round(@track.true_peak_dbtp, 1)} dBTP
+                </span>
                 <span class="font-mono text-primary">
                   {format_gain(Loudness.gain_db(@track.loudness_lufs, @track.true_peak_dbtp))}
                 </span>
-                <span class="text-ink-faint">ganho sugerido</span>
-              </span>
+              </div>
+
+              <div
+                :if={@track.original_loudness_lufs}
+                class="flex flex-wrap items-center gap-x-4 gap-y-1"
+              >
+                <span class="w-28 text-ink-faint">Original backup</span>
+                <span class="font-mono text-ink-secondary">
+                  {format_lufs(@track.original_loudness_lufs)}
+                </span>
+                <span :if={@track.original_true_peak_dbtp} class="font-mono text-ink-muted">
+                  {Float.round(@track.original_true_peak_dbtp, 1)} dBTP
+                </span>
+              </div>
+
+              <div :if={@track.gain_applied_at} class="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <span class="w-28 text-ink-faint">Applied gain</span>
+                <span class="font-mono text-primary">{format_gain(@track.gain_applied_db)}</span>
+                <span class="text-ink-muted">Full original backup available</span>
+              </div>
             </div>
             <p :if={!@track.loudness_lufs} class="text-ink-faint mt-1 text-caption">
               Ainda não medido — rode “Analisar loudness” no Painel.

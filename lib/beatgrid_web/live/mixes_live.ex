@@ -32,7 +32,9 @@ defmodule BeatgridWeb.MixesLive do
 
         {:error, :unsupported_source} ->
           {:noreply,
-           assign(socket, toast: {:error, "Só aceito links do YouTube ou SoundCloud por enquanto."})}
+           assign(socket,
+             toast: {:error, "Só aceito links do YouTube ou SoundCloud por enquanto."}
+           )}
 
         {:error, _changeset} ->
           {:noreply,

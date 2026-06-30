@@ -10,7 +10,16 @@ defmodule Beatgrid.Mixes.DjPartTest do
 
   test "valid changeset" do
     mix = insert(:mix)
-    cs = DjPart.changeset(%DjPart{}, %{mix_id: mix.id, position: 0, start_ms: 0, end_ms: 1000, source: :manual})
+
+    cs =
+      DjPart.changeset(%DjPart{}, %{
+        mix_id: mix.id,
+        position: 0,
+        start_ms: 0,
+        end_ms: 1000,
+        source: :manual
+      })
+
     assert cs.valid?
   end
 end

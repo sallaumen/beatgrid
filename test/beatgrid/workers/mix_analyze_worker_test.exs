@@ -38,7 +38,9 @@ defmodule Beatgrid.Workers.MixAnalyzeWorkerTest do
        }}
     end)
 
-    expect(Beatgrid.Audio.SetSegmenterMock, :analyze, fn "/tmp/_Mixes/m.mp3", [0, 270_000], _opts ->
+    expect(Beatgrid.Audio.SetSegmenterMock, :analyze, fn "/tmp/_Mixes/m.mp3",
+                                                         [0, 270_000],
+                                                         _opts ->
       {:ok,
        [
          %{start_ms: 0, end_ms: 270_000, bpm: 124.0, key: 7, mode: 1},
@@ -71,7 +73,9 @@ defmodule Beatgrid.Workers.MixAnalyzeWorkerTest do
 
     stub(Beatgrid.AI.Mock, :complete, fn _p, _s, _o -> {:ok, %{"tracklist" => []}} end)
 
-    expect(Beatgrid.Audio.SetSegmenterMock, :analyze, fn "/tmp/_Mixes/cap.mp3", [0, 120_000], _opts ->
+    expect(Beatgrid.Audio.SetSegmenterMock, :analyze, fn "/tmp/_Mixes/cap.mp3",
+                                                         [0, 120_000],
+                                                         _opts ->
       {:ok, [%{start_ms: 0, end_ms: 120_000, bpm: 120.0, key: 7, mode: 1}]}
     end)
 
@@ -92,7 +96,10 @@ defmodule Beatgrid.Workers.MixAnalyzeWorkerTest do
       )
 
     stub(Beatgrid.AI.Mock, :complete, fn _p, _s, _o -> {:ok, %{"tracklist" => []}} end)
-    expect(Beatgrid.Audio.SetSegmenterMock, :analyze, fn "/tmp/_Mixes/djs.mp3", [], _opts -> {:ok, []} end)
+
+    expect(Beatgrid.Audio.SetSegmenterMock, :analyze, fn "/tmp/_Mixes/djs.mp3", [], _opts ->
+      {:ok, []}
+    end)
 
     assert :ok = perform_job(MixAnalyzeWorker, %{mix_id: mix.id})
   end
@@ -149,7 +156,13 @@ defmodule Beatgrid.Workers.MixAnalyzeWorkerTest do
   end
 
   test "free_djs: after analyzing, derives :audio dj parts from candidates" do
-    mix = insert(:mix, status: :analyzing, audio_path: "/tmp/_Mixes/f.mp3", description: "", chapters: [])
+    mix =
+      insert(:mix,
+        status: :analyzing,
+        audio_path: "/tmp/_Mixes/f.mp3",
+        description: "",
+        chapters: []
+      )
 
     stub(Beatgrid.AI.Mock, :complete, fn _p, _s, _o -> {:ok, %{"tracklist" => []}} end)
 

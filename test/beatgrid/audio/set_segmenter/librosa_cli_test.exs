@@ -20,7 +20,9 @@ defmodule Beatgrid.Audio.SetSegmenter.LibrosaCliTest do
 
   test "parse_lines collects candidates" do
     output = ~s({"candidates": [{"start_ms": 0, "strength": 0.9}]}\n)
-    assert {:ok, [%{start_ms: 0, strength: 0.9}]} = LibrosaCli.parse_lines(output, :candidates, fn _ -> :ok end)
+
+    assert {:ok, [%{start_ms: 0, strength: 0.9}]} =
+             LibrosaCli.parse_lines(output, :candidates, fn _ -> :ok end)
   end
 
   test "parse_lines errors when the final line is missing" do
@@ -31,7 +33,9 @@ defmodule Beatgrid.Audio.SetSegmenter.LibrosaCliTest do
   test "classify_line recognises progress lines" do
     json = ~s({"progress": {"stage": "bpm", "done": 3, "total": 10}})
     assert {:ok, decoded} = Jason.decode(json)
-    assert {:progress, %{stage: "bpm", done: 3, total: 10}} = LibrosaCli.classify_line({:ok, decoded})
+
+    assert {:progress, %{stage: "bpm", done: 3, total: 10}} =
+             LibrosaCli.classify_line({:ok, decoded})
   end
 
   test "classify_line recognises segments lines" do
@@ -55,7 +59,10 @@ defmodule Beatgrid.Audio.SetSegmenter.LibrosaCliTest do
   end
 
   test "parse_lines tolerates null bpm/key (short segment)" do
-    output = ~s({"segments": [{"start_ms": 0, "end_ms": 1000, "bpm": null, "key": null, "mode": null}]}\n)
-    assert {:ok, [%{bpm: nil, key: nil, mode: nil}]} = LibrosaCli.parse_lines(output, :segments, fn _ -> :ok end)
+    output =
+      ~s({"segments": [{"start_ms": 0, "end_ms": 1000, "bpm": null, "key": null, "mode": null}]}\n)
+
+    assert {:ok, [%{bpm: nil, key: nil, mode: nil}]} =
+             LibrosaCli.parse_lines(output, :segments, fn _ -> :ok end)
   end
 end

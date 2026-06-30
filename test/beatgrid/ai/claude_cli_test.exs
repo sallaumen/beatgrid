@@ -52,7 +52,9 @@ defmodule Beatgrid.AI.ClaudeCliTest do
 
   describe "build_args/3" do
     test "build_args includes prompt, schema, model and add-dir" do
-      args = ClaudeCli.build_args("hi", %{"type" => "object"}, model: "sonnet", add_dir: ["/tmp/x"])
+      args =
+        ClaudeCli.build_args("hi", %{"type" => "object"}, model: "sonnet", add_dir: ["/tmp/x"])
+
       assert "-p" in args and "hi" in args
       assert "--model" in args and "sonnet" in args
       assert "--add-dir" in args and "/tmp/x" in args

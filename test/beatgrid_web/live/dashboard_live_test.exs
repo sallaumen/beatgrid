@@ -8,11 +8,13 @@ defmodule BeatgridWeb.DashboardLiveTest do
   import Mox
 
   alias Beatgrid.Library.Tracks
+  alias Beatgrid.Operations
   alias Beatgrid.Repertoire
 
   alias Beatgrid.Workers.{
     EnrichWorker,
     ExpandWorker,
+    GainApplyWorker,
     LoudnessWorker,
     MarkerAnalyzeWorker,
     RecommendWorker
@@ -176,6 +178,78 @@ defmodule BeatgridWeb.DashboardLiveTest do
     assert_enqueued(worker: LoudnessWorker)
   end
 
+  test "the Operações panel enqueues pending gain application", %{conn: conn} do
+    eligible =
+      insert(:track,
+        status: :present,
+        loudness_lufs: -20.0,
+        true_peak_dbtp: -8.0,
+        loudness_attempted_at: ~U[2026-01-01 00:00:00Z]
+      )
+
+    _inside_tolerance =
+      insert(:track,
+        status: :present,
+        loudness_lufs: -14.5,
+        true_peak_dbtp: -6.0,
+        loudness_attempted_at: ~U[2026-01-01 00:00:00Z]
+      )
+
+    {:ok, view, html} = live(conn, ~p"/painel")
+    assert html =~ "Apply gain (1)"
+
+    html = view |> element("button[phx-click=apply_gain]") |> render_click()
+
+    assert html =~ "1 track(s) queued"
+    assert_enqueued(worker: GainApplyWorker, args: %{track_id: eligible.id})
+  end
+
+  @tag :tmp_dir
+  test "the Operações panel restores the latest gain backup", %{conn: conn, tmp_dir: root} do
+    previous = Application.get_env(:beatgrid, :library_root)
+    Application.put_env(:beatgrid, :library_root, root)
+    on_exit(fn -> Application.put_env(:beatgrid, :library_root, previous) end)
+
+    rel_path = "_Inbox/restorable.mp3"
+    backup_rel = "_Backups/Gain/batch/_Inbox/restorable.mp3"
+    write_file(root, rel_path, "gain-applied-audio")
+    write_file(root, backup_rel, "original-audio")
+
+    track =
+      insert(:track,
+        status: :present,
+        rel_path: rel_path,
+        loudness_lufs: -14.0,
+        true_peak_dbtp: -2.0,
+        gain_applied_db: 6.0,
+        gain_applied_at: ~U[2026-01-01 00:00:00Z]
+      )
+
+    batch_id = Ecto.UUID.generate()
+
+    {:ok, _op} =
+      Operations.record(%{
+        track_id: track.id,
+        kind: :gain,
+        from: "6.0",
+        to: backup_rel,
+        batch_id: batch_id
+      })
+
+    expect(Beatgrid.Audio.LoudnessMock, :measure, fn path ->
+      assert File.read!(path) == "original-audio"
+      {:ok, %{lufs: -20.0, true_peak: -8.0, lra: 4.0}}
+    end)
+
+    {:ok, view, html} = live(conn, ~p"/painel")
+    assert html =~ "Restore gain backup"
+
+    html = view |> element("button[phx-click=restore_gain_backup]") |> render_click()
+
+    assert html =~ "1 gain backup(s) restored"
+    assert File.read!(Path.join(root, rel_path)) == "original-audio"
+  end
+
   test "the YouTube panel enqueues downloads from pasted URLs", %{conn: conn} do
     {:ok, view, html} = live(conn, ~p"/painel")
     assert html =~ "Importar do YouTube"
@@ -293,5 +367,11 @@ defmodule BeatgridWeb.DashboardLiveTest do
     send(view.pid, {:analysis_tick})
 
     assert render(view) =~ "1/1 analisadas"
+  end
+
+  defp write_file(root, rel_path, contents) do
+    path = Path.join(root, rel_path)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, contents)
   end
 end

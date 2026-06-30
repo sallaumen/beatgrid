@@ -4,7 +4,7 @@ defmodule BeatgridWeb.DashboardLive do
 
   import BeatgridWeb.UI
 
-  alias Beatgrid.{Analysis, Loudness, Markers, Repertoire, YouTube}
+  alias Beatgrid.{Analysis, Loudness, Markers, Operations, Repertoire, YouTube}
   alias Beatgrid.Library.GenreFolders
   alias Beatgrid.Workers.{EnrichWorker, ExampleSetWorker, RecommendWorker}
 
@@ -33,6 +33,8 @@ defmodule BeatgridWeb.DashboardLive do
        analysis: Analysis.progress(),
        analysis_note: nil,
        loudness: Loudness.progress(),
+       gain_pending: Loudness.gain_pending_count(),
+       gain_undo_batch: Loudness.latest_gain_batch(),
        loudness_note: nil,
        markers_unmapped: Markers.unmapped_count(),
        markers_note: nil,
@@ -104,6 +106,45 @@ defmodule BeatgridWeb.DashboardLive do
         else: "Loudness de tudo já medido. ✔"
 
     {:noreply, assign(socket, loudness: Loudness.progress(), loudness_note: note)}
+  end
+
+  def handle_event("apply_gain", _params, socket) do
+    {:ok, n, batch_id} = Loudness.enqueue_apply_pending()
+
+    note =
+      if n > 0,
+        do: "#{n} track(s) queued for gain application.",
+        else: "No tracks need gain application."
+
+    {:noreply,
+     assign(socket,
+       gain_pending: Loudness.gain_pending_count(),
+       gain_undo_batch: if(n > 0, do: batch_id, else: Loudness.latest_gain_batch()),
+       loudness_note: note
+     )}
+  end
+
+  def handle_event("restore_gain_backup", _params, socket) do
+    case socket.assigns.gain_undo_batch do
+      nil ->
+        {:noreply, assign(socket, loudness_note: "No gain backup is available to restore.")}
+
+      batch_id ->
+        {:ok, %{undone: undone, failed: failed}} = Operations.undo_batch(batch_id)
+
+        note =
+          if failed == 0,
+            do: "#{undone} gain backup(s) restored.",
+            else: "#{undone} gain backup(s) restored; #{failed} restore(s) failed."
+
+        {:noreply,
+         assign(socket,
+           loudness: Loudness.progress(),
+           gain_pending: Loudness.gain_pending_count(),
+           gain_undo_batch: Loudness.latest_gain_batch(),
+           loudness_note: note
+         )}
+    end
   end
 
   def handle_event("download_youtube", %{"urls" => urls}, socket) do
@@ -213,7 +254,12 @@ defmodule BeatgridWeb.DashboardLive do
   end
 
   def handle_info({:loudness_tick}, socket) do
-    {:noreply, assign(socket, loudness: Loudness.progress())}
+    {:noreply,
+     assign(socket,
+       loudness: Loudness.progress(),
+       gain_pending: Loudness.gain_pending_count(),
+       gain_undo_batch: Loudness.latest_gain_batch()
+     )}
   end
 
   def handle_info({:youtube_tick}, socket) do
@@ -410,6 +456,29 @@ defmodule BeatgridWeb.DashboardLive do
                 class="text-amber shrink-0 rounded-md bg-amber/20 px-3.5 py-1.5 text-body-sm font-semibold disabled:opacity-40"
               >
                 Analisar loudness ({max(@loudness.total - @loudness.measured, 0)})
+              </button>
+            </div>
+
+            <div class="mt-3 flex items-center justify-between gap-4 pl-0 md:pl-2">
+              <div class="min-w-0 flex-1">
+                <span class="text-body-sm text-ink-secondary">Gain application</span>
+                <p class="mt-1 text-caption text-ink-muted">
+                  Applies the measured LUFS gain to eligible files and remeasures them.
+                </p>
+              </div>
+              <button
+                phx-click="apply_gain"
+                disabled={@gain_pending == 0}
+                class="shrink-0 rounded-md bg-amber/15 px-3.5 py-1.5 text-body-sm font-semibold text-amber disabled:opacity-40"
+              >
+                Apply gain ({@gain_pending})
+              </button>
+              <button
+                :if={@gain_undo_batch}
+                phx-click="restore_gain_backup"
+                class="shrink-0 rounded-md border border-amber/30 bg-input px-3.5 py-1.5 text-body-sm font-semibold text-amber hover:bg-amber/10"
+              >
+                Restore gain backup
               </button>
             </div>
 

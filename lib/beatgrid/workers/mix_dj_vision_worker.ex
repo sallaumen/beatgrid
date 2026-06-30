@@ -104,10 +104,19 @@ defmodule Beatgrid.Workers.MixDjVisionWorker do
            {:ok, r} <- DjVisionAI.read_grid(m, tiles_ms) do
         File.rm(m)
         covered = List.last(tiles_ms) + interval
-        %{acc | reads: acc.reads ++ r, ok: acc.ok + 1, coverage_until_ms: max(acc.coverage_until_ms, covered)}
+
+        %{
+          acc
+          | reads: acc.reads ++ r,
+            ok: acc.ok + 1,
+            coverage_until_ms: max(acc.coverage_until_ms, covered)
+        }
       else
         err ->
-          Logger.warning("dj_vision mix #{mix.id} grid #{gi + 1}/#{total} failed: #{inspect(err)}")
+          Logger.warning(
+            "dj_vision mix #{mix.id} grid #{gi + 1}/#{total} failed: #{inspect(err)}"
+          )
+
           %{acc | fail: acc.fail + 1}
       end
     end)
@@ -119,7 +128,8 @@ defmodule Beatgrid.Workers.MixDjVisionWorker do
   defp finish(%{total: 0}, _mix, _threshold), do: {:error, :no_frames}
 
   # Every grid failed: don't persist a phantom "complete" result — fail so Oban retries.
-  defp finish(%{ok: 0, total: total}, _mix, _threshold), do: {:error, {:partial_coverage, 0, total}}
+  defp finish(%{ok: 0, total: total}, _mix, _threshold),
+    do: {:error, {:partial_coverage, 0, total}}
 
   defp finish(%{ok: ok, fail: fail, total: total} = summary, mix, threshold) do
     if fail / total > threshold do
@@ -134,7 +144,11 @@ defmodule Beatgrid.Workers.MixDjVisionWorker do
   end
 
   defp persist(%{ok: ok, fail: fail, total: total, reads: reads, coverage_until_ms: cov}, mix) do
-    parts = reads |> DjVisionAI.group_consecutive() |> Enum.map(&%{start_ms: &1.start_ms, dj_name: &1.dj_name})
+    parts =
+      reads
+      |> DjVisionAI.group_consecutive()
+      |> Enum.map(&%{start_ms: &1.start_ms, dj_name: &1.dj_name})
+
     opts = if fail == 0, do: [], else: [coverage_until_ms: cov]
 
     Logger.info(
