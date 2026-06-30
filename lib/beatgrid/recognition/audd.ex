@@ -1,12 +1,13 @@
 defmodule Beatgrid.Recognition.Audd do
   @moduledoc """
-  `Recognition` adapter via AudD (https://audd.io). Extracts an ~18s snippet from the
-  segment's inner window with ffmpeg and uploads it. Paid — only from a button.
+  `Recognition` adapter via AudD (https://audd.io). Extracts a ~20s snippet from the
+  STABLE MIDDLE of the segment with ffmpeg and uploads it — the middle avoids the
+  intro/outro transitions (and DJ blends) that confuse fingerprinting. Paid — only from a button.
   """
   @behaviour Beatgrid.Recognition
 
   @endpoint "https://api.audd.io/"
-  @snippet_ms 18_000
+  @snippet_ms 20_000
 
   @impl true
   def identify(audio_path, start_ms, end_ms) do
@@ -19,11 +20,32 @@ defmodule Beatgrid.Recognition.Audd do
     end
   end
 
+  @doc "The ~20s window to fingerprint: centered on the segment's midpoint, clamped to the segment."
+  @spec snippet_window(integer(), integer()) :: {integer(), integer()}
+  def snippet_window(start_ms, end_ms) do
+    mid = div(start_ms + end_ms, 2)
+    offset = max(start_ms, mid - div(@snippet_ms, 2))
+    dur = max(1_000, min(@snippet_ms, end_ms - offset))
+    {offset, dur}
+  end
+
   defp with_snippet(audio_path, start_ms, end_ms, fun) do
-    offset = start_ms + min(60_000, round((end_ms - start_ms) * 0.3))
-    dur = min(@snippet_ms, max(1_000, end_ms - offset))
+    {offset, dur} = snippet_window(start_ms, end_ms)
     dest = Path.join(System.tmp_dir!(), "audd-#{System.unique_integer([:positive])}.mp3")
-    args = ["-nostdin", "-ss", "#{offset / 1000}", "-t", "#{dur / 1000}", "-i", audio_path, "-ac", "1", "-y", dest]
+
+    args = [
+      "-nostdin",
+      "-ss",
+      "#{offset / 1000}",
+      "-t",
+      "#{dur / 1000}",
+      "-i",
+      audio_path,
+      "-ac",
+      "1",
+      "-y",
+      dest
+    ]
 
     try do
       case System.cmd(ffmpeg(), args, stderr_to_stdout: true) do

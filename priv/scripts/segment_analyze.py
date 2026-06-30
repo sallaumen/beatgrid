@@ -31,6 +31,11 @@ SR = 22050           # per-segment analysis rate
 COARSE_SR = 11025    # coarse pass rate (cheaper)
 COARSE_HOP_S = 2.0   # one coarse feature column per ~2 s
 
+# DJ-set track-length priors: a track is ~1–7 min. Boundaries are real structural
+# transitions, never closer than MIN_GAP, and any stretch longer than MAX_GAP is split.
+MIN_GAP_MS = 60_000
+MAX_GAP_MS = 420_000
+
 
 def emit(obj):
     sys.stdout.write(json.dumps(obj) + "\n")
@@ -99,13 +104,59 @@ def coarse_features(path, dur_ms):
     return feat / norms
 
 
-def detect_boundaries(feat, dur_ms):
-    n = max(2, min(40, round(dur_ms / 1000 / 240)))  # ~1 segment / 4 min, clamp 2..40
-    n = min(n, feat.shape[1])
-    if n < 2:
-        return []
-    frames = librosa.segment.agglomerative(feat, n)
-    return sorted(int(f * COARSE_HOP_S * 1000) for f in frames)
+def novelty_curve(feat):
+    """Smoothed consecutive-column distance — high where the music structurally changes."""
+    if feat.shape[1] < 3:
+        return np.array([])
+    d = np.linalg.norm(np.diff(feat, axis=1), axis=0)
+    k = 5
+    return np.convolve(d, np.ones(k) / k, mode="same")
+
+
+def enforce_max_gap(bounds, peaks, min_gap, max_gap, dur_ms):
+    """Insert boundaries so no two are more than max_gap apart. Prefer the strongest
+    novelty peak inside the gap (respecting min_gap from both ends); else split the middle."""
+    bounds = sorted(set(bounds))
+    changed = True
+    while changed:
+        changed = False
+        out = [bounds[0]]
+        for nxt in bounds[1:]:
+            prev = out[-1]
+            if nxt - prev > max_gap:
+                lo, hi = prev + min_gap, nxt - min_gap
+                inside = [(st, ms) for ms, st in peaks if lo <= ms <= hi]
+                ms = max(inside)[1] if inside else (prev + nxt) // 2
+                if prev < ms < nxt:
+                    out.append(ms)
+                    changed = True
+            out.append(nxt)
+        bounds = sorted(set(out))
+    return bounds
+
+
+def detect_boundaries(feat, dur_ms, min_gap=MIN_GAP_MS, max_gap=MAX_GAP_MS):
+    """Real DJ-track boundaries: strong novelty peaks, spaced >= min_gap, with any
+    stretch longer than max_gap force-split (so a 15-min 'track' can't happen)."""
+    s = novelty_curve(feat)
+    chosen = []
+    if s.size:
+        # Strict `> thr` so a flat/steady stretch (where the 75th pct collapses to the
+        # baseline) yields NO peaks — those regions get chopped only by the max-gap rule,
+        # not packed every min_gap.
+        thr = np.percentile(s, 75)
+        peaks = [
+            (int((i + 1) * COARSE_HOP_S * 1000), float(s[i]))
+            for i in range(1, len(s) - 1)
+            if s[i] > thr and s[i] >= s[i - 1] and s[i] >= s[i + 1]
+        ]
+        for ms, _st in sorted(peaks, key=lambda p: -p[1]):
+            if min_gap <= ms <= dur_ms - min_gap and all(abs(ms - c) >= min_gap for c in chosen):
+                chosen.append(ms)
+    else:
+        peaks = []
+    bounds = enforce_max_gap([0] + sorted(chosen) + [dur_ms], peaks, min_gap, max_gap, dur_ms)
+    return [b for b in bounds if 0 < b < dur_ms]
 
 
 def novelty_peaks(feat, dur_ms):
