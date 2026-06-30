@@ -7,8 +7,9 @@ defmodule Beatgrid.Markers do
   """
   alias Beatgrid.Audio.MarkerDetector
   alias Beatgrid.Library
-  alias Beatgrid.Library.{Track, Tracks}
+  alias Beatgrid.Library.{Marker, Track, Tracks}
   alias Beatgrid.Playback
+  alias Beatgrid.Workers.MarkerAnalyzeWorker
 
   @adapter Application.compile_env(
              :beatgrid,
@@ -41,4 +42,39 @@ defmodule Beatgrid.Markers do
   defp marker(_ms, _type), do: nil
 
   defp abs_path(track), do: Path.join(Library.library_root(), track.rel_path)
+
+  # ---- bulk mapping (Painel) ----
+
+  @doc "Ids of `present` tracks that have no automatic marker yet."
+  @spec unmapped_ids() :: [binary()]
+  def unmapped_ids do
+    [status: :present]
+    |> Tracks.list_by()
+    |> Enum.reject(&mapped?/1)
+    |> Enum.map(& &1.id)
+  end
+
+  @doc "How many `present` tracks still lack automatic markers."
+  @spec unmapped_count() :: non_neg_integer()
+  def unmapped_count, do: length(unmapped_ids())
+
+  @doc """
+  Enqueues a `MarkerAnalyzeWorker` for every present track without auto markers
+  (manual markers are preserved by the worker). Returns `{:ok, enqueued_count}`.
+  """
+  @spec enqueue_unmapped() :: {:ok, non_neg_integer()}
+  def enqueue_unmapped do
+    count =
+      unmapped_ids()
+      |> Enum.reduce(0, fn id, acc ->
+        case Oban.insert(MarkerAnalyzeWorker.new(%{track_id: id})) do
+          {:ok, _job} -> acc + 1
+          _error -> acc
+        end
+      end)
+
+    {:ok, count}
+  end
+
+  defp mapped?(%Track{cue_points: cues}), do: Enum.any?(cues || [], &Marker.auto?/1)
 end

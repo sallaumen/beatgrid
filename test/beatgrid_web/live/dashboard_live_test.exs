@@ -9,7 +9,14 @@ defmodule BeatgridWeb.DashboardLiveTest do
 
   alias Beatgrid.Library.Tracks
   alias Beatgrid.Repertoire
-  alias Beatgrid.Workers.{EnrichWorker, ExpandWorker, LoudnessWorker, RecommendWorker}
+
+  alias Beatgrid.Workers.{
+    EnrichWorker,
+    ExpandWorker,
+    LoudnessWorker,
+    MarkerAnalyzeWorker,
+    RecommendWorker
+  }
 
   setup :set_mox_global
 
@@ -35,6 +42,19 @@ defmodule BeatgridWeb.DashboardLiveTest do
     assert html =~ "MPB"
     assert html =~ "Jobim"
     assert html =~ "1970s"
+  end
+
+  test "Mapear marcadores enqueues a worker per unmapped present track", %{conn: conn} do
+    insert(:track, status: :present, rel_path: "u1.mp3", cue_points: [])
+    insert(:track, status: :present, rel_path: "u2.mp3", cue_points: [])
+
+    {:ok, view, html} = live(conn, ~p"/painel")
+    assert html =~ "Mapear marcadores (2)"
+
+    html = view |> element("button", "Mapear marcadores") |> render_click()
+
+    assert html =~ "Mapeando marcadores de 2 faixa"
+    assert_enqueued(worker: MarkerAnalyzeWorker)
   end
 
   test "renders persisted repertoire gaps for the selected folder on mount", %{conn: conn} do

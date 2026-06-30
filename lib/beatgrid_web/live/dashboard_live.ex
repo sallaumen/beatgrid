@@ -4,7 +4,7 @@ defmodule BeatgridWeb.DashboardLive do
 
   import BeatgridWeb.UI
 
-  alias Beatgrid.{Analysis, Loudness, Repertoire, YouTube}
+  alias Beatgrid.{Analysis, Loudness, Markers, Repertoire, YouTube}
   alias Beatgrid.Library.GenreFolders
   alias Beatgrid.Workers.{EnrichWorker, ExampleSetWorker, RecommendWorker}
 
@@ -34,6 +34,8 @@ defmodule BeatgridWeb.DashboardLive do
        analysis_note: nil,
        loudness: Loudness.progress(),
        loudness_note: nil,
+       markers_unmapped: Markers.unmapped_count(),
+       markers_note: nil,
        youtube_pending: YouTube.pending_count(),
        youtube_note: nil,
        enrich: nil,
@@ -69,6 +71,17 @@ defmodule BeatgridWeb.DashboardLive do
         else: "Tudo já analisado. ✔"
 
     {:noreply, assign(socket, analysis: Analysis.progress(), analysis_note: note)}
+  end
+
+  def handle_event("map_markers", _params, socket) do
+    {:ok, n} = Markers.enqueue_unmapped()
+
+    note =
+      if n == 0,
+        do: "Tudo já mapeado — nenhuma faixa sem marcadores.",
+        else: "Mapeando marcadores de #{n} faixa(s) em background — acompanhe em Jobs."
+
+    {:noreply, assign(socket, markers_unmapped: Markers.unmapped_count(), markers_note: note)}
   end
 
   def handle_event("build_example_set", _params, socket) do
@@ -397,6 +410,24 @@ defmodule BeatgridWeb.DashboardLive do
                 class="text-amber shrink-0 rounded-md bg-amber/20 px-3.5 py-1.5 text-body-sm font-semibold disabled:opacity-40"
               >
                 Analisar loudness ({max(@loudness.total - @loudness.measured, 0)})
+              </button>
+            </div>
+
+            <div class="mt-4 flex items-center justify-between gap-4 border-t border-white/6 pt-4">
+              <div class="min-w-0 flex-1">
+                <span class="text-body-sm text-ink-secondary">Mapear marcadores da biblioteca</span>
+                <p class="mt-1 text-caption text-ink-muted">
+                  Detecta intro/saída e seções (análise de áudio) nas faixas que ainda não têm
+                  marcadores automáticos — deixa tudo pronto pra planejar e tocar sets.
+                </p>
+                <p :if={@markers_note} class="mt-1.5 text-caption text-ink-muted">{@markers_note}</p>
+              </div>
+              <button
+                phx-click="map_markers"
+                disabled={@markers_unmapped == 0}
+                class="shrink-0 rounded-md bg-primary/15 px-3.5 py-1.5 text-body-sm font-semibold text-primary disabled:opacity-40"
+              >
+                Mapear marcadores ({@markers_unmapped})
               </button>
             </div>
 
