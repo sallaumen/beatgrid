@@ -52,6 +52,11 @@ defmodule Beatgrid.Mixing do
     %{key: "queda", label: "Queda", target_intensity: 0.45, hint: "Esfria rumo ao encerramento"}
   ]
 
+  # Energy-arc vocabulary for the wave-model set planner (`block_plan/1`): an
+  # opener, repeated peak↔respiro (rest) waves, and a closing fade. Distinct from
+  # `@sections` (the manual fill-section UI) — this adds the "respiro" rest valley.
+  @arc_intensity %{"abertura" => 0.70, "pico" => 0.95, "respiro" => 0.55, "queda" => 0.42}
+
   @type breakdown :: %{
           style: float(),
           harmony: float(),
@@ -114,6 +119,50 @@ defmodule Beatgrid.Mixing do
   @doc "Target intensity for a section key, or nil if unknown."
   @spec target_intensity(String.t() | nil) :: float() | nil
   def target_intensity(key), do: with(%{target_intensity: ti} <- section(key), do: ti)
+
+  # ---- energy-arc plan (set planner) ----
+
+  @doc """
+  Builds an energy-arc plan of exactly `count` slots — one per faixa — for a full
+  set. Shape: an `abertura` (opener), a middle of repeated peak↔respiro waves
+  (peaks of 4-5 faixas, respiros/rest valleys of 3-4), and a `queda` (fade-out).
+  More faixas → more waves. The closing peak absorbs the remainder, so its length
+  can fall outside 4-5. Block sizes are randomized, so the plan varies per call.
+
+  Returns `[%{role: "abertura" | "pico" | "respiro" | "queda", target_intensity: float()}]`.
+  """
+  @spec block_plan(integer()) :: [%{role: String.t(), target_intensity: float()}]
+  def block_plan(count) when not is_integer(count) or count <= 0, do: []
+  def block_plan(1), do: [arc_slot("abertura")]
+  def block_plan(2), do: [arc_slot("abertura"), arc_slot("queda")]
+
+  def block_plan(count) do
+    {head_n, tail_n} = if count >= 16, do: {2, 2}, else: {1, 1}
+    mid_n = count - head_n - tail_n
+
+    List.duplicate(arc_slot("abertura"), head_n) ++
+      middle_waves(mid_n, :pico, []) ++
+      List.duplicate(arc_slot("queda"), tail_n)
+  end
+
+  defp middle_waves(0, _next, acc), do: acc
+
+  # A peak with room left for a respiro (3) + a closing peak (3) keeps waving;
+  # otherwise this is the closing peak and it absorbs whatever remains.
+  defp middle_waves(n, :pico, acc) when n >= 10 do
+    p = Enum.random(4..5)
+    middle_waves(n - p, :respiro, acc ++ arc_run("pico", p))
+  end
+
+  defp middle_waves(n, :pico, acc), do: acc ++ arc_run("pico", n)
+
+  defp middle_waves(n, :respiro, acc) do
+    v = n |> Kernel.-(3) |> min(Enum.random(3..4)) |> max(3)
+    middle_waves(n - v, :pico, acc ++ arc_run("respiro", v))
+  end
+
+  defp arc_run(role, size), do: List.duplicate(arc_slot(role), size)
+  defp arc_slot(role), do: %{role: role, target_intensity: Map.fetch!(@arc_intensity, role)}
 
   # ---- signals ----
 

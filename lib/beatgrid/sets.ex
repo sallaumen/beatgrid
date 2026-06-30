@@ -284,6 +284,31 @@ defmodule Beatgrid.Sets do
   def fill_section(%RecSet{} = set, role, count) when is_integer(count) and count > 0,
     do: {:ok, greedy_fill(set, count, role, Mixing.target_intensity(role))}
 
+  @plan_topk 5
+
+  @doc """
+  Plans a full set of `count` faixas along an energy arc (`Mixing.block_plan/1`):
+  opener → peak↔respiro waves → fade-out. Each slot is filled by ranking candidates
+  for its target intensity (chained from the previous faixa, anchored on the set's
+  style) and picking one at random among the top few — so the plan varies per call.
+  Tags each faixa with its arc role, then connects every consecutive pair with a DJ
+  transition. A slot with no remaining candidate is skipped. Returns `{:ok, set}`.
+  """
+  @spec plan_set(RecSet.t(), pos_integer(), keyword()) :: {:ok, RecSet.t()}
+  def plan_set(%RecSet{} = set, count, opts \\ []) when is_integer(count) and count > 0 do
+    topk = Keyword.get(opts, :topk, @plan_topk)
+
+    Enum.each(Mixing.block_plan(count), fn slot ->
+      case Mixing.rank(rank_opts(set, target_intensity: slot.target_intensity, limit: topk)) do
+        [] -> :ok
+        ranked -> append(set, Enum.random(ranked).track, slot.role)
+      end
+    end)
+
+    connect_all(set)
+    {:ok, set}
+  end
+
   defp greedy_fill(set, count, _role, _ti) when count <= 0, do: set
 
   defp greedy_fill(set, count, role, ti) do

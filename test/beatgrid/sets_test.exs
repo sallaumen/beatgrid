@@ -166,6 +166,33 @@ defmodule Beatgrid.SetsTest do
     assert length(Sets.tracks(set)) == 3
   end
 
+  test "plan_set builds an arc-shaped, fully-connected set of the requested size" do
+    {:ok, set} = Sets.create("Planned")
+    {:ok, set} = Sets.set_target_style(set, "forro_roots")
+
+    # Plenty of candidates so no slot runs dry; varied BPM/key + intro/outro
+    # markers so connections become real DJ transitions.
+    for i <- 0..19 do
+      track_with("8A", 118.0 + i,
+        genre_folder: "forro_roots",
+        cue_points: [
+          %{"ms" => 2_000, "type" => "intro", "source" => "auto"},
+          %{"ms" => 150_000, "type" => "outro", "source" => "auto"}
+        ]
+      )
+    end
+
+    assert {:ok, _set} = Sets.plan_set(set, 12)
+
+    entries = Sets.entries(set)
+    assert length(entries) == 12
+    assert hd(entries).role == "abertura"
+    assert List.last(entries).role == "queda"
+    assert Enum.all?(entries, &(&1.role in ~w(abertura pico respiro queda)))
+    # Every consecutive pair is connected.
+    assert Enum.all?(tl(entries), &(&1.transition && &1.transition["enabled"]))
+  end
+
   @tag :tmp_dir
   test "export_m3u writes an .m3u with EXTINF + absolute paths under _Sets", %{tmp_dir: root} do
     {:ok, set} = Sets.create("My Set")

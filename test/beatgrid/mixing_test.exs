@@ -189,4 +189,61 @@ defmodule Beatgrid.MixingTest do
     {:ok, t} = Tracks.update(track, %{genre_folder: folder})
     t
   end
+
+  describe "block_plan/1 (energy arc)" do
+    test "is empty for non-positive counts" do
+      assert Mixing.block_plan(0) == []
+      assert Mixing.block_plan(-3) == []
+    end
+
+    test "tiny sets degrade gracefully" do
+      assert [%{role: "abertura"}] = Mixing.block_plan(1)
+      assert [%{role: "abertura"}, %{role: "queda"}] = Mixing.block_plan(2)
+    end
+
+    test "always returns exactly count slots with valid role/intensity pairs" do
+      for n <- [1, 2, 3, 5, 8, 12, 16, 20, 30, 47] do
+        plan = Mixing.block_plan(n)
+        assert length(plan) == n
+
+        for slot <- plan do
+          assert slot.role in ~w(abertura pico respiro queda)
+          assert slot.target_intensity == intensity_for(slot.role)
+        end
+      end
+    end
+
+    test "opens on abertura, closes on queda, and alternates peaks/valleys in the middle" do
+      for n <- [12, 16, 20, 24, 30, 40] do
+        plan = Mixing.block_plan(n)
+        assert hd(plan).role == "abertura"
+        assert List.last(plan).role == "queda"
+
+        middle = plan |> runs() |> Enum.reject(fn {r, _} -> r in ~w(abertura queda) end)
+        assert {"pico", _} = hd(middle)
+        assert {"pico", _} = List.last(middle)
+
+        respiros = Enum.filter(middle, fn {r, _} -> r == "respiro" end)
+        peaks = Enum.filter(middle, fn {r, _} -> r == "pico" end)
+
+        assert respiros != [], "set de #{n} faixas deveria ter ao menos um respiro"
+        for {_, v} <- respiros, do: assert(v in 3..4)
+        # every peak but the closing one is 4-5 faixas
+        for {_, p} <- Enum.drop(peaks, -1), do: assert(p in 4..5)
+      end
+    end
+
+    test "scales: a bigger set has more peaks" do
+      peaks = fn n -> Mixing.block_plan(n) |> runs() |> Enum.count(&(elem(&1, 0) == "pico")) end
+      assert peaks.(40) > peaks.(14)
+    end
+  end
+
+  # Compress consecutive same-role slots into {role, run_length}.
+  defp runs(plan), do: plan |> Enum.chunk_by(& &1.role) |> Enum.map(&{hd(&1).role, length(&1)})
+
+  defp intensity_for("abertura"), do: 0.70
+  defp intensity_for("pico"), do: 0.95
+  defp intensity_for("respiro"), do: 0.55
+  defp intensity_for("queda"), do: 0.42
 end
