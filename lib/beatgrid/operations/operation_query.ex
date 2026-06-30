@@ -8,6 +8,7 @@ defmodule Beatgrid.Operations.OperationQuery do
 
   @type list_opt ::
           {:batch_id, Ecto.UUID.t()}
+          | {:track_id, Ecto.UUID.t()}
           | {:status, atom()}
           | {:kind, atom()}
           | {:limit, pos_integer()}
@@ -29,6 +30,7 @@ defmodule Beatgrid.Operations.OperationQuery do
   end
 
   defp reduce_opt({:batch_id, batch_id}, q), do: where(q, [o], o.batch_id == ^batch_id)
+  defp reduce_opt({:track_id, track_id}, q), do: where(q, [o], o.track_id == ^track_id)
   defp reduce_opt({:status, status}, q), do: where(q, [o], o.status == ^status)
   defp reduce_opt({:kind, kind}, q), do: where(q, [o], o.kind == ^kind)
   defp reduce_opt({:limit, n}, q), do: limit(q, ^n)

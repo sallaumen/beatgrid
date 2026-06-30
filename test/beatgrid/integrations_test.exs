@@ -4,10 +4,13 @@ defmodule Beatgrid.IntegrationsTest do
 
   setup do
     prev = Application.get_env(:beatgrid, Beatgrid.Recognition.Audd)
+
     on_exit(fn ->
-      if prev, do: Application.put_env(:beatgrid, Beatgrid.Recognition.Audd, prev),
+      if prev,
+        do: Application.put_env(:beatgrid, Beatgrid.Recognition.Audd, prev),
         else: Application.delete_env(:beatgrid, Beatgrid.Recognition.Audd)
     end)
+
     :ok
   end
 

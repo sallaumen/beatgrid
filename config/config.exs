@@ -70,6 +70,7 @@ config :beatgrid, Beatgrid.Tagging.Writer, adapter: Beatgrid.Tagging.Ffmpeg
 config :beatgrid, Beatgrid.Audio.Analyzer, adapter: Beatgrid.Audio.LibrosaCli
 config :beatgrid, Beatgrid.Audio.MarkerDetector, adapter: Beatgrid.Audio.MarkerDetectorCli
 config :beatgrid, Beatgrid.Audio.Loudness, adapter: Beatgrid.Audio.FfmpegLoudness
+config :beatgrid, Beatgrid.Audio.GainApplier, adapter: Beatgrid.Audio.GainApplierCli
 config :beatgrid, Beatgrid.YouTube.Downloader, adapter: Beatgrid.YouTube.YtDlp
 config :beatgrid, Beatgrid.Video.FrameSampler, adapter: Beatgrid.Video.FrameSampler.FfmpegCli
 config :beatgrid, Beatgrid.Recognition, adapter: Beatgrid.Recognition.Audd
@@ -80,6 +81,10 @@ config :beatgrid, Beatgrid.AI, model: "sonnet", batch_size: 15
 # Soundcharts budget: hard cap on successful API calls + a safety floor below
 # which the client refuses to call (the free tier is ~1,000 requests total).
 config :beatgrid, Beatgrid.Soundcharts, request_cap: 1000, budget_floor: 50
+
+# Loudness normalization settings. The target is in LUFS; the gain tolerance avoids
+# rewriting files for tiny volume changes that are not worth touching on disk.
+config :beatgrid, Beatgrid.Loudness, gain_tolerance_db: 1.0
 
 # Limiar de visualizações no YouTube pra contar uma faixa como "popular" (Ouro).
 # Backend-driven, consultável na UI; ajustar aqui + restart (como target_lufs).

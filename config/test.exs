@@ -46,6 +46,7 @@ config :beatgrid, Beatgrid.Tagging.Writer, adapter: Beatgrid.Tagging.Mock
 config :beatgrid, Beatgrid.Audio.Analyzer, adapter: Beatgrid.Audio.AnalyzerMock
 config :beatgrid, Beatgrid.Audio.MarkerDetector, adapter: Beatgrid.Audio.MarkerDetectorMock
 config :beatgrid, Beatgrid.Audio.Loudness, adapter: Beatgrid.Audio.LoudnessMock
+config :beatgrid, Beatgrid.Audio.GainApplier, adapter: Beatgrid.Audio.GainApplierMock
 config :beatgrid, Beatgrid.YouTube.Downloader, adapter: Beatgrid.YouTube.DownloaderMock
 config :beatgrid, Beatgrid.Mixes.Source, adapter: Beatgrid.Mixes.SourceMock
 config :beatgrid, Beatgrid.Audio.SetSegmenter, adapter: Beatgrid.Audio.SetSegmenterMock

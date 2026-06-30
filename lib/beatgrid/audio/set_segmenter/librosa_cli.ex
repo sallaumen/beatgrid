@@ -7,7 +7,7 @@ defmodule Beatgrid.Audio.SetSegmenter.LibrosaCli do
   """
   @behaviour Beatgrid.Audio.SetSegmenter
 
-  @run_timeout_ms (Application.compile_env(:beatgrid, [__MODULE__, :run_timeout_ms]) || 2_700_000)
+  @run_timeout_ms Application.compile_env(:beatgrid, [__MODULE__, :run_timeout_ms]) || 2_700_000
 
   @thread_env [
     {"OMP_NUM_THREADS", "1"},
@@ -131,7 +131,8 @@ defmodule Beatgrid.Audio.SetSegmenter.LibrosaCli do
     }
   end
 
-  defp to_candidate(%{"start_ms" => s} = m), do: %{start_ms: s, strength: num(m["strength"]) || 0.0}
+  defp to_candidate(%{"start_ms" => s} = m),
+    do: %{start_ms: s, strength: num(m["strength"]) || 0.0}
 
   defp num(n) when is_number(n), do: n / 1
   defp num(_), do: nil

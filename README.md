@@ -100,9 +100,10 @@ Architecture & Quality Playbook in `docs/playbook/`):
 
 Elixir 1.19 / OTP 27 · Phoenix 1.8 · Phoenix LiveView 1.2 · Ecto · PostgreSQL ·
 Oban · Tailwind CSS v4 + daisyUI · heroicons · Req · Mox · ExMachina · Credo ·
-Sobelow · Dialyzer. External tools: `ffmpeg`/`ffprobe` (metadata + tagging),
-the `claude` CLI (AI), `yt-dlp` (YouTube import), and Python + `librosa`
-(offline BPM/key analysis). See **Requirements** below.
+Sobelow · Dialyzer. External tools: `ffmpeg`/`ffprobe` (metadata + tagging and
+loudness gain), optional `mp3gain` (lossless MP3 gain), the `claude` CLI (AI),
+`yt-dlp` (YouTube import), and Python + `librosa` (offline BPM/key analysis).
+See **Requirements** below.
 
 ---
 
@@ -120,6 +121,7 @@ needs none of them.**
 | Elixir 1.19 / Erlang OTP 27 | **Required** | the app itself (via asdf — see `.tool-versions`) | `asdf install` |
 | Docker | **Required** | PostgreSQL for dev + test, via `docker compose` (port `5434`) | [docker.com](https://docs.docker.com/get-docker/) |
 | `ffmpeg` / `ffprobe` | **Required** | reading metadata, ID3 genre write-back, audio extraction | `brew install ffmpeg` |
+| `mp3gain` | Feature | lossless loudness gain application for MP3 files; MP3 falls back to `ffmpeg` without it | `brew install mp3gain` |
 | `yt-dlp` | Feature | importing tracks from YouTube (download + audio extraction) | `brew install yt-dlp` |
 | Python 3 + `librosa` | Feature | offline BPM + musical-key (Camelot) analysis | `pip install librosa` |
 | `claude` CLI | Feature | AI genre classification, repertoire-gap ideas, YouTube title parsing | [Claude Code](https://claude.com/claude-code) (a Max plan or API key) |

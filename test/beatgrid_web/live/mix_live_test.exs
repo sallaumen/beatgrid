@@ -105,7 +105,15 @@ defmodule BeatgridWeb.MixLiveTest do
   test "renders DJ section headers when dj parts exist", %{conn: conn} do
     mix = insert(:mix, status: :ready, duration_ms: 600_000)
     insert(:mix_segment, mix: mix, position: 0, start_ms: 0, title: "T1")
-    insert(:dj_part, mix: mix, position: 0, start_ms: 0, end_ms: 600_000, dj_name: "DJ A", source: :manual)
+
+    insert(:dj_part,
+      mix: mix,
+      position: 0,
+      start_ms: 0,
+      end_ms: 600_000,
+      dj_name: "DJ A",
+      source: :manual
+    )
 
     {:ok, _view, html} = live(conn, ~p"/sets-online/#{mix.id}")
     assert html =~ "DJ A"
@@ -173,7 +181,15 @@ defmodule BeatgridWeb.MixLiveTest do
     Application.put_env(:beatgrid, Beatgrid.Recognition.Audd, api_token: nil)
 
     mix = insert(:mix, status: :ready, audio_path: "/tmp/_Mixes/x.mp3")
-    insert(:mix_segment, mix: mix, position: 0, start_ms: 0, end_ms: 60_000, artist: nil, title: nil)
+
+    insert(:mix_segment,
+      mix: mix,
+      position: 0,
+      start_ms: 0,
+      end_ms: 60_000,
+      artist: nil,
+      title: nil
+    )
 
     {:ok, _v, html} = live(conn, ~p"/sets-online/#{mix.id}")
     assert html =~ "Reconhecer faixas"
@@ -210,9 +226,25 @@ defmodule BeatgridWeb.MixLiveTest do
   test "set summary cards show DJ count, tracks, duration and library coverage", %{conn: conn} do
     track = insert(:track, status: :present)
     mix = insert(:mix, status: :ready, duration_ms: 600_000)
-    insert(:mix_segment, mix: mix, position: 0, start_ms: 0, end_ms: 300_000, matched_track_id: track.id)
+
+    insert(:mix_segment,
+      mix: mix,
+      position: 0,
+      start_ms: 0,
+      end_ms: 300_000,
+      matched_track_id: track.id
+    )
+
     insert(:mix_segment, mix: mix, position: 1, start_ms: 300_000, end_ms: 600_000)
-    insert(:dj_part, mix: mix, position: 0, start_ms: 0, end_ms: 600_000, dj_name: "DJ A", source: :image)
+
+    insert(:dj_part,
+      mix: mix,
+      position: 0,
+      start_ms: 0,
+      end_ms: 600_000,
+      dj_name: "DJ A",
+      source: :image
+    )
 
     {:ok, _v, html} = live(conn, ~p"/sets-online/#{mix.id}")
     assert html =~ "Na biblioteca" and html =~ "50%"
@@ -224,13 +256,26 @@ defmodule BeatgridWeb.MixLiveTest do
     insert(:mix_segment, mix: mix, position: 0, start_ms: 0, end_ms: 60_000)
     {:ok, view, _} = live(conn, ~p"/sets-online/#{mix.id}")
     view |> element("button[phx-click=analyze_all]") |> render_click()
-    assert_enqueued(worker: Beatgrid.Workers.MixAnalyzeWorker, args: %{mix_id: mix.id, free_djs: true})
+
+    assert_enqueued(
+      worker: Beatgrid.Workers.MixAnalyzeWorker,
+      args: %{mix_id: mix.id, free_djs: true}
+    )
   end
 
   test "rename a DJ divider inline", %{conn: conn} do
     mix = insert(:mix, status: :ready, duration_ms: 600_000)
     insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
-    part = insert(:dj_part, mix: mix, position: 0, start_ms: 0, end_ms: 600_000, dj_name: "DJ VHSFNTG", source: :image)
+
+    part =
+      insert(:dj_part,
+        mix: mix,
+        position: 0,
+        start_ms: 0,
+        end_ms: 600_000,
+        dj_name: "DJ VHSFNTG",
+        source: :image
+      )
 
     {:ok, view, _} = live(conn, ~p"/sets-online/#{mix.id}")
     render_submit(element(view, "#dj-rename-#{part.id}"), %{"name" => "DJ VHANNY"})
@@ -241,7 +286,16 @@ defmodule BeatgridWeb.MixLiveTest do
   test "delete a DJ divider", %{conn: conn} do
     mix = insert(:mix, status: :ready, duration_ms: 600_000)
     insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
-    part = insert(:dj_part, mix: mix, position: 0, start_ms: 0, end_ms: 600_000, dj_name: "DJ X", source: :image)
+
+    part =
+      insert(:dj_part,
+        mix: mix,
+        position: 0,
+        start_ms: 0,
+        end_ms: 600_000,
+        dj_name: "DJ X",
+        source: :image
+      )
 
     {:ok, view, _} = live(conn, ~p"/sets-online/#{mix.id}")
     view |> element("button[phx-click=delete_dj][phx-value-id=\"#{part.id}\"]") |> render_click()
@@ -251,7 +305,15 @@ defmodule BeatgridWeb.MixLiveTest do
   test "delete a DJ divider asks for confirmation first", %{conn: conn} do
     mix = insert(:mix, status: :ready, duration_ms: 600_000)
     insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
-    insert(:dj_part, mix: mix, position: 0, start_ms: 0, end_ms: 600_000, dj_name: "DJ X", source: :image)
+
+    insert(:dj_part,
+      mix: mix,
+      position: 0,
+      start_ms: 0,
+      end_ms: 600_000,
+      dj_name: "DJ X",
+      source: :image
+    )
 
     {:ok, _view, html} = live(conn, ~p"/sets-online/#{mix.id}")
     assert html =~ ~s(data-confirm="Apagar esta divisória?")
@@ -260,11 +322,23 @@ defmodule BeatgridWeb.MixLiveTest do
   test "rename persists on change/blur, not only on Enter", %{conn: conn} do
     mix = insert(:mix, status: :ready, duration_ms: 600_000)
     insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
-    part = insert(:dj_part, mix: mix, position: 0, start_ms: 0, end_ms: 600_000, dj_name: "DJ OLD", source: :image)
+
+    part =
+      insert(:dj_part,
+        mix: mix,
+        position: 0,
+        start_ms: 0,
+        end_ms: 600_000,
+        dj_name: "DJ OLD",
+        source: :image
+      )
 
     {:ok, view, _} = live(conn, ~p"/sets-online/#{mix.id}")
 
-    render_change(element(view, "#dj-rename-#{part.id}"), %{"part_id" => part.id, "name" => "DJ NEW"})
+    render_change(element(view, "#dj-rename-#{part.id}"), %{
+      "part_id" => part.id,
+      "name" => "DJ NEW"
+    })
 
     [reloaded] = Beatgrid.Mixes.get_with_dj_parts(mix.id).dj_parts
     assert reloaded.dj_name == "DJ NEW"
@@ -273,7 +347,15 @@ defmodule BeatgridWeb.MixLiveTest do
   test "rename input carries an accessible label", %{conn: conn} do
     mix = insert(:mix, status: :ready, duration_ms: 600_000)
     insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
-    insert(:dj_part, mix: mix, position: 0, start_ms: 0, end_ms: 600_000, dj_name: "DJ RATA", source: :image)
+
+    insert(:dj_part,
+      mix: mix,
+      position: 0,
+      start_ms: 0,
+      end_ms: 600_000,
+      dj_name: "DJ RATA",
+      source: :image
+    )
 
     {:ok, _v, html} = live(conn, ~p"/sets-online/#{mix.id}")
     assert html =~ ~s(aria-label="Renomear DJ: DJ RATA")
@@ -281,7 +363,9 @@ defmodule BeatgridWeb.MixLiveTest do
 
   describe "audio lifecycle" do
     test "reanalyze with no audio shows an error and does not enqueue analysis", %{conn: conn} do
-      mix = insert(:mix, status: :ready, audio_path: nil, audio_deleted_at: ~U[2026-06-30 00:00:00Z])
+      mix =
+        insert(:mix, status: :ready, audio_path: nil, audio_deleted_at: ~U[2026-06-30 00:00:00Z])
+
       {:ok, view, _} = live(conn, ~p"/sets-online/#{mix.id}")
 
       # drive the event directly: the handler must guard even if the (disabled) button is bypassed
@@ -292,7 +376,9 @@ defmodule BeatgridWeb.MixLiveTest do
     end
 
     test "reprocess buttons are disabled when the audio was deleted", %{conn: conn} do
-      mix = insert(:mix, status: :ready, audio_path: nil, audio_deleted_at: ~U[2026-06-30 00:00:00Z])
+      mix =
+        insert(:mix, status: :ready, audio_path: nil, audio_deleted_at: ~U[2026-06-30 00:00:00Z])
+
       {:ok, view, _} = live(conn, ~p"/sets-online/#{mix.id}")
 
       assert has_element?(view, "button[phx-click=reanalyze][disabled]")
@@ -325,7 +411,9 @@ defmodule BeatgridWeb.MixLiveTest do
     end
 
     test "shows 'baixar áudio de novo' when deleted and re-downloads restore-only", %{conn: conn} do
-      mix = insert(:mix, status: :ready, audio_path: nil, audio_deleted_at: ~U[2026-06-30 00:00:00Z])
+      mix =
+        insert(:mix, status: :ready, audio_path: nil, audio_deleted_at: ~U[2026-06-30 00:00:00Z])
+
       {:ok, view, _} = live(conn, ~p"/sets-online/#{mix.id}")
 
       assert has_element?(view, "button[phx-click=redownload_audio]")
@@ -347,7 +435,8 @@ defmodule BeatgridWeb.MixLiveTest do
   describe "recognition controls" do
     # AudD is configured by default in tests (config/test.exs); don't mutate that global
     # here — this module is async and would race other modules' gate tests.
-    test "'Tentar tudo de novo' appears for already-tried no-match segments and forces a retry", %{conn: conn} do
+    test "'Tentar tudo de novo' appears for already-tried no-match segments and forces a retry",
+         %{conn: conn} do
       mix = insert(:mix, status: :ready, audio_path: "/tmp/_Mixes/x.mp3")
 
       insert(:mix_segment,

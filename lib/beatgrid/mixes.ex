@@ -12,7 +12,14 @@ defmodule Beatgrid.Mixes do
   alias Beatgrid.Library.{Normalize, Track}
   alias Beatgrid.Mixes.{DjPart, DjTimestamps, Mix, Segment}
   alias Beatgrid.Repo
-  alias Beatgrid.Workers.{MixAnalyzeWorker, MixDjAudioWorker, MixDjVisionWorker, MixDownloadWorker, MixRecognizeWorker}
+
+  alias Beatgrid.Workers.{
+    MixAnalyzeWorker,
+    MixDjAudioWorker,
+    MixDjVisionWorker,
+    MixDownloadWorker,
+    MixRecognizeWorker
+  }
 
   @adapter Application.compile_env(
              :beatgrid,
@@ -155,14 +162,18 @@ defmodule Beatgrid.Mixes do
   end
 
   defp snap_start(b, []), do: b
-  defp snap_start(b, segments), do: segments |> Enum.map(& &1.start_ms) |> Enum.min_by(&abs(&1 - b))
+
+  defp snap_start(b, segments),
+    do: segments |> Enum.map(& &1.start_ms) |> Enum.min_by(&abs(&1 - b))
 
   @spec clear_dj_parts(Mix.t()) :: {non_neg_integer(), nil}
   def clear_dj_parts(%Mix{id: id}), do: Repo.delete_all(from p in DjPart, where: p.mix_id == ^id)
 
   @spec set_dj_parts_manual(Mix.t(), String.t()) :: {:ok, non_neg_integer()}
   def set_dj_parts_manual(%Mix{} = mix, text) do
-    parts = text |> DjTimestamps.parse() |> Enum.map(&%{start_ms: &1.start_ms, dj_name: &1.dj_name})
+    parts =
+      text |> DjTimestamps.parse() |> Enum.map(&%{start_ms: &1.start_ms, dj_name: &1.dj_name})
+
     do_replace_dj_parts(mix, :manual, parts)
   end
 
@@ -170,7 +181,8 @@ defmodule Beatgrid.Mixes do
           {:ok, non_neg_integer()} | {:error, :manual_present}
   def replace_dj_parts(mix, source, parts, opts \\ [])
 
-  def replace_dj_parts(%Mix{} = mix, source, parts, opts) when source in [:chapter, :image, :audio] do
+  def replace_dj_parts(%Mix{} = mix, source, parts, opts)
+      when source in [:chapter, :image, :audio] do
     if has_manual_dj_parts?(mix),
       do: {:error, :manual_present},
       else: do_replace_dj_parts(mix, source, parts, opts)
@@ -191,7 +203,10 @@ defmodule Beatgrid.Mixes do
       |> Enum.sort_by(& &1.start_ms)
       |> Enum.map(fn p -> %{start_ms: snap_start(p.start_ms, segments), dj_name: p.dj_name} end)
 
-    snapped = if Enum.any?(snapped, &(&1.start_ms == 0)), do: snapped, else: [%{start_ms: 0, dj_name: nil} | snapped]
+    snapped =
+      if Enum.any?(snapped, &(&1.start_ms == 0)),
+        do: snapped,
+        else: [%{start_ms: 0, dj_name: nil} | snapped]
 
     deduped =
       snapped
@@ -226,7 +241,11 @@ defmodule Beatgrid.Mixes do
 
     Repo.transaction(fn ->
       Repo.delete_all(from p in DjPart, where: p.mix_id == ^id)
-      Enum.each(rows, fn attrs -> %DjPart{} |> DjPart.changeset(Map.put(attrs, :mix_id, id)) |> Repo.insert!() end)
+
+      Enum.each(rows, fn attrs ->
+        %DjPart{} |> DjPart.changeset(Map.put(attrs, :mix_id, id)) |> Repo.insert!()
+      end)
+
       length(rows)
     end)
   end
@@ -280,7 +299,9 @@ defmodule Beatgrid.Mixes do
     end
   end
 
-  defp blank_to_nil(s) when is_binary(s), do: if(String.trim(s) == "", do: nil, else: String.trim(s))
+  defp blank_to_nil(s) when is_binary(s),
+    do: if(String.trim(s) == "", do: nil, else: String.trim(s))
+
   defp blank_to_nil(_), do: nil
 
   defp under_mixes_dir?(path) do

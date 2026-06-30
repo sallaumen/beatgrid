@@ -14,6 +14,7 @@ defmodule Beatgrid.Library.Track do
   @formats ~w(mp3 m4a flac wav aac ogg other)a
   @statuses ~w(present missing quarantined)a
   @quality_issues ~w(missing_tags low_bitrate truncated corrupt not_audio too_short silent)a
+  @loudness_measurement_origins ~w(library_file original_backup post_gain restore_backup)a
 
   @primary_key {:id, Uniq.UUID, autogenerate: true, version: 7, type: :uuid}
   @foreign_key_type Uniq.UUID
@@ -64,6 +65,12 @@ defmodule Beatgrid.Library.Track do
     field :loudness_lufs, :float
     field :true_peak_dbtp, :float
     field :loudness_attempted_at, :utc_datetime
+    field :original_loudness_lufs, :float
+    field :original_true_peak_dbtp, :float
+    field :original_loudness_measured_at, :utc_datetime
+    field :loudness_measurement_origin, Ecto.Enum, values: @loudness_measurement_origins
+    field :gain_applied_db, :float
+    field :gain_applied_at, :utc_datetime
     field :sc_attempted_at, :utc_datetime
 
     field :bpm_manual, :float
@@ -90,7 +97,10 @@ defmodule Beatgrid.Library.Track do
                source_playlist genre_folder status quality_issues
                rating personal_note tags cue_points last_scanned_at sc_match_confidence
                sc_art_trusted bpm_detected camelot_detected analyzed_at
-               loudness_lufs true_peak_dbtp loudness_attempted_at sc_attempted_at
+               loudness_lufs true_peak_dbtp loudness_attempted_at
+               original_loudness_lufs original_true_peak_dbtp original_loudness_measured_at
+               loudness_measurement_origin
+               gain_applied_db gain_applied_at sc_attempted_at
                bpm_manual camelot_manual manual_fields
                gold_status gold_manual youtube_views youtube_published_at
                soundcharts_song_id)a
@@ -116,4 +126,7 @@ defmodule Beatgrid.Library.Track do
 
   @doc "Allowed `quality_issues` enum values."
   def quality_issues, do: @quality_issues
+
+  @doc "Allowed `loudness_measurement_origin` enum values."
+  def loudness_measurement_origins, do: @loudness_measurement_origins
 end

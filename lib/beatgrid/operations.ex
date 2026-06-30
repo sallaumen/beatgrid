@@ -8,9 +8,11 @@ defmodule Beatgrid.Operations do
   """
   alias Beatgrid.Library
   alias Beatgrid.Library.{NameSync, Tracks}
+  alias Beatgrid.Loudness
   alias Beatgrid.Operations.{Operation, OperationQuery}
-  alias Beatgrid.{Organization, Tagging}
+  alias Beatgrid.Organization
   alias Beatgrid.Repo
+  alias Beatgrid.Tagging
 
   @spec record(map()) :: {:ok, Operation.t()} | {:error, Ecto.Changeset.t()}
   def record(attrs), do: %Operation{} |> Operation.changeset(attrs) |> Repo.insert()
@@ -74,6 +76,16 @@ defmodule Beatgrid.Operations do
     case Tracks.get(op.track_id) do
       nil -> mark_failed(op, :track_not_found)
       track -> do_undo(op, track, &Library.restore_from_quarantine(&1, op.from))
+    end
+  end
+
+  defp undo_one(%Operation{kind: :gain, from: gain_string} = op) do
+    with {_gain, ""} <- Float.parse(gain_string || ""),
+         %{} = track <- Tracks.get(op.track_id) do
+      do_undo(op, track, &Loudness.restore_gain_backup(&1, op.to))
+    else
+      nil -> mark_failed(op, :track_not_found)
+      _ -> mark_failed(op, :invalid_gain)
     end
   end
 

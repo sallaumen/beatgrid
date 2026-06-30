@@ -39,7 +39,11 @@ defmodule Beatgrid.Workers.MixDownloadWorker do
   # but do NOT re-run analysis — the segments/DJ parts are already there.
   defp on_fetched(mix, meta, true) do
     {:ok, _} =
-      Mixes.update_mix(mix, %{audio_path: meta[:audio_path], audio_deleted_at: nil, status: :ready})
+      Mixes.update_mix(mix, %{
+        audio_path: meta[:audio_path],
+        audio_deleted_at: nil,
+        status: :ready
+      })
 
     Mixes.broadcast(%{mix_id: mix.id, status: :ready})
     :ok

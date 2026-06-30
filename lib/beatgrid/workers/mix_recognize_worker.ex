@@ -21,7 +21,11 @@ defmodule Beatgrid.Workers.MixRecognizeWorker do
   alias Beatgrid.{Integrations, Mixes, Repo}
   alias Beatgrid.Mixes.Segment
 
-  @recognizer Application.compile_env(:beatgrid, [Beatgrid.Recognition, :adapter], Beatgrid.Recognition.Audd)
+  @recognizer Application.compile_env(
+                :beatgrid,
+                [Beatgrid.Recognition, :adapter],
+                Beatgrid.Recognition.Audd
+              )
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
@@ -31,7 +35,8 @@ defmodule Beatgrid.Workers.MixRecognizeWorker do
   # Manual single segment: always (re-)attempt it, even if previously tried — the user asked.
   defp run(%{"segment_id" => sid}) do
     case Segment |> Repo.get(sid) |> Repo.preload(:mix) do
-      %Segment{mix: %{audio_path: path, audio_deleted_at: nil} = mix} = seg when is_binary(path) ->
+      %Segment{mix: %{audio_path: path, audio_deleted_at: nil} = mix} = seg
+      when is_binary(path) ->
         unless named?(seg), do: identify_segment(seg, path)
         Mixes.broadcast(%{mix_id: mix.id, status: :recognized})
         :ok
@@ -51,7 +56,10 @@ defmodule Beatgrid.Workers.MixRecognizeWorker do
         tally =
           targets
           |> Enum.with_index(1)
-          |> Enum.reduce(%{matched: 0, no_match: 0, error: 0}, &recognize_one(&1, path, total, mix_id, &2))
+          |> Enum.reduce(
+            %{matched: 0, no_match: 0, error: 0},
+            &recognize_one(&1, path, total, mix_id, &2)
+          )
 
         Logger.info(
           "recognize mix #{mix_id}: matched=#{tally.matched} no_match=#{tally.no_match} error=#{tally.error} of #{total}"
@@ -85,7 +93,8 @@ defmodule Beatgrid.Workers.MixRecognizeWorker do
 
   # A segment is a target when it has no name and either we're forcing a full retry or it has
   # never been attempted — so re-clicking doesn't re-pay AudD for known no-matches.
-  defp target?(seg, retry_all), do: not named?(seg) and (retry_all or is_nil(seg.audd_attempted_at))
+  defp target?(seg, retry_all),
+    do: not named?(seg) and (retry_all or is_nil(seg.audd_attempted_at))
 
   # Returns :matched | :no_match | :error.
   defp identify_segment(seg, path) do
@@ -121,7 +130,7 @@ defmodule Beatgrid.Workers.MixRecognizeWorker do
     case @recognizer.identify(path, start_ms, end_ms) do
       {:error, reason} when retries > 0 ->
         if transient?(reason) do
-          backoff(max_retries() - retries + 1)
+          retry_sleep(max_retries() - retries + 1)
           identify_with_retry(path, start_ms, end_ms, retries - 1)
         else
           {:error, reason}
@@ -134,6 +143,7 @@ defmodule Beatgrid.Workers.MixRecognizeWorker do
 
   # Worth retrying: HTTP 429 / 5xx, transport/timeout exceptions, and AudD rate-limit envelopes.
   defp transient?({:audd_http, status}), do: status == 429 or status in 500..599
+
   defp transient?({:audd_error, msg}) when is_binary(msg),
     do: String.contains?(String.downcase(msg), ["limit", "rate", "too many"])
 
@@ -141,7 +151,7 @@ defmodule Beatgrid.Workers.MixRecognizeWorker do
   defp transient?(_), do: false
 
   defp throttle, do: sleep(config(:throttle_ms, 2_500))
-  defp backoff(attempt), do: sleep(config(:retry_backoff_ms, 2_000) * attempt)
+  defp retry_sleep(attempt), do: sleep(config(:retry_backoff_ms, 2_000) * attempt)
   defp sleep(0), do: :ok
   defp sleep(ms), do: Process.sleep(ms)
 

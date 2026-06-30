@@ -12,7 +12,8 @@ defmodule Beatgrid.Mixes.DjVisionAI do
   def read_grid(image_path, tiles_ms) do
     dir = Path.dirname(image_path)
 
-    with {:ok, %{"names" => names}} <- AI.complete(prompt(image_path, tiles_ms), schema(), add_dir: [dir]) do
+    with {:ok, %{"names" => names}} <-
+           AI.complete(prompt(image_path, tiles_ms), schema(), add_dir: [dir]) do
       padded = names ++ List.duplicate(nil, max(0, length(tiles_ms) - length(names)))
 
       reads =

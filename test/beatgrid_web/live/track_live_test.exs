@@ -5,7 +5,7 @@ defmodule BeatgridWeb.TrackLiveTest do
   import Beatgrid.Factory
 
   alias Beatgrid.Analysis
-  alias Beatgrid.Library.Tracks
+  alias Beatgrid.Library.{Marker, Tracks}
   alias Beatgrid.Repertoire
   alias Beatgrid.Workers.{AnalyzeWorker, EnrichWorker, ExpandWorker, RecommendWorker}
 
@@ -36,6 +36,35 @@ defmodule BeatgridWeb.TrackLiveTest do
 
     view |> form("form[phx-change=save_note]", %{note: "abertura"}) |> render_change()
     assert Tracks.get(track.id).personal_note == "abertura"
+  end
+
+  test "shows original and current loudness plus backup availability", %{conn: conn} do
+    track =
+      insert(:track,
+        status: :present,
+        tag_title: "Normalized",
+        loudness_lufs: -14.1,
+        true_peak_dbtp: -3.8,
+        loudness_attempted_at: ~U[2026-01-01 00:00:10Z],
+        original_loudness_lufs: -9.8,
+        original_true_peak_dbtp: -0.4,
+        original_loudness_measured_at: ~U[2026-01-01 00:00:00Z],
+        loudness_measurement_origin: :post_gain,
+        gain_applied_db: -4.2,
+        gain_applied_at: ~U[2026-01-01 00:01:00Z]
+      )
+
+    {:ok, _view, html} = live(conn, ~p"/track/#{track.id}")
+
+    assert html =~ "Original backup"
+    assert html =~ "-9.8 LUFS"
+    assert html =~ "-0.4 dBTP"
+    assert html =~ "Current file"
+    assert html =~ "-14.1 LUFS"
+    assert html =~ "-3.8 dBTP"
+    assert html =~ "Applied gain"
+    assert html =~ "-4.2 dB"
+    assert html =~ "Full original backup available"
   end
 
   test "inline-edits a metadata field and a manual BPM override", %{conn: conn} do
@@ -237,7 +266,7 @@ defmodule BeatgridWeb.TrackLiveTest do
     assert html =~ "#ffb020"
 
     render_hook(view, "set_marker_type", %{"ms" => "30000", "type" => "intro"})
-    assert Beatgrid.Library.Marker.type(hd(Tracks.get(track.id).cue_points)) == "intro"
+    assert Marker.type(hd(Tracks.get(track.id).cue_points)) == "intro"
     assert render(view) =~ "#5ad1a0"
   end
 

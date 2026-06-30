@@ -86,7 +86,8 @@ defmodule Beatgrid.Workers.MixDownloadWorkerTest do
       )
 
     expect(Beatgrid.Mixes.SourceMock, :fetch, fn _url, _dest ->
-      {:ok, %{audio_path: "/tmp/_Mixes/abc.mp3", title: "Live Set", dj: "DJ X", duration_ms: 3_600_000}}
+      {:ok,
+       %{audio_path: "/tmp/_Mixes/abc.mp3", title: "Live Set", dj: "DJ X", duration_ms: 3_600_000}}
     end)
 
     assert :ok = perform_job(MixDownloadWorker, %{mix_id: mix.id, restore_only: true})

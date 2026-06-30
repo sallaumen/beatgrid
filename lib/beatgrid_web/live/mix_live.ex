@@ -22,8 +22,12 @@ defmodule BeatgridWeb.MixLive do
   end
 
   @impl true
-  def handle_info({:mix_progress, %{mix_id: id} = payload}, %{assigns: %{mix: %{id: id}}} = socket) do
-    {:noreply, assign(socket, mix: Mixes.get_with_dj_parts(id), progress: progress_label(payload))}
+  def handle_info(
+        {:mix_progress, %{mix_id: id} = payload},
+        %{assigns: %{mix: %{id: id}}} = socket
+      ) do
+    {:noreply,
+     assign(socket, mix: Mixes.get_with_dj_parts(id), progress: progress_label(payload))}
   end
 
   def handle_info({:mix_progress, _}, socket), do: {:noreply, socket}
@@ -106,7 +110,8 @@ defmodule BeatgridWeb.MixLive do
   def handle_event("recognize_all", _params, socket) do
     case Mixes.recognize_unnamed(socket.assigns.mix) do
       {:ok, _} ->
-        {:noreply, put_flash(socket, :info, "Reconhecimento iniciado — atualiza quando terminar.")}
+        {:noreply,
+         put_flash(socket, :info, "Reconhecimento iniciado — atualiza quando terminar.")}
 
       {:error, :no_credentials} ->
         {:noreply, put_flash(socket, :error, "Configure AUDD_API_TOKEN no .env.")}
@@ -116,7 +121,8 @@ defmodule BeatgridWeb.MixLive do
   def handle_event("recognize_retry_all", _params, socket) do
     case Mixes.recognize_unnamed(socket.assigns.mix, true) do
       {:ok, _} ->
-        {:noreply, put_flash(socket, :info, "Tentando reconhecer tudo de novo — atualiza quando terminar.")}
+        {:noreply,
+         put_flash(socket, :info, "Tentando reconhecer tudo de novo — atualiza quando terminar.")}
 
       {:error, :no_credentials} ->
         {:noreply, put_flash(socket, :error, "Configure AUDD_API_TOKEN no .env.")}
@@ -148,9 +154,6 @@ defmodule BeatgridWeb.MixLive do
          socket
          |> put_flash(:info, "Divisão por DJ aplicada.")
          |> assign(mix: Mixes.get_with_dj_parts(mix.id))}
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, dj_error_message(reason))}
     end
   end
 
@@ -326,7 +329,13 @@ defmodule BeatgridWeb.MixLive do
           phx-hook=".MixPlayer"
           class="sticky top-0 z-10 mt-3 rounded-lg border border-white/8 bg-surface/95 backdrop-blur px-3 py-2"
         >
-          <audio id="mix-audio" controls preload="metadata" src={~p"/sets-online/#{@mix.id}/audio"} class="w-full" />
+          <audio
+            id="mix-audio"
+            controls
+            preload="metadata"
+            src={~p"/sets-online/#{@mix.id}/audio"}
+            class="w-full"
+          />
         </div>
 
         <p :if={@mix.status == :analyzing} class="mt-4 text-body-sm text-ink-muted">
@@ -353,7 +362,7 @@ defmodule BeatgridWeb.MixLive do
                 name="timestamps"
                 rows="4"
                 class="w-full rounded border border-white/10 bg-transparent px-2 py-1.5 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary/50 focus:outline-none font-mono"
-                placeholder={"0:00 DJ A\n30:00 DJ B"}
+                placeholder="0:00 DJ A\n30:00 DJ B"
               ></textarea>
               <button
                 type="submit"
@@ -545,7 +554,9 @@ defmodule BeatgridWeb.MixLive do
         title="Ouvir a partir daqui"
         class="w-12 shrink-0 rounded px-1 py-0.5 font-mono text-body-sm text-ink-muted hover:text-ink"
       >{format_clock(@seg.start_ms)}</button>
-      <span :if={not @playable} class="w-12 shrink-0 font-mono text-body-sm text-ink-muted">{format_clock(@seg.start_ms)}</span>
+      <span :if={not @playable} class="w-12 shrink-0 font-mono text-body-sm text-ink-muted">{format_clock(
+        @seg.start_ms
+      )}</span>
       <button
         :if={@playable and not named?(@seg)}
         type="button"
@@ -563,7 +574,11 @@ defmodule BeatgridWeb.MixLive do
       >
         {name_source_label(@seg.name_source)}
       </span>
-      <form id={"seg-form-#{@seg.id}"} phx-submit="save_segment" class="min-w-0 flex-1 flex items-center gap-2">
+      <form
+        id={"seg-form-#{@seg.id}"}
+        phx-submit="save_segment"
+        class="min-w-0 flex-1 flex items-center gap-2"
+      >
         <input type="hidden" name="segment_id" value={@seg.id} />
         <input
           name="artist"
@@ -577,9 +592,14 @@ defmodule BeatgridWeb.MixLive do
           placeholder="Título"
           class="min-w-0 flex-1 rounded border border-white/10 bg-transparent px-1.5 py-0.5 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary/50 focus:outline-none"
         />
-        <button type="submit" class="shrink-0 rounded px-2 py-0.5 text-[11px] text-ink-faint hover:text-ink">✓</button>
+        <button
+          type="submit"
+          class="shrink-0 rounded px-2 py-0.5 text-[11px] text-ink-faint hover:text-ink"
+        >✓</button>
       </form>
-      <span :if={@seg.bpm_detected} class="shrink-0 text-body-sm text-primary">{round(@seg.bpm_detected)} BPM</span>
+      <span :if={@seg.bpm_detected} class="shrink-0 text-body-sm text-primary">{round(
+        @seg.bpm_detected
+      )} BPM</span>
       <.camelot_seal value={@seg.camelot_detected} />
       <.coverage_badge seg={@seg} />
     </div>
@@ -657,10 +677,6 @@ defmodule BeatgridWeb.MixLive do
 
   defp blank_to_nil(s) when is_binary(s), do: if(String.trim(s) == "", do: nil, else: s)
   defp blank_to_nil(_), do: nil
-
-  defp dj_error_message(:no_chapters), do: "Esse set não tem capítulos."
-  defp dj_error_message(:manual_present), do: "Limpe a divisão manual primeiro."
-  defp dj_error_message(_), do: "Erro ao aplicar divisão por DJ."
 
   defp camelot_label(:perfect), do: "mesmo tom"
   defp camelot_label(:compatible), do: "compatível"

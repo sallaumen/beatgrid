@@ -26,7 +26,10 @@ defmodule Beatgrid.Audio.SetSegmenter.LibrosaCliPortTest do
     Application.put_env(:beatgrid, @key, python: "/bin/sh", script: fake)
 
     on_exit(fn ->
-      if prev, do: Application.put_env(:beatgrid, @key, prev), else: Application.delete_env(:beatgrid, @key)
+      if prev,
+        do: Application.put_env(:beatgrid, @key, prev),
+        else: Application.delete_env(:beatgrid, @key)
+
       File.rm(fake)
     end)
 
