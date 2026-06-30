@@ -55,11 +55,20 @@ defmodule BeatgridWeb.AudioController do
 
     case get_req_header(conn, "range") do
       ["bytes=" <> spec] ->
-        {offset, length} = clamp(parse_range(spec, size), size)
+        case parse_range(spec, size) do
+          {:ok, offset, length} ->
+            conn
+            |> put_resp_header("content-range", "bytes #{offset}-#{offset + length - 1}/#{size}")
+            |> send_file(206, path, offset, length)
 
-        conn
-        |> put_resp_header("content-range", "bytes #{offset}-#{offset + length - 1}/#{size}")
-        |> send_file(206, path, offset, length)
+          :unsatisfiable ->
+            conn
+            |> put_resp_header("content-range", "bytes */#{size}")
+            |> send_resp(416, "")
+
+          :invalid ->
+            send_file(conn, 200, path)
+        end
 
       _ ->
         send_file(conn, 200, path)
@@ -67,22 +76,54 @@ defmodule BeatgridWeb.AudioController do
   end
 
   defp parse_range(spec, size) do
-    case String.split(spec, "-") do
+    spec =
+      spec
+      |> String.split(",", parts: 2)
+      |> List.first()
+      |> String.trim()
+
+    case String.split(spec, "-", parts: 2) do
+      ["", suffix] ->
+        suffix_range(parse_non_negative(suffix), size)
+
       [start, ""] ->
-        {String.to_integer(start), size - String.to_integer(start)}
+        open_range(parse_non_negative(start), size)
 
       [start, finish] ->
-        {String.to_integer(start), String.to_integer(finish) - String.to_integer(start) + 1}
+        closed_range(parse_non_negative(start), parse_non_negative(finish), size)
 
       _ ->
-        {0, size}
+        :invalid
     end
-  rescue
-    _ -> {0, size}
   end
 
-  defp clamp({offset, length}, size) do
-    offset = offset |> max(0) |> min(size - 1)
-    {offset, length |> max(1) |> min(size - offset)}
+  defp parse_non_negative(value) do
+    case Integer.parse(value) do
+      {n, ""} when n >= 0 -> {:ok, n}
+      _ -> :error
+    end
   end
+
+  defp suffix_range({:ok, suffix}, size) when suffix > 0 and size > 0 do
+    offset = max(size - suffix, 0)
+    {:ok, offset, size - offset}
+  end
+
+  defp suffix_range({:ok, _suffix}, _size), do: :unsatisfiable
+  defp suffix_range(:error, _size), do: :invalid
+
+  defp open_range({:ok, start}, size) when start < size and size > 0,
+    do: {:ok, start, size - start}
+
+  defp open_range({:ok, _start}, _size), do: :unsatisfiable
+  defp open_range(:error, _size), do: :invalid
+
+  defp closed_range({:ok, start}, {:ok, finish}, size)
+       when start <= finish and start < size and size > 0 do
+    finish = min(finish, size - 1)
+    {:ok, start, finish - start + 1}
+  end
+
+  defp closed_range({:ok, _start}, {:ok, _finish}, _size), do: :unsatisfiable
+  defp closed_range(_start, _finish, _size), do: :invalid
 end

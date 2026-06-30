@@ -30,8 +30,14 @@ defmodule Beatgrid.Playback.NowPlaying do
         }
   def put(state) do
     norm = %{track_id: state[:track_id], set_id: state[:set_id]}
-    Agent.update(__MODULE__, fn _ -> norm end)
-    PubSub.broadcast(Beatgrid.PubSub, @topic, {:now_playing, norm})
+
+    changed? =
+      Agent.get_and_update(__MODULE__, fn
+        ^norm -> {false, norm}
+        _current -> {true, norm}
+      end)
+
+    if changed?, do: PubSub.broadcast(Beatgrid.PubSub, @topic, {:now_playing, norm})
     norm
   end
 
