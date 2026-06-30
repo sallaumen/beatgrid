@@ -126,6 +126,25 @@ defmodule Beatgrid.MixesTest do
     end
   end
 
+  describe "redownload_audio/1" do
+    test "marks the mix downloading and enqueues a restore-only download" do
+      mix =
+        insert(:mix,
+          status: :ready,
+          audio_path: nil,
+          audio_deleted_at: ~U[2026-06-30 00:00:00Z]
+        )
+
+      assert {:ok, updated} = Mixes.redownload_audio(mix)
+      assert updated.status == :downloading
+
+      assert_enqueued(
+        worker: Beatgrid.Workers.MixDownloadWorker,
+        args: %{mix_id: mix.id, restore_only: true}
+      )
+    end
+  end
+
   describe "rename_dj_part/2 and delete_dj_part/1" do
     test "rename_dj_part updates the name" do
       mix = insert(:mix)

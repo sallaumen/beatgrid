@@ -121,6 +121,15 @@ defmodule Beatgrid.Mixes do
     })
   end
 
+  @doc "Re-fetches a purged audio file from its source (restore-only: no re-analysis)."
+  @spec redownload_audio(Mix.t()) :: {:ok, Mix.t()} | {:error, term()}
+  def redownload_audio(%Mix{} = mix) do
+    with {:ok, updated} <- update_mix(mix, %{status: :downloading}),
+         {:ok, _job} <- Oban.insert(MixDownloadWorker.new(%{mix_id: mix.id, restore_only: true})) do
+      {:ok, updated}
+    end
+  end
+
   @spec get_with_dj_parts(binary()) :: Mix.t() | nil
   def get_with_dj_parts(id) do
     Mix

@@ -20,7 +20,7 @@ defmodule Beatgrid.Workers.MixDownloadWorker do
   alias Beatgrid.Workers.MixAnalyzeWorker
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"mix_id" => mix_id}}) do
+  def perform(%Oban.Job{args: %{"mix_id" => mix_id} = args}) do
     case Mixes.get_mix(mix_id) do
       nil ->
         :ok
@@ -29,16 +29,27 @@ defmodule Beatgrid.Workers.MixDownloadWorker do
         dest = Path.join(Library.library_root(), "_Mixes")
 
         case Mixes.fetch_source(mix.source_url, dest) do
-          {:ok, meta} ->
-            {:ok, mix} = Mixes.update_mix(mix, Map.put(meta, :status, :analyzing))
-            {:ok, _} = Oban.insert(MixAnalyzeWorker.new(%{mix_id: mix.id}))
-            Mixes.broadcast(%{mix_id: mix.id, status: :analyzing})
-            :ok
-
-          {:error, reason} ->
-            handle_error(mix, reason)
+          {:ok, meta} -> on_fetched(mix, meta, args["restore_only"] == true)
+          {:error, reason} -> handle_error(mix, reason)
         end
     end
+  end
+
+  # restore-only (re-download of a purged file): bring the audio back and ready the mix,
+  # but do NOT re-run analysis — the segments/DJ parts are already there.
+  defp on_fetched(mix, meta, true) do
+    {:ok, _} =
+      Mixes.update_mix(mix, %{audio_path: meta[:audio_path], audio_deleted_at: nil, status: :ready})
+
+    Mixes.broadcast(%{mix_id: mix.id, status: :ready})
+    :ok
+  end
+
+  defp on_fetched(mix, meta, _restore_only) do
+    {:ok, mix} = Mixes.update_mix(mix, Map.put(meta, :status, :analyzing))
+    {:ok, _} = Oban.insert(MixAnalyzeWorker.new(%{mix_id: mix.id}))
+    Mixes.broadcast(%{mix_id: mix.id, status: :analyzing})
+    :ok
   end
 
   defp handle_error(mix, reason) do

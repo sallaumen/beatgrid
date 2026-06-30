@@ -75,4 +75,26 @@ defmodule Beatgrid.Workers.MixDownloadWorkerTest do
     assert {:cancel, _} = perform_job(MixDownloadWorker, %{mix_id: mix.id})
     assert Mixes.get_mix(mix.id).status == :failed
   end
+
+  test "restore_only re-fetches audio, clears audio_deleted_at, readies, and does NOT analyze" do
+    mix =
+      insert(:mix,
+        status: :downloading,
+        title: "Live Set",
+        audio_path: nil,
+        audio_deleted_at: ~U[2026-06-30 00:00:00Z]
+      )
+
+    expect(Beatgrid.Mixes.SourceMock, :fetch, fn _url, _dest ->
+      {:ok, %{audio_path: "/tmp/_Mixes/abc.mp3", title: "Live Set", dj: "DJ X", duration_ms: 3_600_000}}
+    end)
+
+    assert :ok = perform_job(MixDownloadWorker, %{mix_id: mix.id, restore_only: true})
+
+    reloaded = Mixes.get_mix(mix.id)
+    assert reloaded.status == :ready
+    assert reloaded.audio_path == "/tmp/_Mixes/abc.mp3"
+    assert reloaded.audio_deleted_at == nil
+    refute_enqueued(worker: MixAnalyzeWorker)
+  end
 end
