@@ -9,7 +9,7 @@ defmodule Beatgrid.Workers.MixAnalyzeWorkerTest do
 
   alias Beatgrid.Library.Normalize
   alias Beatgrid.Mixes
-  alias Beatgrid.Workers.{MixAnalyzeWorker, MixCleanupWorker}
+  alias Beatgrid.Workers.MixAnalyzeWorker
 
   test "uses description timestamps as boundaries, analyzes, names, matches, and readies" do
     track =
@@ -55,7 +55,8 @@ defmodule Beatgrid.Workers.MixAnalyzeWorkerTest do
     assert s1.bpm_detected == 124.0 and s1.camelot_detected != nil
     assert s1.matched_track_id == track.id
     assert s2.matched_track_id == nil
-    assert_enqueued(worker: MixCleanupWorker, args: %{mix_id: mix.id})
+    # no more 24h auto-delete: analysis must NOT schedule any audio cleanup
+    assert Mixes.get_mix(mix.id).cleanup_job_id == nil
   end
 
   test "uses chapters as track boundaries when there is no description tracklist" do

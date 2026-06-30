@@ -18,7 +18,6 @@ defmodule Beatgrid.Workers.MixAnalyzeWorker do
   alias Beatgrid.Mixes
   alias Beatgrid.Mixes.TracklistAI
   alias Beatgrid.Soundcharts.Camelot
-  alias Beatgrid.Workers.MixCleanupWorker
 
   @segmenter Application.compile_env(
                :beatgrid,
@@ -52,7 +51,6 @@ defmodule Beatgrid.Workers.MixAnalyzeWorker do
             error: nil
           })
 
-        schedule_cleanup(mix)
         Mixes.broadcast(%{mix_id: mix.id, status: :ready})
         maybe_free_djs(job, mix)
         :ok
@@ -142,16 +140,6 @@ defmodule Beatgrid.Workers.MixAnalyzeWorker do
       matched_track_id: match && match.track_id,
       match_confidence: match && match.confidence
     }
-  end
-
-  defp schedule_cleanup(mix) do
-    mix = Mixes.get_mix(mix.id)
-    if is_integer(mix.cleanup_job_id), do: Oban.cancel_job(mix.cleanup_job_id)
-
-    {:ok, job} =
-      Oban.insert(MixCleanupWorker.new(%{mix_id: mix.id}, schedule_in: 86_400))
-
-    {:ok, _} = Mixes.update_mix(mix, %{cleanup_job_id: job.id})
   end
 
   defp fail(mix, reason) do

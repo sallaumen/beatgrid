@@ -56,15 +56,6 @@ defmodule BeatgridWeb.MixLive do
     end
   end
 
-  def handle_event("keep_audio", _params, socket) do
-    {:ok, _} = Mixes.cancel_cleanup(socket.assigns.mix)
-
-    {:noreply,
-     socket
-     |> put_flash(:info, "Arquivo mantido — não será apagado.")
-     |> assign(mix: Mixes.get_with_dj_parts(socket.assigns.mix.id))}
-  end
-
   def handle_event("reanalyze", _params, socket) do
     mix = socket.assigns.mix
     {:ok, _} = Mixes.set_status(mix, :analyzing)
@@ -255,19 +246,7 @@ defmodule BeatgridWeb.MixLive do
           </div>
         </div>
 
-        <%!-- Cleanup / audio-deleted banner --%>
-        <div
-          :if={@mix.cleanup_job_id && is_nil(@mix.audio_deleted_at)}
-          class="mt-3 flex items-center gap-3 rounded-lg border border-amber-400/20 bg-amber-400/5 px-4 py-2 text-body-sm text-amber-300"
-        >
-          <span>🗑 o áudio será apagado ~24h após a análise</span>
-          <button
-            phx-click="keep_audio"
-            class="ml-auto rounded-md border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-[12px] font-medium hover:bg-amber-400/20"
-          >
-            Manter arquivo
-          </button>
-        </div>
+        <%!-- Audio-deleted notice --%>
         <p
           :if={@mix.audio_deleted_at}
           class="mt-3 text-body-sm text-ink-muted"

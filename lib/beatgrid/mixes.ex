@@ -121,13 +121,6 @@ defmodule Beatgrid.Mixes do
     })
   end
 
-  @doc "Cancels the scheduled audio-cleanup job for a mix (keeps the file)."
-  @spec cancel_cleanup(Mix.t()) :: {:ok, Mix.t()} | {:error, Ecto.Changeset.t()}
-  def cancel_cleanup(%Mix{cleanup_job_id: id} = mix) do
-    if is_integer(id), do: Oban.cancel_job(id)
-    update_mix(mix, %{cleanup_job_id: nil})
-  end
-
   @spec get_with_dj_parts(binary()) :: Mix.t() | nil
   def get_with_dj_parts(id) do
     Mix
