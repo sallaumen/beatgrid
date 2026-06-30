@@ -640,4 +640,25 @@ defmodule BeatgridWeb.TrackLiveTest do
     # Gate hint appears when Soundcharts is not configured.
     assert html =~ "SOUNDCHARTS_APP_ID"
   end
+
+  test "the Ouro badge is clickable and toggles the manual gold override", %{conn: conn} do
+    track = insert(:track, status: :present, tag_title: "Rara", tag_artist: "X")
+    # a bare track is not automatically gold
+    assert {false, _} = Beatgrid.Gold.effective(track)
+
+    {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
+
+    # a clickable Ouro control exists even when the track is NOT gold yet (so it can be added)
+    assert has_element?(view, "button[phx-click=toggle_gold]")
+
+    # one click flags it as Ouro (manual override) — a personally-rare track
+    view |> element("button[phx-click=toggle_gold]") |> render_click()
+    reloaded = Tracks.get(track.id)
+    refute is_nil(reloaded.gold_manual)
+    assert {true, _} = Beatgrid.Gold.effective(reloaded)
+
+    # clicking again reverts to automatic
+    view |> element("button[phx-click=toggle_gold]") |> render_click()
+    assert is_nil(Tracks.get(track.id).gold_manual)
+  end
 end

@@ -91,6 +91,11 @@ defmodule BeatgridWeb.TrackLive do
     {:noreply, save(socket, %{rating: String.to_integer(n)})}
   end
 
+  def handle_event("toggle_gold", _params, socket) do
+    {:ok, _} = Library.toggle_gold(socket.assigns.track)
+    {:noreply, reload(socket)}
+  end
+
   def handle_event("add_tag", %{"tag" => tag}, socket) do
     tag = String.trim(tag)
 
@@ -470,7 +475,7 @@ defmodule BeatgridWeb.TrackLive do
           <div class="min-w-0 flex-1">
             <div class="flex min-w-0 items-center gap-2">
               <h1 class="truncate text-[23px] font-semibold">{title(@track)}</h1>
-              <.ouro_badge track={@track} />
+              <.ouro_badge track={@track} interactive />
               <span
                 :if={@track.id == @playing_track_id}
                 class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary"

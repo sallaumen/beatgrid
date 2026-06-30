@@ -134,15 +134,36 @@ defmodule BeatgridWeb.UI do
   end
 
   attr :track, :map, required: true
+  attr :interactive, :boolean, default: false
 
-  @doc "Selo Ouro (dourado quando confirmado/popular/manual; âmbar com ? quando candidato)."
+  @doc """
+  Selo Ouro (dourado quando confirmado/popular/manual; âmbar com ? quando candidato).
+  Com `interactive`, vira um botão clicável (`toggle_gold`) SEMPRE visível — aceso quando
+  Ouro (clique remove/reverte), apagado quando não (clique marca). Sem `interactive` (listas),
+  é um selo estático que só aparece quando Ouro.
+  """
   def ouro_badge(assigns) do
     {is_gold, reason} = Beatgrid.Gold.effective(assigns.track)
     assigns = assign(assigns, gold?: is_gold, reason: reason)
 
     ~H"""
+    <button
+      :if={@interactive}
+      type="button"
+      phx-click="toggle_gold"
+      phx-value-id={@track.id}
+      title={if @gold?, do: ouro_tooltip(@reason, @track), else: "Clique para marcar como Ouro"}
+      class={[
+        "inline-flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-px text-[10px] font-semibold transition",
+        @gold? && @reason == :raro_candidato && "bg-amber/15 text-amber",
+        @gold? && @reason != :raro_candidato && "bg-[#f5c518]/20 text-[#f5c518]",
+        not @gold? && "bg-white/5 text-ink-faint opacity-50 hover:opacity-100 hover:text-[#f5c518]"
+      ]}
+    >
+      ★<span :if={@gold? && @reason == :raro_candidato}>?</span>
+    </button>
     <span
-      :if={@gold?}
+      :if={not @interactive and @gold?}
       class={[
         "inline-flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-px text-[10px] font-semibold",
         @reason == :raro_candidato && "bg-amber/15 text-amber",
