@@ -29,7 +29,12 @@ defmodule Beatgrid.Sets do
 
   @doc "The set's entries (track + section role) in order — what the screen renders."
   @spec entries(RecSet.t()) :: [
-          %{track: Library.Track.t(), role: String.t() | nil, position: integer()}
+          %{
+            track: Library.Track.t(),
+            role: String.t() | nil,
+            position: integer(),
+            transition: map() | nil
+          }
         ]
   def entries(%RecSet{id: id}), do: RecSetQuery.ordered_entries(id)
 
@@ -119,8 +124,16 @@ defmodule Beatgrid.Sets do
     :ok
   end
 
-  @doc "Moves a track one step up or down in the set (a no-op at the edges)."
-  @spec move(RecSet.t(), Library.Track.t(), :up | :down) :: :ok
+  @doc """
+  Reorders a track in the set: `:up`/`:down` move one step (no-op at the edges),
+  `:top`/`:bottom` jump it to the start/end. Positions are renumbered afterwards.
+  """
+  @spec move(RecSet.t(), Library.Track.t(), :up | :down | :top | :bottom) :: :ok
+  def move(%RecSet{} = set, track, :top), do: reposition(set, track, 0)
+
+  def move(%RecSet{id: id} = set, track, :bottom),
+    do: reposition(set, track, RecSetQuery.count(id) + 1)
+
   def move(%RecSet{id: id}, track, direction) do
     rows = RecSetQuery.rows(id)
     idx = Enum.find_index(rows, &(&1.track_id == track.id))
@@ -140,6 +153,18 @@ defmodule Beatgrid.Sets do
     pa = a.position
     a |> SetTrack.changeset(%{position: b.position}) |> Repo.update()
     b |> SetTrack.changeset(%{position: pa}) |> Repo.update()
+  end
+
+  # Parks the track at an out-of-range position (0 = before all, count+1 = after all),
+  # then renumbers — so it lands first/last.
+  defp reposition(%RecSet{id: id} = set, track, position) do
+    SetTrack
+    |> Repo.get_by!(rec_set_id: id, track_id: track.id)
+    |> SetTrack.changeset(%{position: position})
+    |> Repo.update()
+
+    reindex(set)
+    :ok
   end
 
   # ── Connections (transition INTO an entry, from the previous track) ──────────

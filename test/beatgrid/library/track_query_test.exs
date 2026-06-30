@@ -36,6 +36,24 @@ defmodule Beatgrid.Library.TrackQueryTest do
       assert hd(result).soundcharts_song.camelot == "8A"
     end
 
+    test "search is accent-insensitive and accepts a UUID as fallback" do
+      t =
+        insert(:track,
+          status: :present,
+          tag_artist: "Marinês",
+          tag_title: "Jerimum de Gogó",
+          norm_artist: "marines",
+          norm_title: "jerimum de gogo"
+        )
+
+      insert(:track, status: :present, norm_artist: "outro", norm_title: "coisa")
+
+      assert [%{id: id}] = TrackQuery.library(%{search: "Marinês"})
+      assert id == t.id
+      assert [%{id: ^id}] = TrackQuery.library(%{search: "Gogó"})
+      assert [%{id: ^id}] = TrackQuery.library(%{search: t.id})
+    end
+
     test "no filters returns all present tracks" do
       insert(:track, status: :present)
       insert(:track, status: :present)

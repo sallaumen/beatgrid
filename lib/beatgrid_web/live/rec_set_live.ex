@@ -670,6 +670,13 @@ defmodule BeatgridWeb.RecSetLive do
                     <button
                       phx-click="move"
                       phx-value-track={e.track.id}
+                      phx-value-dir="top"
+                      class="text-ink-faint hover:text-ink"
+                      title="Para o topo"
+                    >⤒</button>
+                    <button
+                      phx-click="move"
+                      phx-value-track={e.track.id}
                       phx-value-dir="up"
                       class="text-ink-faint hover:text-ink"
                       title="Subir"
@@ -681,6 +688,13 @@ defmodule BeatgridWeb.RecSetLive do
                       class="text-ink-faint hover:text-ink"
                       title="Descer"
                     >▼</button>
+                    <button
+                      phx-click="move"
+                      phx-value-track={e.track.id}
+                      phx-value-dir="bottom"
+                      class="text-ink-faint hover:text-ink"
+                      title="Para o fim"
+                    >⤓</button>
                     <button
                       phx-click="remove"
                       phx-value-track={e.track.id}

@@ -3,7 +3,7 @@ defmodule Beatgrid.Library.TrackQuery do
 
   import Ecto.Query
 
-  alias Beatgrid.Library.Track
+  alias Beatgrid.Library.{Normalize, Track}
   alias Beatgrid.Repo
   alias Beatgrid.Soundcharts.Camelot
 
@@ -192,8 +192,17 @@ defmodule Beatgrid.Library.TrackQuery do
   defp apply_filter(q, :unclassified, _v), do: where(q, [t], is_nil(t.genre_folder))
 
   defp apply_filter(q, :search, v) do
-    like = "%#{v}%"
-    where(q, [t], ilike(t.norm_artist, ^like) or ilike(t.norm_title, ^like))
+    # A UUID matches the track by id directly (a reliable fallback when name search
+    # fails). Otherwise normalize the query the same way `norm_*` are stored
+    # (accent-stripped + downcased) so "Marinês"/"Gogó" match "marines"/"gogo".
+    case Ecto.UUID.cast(String.trim(v)) do
+      {:ok, id} ->
+        where(q, [t], t.id == ^id)
+
+      :error ->
+        like = "%#{Normalize.normalize(v)}%"
+        where(q, [t], ilike(t.norm_artist, ^like) or ilike(t.norm_title, ^like))
+    end
   end
 
   # Camelot needs BOTH keys (`:camelot` + `:camelot_compatible`), so it gets a

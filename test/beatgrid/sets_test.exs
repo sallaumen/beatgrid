@@ -36,6 +36,23 @@ defmodule Beatgrid.SetsTest do
     assert [%{name: "Sunset"}] = Sets.list()
   end
 
+  test "move :top and :bottom jump a track to the ends" do
+    {:ok, set} = Sets.create("Reorder")
+    a = track_with("8A", 120.0)
+    b = track_with("8A", 121.0)
+    c = track_with("8A", 122.0)
+    Enum.each([a, b, c], &Sets.append(set, &1))
+
+    ids = fn -> Sets.tracks(set) |> Enum.map(& &1.id) end
+    assert ids.() == [a.id, b.id, c.id]
+
+    :ok = Sets.move(set, c, :top)
+    assert ids.() == [c.id, a.id, b.id]
+
+    :ok = Sets.move(set, c, :bottom)
+    assert ids.() == [a.id, b.id, c.id]
+  end
+
   test "next_after returns the next ordered track and is reorder-safe (the set pointer)" do
     {:ok, set} = Sets.create("Chain")
     a = track_with("8A", 120.0)
