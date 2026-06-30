@@ -203,6 +203,36 @@ defmodule Beatgrid.Sets do
     {:ok, count}
   end
 
+  @doc """
+  Builds a ~8-track example set from `forro_roots`: a `RecSet` "Roots — exemplo",
+  seeded with a present roots track and harmonically auto-filled. Marker detection +
+  connections are applied separately (see `Workers.ExampleSetWorker`). Returns
+  `{:error, :no_roots_tracks}` when the folder has no present tracks.
+  """
+  @spec build_example() :: {:ok, RecSet.t()} | {:error, :no_roots_tracks}
+  def build_example do
+    case seed_roots_track() do
+      nil ->
+        {:error, :no_roots_tracks}
+
+      seed ->
+        {:ok, set} = create("Roots — exemplo")
+        {:ok, set} = set_target_style(set, "forro_roots")
+        append(set, seed)
+        auto_fill(set, count: 7)
+        {:ok, set}
+    end
+  end
+
+  defp seed_roots_track do
+    Repo.one(
+      from t in Library.Track,
+        where: t.status == :present and t.genre_folder == "forro_roots",
+        order_by: [desc_nulls_last: t.analyzed_at],
+        limit: 1
+    )
+  end
+
   defp normalize_transition(attrs) do
     type = attrs["type"] || attrs[:type]
 

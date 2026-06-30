@@ -12,6 +12,10 @@ erl_crash.dump
 /priv/plts/*.plt
 /priv/plts/*.plt.hash
 
+# Python helper scripts (librosa/ffmpeg analysis) bytecode
+__pycache__/
+*.pyc
+
 # Phoenix assets
 /assets/node_modules/
 /priv/static/assets/

@@ -6,7 +6,7 @@ defmodule BeatgridWeb.DashboardLive do
 
   alias Beatgrid.{Analysis, Loudness, Repertoire, YouTube}
   alias Beatgrid.Library.GenreFolders
-  alias Beatgrid.Workers.{EnrichWorker, RecommendWorker}
+  alias Beatgrid.Workers.{EnrichWorker, ExampleSetWorker, RecommendWorker}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -71,6 +71,17 @@ defmodule BeatgridWeb.DashboardLive do
     {:noreply, assign(socket, analysis: Analysis.progress(), analysis_note: note)}
   end
 
+  def handle_event("build_example_set", _params, socket) do
+    Oban.insert(ExampleSetWorker.new(%{}))
+
+    {:noreply,
+     put_flash(
+       socket,
+       :info,
+       "Montando set de exemplo (roots): detectando marcadores + conectando… abra REC SET em ~1 min."
+     )}
+  end
+
   def handle_event("analyze_loudness", _params, socket) do
     {:ok, n} = Loudness.enqueue_pending()
 
@@ -102,7 +113,9 @@ defmodule BeatgridWeb.DashboardLive do
       case Oban.insert(EnrichWorker.new(%{"scope" => "pending", "batch_id" => bid})) do
         {:ok, %Oban.Job{conflict?: true}} ->
           {:noreply,
-           assign(socket, youtube_note: "Já existe um enriquecimento em andamento — veja em Jobs.")}
+           assign(socket,
+             youtube_note: "Já existe um enriquecimento em andamento — veja em Jobs."
+           )}
 
         {:ok, _job} ->
           {:noreply, assign(socket, enrich: %{status: :queued}, youtube_note: nil)}
@@ -384,6 +397,22 @@ defmodule BeatgridWeb.DashboardLive do
                 class="text-amber shrink-0 rounded-md bg-amber/20 px-3.5 py-1.5 text-body-sm font-semibold disabled:opacity-40"
               >
                 Analisar loudness ({max(@loudness.total - @loudness.measured, 0)})
+              </button>
+            </div>
+
+            <div class="mt-4 flex items-center justify-between gap-4 border-t border-white/6 pt-4">
+              <div class="min-w-0 flex-1">
+                <span class="text-body-sm text-ink-secondary">Set de exemplo (Roots)</span>
+                <p class="mt-1 text-caption text-ink-muted">
+                  Monta um set do Forró Roots, detecta intro/saída por análise e conecta as
+                  faixas com transições — pronto pra tocar no autoplay (REC SET).
+                </p>
+              </div>
+              <button
+                phx-click="build_example_set"
+                class="shrink-0 rounded-md border border-primary/40 bg-primary/10 px-3.5 py-1.5 text-body-sm font-semibold text-primary hover:bg-primary/20"
+              >
+                ⛓ Montar set de exemplo
               </button>
             </div>
           </.panel>
