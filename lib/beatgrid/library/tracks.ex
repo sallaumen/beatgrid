@@ -5,7 +5,7 @@ defmodule Beatgrid.Library.Tracks do
   """
   import Ecto.Query
 
-  alias Beatgrid.Library.{Normalize, Track, TrackQuery, Version}
+  alias Beatgrid.Library.{Marker, Normalize, Track, TrackQuery, Version}
   alias Beatgrid.Repo
 
   defdelegate get(id), to: TrackQuery
@@ -107,6 +107,19 @@ defmodule Beatgrid.Library.Tracks do
     cues =
       Enum.map(track.cue_points || [], fn
         %{"ms" => ^position_ms} = marker -> Map.put(marker, "label", normalize_label(label))
+        marker -> marker
+      end)
+
+    save_cues(track, cues)
+  end
+
+  @doc "Sets the `type` (coerced via `Marker.normalize_type`) of the marker at `position_ms`."
+  @spec set_marker_type(Track.t(), non_neg_integer(), String.t()) ::
+          {:ok, Track.t()} | {:error, Ecto.Changeset.t()}
+  def set_marker_type(track, position_ms, type) do
+    cues =
+      Enum.map(track.cue_points || [], fn
+        %{"ms" => ^position_ms} = marker -> Map.put(marker, "type", Marker.normalize_type(type))
         marker -> marker
       end)
 

@@ -179,6 +179,9 @@ defmodule BeatgridWeb.TrackLive do
   def handle_event("remove_marker", %{"ms" => ms}, socket),
     do: {:noreply, mutate_markers(socket, ms, &Tracks.remove_marker(&1, &2))}
 
+  def handle_event("set_marker_type", %{"ms" => ms, "type" => type}, socket),
+    do: {:noreply, mutate_markers(socket, ms, &Tracks.set_marker_type(&1, &2, type))}
+
   def handle_event("reanalyze", _params, socket) do
     {:noreply, enqueue_analyze(socket)}
   end

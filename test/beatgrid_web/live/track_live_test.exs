@@ -223,6 +223,24 @@ defmodule BeatgridWeb.TrackLiveTest do
     assert html =~ "refrão"
   end
 
+  test "marker list colors by type and can change a marker's type", %{conn: conn} do
+    track =
+      insert(:track,
+        status: :present,
+        tag_title: "T",
+        tag_artist: "A",
+        cue_points: [%{"ms" => 30_000, "label" => nil, "type" => "cue", "source" => "manual"}],
+        analyzed_at: ~U[2026-01-01 00:00:00Z]
+      )
+
+    {:ok, view, html} = live(conn, ~p"/track/#{track.id}")
+    assert html =~ "#ffb020"
+
+    render_hook(view, "set_marker_type", %{"ms" => "30000", "type" => "intro"})
+    assert Beatgrid.Library.Marker.type(hd(Tracks.get(track.id).cue_points)) == "intro"
+    assert render(view) =~ "#5ad1a0"
+  end
+
   test "redirects to the library when the track is not found", %{conn: conn} do
     assert {:error, {:live_redirect, %{to: "/"}}} = live(conn, ~p"/track/#{Ecto.UUID.generate()}")
   end

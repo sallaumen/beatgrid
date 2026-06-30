@@ -7,6 +7,7 @@ defmodule BeatgridWeb.UI do
   use Phoenix.Component
 
   alias Beatgrid.Library.GenreFolders
+  alias Beatgrid.Library.Marker
   alias Phoenix.LiveView.JS
 
   @folder_colors %{
@@ -333,7 +334,8 @@ defmodule BeatgridWeb.UI do
       <p :if={@markers == []} class="text-caption text-ink-faint">{@empty_hint}</p>
       <div
         :for={m <- @markers}
-        class="flex items-center gap-2 rounded-md border border-amber/30 bg-amber/5 px-2 py-1"
+        class="flex items-center gap-2 rounded-md border border-l-2 border-white/8 bg-white/3 px-2 py-1"
+        style={"border-left-color:#{Marker.color(m)}"}
       >
         <button
           type="button"
@@ -346,11 +348,33 @@ defmodule BeatgridWeb.UI do
                   detail: %{src: @play_src, id: @track_id, at_ms: m["ms"]}
                 )
           }
-          class="shrink-0 font-mono text-[11px] text-amber hover:underline"
+          class="shrink-0 font-mono text-[11px] hover:underline"
+          style={"color:#{Marker.color(m)}"}
           title="Pular para este ponto"
         >
           {format_ms(m["ms"])}
         </button>
+        <div class="flex shrink-0 overflow-hidden rounded border border-white/10">
+          <button
+            :for={t <- Marker.types()}
+            type="button"
+            phx-click="set_marker_type"
+            phx-value-ms={m["ms"]}
+            phx-value-type={t}
+            class={[
+              "px-1 text-[9px] font-semibold uppercase leading-none",
+              (Marker.type(m) == t && "text-black") || "text-ink-faint hover:text-ink"
+            ]}
+            style={
+              if(Marker.type(m) == t,
+                do: "background:#{Marker.color(m)};padding-top:3px;padding-bottom:3px"
+              )
+            }
+            title={marker_type_title(t)}
+          >
+            {marker_type_abbrev(t)}
+          </button>
+        </div>
         <form id={"#{@id_prefix}-rename-#{m["ms"]}"} phx-submit="rename_marker" class="min-w-0 flex-1">
           <input type="hidden" name="ms" value={m["ms"]} />
           <input
@@ -362,6 +386,13 @@ defmodule BeatgridWeb.UI do
             class="w-full rounded bg-transparent px-1 py-0.5 text-[12px] text-ink placeholder:text-ink-faint focus:bg-white/5 focus:outline-none"
           />
         </form>
+        <span
+          :if={Marker.auto?(m)}
+          class="text-ink-faint shrink-0 rounded bg-white/5 px-1 text-[9px] uppercase"
+          title="Marcador automático (análise de áudio)"
+        >
+          auto
+        </span>
         <button
           type="button"
           phx-click="remove_marker"
@@ -376,6 +407,14 @@ defmodule BeatgridWeb.UI do
     </div>
     """
   end
+
+  defp marker_type_abbrev("intro"), do: "in"
+  defp marker_type_abbrev("outro"), do: "out"
+  defp marker_type_abbrev(_cue), do: "cue"
+
+  defp marker_type_title("intro"), do: "Entrada (mix-in)"
+  defp marker_type_title("outro"), do: "Saída (mix-out)"
+  defp marker_type_title(_cue), do: "Cue genérico"
 
   @doc "Formats milliseconds as `m:ss` (cue-point display)."
   @spec format_ms(integer() | any()) :: String.t()

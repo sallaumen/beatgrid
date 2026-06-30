@@ -193,5 +193,19 @@ defmodule Beatgrid.Library.TracksTest do
       {:ok, t4} = Tracks.rename_marker(t3, 999_999, "x")
       assert Enum.map(t4.cue_points, & &1["ms"]) == [30_000]
     end
+
+    test "set_marker_type sets the (coerced) type of the marker at a position" do
+      {:ok, track} = Tracks.upsert_by_path(attrs())
+      {:ok, t1} = Tracks.add_marker(track, 30_000)
+
+      {:ok, t2} = Tracks.set_marker_type(t1, 30_000, "intro")
+      assert Enum.find(t2.cue_points, &(&1["ms"] == 30_000))["type"] == "intro"
+
+      {:ok, t3} = Tracks.set_marker_type(t2, 30_000, "bogus")
+      assert Enum.find(t3.cue_points, &(&1["ms"] == 30_000))["type"] == "cue"
+
+      {:ok, t4} = Tracks.set_marker_type(t3, 999_999, "intro")
+      assert Enum.map(t4.cue_points, & &1["ms"]) == [30_000]
+    end
   end
 end

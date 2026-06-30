@@ -90,9 +90,20 @@ defmodule BeatgridWeb.PlayerLive do
     end
   end
 
+  def handle_event(
+        "set_marker_type",
+        %{"ms" => ms, "type" => type},
+        %{assigns: %{now_playing: %{id: id}}} = socket
+      ) do
+    case to_ms(ms) do
+      {:ok, n} -> {:noreply, mutate_markers(socket, id, &Tracks.set_marker_type(&1, n, type))}
+      :error -> {:noreply, socket}
+    end
+  end
+
   # Marker events with nothing playing are no-ops (defensive).
   def handle_event(event, _params, socket)
-      when event in ~w(add_marker rename_marker remove_marker),
+      when event in ~w(add_marker rename_marker remove_marker set_marker_type),
       do: {:noreply, socket}
 
   # A track's markers changed (from here or another page) — if it's the one playing,
@@ -336,16 +347,19 @@ defmodule BeatgridWeb.PlayerLive do
               lane.innerHTML = ""
               const durMs = (a.duration || 0) * 1000
               if (!durMs) return
+              const COLORS = {cue: "#ffb020", intro: "#5ad1a0", outro: "#ff5d6c"}
               this._markers.forEach((m) => {
                 if (m.ms < 0 || m.ms > durMs) return
                 const left = (m.ms / durMs) * 100
+                const color = COLORS[m.type] || COLORS.cue
+                const auto = m.source === "auto"
                 const tick = document.createElement("button")
                 tick.type = "button"
-                tick.title = m.label || fmt(m.ms / 1000)
+                tick.title = (auto ? "auto · " : "") + (m.label || fmt(m.ms / 1000))
                 tick.style.cssText =
                   `position:absolute;top:0;bottom:0;left:${left}%;width:3px;` +
-                  `transform:translateX(-1px);background:#ffb020;border:0;border-radius:2px;` +
-                  `cursor:pointer;pointer-events:auto`
+                  `transform:translateX(-1px);background:${color};border:0;border-radius:2px;` +
+                  `cursor:pointer;pointer-events:auto;opacity:${auto ? 0.55 : 1}`
                 tick.addEventListener("click", () => { if (a.duration) a.currentTime = m.ms / 1000 })
                 lane.appendChild(tick)
               })
