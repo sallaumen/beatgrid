@@ -290,16 +290,10 @@ defmodule BeatgridWeb.RecSetLive do
   # --- search ---
 
   def handle_event("search", %{"q" => q}, socket) do
-    results =
-      if q == "" do
-        []
-      else
-        members = MapSet.new(socket.assigns.entries, & &1.track.id)
-
-        TrackQuery.library(%{search: q})
-        |> Enum.reject(&MapSet.member?(members, &1.id))
-        |> Enum.take(12)
-      end
+    # Don't hide tracks already in the set — show them flagged "já no set" so a search
+    # that matches a member doesn't look broken (the user was confused by the silent
+    # exclusion). The render marks members; non-members get the "+ Add" button.
+    results = if q == "", do: [], else: TrackQuery.library(%{search: q}) |> Enum.take(12)
 
     {:noreply, assign(socket, search_query: q, search_results: results)}
   end
@@ -764,6 +758,7 @@ defmodule BeatgridWeb.RecSetLive do
                 <.search_box
                   query={@search_query}
                   results={@search_results}
+                  in_set={MapSet.new(@entries, & &1.track.id)}
                   playing_id={@playing_track_id}
                 />
               </.collapsible>
@@ -1198,6 +1193,7 @@ defmodule BeatgridWeb.RecSetLive do
 
   attr :query, :string, required: true
   attr :results, :list, required: true
+  attr :in_set, :any, default: %MapSet{}
   attr :playing_id, :string, default: nil
 
   defp search_box(assigns) do
@@ -1234,7 +1230,15 @@ defmodule BeatgridWeb.RecSetLive do
             <p class="truncate text-caption text-ink-muted">{t.tag_artist || "—"}</p>
           </div>
           <.camelot_seal value={camelot(t)} />
+          <span
+            :if={MapSet.member?(@in_set, t.id)}
+            class="shrink-0 rounded-md bg-white/5 px-2.5 py-1 text-[12px] font-medium text-ink-faint"
+            title="Esta faixa já está no set"
+          >
+            ✓ no set
+          </span>
           <button
+            :if={!MapSet.member?(@in_set, t.id)}
             phx-click="append"
             phx-value-track={t.id}
             class="shrink-0 rounded-md bg-primary/15 px-2.5 py-1 text-[12px] font-semibold text-primary hover:bg-primary/25"

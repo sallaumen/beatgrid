@@ -167,7 +167,7 @@ defmodule BeatgridWeb.RecSetLiveTest do
   end
 
   @tag :tmp_dir
-  test "search never offers a track already in the set", %{conn: conn} do
+  test "search flags tracks already in the set instead of hiding them", %{conn: conn} do
     member = track_with("8A", 120.0, tag_title: "ZZ One", norm_title: "zz one")
     other = track_with("8A", 121.0, tag_title: "ZZ Two", norm_title: "zz two")
 
@@ -178,8 +178,18 @@ defmodule BeatgridWeb.RecSetLiveTest do
     open_panel(view, "search")
     view |> form("#track-search", %{q: "zz"}) |> render_change()
 
-    refute has_element?(view, "#search-results button[phx-value-track='#{member.id}']")
-    assert has_element?(view, "#search-results button[phx-value-track='#{other.id}']")
+    # the in-set track shows up, but flagged and NOT addable…
+    refute has_element?(
+             view,
+             "#search-results button[phx-click=append][phx-value-track='#{member.id}']"
+           )
+
+    assert render(view) =~ "✓ no set"
+    # …while a non-member is still addable.
+    assert has_element?(
+             view,
+             "#search-results button[phx-click=append][phx-value-track='#{other.id}']"
+           )
   end
 
   @tag :tmp_dir
