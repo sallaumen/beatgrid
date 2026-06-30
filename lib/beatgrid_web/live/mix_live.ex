@@ -58,9 +58,36 @@ defmodule BeatgridWeb.MixLive do
 
   def handle_event("reanalyze", _params, socket) do
     mix = socket.assigns.mix
-    {:ok, _} = Mixes.set_status(mix, :analyzing)
-    {:ok, _} = Oban.insert(MixAnalyzeWorker.new(%{mix_id: mix.id}))
-    {:noreply, assign(socket, mix: Mixes.get_with_dj_parts(mix.id))}
+
+    if playable?(mix) do
+      {:ok, _} = Mixes.set_status(mix, :analyzing)
+      {:ok, _} = Oban.insert(MixAnalyzeWorker.new(%{mix_id: mix.id}))
+      {:noreply, assign(socket, mix: Mixes.get_with_dj_parts(mix.id))}
+    else
+      {:noreply, put_flash(socket, :error, "Áudio apagado — não dá pra reanalisar.")}
+    end
+  end
+
+  def handle_event("delete_audio", _params, socket) do
+    {:ok, _} = Mixes.purge_audio(socket.assigns.mix)
+
+    {:noreply,
+     socket
+     |> put_flash(:info, "Áudio apagado (análise preservada).")
+     |> assign(mix: Mixes.get_with_dj_parts(socket.assigns.mix.id))}
+  end
+
+  def handle_event("redownload_audio", _params, socket) do
+    case Mixes.redownload_audio(socket.assigns.mix) do
+      {:ok, _} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Baixando o áudio de novo — atualiza quando terminar.")
+         |> assign(mix: Mixes.get_with_dj_parts(socket.assigns.mix.id))}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Não consegui re-baixar o áudio.")}
+    end
   end
 
   def handle_event("analyze_all", _p, socket) do
@@ -202,13 +229,17 @@ defmodule BeatgridWeb.MixLive do
             </span>
             <button
               phx-click="reanalyze"
-              class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink"
+              disabled={not playable?(@mix)}
+              title={unless playable?(@mix), do: "Áudio apagado — baixe de novo pra reprocessar"}
+              class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Re-analisar
             </button>
             <button
               phx-click="analyze_all"
-              class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink"
+              disabled={not playable?(@mix)}
+              title={unless playable?(@mix), do: "Áudio apagado — baixe de novo pra reprocessar"}
+              class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Analisar tudo
             </button>
@@ -221,6 +252,22 @@ defmodule BeatgridWeb.MixLive do
               Reconhecer faixas
             </button>
             <.integration_gate :if={playable?(@mix)} key={:audd} />
+            <button
+              :if={playable?(@mix)}
+              phx-click="delete_audio"
+              data-confirm="Apagar o áudio deste set? (a análise é preservada)"
+              title="Apagar o arquivo de áudio (mantém a análise)"
+              class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-faint hover:bg-coral/10 hover:text-coral"
+            >
+              Apagar áudio
+            </button>
+            <button
+              :if={@mix.audio_deleted_at && @mix.status != :downloading}
+              phx-click="redownload_audio"
+              class="rounded-md border border-primary/30 bg-primary/10 px-3 py-1 text-[12px] font-medium text-primary hover:bg-primary/20"
+            >
+              Baixar áudio de novo
+            </button>
           </div>
         </header>
 

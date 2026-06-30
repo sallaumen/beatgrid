@@ -278,4 +278,69 @@ defmodule BeatgridWeb.MixLiveTest do
     {:ok, _v, html} = live(conn, ~p"/sets-online/#{mix.id}")
     assert html =~ ~s(aria-label="Renomear DJ: DJ RATA")
   end
+
+  describe "audio lifecycle" do
+    test "reanalyze with no audio shows an error and does not enqueue analysis", %{conn: conn} do
+      mix = insert(:mix, status: :ready, audio_path: nil, audio_deleted_at: ~U[2026-06-30 00:00:00Z])
+      {:ok, view, _} = live(conn, ~p"/sets-online/#{mix.id}")
+
+      # drive the event directly: the handler must guard even if the (disabled) button is bypassed
+      render_click(view, "reanalyze")
+
+      refute_enqueued(worker: MixAnalyzeWorker)
+      assert render(view) =~ "Áudio apagado"
+    end
+
+    test "reprocess buttons are disabled when the audio was deleted", %{conn: conn} do
+      mix = insert(:mix, status: :ready, audio_path: nil, audio_deleted_at: ~U[2026-06-30 00:00:00Z])
+      {:ok, view, _} = live(conn, ~p"/sets-online/#{mix.id}")
+
+      assert has_element?(view, "button[phx-click=reanalyze][disabled]")
+      assert has_element?(view, "button[phx-click=analyze_all][disabled]")
+    end
+
+    test "reprocess buttons are enabled when the audio is present", %{conn: conn} do
+      mix = insert(:mix, status: :ready, audio_path: "/tmp/_Mixes/x.mp3", audio_deleted_at: nil)
+      {:ok, view, _} = live(conn, ~p"/sets-online/#{mix.id}")
+
+      refute has_element?(view, "button[phx-click=reanalyze][disabled]")
+      refute has_element?(view, "button[phx-click=analyze_all][disabled]")
+    end
+
+    test "delete_audio purges the file (confirmed) and keeps the analysis", %{conn: conn} do
+      mix = insert(:mix, status: :ready, audio_path: "/tmp/_Mixes/x.mp3", audio_deleted_at: nil)
+      insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+      {:ok, view, html} = live(conn, ~p"/sets-online/#{mix.id}")
+
+      assert html =~ "data-confirm"
+      assert has_element?(view, "button[phx-click=delete_audio]")
+
+      render_click(view, "delete_audio")
+
+      reloaded = Beatgrid.Mixes.get_mix(mix.id)
+      assert reloaded.audio_path == nil
+      assert reloaded.audio_deleted_at != nil
+      # segments (analysis) preserved
+      assert Beatgrid.Mixes.get_with_segments(mix.id).segments != []
+    end
+
+    test "shows 'baixar áudio de novo' when deleted and re-downloads restore-only", %{conn: conn} do
+      mix = insert(:mix, status: :ready, audio_path: nil, audio_deleted_at: ~U[2026-06-30 00:00:00Z])
+      {:ok, view, _} = live(conn, ~p"/sets-online/#{mix.id}")
+
+      assert has_element?(view, "button[phx-click=redownload_audio]")
+      render_click(view, "redownload_audio")
+
+      assert_enqueued(
+        worker: Beatgrid.Workers.MixDownloadWorker,
+        args: %{mix_id: mix.id, restore_only: true}
+      )
+    end
+
+    test "no re-download button while the audio is present", %{conn: conn} do
+      mix = insert(:mix, status: :ready, audio_path: "/tmp/_Mixes/x.mp3", audio_deleted_at: nil)
+      {:ok, view, _} = live(conn, ~p"/sets-online/#{mix.id}")
+      refute has_element?(view, "button[phx-click=redownload_audio]")
+    end
+  end
 end
