@@ -595,8 +595,8 @@ defmodule BeatgridWeb.RecSetLive do
 
             <.arc_chart series={@arc} />
 
-            <ol class="mt-4 space-y-1">
-              <li :for={{e, i} <- Enum.with_index(@entries, 1)} class="space-y-1">
+            <ol class="mt-4 space-y-0.5">
+              <li :for={{e, i} <- Enum.with_index(@entries, 1)} class="space-y-0.5">
                 <div :if={loudness_jump(@entries, i)} class="flex justify-center">
                   <span class={[
                     "font-mono text-[10px]",
@@ -605,7 +605,7 @@ defmodule BeatgridWeb.RecSetLive do
                     {loudness_jump_label(loudness_jump(@entries, i))}
                   </span>
                 </div>
-                <div :if={i > 1} class="flex items-center justify-center gap-2 py-0.5">
+                <div :if={i > 1} class="flex items-center justify-center gap-2 py-0">
                   <div
                     :if={transition_on?(e)}
                     class="flex overflow-hidden rounded border border-primary/30"
@@ -648,7 +648,7 @@ defmodule BeatgridWeb.RecSetLive do
                   </button>
                 </div>
                 <div class={[
-                  "flex items-center gap-3 rounded-lg px-2.5 py-2",
+                  "flex items-center gap-3 rounded-lg px-2.5 py-1.5",
                   (e.track.id == @playing_track_id && "bg-primary/15 ring-1 ring-primary/40") ||
                     "bg-surface"
                 ]}>
@@ -897,11 +897,11 @@ defmodule BeatgridWeb.RecSetLive do
     ~H"""
     <section
       :if={@n >= 2}
-      class="mt-3 rounded-xl border border-white/8 bg-surface px-4 pb-2 pt-3"
+      class="mt-3 max-w-3xl rounded-xl border border-white/8 bg-surface px-4 pb-3 pt-3"
     >
-      <div class="mb-1 flex flex-wrap items-center justify-between gap-2">
+      <div class="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <h3 class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
-          Arco — energia + BPM
+          Arco do set
         </h3>
         <div class="flex items-center gap-3 text-[10px] text-ink-faint">
           <span class="flex items-center gap-1">
@@ -915,37 +915,50 @@ defmodule BeatgridWeb.RecSetLive do
           </span>
         </div>
       </div>
-      <svg
-        viewBox="0 0 320 132"
-        width="100%"
-        preserveAspectRatio="xMidYMid meet"
-        role="img"
-        aria-label="Arco de energia e BPM do set, uma marca por faixa"
-      >
-        <text x="2" y="11" font-size="9" fill="#8b8b94">energia</text>
-        <polyline
-          points={arc_poly(@energy_pts)}
-          fill="none"
-          stroke="#6c5ce7"
-          stroke-width="1.5"
-          stroke-linejoin="round"
-        />
-        <circle :for={d <- @energy_pts} cx={d.x} cy={d.y} r="2.4" fill={arc_color(d.role)}>
-          <title>{d.label}</title>
-        </circle>
-        <line x1="10" y1="70" x2="310" y2="70" stroke="#ffffff" stroke-opacity="0.06" />
-        <text x="2" y="80" font-size="9" fill="#8b8b94">bpm {round(@bmin)}–{round(@bmax)}</text>
-        <polyline
-          points={arc_poly(@bpm_pts)}
-          fill="none"
-          stroke="#5ad1a0"
-          stroke-width="1.5"
-          stroke-linejoin="round"
-        />
-        <circle :for={d <- @bpm_pts} cx={d.x} cy={d.y} r="2.4" fill={arc_color(d.role)}>
-          <title>{d.label}</title>
-        </circle>
-      </svg>
+      <div class="grid grid-cols-1 gap-x-5 gap-y-2 sm:grid-cols-2">
+        <div>
+          <p class="mb-0.5 text-[10px] text-ink-faint">energia</p>
+          <svg
+            viewBox="0 0 320 92"
+            width="100%"
+            preserveAspectRatio="xMidYMid meet"
+            role="img"
+            aria-label="Arco de energia por faixa"
+          >
+            <polyline
+              points={arc_poly(@energy_pts)}
+              fill="none"
+              stroke="#6c5ce7"
+              stroke-width="1.5"
+              stroke-linejoin="round"
+            />
+            <circle :for={d <- @energy_pts} cx={d.x} cy={d.y} r="2.4" fill={arc_color(d.role)}>
+              <title>{d.label}</title>
+            </circle>
+          </svg>
+        </div>
+        <div>
+          <p class="mb-0.5 text-[10px] text-ink-faint">bpm {round(@bmin)}–{round(@bmax)}</p>
+          <svg
+            viewBox="0 0 320 92"
+            width="100%"
+            preserveAspectRatio="xMidYMid meet"
+            role="img"
+            aria-label="BPM por faixa"
+          >
+            <polyline
+              points={arc_poly(@bpm_pts)}
+              fill="none"
+              stroke="#5ad1a0"
+              stroke-width="1.5"
+              stroke-linejoin="round"
+            />
+            <circle :for={d <- @bpm_pts} cx={d.x} cy={d.y} r="2.4" fill={arc_color(d.role)}>
+              <title>{d.label}</title>
+            </circle>
+          </svg>
+        </div>
+      </div>
     </section>
     """
   end
@@ -956,7 +969,7 @@ defmodule BeatgridWeb.RecSetLive do
     |> Enum.map(fn {p, i} ->
       %{
         x: arc_px(i, n),
-        y: Float.round(62.0 - arc_clamp(p.energy) * 48.0, 1),
+        y: Float.round(82.0 - arc_clamp(p.energy) * 70.0, 1),
         role: p.role,
         label: "#{arc_role(p.role)} · energia #{round(p.energy * 100)}%"
       }
@@ -969,7 +982,7 @@ defmodule BeatgridWeb.RecSetLive do
     |> Enum.map(fn {p, i} ->
       %{
         x: arc_px(i, n),
-        y: Float.round(126.0 - arc_norm(p.bpm, bmin, bmax) * 44.0, 1),
+        y: Float.round(82.0 - arc_norm(p.bpm, bmin, bmax) * 70.0, 1),
         role: p.role,
         label: arc_bpm_label(p.bpm)
       }

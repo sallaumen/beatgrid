@@ -144,7 +144,7 @@ defmodule BeatgridWeb.RecSetLiveTest do
 
     {:ok, _view, html} = live(conn, ~p"/set/#{set.id}")
 
-    assert html =~ "Arco — energia + BPM"
+    assert html =~ "Arco do set"
     assert html =~ "<svg"
     assert html =~ "<polyline"
   end
