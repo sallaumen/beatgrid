@@ -46,4 +46,104 @@ defmodule Beatgrid.Workers.MixRecognizeWorkerTest do
     seg = Beatgrid.Repo.get(Beatgrid.Mixes.Segment, named.id)
     assert seg.artist == "Keep" and seg.title == "Me"
   end
+
+  defp seg(id), do: Beatgrid.Repo.get(Beatgrid.Mixes.Segment, id)
+
+  test "a no-match stamps audd_attempted_at and leaves the segment unnamed" do
+    mix = insert(:mix, audio_path: "/tmp/_Mixes/x.mp3")
+    s = insert(:mix_segment, mix: mix, position: 0, start_ms: 0, end_ms: 10_000, artist: nil, title: nil)
+
+    expect(Beatgrid.Recognition.Mock, :identify, fn _p, _s, _e -> {:ok, :no_match} end)
+
+    assert :ok = perform_job(MixRecognizeWorker, %{mix_id: mix.id})
+    reloaded = seg(s.id)
+    # AudD didn't name it (no fingerprint), but we record that we tried
+    assert reloaded.artist == nil and reloaded.name_source != :fingerprint
+    assert reloaded.audd_attempted_at != nil
+  end
+
+  test "the batch skips segments AudD already tried (no-match) — no wasted API call" do
+    mix = insert(:mix, audio_path: "/tmp/_Mixes/x.mp3")
+    fresh = insert(:mix_segment, mix: mix, position: 0, start_ms: 0, end_ms: 10_000, artist: nil, title: nil)
+
+    insert(:mix_segment,
+      mix: mix,
+      position: 1,
+      start_ms: 10_000,
+      end_ms: 20_000,
+      artist: nil,
+      title: nil,
+      audd_attempted_at: ~U[2026-06-30 00:00:00Z]
+    )
+
+    # exactly ONE identify call (for the fresh segment); the already-tried one is skipped
+    expect(Beatgrid.Recognition.Mock, :identify, fn _p, 0, 10_000 -> {:ok, :no_match} end)
+
+    assert :ok = perform_job(MixRecognizeWorker, %{mix_id: mix.id})
+    assert seg(fresh.id).audd_attempted_at != nil
+  end
+
+  test "retry_all re-attempts segments already tried" do
+    mix = insert(:mix, audio_path: "/tmp/_Mixes/x.mp3")
+
+    tried =
+      insert(:mix_segment,
+        mix: mix,
+        position: 0,
+        start_ms: 0,
+        end_ms: 10_000,
+        artist: nil,
+        title: nil,
+        audd_attempted_at: ~U[2026-06-30 00:00:00Z]
+      )
+
+    expect(Beatgrid.Recognition.Mock, :identify, fn _p, _s, _e ->
+      {:ok, %{artist: "Found", title: "Now"}}
+    end)
+
+    assert :ok = perform_job(MixRecognizeWorker, %{mix_id: mix.id, retry_all: true})
+    assert seg(tried.id).artist == "Found" and seg(tried.id).name_source == :fingerprint
+  end
+
+  test "a transient error (HTTP 429) is retried, then succeeds" do
+    mix = insert(:mix, audio_path: "/tmp/_Mixes/x.mp3")
+    s = insert(:mix_segment, mix: mix, position: 0, start_ms: 0, end_ms: 10_000, artist: nil, title: nil)
+
+    Beatgrid.Recognition.Mock
+    |> expect(:identify, fn _p, _s, _e -> {:error, {:audd_http, 429}} end)
+    |> expect(:identify, fn _p, _s, _e -> {:ok, %{artist: "A", title: "B"}} end)
+
+    assert :ok = perform_job(MixRecognizeWorker, %{mix_id: mix.id})
+    assert seg(s.id).artist == "A"
+  end
+
+  test "a permanent error is not retried, not stamped (so it can be tried later)" do
+    mix = insert(:mix, audio_path: "/tmp/_Mixes/x.mp3")
+    s = insert(:mix_segment, mix: mix, position: 0, start_ms: 0, end_ms: 10_000, artist: nil, title: nil)
+
+    # exactly ONE call — a non-transient error must not retry
+    expect(Beatgrid.Recognition.Mock, :identify, fn _p, _s, _e ->
+      {:error, {:ffmpeg_exit, 1, "boom"}}
+    end)
+
+    assert :ok = perform_job(MixRecognizeWorker, %{mix_id: mix.id})
+    reloaded = seg(s.id)
+    assert reloaded.artist == nil
+    assert reloaded.audd_attempted_at == nil
+  end
+
+  test "broadcasts a final summary tally" do
+    Beatgrid.Mixes.subscribe()
+    mix = insert(:mix, audio_path: "/tmp/_Mixes/x.mp3")
+    insert(:mix_segment, mix: mix, position: 0, start_ms: 0, end_ms: 10_000, artist: nil, title: nil)
+    insert(:mix_segment, mix: mix, position: 1, start_ms: 10_000, end_ms: 20_000, artist: nil, title: nil)
+
+    Beatgrid.Recognition.Mock
+    |> expect(:identify, fn _p, 0, 10_000 -> {:ok, %{artist: "A", title: "B"}} end)
+    |> expect(:identify, fn _p, 10_000, 20_000 -> {:ok, :no_match} end)
+
+    assert :ok = perform_job(MixRecognizeWorker, %{mix_id: mix.id})
+
+    assert_receive {:mix_progress, %{stage: "recognize_done", matched: 1, no_match: 1, error: 0, total: 2}}
+  end
 end

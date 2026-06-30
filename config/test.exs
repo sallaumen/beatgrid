@@ -50,6 +50,8 @@ config :beatgrid, Beatgrid.Mixes.Source, adapter: Beatgrid.Mixes.SourceMock
 config :beatgrid, Beatgrid.Audio.SetSegmenter, adapter: Beatgrid.Audio.SetSegmenterMock
 config :beatgrid, Beatgrid.Video.FrameSampler, adapter: Beatgrid.Video.FrameSamplerMock
 config :beatgrid, Beatgrid.Recognition, adapter: Beatgrid.Recognition.Mock
+# No real sleeping between AudD calls / retries in tests.
+config :beatgrid, Beatgrid.Workers.MixRecognizeWorker, throttle_ms: 0, retry_backoff_ms: 0
 
 # The Http adapter, when exercised directly, routes through Req.Test instead of
 # the network (see test/beatgrid/soundcharts/http_test.exs). A dummy account gives

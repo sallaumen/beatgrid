@@ -26,6 +26,7 @@ defmodule Beatgrid.Mixes.Segment do
     field :bpm_detected, :float
     field :camelot_detected, :string
     field :match_confidence, Ecto.Enum, values: @confidences
+    field :audd_attempted_at, :utc_datetime
 
     belongs_to :mix, Mix
     belongs_to :matched_track, Track
@@ -34,7 +35,7 @@ defmodule Beatgrid.Mixes.Segment do
   end
 
   @fields ~w(mix_id position start_ms end_ms artist title name_source bpm_detected
-             camelot_detected matched_track_id match_confidence)a
+             camelot_detected matched_track_id match_confidence audd_attempted_at)a
 
   @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   def changeset(segment, attrs) do
