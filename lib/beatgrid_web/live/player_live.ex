@@ -46,7 +46,8 @@ defmodule BeatgridWeb.PlayerLive do
         {:noreply,
          socket
          |> assign(now_playing: track, playing_set: load_playing_set(set_id))
-         |> push_markers()}
+         |> push_markers()
+         |> push_set_plan()}
     end
   end
 
@@ -153,6 +154,34 @@ defmodule BeatgridWeb.PlayerLive do
     markers = (socket.assigns.now_playing && socket.assigns.now_playing.cue_points) || []
     push_event(socket, "player_markers", %{markers: markers})
   end
+
+  # When a set is playing, push the ordered plan (src + bpm + incoming transition per
+  # entry) to the hook so it can drive the dual-deck crossfades client-side, plus the
+  # index of the track that just started. No set / deleted set → no push.
+  defp push_set_plan(%{assigns: %{now_playing: %{id: id}, playing_set: %{id: set_id}}} = socket) do
+    case Sets.get(set_id) do
+      nil ->
+        socket
+
+      set ->
+        tracks =
+          Enum.map(Sets.entries(set), fn e ->
+            %{
+              id: e.track.id,
+              src: ~p"/audio/#{e.track.id}",
+              bpm: Beatgrid.Library.effective(e.track).bpm,
+              transition: e.transition
+            }
+          end)
+
+        push_event(socket, "set_plan", %{
+          tracks: tracks,
+          index: Enum.find_index(tracks, &(&1.id == id)) || 0
+        })
+    end
+  end
+
+  defp push_set_plan(socket), do: socket
 
   # Re-read the track fresh (so a concurrent track-page edit isn't clobbered), apply the
   # cue mutation, then update the player synchronously + tell the track's page. The fresh
@@ -324,6 +353,8 @@ defmodule BeatgridWeb.PlayerLive do
         data-preview-min-ms={Playback.preview_min_duration_ms()}
         class="hidden"
       ></audio>
+      <%!-- Deck B: the idle/overlap deck the .Player hook uses for crossfades (Part 4). --%>
+      <audio id="player-audio-b" phx-update="ignore" preload="none" class="hidden"></audio>
 
       <script :type={Phoenix.LiveView.ColocatedHook} name=".Player">
         export default {

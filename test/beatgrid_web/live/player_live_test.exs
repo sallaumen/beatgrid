@@ -180,6 +180,24 @@ defmodule BeatgridWeb.PlayerLiveTest do
     end
   end
 
+  test "playing a set pushes the set_plan (ordered tracks + current index) to the hook", %{
+    conn: conn
+  } do
+    {:ok, set} = Sets.create("S")
+    a = insert(:track, status: :present, tag_title: "A", bpm_detected: 128.0)
+    b = insert(:track, status: :present, tag_title: "B", bpm_detected: 129.0)
+    {:ok, _} = Sets.append(set, a)
+    {:ok, _} = Sets.append(set, b)
+
+    {:ok, view, _html} = live_isolated(conn, BeatgridWeb.PlayerLive)
+    render_hook(view, "now_playing", %{"id" => a.id, "set_id" => set.id})
+
+    assert_push_event(view, "set_plan", %{tracks: tracks, index: 0})
+    assert length(tracks) == 2
+    assert hd(tracks).id == a.id
+    assert hd(tracks).bpm == 128.0
+  end
+
   describe "sticky mount" do
     test "the global player is rendered on each page", %{conn: conn} do
       track = insert(:track, status: :present)
