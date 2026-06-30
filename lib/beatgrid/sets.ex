@@ -326,12 +326,129 @@ defmodule Beatgrid.Sets do
     do: {:ok, greedy_fill(set, count, role, Mixing.target_intensity(role))}
 
   @plan_topk 5
+  @max_plan_tracks 240
 
   # Planning weights differ from the live console's: the energy arc (intensity) and
   # tempo continuity (bpm) lead, so respiros actually calm down and the tempo doesn't
   # jump — the user's "arco digno de DJ, reduzindo o tempo aos poucos". Style/harmony
   # still keep the set coherent and the transitions mixable.
   @plan_weights %{style: 20, harmony: 25, intensity: 35, bpm: 18, rating: 2}
+
+  @plan_presets [
+    %{
+      key: "forro_roots_marathon",
+      name: "Forro Roots Marathon",
+      target_style: "forro_roots",
+      max_tracks: @max_plan_tracks,
+      exclude_styles: ["mpb", "forro_mpb"],
+      description: "A long roots-first set with only close Forro material around it.",
+      phases: [
+        %{until: 1.0, target_style: "forro_roots"}
+      ]
+    },
+    %{
+      key: "roots_to_forro_mpb",
+      name: "Roots to Forro MPB",
+      target_style: "forro_roots",
+      max_tracks: @max_plan_tracks,
+      exclude_styles: ["mpb"],
+      description: "Starts in Forro Roots, passes through Forro, and lands in Forro MPB.",
+      phases: [
+        %{until: 0.35, target_style: "forro_roots"},
+        %{until: 0.65, target_style: "forro"},
+        %{until: 1.0, target_style: "forro_mpb"}
+      ]
+    },
+    %{
+      key: "roots_to_classic",
+      name: "Roots to Classic Forro",
+      target_style: "forro_roots",
+      max_tracks: @max_plan_tracks,
+      exclude_styles: ["mpb", "forro_mpb", "forro_psicodelico"],
+      description: "A roots opening that resolves into classic Forro.",
+      phases: [
+        %{until: 0.45, target_style: "forro_roots"},
+        %{until: 0.75, target_style: "forro"},
+        %{until: 1.0, target_style: "forro_classico"}
+      ]
+    },
+    %{
+      key: "forro_orbit",
+      name: "Forro Orbit",
+      target_style: "forro_roots",
+      max_tracks: @max_plan_tracks,
+      exclude_styles: ["mpb"],
+      description: "Mostly Forro, with controlled touches from nearby Forro folders.",
+      phases: [
+        %{until: 0.25, target_style: "forro_roots"},
+        %{until: 0.45, target_style: "forro_classico"},
+        %{until: 0.70, target_style: "forro"},
+        %{until: 0.85, target_style: "forro_in_the_light"},
+        %{until: 1.0, target_style: "forro_roots"}
+      ]
+    },
+    %{
+      key: "mpb_set",
+      name: "MPB Set",
+      target_style: "mpb",
+      max_tracks: @max_plan_tracks,
+      exclude_styles: ["forro_psicodelico"],
+      description: "A dedicated MPB set, used only when explicitly selected.",
+      phases: [
+        %{until: 1.0, target_style: "mpb"}
+      ]
+    },
+    %{
+      key: "custom",
+      name: "Custom",
+      target_style: nil,
+      max_tracks: @max_plan_tracks,
+      exclude_styles: [],
+      description: "Uses the set target style and manual constraints.",
+      phases: [
+        %{until: 1.0, target_style: nil}
+      ]
+    }
+  ]
+
+  @doc "Configurable long-set planning presets read by the set-builder UI."
+  @spec plan_presets() :: [map()]
+  def plan_presets, do: @plan_presets
+
+  @doc "Maximum number of tracks the planner accepts in one long-set run."
+  @spec max_plan_tracks() :: pos_integer()
+  def max_plan_tracks, do: @max_plan_tracks
+
+  @doc """
+  Estimates how many tracks are needed to fill `minutes`, using the average
+  duration of present library tracks that fit the selected preset.
+  """
+  @spec estimate_count_for_duration(pos_integer(), keyword()) :: pos_integer()
+  def estimate_count_for_duration(minutes, opts \\ []) when is_integer(minutes) and minutes > 0 do
+    preset = plan_preset(Keyword.get(opts, :preset, "custom"))
+    exclude_styles = preset_exclude_styles(preset, opts)
+
+    avg_ms =
+      Library.Track
+      |> where([t], t.status == :present)
+      |> where([t], not is_nil(t.duration_ms) and t.duration_ms > 0)
+      |> maybe_exclude_styles(exclude_styles)
+      |> select([t], avg(t.duration_ms))
+      |> Repo.one()
+
+    track_ms = duration_ms(avg_ms)
+
+    minutes
+    |> Kernel.*(60_000)
+    |> Kernel./(track_ms)
+    |> ceil()
+    |> max(2)
+    |> min(preset.max_tracks)
+  end
+
+  defp duration_ms(nil), do: 210_000
+  defp duration_ms(%Decimal{} = value), do: Decimal.to_float(value)
+  defp duration_ms(value), do: value
 
   @doc """
   Plans a full set of `count` faixas along an energy arc (`Mixing.block_plan/1`):
@@ -345,13 +462,20 @@ defmodule Beatgrid.Sets do
   @spec plan_set(RecSet.t(), pos_integer(), keyword()) :: {:ok, RecSet.t()}
   def plan_set(%RecSet{} = set, count, opts \\ []) when is_integer(count) and count > 0 do
     topk = Keyword.get(opts, :topk, @plan_topk)
+    preset = plan_preset(Keyword.get(opts, :preset, "custom"))
+    count = count |> min(preset.max_tracks) |> max(1)
 
-    Enum.each(Mixing.block_plan(count), fn slot ->
+    count
+    |> Mixing.block_plan()
+    |> Enum.with_index()
+    |> Enum.each(fn {slot, index} ->
       opts =
         rank_opts(set,
+          target_style: phase_target_style(preset, index, count, set),
           target_intensity: slot.target_intensity,
           limit: topk,
-          weights: @plan_weights
+          weights: @plan_weights,
+          exclude_styles: preset_exclude_styles(preset, opts)
         )
 
       case Mixing.rank(opts) do
@@ -362,6 +486,32 @@ defmodule Beatgrid.Sets do
 
     connect_all(set)
     {:ok, set}
+  end
+
+  defp plan_preset(key) do
+    Enum.find(@plan_presets, &(&1.key == key)) || Enum.find(@plan_presets, &(&1.key == "custom"))
+  end
+
+  defp phase_target_style(%{phases: phases}, index, count, set) do
+    progress =
+      if count <= 1 do
+        1.0
+      else
+        index / (count - 1)
+      end
+
+    phase = Enum.find(phases, &(progress <= &1.until)) || List.last(phases)
+    phase.target_style || set.target_style
+  end
+
+  defp preset_exclude_styles(preset, opts) do
+    (preset.exclude_styles ++ Keyword.get(opts, :exclude_styles, [])) |> Enum.uniq()
+  end
+
+  defp maybe_exclude_styles(query, []), do: query
+
+  defp maybe_exclude_styles(query, styles) do
+    where(query, [t], t.genre_folder not in ^styles)
   end
 
   @doc """
@@ -473,7 +623,7 @@ defmodule Beatgrid.Sets do
     members = RecSetQuery.ordered_tracks(set.id)
 
     base = [
-      target_style: set.target_style,
+      target_style: Keyword.get(opts, :target_style, set.target_style),
       target_intensity: Keyword.get(opts, :target_intensity),
       exclude: Enum.map(members, & &1.id),
       limit: Keyword.get(opts, :limit, 10)

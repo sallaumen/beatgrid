@@ -123,7 +123,9 @@ defmodule BeatgridWeb.RecSetLiveTest do
     new_set(view)
     open_panel(view, "plan")
 
-    view |> form("#plan-set-form") |> render_submit(%{count: "10"})
+    view
+    |> form("#plan-set-form")
+    |> render_submit(%{mode: "tracks", track_count: "10", preset: "custom"})
 
     [set] = Sets.list()
     entries = Sets.entries(set)
@@ -132,6 +134,63 @@ defmodule BeatgridWeb.RecSetLiveTest do
     assert List.last(entries).role == "queda"
     assert Enum.all?(entries, &(&1.role in ~w(abertura pico respiro queda)))
     assert Enum.all?(tl(entries), &(&1.transition && &1.transition["enabled"]))
+  end
+
+  @tag :tmp_dir
+  test "the planner accepts long sets above the old 60-track cap", %{conn: conn} do
+    for i <- 0..79 do
+      track_with("8A", 118.0 + i / 10,
+        genre_folder: "forro_roots",
+        duration_ms: 180_000,
+        tag_title: "Long #{i}"
+      )
+    end
+
+    {:ok, view, _html} = live(conn, ~p"/set")
+    new_set(view)
+    html = open_panel(view, "plan")
+
+    refute html =~ ~s(max="60")
+    assert html =~ "Forro Roots Marathon"
+
+    view
+    |> form("#plan-set-form")
+    |> render_submit(%{
+      mode: "tracks",
+      track_count: "70",
+      duration_minutes: "300",
+      preset: "forro_roots_marathon"
+    })
+
+    [set] = Sets.list()
+    assert length(Sets.entries(set)) == 70
+  end
+
+  @tag :tmp_dir
+  test "the planner can estimate a five-hour set from track duration", %{conn: conn} do
+    for i <- 0..104 do
+      track_with("8A", 118.0 + i / 10,
+        genre_folder: "forro_roots",
+        duration_ms: 180_000,
+        tag_title: "Five Hour #{i}"
+      )
+    end
+
+    {:ok, view, _html} = live(conn, ~p"/set")
+    new_set(view)
+    open_panel(view, "plan")
+
+    view
+    |> form("#plan-set-form")
+    |> render_submit(%{
+      mode: "duration",
+      track_count: "16",
+      duration_minutes: "300",
+      preset: "forro_roots_marathon"
+    })
+
+    [set] = Sets.list()
+    assert length(Sets.entries(set)) == 100
   end
 
   @tag :tmp_dir

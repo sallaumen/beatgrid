@@ -245,6 +245,60 @@ defmodule Beatgrid.SetsTest do
     assert length(Sets.tracks(set)) == 3
   end
 
+  test "plan_presets exposes configurable long-set directions" do
+    presets = Sets.plan_presets()
+
+    assert Enum.map(presets, & &1.key) == [
+             "forro_roots_marathon",
+             "roots_to_forro_mpb",
+             "roots_to_classic",
+             "forro_orbit",
+             "mpb_set",
+             "custom"
+           ]
+
+    roots = Enum.find(presets, &(&1.key == "forro_roots_marathon"))
+    assert roots.target_style == "forro_roots"
+    assert "mpb" in roots.exclude_styles
+    assert roots.max_tracks >= 180
+  end
+
+  test "plan_set with the roots marathon preset keeps MPB out of the plan" do
+    {:ok, set} = Sets.create("Roots Marathon")
+
+    for i <- 0..11 do
+      track_with("8A", 118.0 + i, genre_folder: "forro_roots", tag_title: "Roots #{i}")
+    end
+
+    for i <- 0..5 do
+      track_with("8A", 119.0 + i, genre_folder: "mpb", tag_title: "MPB #{i}")
+      track_with("8A", 119.0 + i, genre_folder: "forro_mpb", tag_title: "Forro MPB #{i}")
+    end
+
+    assert {:ok, _set} = Sets.plan_set(set, 10, preset: "forro_roots_marathon", topk: 1)
+
+    entries = Sets.entries(set)
+    assert length(entries) == 10
+    assert Enum.all?(entries, &(&1.track.genre_folder == "forro_roots"))
+  end
+
+  test "plan_set with a transition preset changes the style target across the set" do
+    {:ok, set} = Sets.create("Transition")
+
+    for i <- 0..7 do
+      track_with("8A", 118.0 + i, genre_folder: "forro_roots", tag_title: "Roots #{i}")
+      track_with("8A", 119.0 + i, genre_folder: "forro_mpb", tag_title: "Forro MPB #{i}")
+      track_with("8A", 120.0 + i, genre_folder: "mpb", tag_title: "MPB #{i}")
+    end
+
+    assert {:ok, _set} = Sets.plan_set(set, 12, preset: "roots_to_forro_mpb", topk: 1)
+
+    genres = set |> Sets.entries() |> Enum.map(& &1.track.genre_folder)
+    assert Enum.take(genres, 4) |> Enum.all?(&(&1 == "forro_roots"))
+    assert Enum.take(genres, -4) |> Enum.all?(&(&1 == "forro_mpb"))
+    refute "mpb" in genres
+  end
+
   test "plan_set builds an arc-shaped, fully-connected set of the requested size" do
     {:ok, set} = Sets.create("Planned")
     {:ok, set} = Sets.set_target_style(set, "forro_roots")
