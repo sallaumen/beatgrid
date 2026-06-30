@@ -126,6 +126,14 @@ defmodule Beatgrid.Library.Tracks do
     save_cues(track, cues)
   end
 
+  @doc "Replaces all auto-source markers with `auto_markers`, keeping manual ones, sorted by ms."
+  @spec replace_auto_markers(Track.t(), [map()]) ::
+          {:ok, Track.t()} | {:error, Ecto.Changeset.t()}
+  def replace_auto_markers(track, auto_markers) do
+    manual = Enum.reject(track.cue_points || [], &Marker.auto?/1)
+    save_cues(track, Enum.sort_by(manual ++ auto_markers, & &1["ms"]))
+  end
+
   defp normalize_label(nil), do: nil
 
   defp normalize_label(label) when is_binary(label) do

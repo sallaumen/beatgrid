@@ -64,6 +64,7 @@ config :beatgrid, Beatgrid.Soundcharts.Client, adapter: Beatgrid.Soundcharts.Htt
 config :beatgrid, Beatgrid.AI.Client, adapter: Beatgrid.AI.ClaudeCli
 config :beatgrid, Beatgrid.Tagging.Writer, adapter: Beatgrid.Tagging.Ffmpeg
 config :beatgrid, Beatgrid.Audio.Analyzer, adapter: Beatgrid.Audio.LibrosaCli
+config :beatgrid, Beatgrid.Audio.MarkerDetector, adapter: Beatgrid.Audio.MarkerDetectorCli
 config :beatgrid, Beatgrid.Audio.Loudness, adapter: Beatgrid.Audio.FfmpegLoudness
 config :beatgrid, Beatgrid.YouTube.Downloader, adapter: Beatgrid.YouTube.YtDlp
 config :beatgrid, Beatgrid.Video.FrameSampler, adapter: Beatgrid.Video.FrameSampler.FfmpegCli

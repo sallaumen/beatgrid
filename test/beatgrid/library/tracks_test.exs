@@ -207,5 +207,20 @@ defmodule Beatgrid.Library.TracksTest do
       {:ok, t4} = Tracks.set_marker_type(t3, 999_999, "intro")
       assert Enum.map(t4.cue_points, & &1["ms"]) == [30_000]
     end
+
+    test "replace_auto_markers swaps auto markers but keeps manual ones" do
+      {:ok, track} = Tracks.upsert_by_path(attrs())
+      {:ok, t1} = Tracks.add_marker(track, 40_000, "manual")
+
+      auto = fn ms -> %{"ms" => ms, "type" => "intro", "source" => "auto", "label" => nil} end
+
+      {:ok, t2} = Tracks.replace_auto_markers(t1, [auto.(5_000)])
+      assert Enum.map(t2.cue_points, & &1["ms"]) == [5_000, 40_000]
+
+      # Re-detecting drops the old auto (5_000) but keeps the manual cue (40_000).
+      {:ok, t3} = Tracks.replace_auto_markers(t2, [auto.(8_000)])
+      assert Enum.map(t3.cue_points, & &1["ms"]) == [8_000, 40_000]
+      assert Enum.find(t3.cue_points, &(&1["ms"] == 40_000))["label"] == "manual"
+    end
   end
 end

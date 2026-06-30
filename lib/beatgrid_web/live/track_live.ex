@@ -12,7 +12,7 @@ defmodule BeatgridWeb.TrackLive do
   alias Beatgrid.Playback
   alias Beatgrid.Repertoire
   alias Beatgrid.Sets
-  alias Beatgrid.Workers.{AnalyzeWorker, EnrichWorker, RecommendWorker}
+  alias Beatgrid.Workers.{AnalyzeWorker, EnrichWorker, MarkerAnalyzeWorker, RecommendWorker}
   alias Beatgrid.YouTube
   alias Phoenix.LiveView.JS
 
@@ -181,6 +181,13 @@ defmodule BeatgridWeb.TrackLive do
 
   def handle_event("set_marker_type", %{"ms" => ms, "type" => type}, socket),
     do: {:noreply, mutate_markers(socket, ms, &Tracks.set_marker_type(&1, &2, type))}
+
+  def handle_event("detect_markers", _params, socket) do
+    Oban.insert(MarkerAnalyzeWorker.new(%{"track_id" => socket.assigns.track.id}))
+
+    {:noreply,
+     put_flash(socket, :info, "Detectando marcadores… (intro/saída por análise de áudio)")}
+  end
 
   def handle_event("reanalyze", _params, socket) do
     {:noreply, enqueue_analyze(socket)}
@@ -661,19 +668,29 @@ defmodule BeatgridWeb.TrackLive do
         <section class="mt-5 rounded-xl border border-white/6 bg-surface p-4">
           <div class="flex items-center justify-between">
             <.section_label>Marcadores</.section_label>
-            <button
-              type="button"
-              phx-click={JS.dispatch("beatgrid:add-marker", to: "#player-audio")}
-              disabled={@track.id != @playing_track_id}
-              class="rounded-md border border-amber/40 bg-amber/10 px-2.5 py-1 text-[11px] font-semibold text-amber hover:bg-amber/20 disabled:cursor-not-allowed disabled:opacity-40"
-              title={
-                if @track.id == @playing_track_id,
-                  do: "Marcar a posição atual",
-                  else: "Dê play nesta faixa para marcar"
-              }
-            >
-              ＋ marcar
-            </button>
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                phx-click="detect_markers"
+                class="rounded-md border border-white/10 bg-input px-2.5 py-1 text-[11px] text-ink-secondary hover:text-ink"
+                title="Detectar intro/saída automaticamente por análise de áudio (mantém os manuais)"
+              >
+                Detectar
+              </button>
+              <button
+                type="button"
+                phx-click={JS.dispatch("beatgrid:add-marker", to: "#player-audio")}
+                disabled={@track.id != @playing_track_id}
+                class="rounded-md border border-amber/40 bg-amber/10 px-2.5 py-1 text-[11px] font-semibold text-amber hover:bg-amber/20 disabled:cursor-not-allowed disabled:opacity-40"
+                title={
+                  if @track.id == @playing_track_id,
+                    do: "Marcar a posição atual",
+                    else: "Dê play nesta faixa para marcar"
+                }
+              >
+                ＋ marcar
+              </button>
+            </div>
           </div>
           <p class="text-caption text-ink-faint mt-1">
             Aparecem no player de baixo em qualquer página. Clique no tempo para tocar a faixa a partir dele.
