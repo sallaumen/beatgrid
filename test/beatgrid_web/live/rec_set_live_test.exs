@@ -367,4 +367,35 @@ defmodule BeatgridWeb.RecSetLiveTest do
     {:ok, _view, html} = live(conn, ~p"/set/#{set.id}")
     assert html =~ "Ouro — não está no Soundcharts"
   end
+
+  @tag :tmp_dir
+  test "connects pairs with a suggested transition and renders the connector", %{conn: conn} do
+    {:ok, set} = Sets.create("S")
+
+    a =
+      track_with("8A", 128.0,
+        tag_title: "A",
+        cue_points: [%{"ms" => 100_000, "type" => "outro", "source" => "auto"}]
+      )
+
+    b =
+      track_with("8A", 129.0,
+        tag_title: "B",
+        cue_points: [%{"ms" => 4_000, "type" => "intro", "source" => "auto"}]
+      )
+
+    Sets.append(set, a)
+    Sets.append(set, b)
+
+    {:ok, view, html} = live(conn, ~p"/set/#{set.id}")
+    assert html =~ "conectar"
+    assert has_element?(view, "button[phx-click=connect_all]")
+
+    view |> element("button[phx-click=connect_all]") |> render_click()
+
+    entry_b = Enum.find(Sets.entries(set), &(&1.track.id == b.id))
+    assert entry_b.transition["type"] == "crossfade"
+    assert entry_b.transition["from_ms"] == 100_000
+    assert render(view) =~ "xfade"
+  end
 end

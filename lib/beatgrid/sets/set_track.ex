@@ -16,6 +16,8 @@ defmodule Beatgrid.Sets.SetTrack do
   schema "rec_set_tracks" do
     field :position, :integer
     field :role, :string
+    # Incoming transition from the previous track: %{"enabled","type","from_ms","to_ms"}.
+    field :transition, :map
 
     belongs_to :rec_set, RecSet
     belongs_to :track, Track
@@ -26,7 +28,7 @@ defmodule Beatgrid.Sets.SetTrack do
   @spec changeset(t() | Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   def changeset(set_track, attrs) do
     set_track
-    |> cast(attrs, [:rec_set_id, :track_id, :position, :role])
+    |> cast(attrs, [:rec_set_id, :track_id, :position, :role, :transition])
     |> validate_required([:rec_set_id, :track_id, :position])
     |> unique_constraint([:rec_set_id, :track_id])
     |> assoc_constraint(:rec_set)

@@ -161,6 +161,42 @@ defmodule BeatgridWeb.RecSetLive do
     {:noreply, reload(socket)}
   end
 
+  # --- connections (transition into a track from its predecessor) ---
+
+  def handle_event("connect_pair", %{"track" => id}, socket) do
+    entries = socket.assigns.entries
+    idx = Enum.find_index(entries, &(&1.track.id == id))
+
+    if idx && idx > 0 do
+      prev = Enum.at(entries, idx - 1).track
+      this = Enum.at(entries, idx).track
+      {:ok, _} = Sets.connect(socket.assigns.set, this, Sets.suggest_transition(prev, this))
+    end
+
+    {:noreply, reload(socket)}
+  end
+
+  def handle_event("disconnect_pair", %{"track" => id}, socket) do
+    Sets.disconnect(socket.assigns.set, Tracks.get(id))
+    {:noreply, reload(socket)}
+  end
+
+  def handle_event("set_transition_type", %{"track" => id, "type" => type}, socket) do
+    entry = Enum.find(socket.assigns.entries, &(&1.track.id == id))
+
+    if entry && entry.transition do
+      {:ok, _} =
+        Sets.connect(socket.assigns.set, entry.track, Map.put(entry.transition, "type", type))
+    end
+
+    {:noreply, reload(socket)}
+  end
+
+  def handle_event("connect_all", _params, socket) do
+    {:ok, n} = Sets.connect_all(socket.assigns.set)
+    {:noreply, socket |> reload() |> put_flash(:info, "#{n} transições conectadas.")}
+  end
+
   # --- auto-composition ---
 
   def handle_event("set_section", %{"role" => role}, socket) do
@@ -350,6 +386,17 @@ defmodule BeatgridWeb.RecSetLive do
   defp role_label(nil), do: nil
   defp role_label(role), do: with(%{label: l} <- Mixing.section(role), do: l)
 
+  defp transition_on?(%{transition: %{"enabled" => true}}), do: true
+  defp transition_on?(_entry), do: false
+
+  defp transition_abbrev("cut"), do: "corte"
+  defp transition_abbrev("fade"), do: "fade"
+  defp transition_abbrev(_crossfade), do: "xfade"
+
+  defp transition_title("cut"), do: "Corte seco no marcador"
+  defp transition_title("fade"), do: "Fade (sai A / entra B, sem casar BPM)"
+  defp transition_title(_crossfade), do: "Crossfade beat-aware (casa BPM no overlap)"
+
   defp candidate_header(true, _section), do: "Sugestões de abertura"
   defp candidate_header(false, nil), do: "Próxima faixa ideal · Automático"
   defp candidate_header(false, label), do: "Próxima faixa ideal · #{label}"
@@ -430,6 +477,14 @@ defmodule BeatgridWeb.RecSetLive do
                   ▶ Tocar set
                 </button>
                 <button
+                  :if={length(@entries) > 1}
+                  phx-click="connect_all"
+                  class="rounded-md border border-primary/40 bg-primary/10 px-3 py-1.5 text-body-sm font-semibold text-primary hover:bg-primary/20"
+                  title="Conectar todas as faixas com transições sugeridas (BPM/marcadores)"
+                >
+                  ⛓ Conectar todas
+                </button>
+                <button
                   phx-click="export"
                   disabled={@entries == []}
                   class="rounded-md bg-primary px-3 py-1.5 text-body-sm font-semibold text-white disabled:opacity-40"
@@ -481,6 +536,48 @@ defmodule BeatgridWeb.RecSetLive do
                   ]}>
                     {loudness_jump_label(loudness_jump(@entries, i))}
                   </span>
+                </div>
+                <div :if={i > 1} class="flex items-center justify-center gap-2 py-0.5">
+                  <div
+                    :if={transition_on?(e)}
+                    class="flex overflow-hidden rounded border border-primary/30"
+                  >
+                    <button
+                      :for={t <- ~w(cut fade crossfade)}
+                      type="button"
+                      phx-click="set_transition_type"
+                      phx-value-track={e.track.id}
+                      phx-value-type={t}
+                      class={[
+                        "px-1.5 py-px text-[9px] font-semibold uppercase",
+                        (e.transition["type"] == t && "bg-primary/30 text-primary") ||
+                          "text-ink-faint hover:text-ink"
+                      ]}
+                      title={transition_title(t)}
+                    >
+                      {transition_abbrev(t)}
+                    </button>
+                  </div>
+                  <button
+                    :if={transition_on?(e)}
+                    type="button"
+                    phx-click="disconnect_pair"
+                    phx-value-track={e.track.id}
+                    class="text-ink-faint hover:text-coral text-[11px]"
+                    title="Desconectar (volta a tocar em sequência)"
+                  >
+                    ✕
+                  </button>
+                  <button
+                    :if={!transition_on?(e)}
+                    type="button"
+                    phx-click="connect_pair"
+                    phx-value-track={e.track.id}
+                    class="rounded-full border border-white/10 px-2 py-px text-[9px] text-ink-faint hover:border-primary/40 hover:text-ink"
+                    title="Conectar à faixa anterior (transição automática sugerida)"
+                  >
+                    ⛓ conectar
+                  </button>
                 </div>
                 <div class={[
                   "flex items-center gap-3 rounded-lg px-2.5 py-2",

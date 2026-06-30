@@ -9,9 +9,12 @@ defmodule Beatgrid.Sets do
   import Ecto.Query
 
   alias Beatgrid.Library
+  alias Beatgrid.Library.Marker
   alias Beatgrid.Mixing
   alias Beatgrid.Repo
   alias Beatgrid.Sets.{RecSet, RecSetQuery, SetTrack}
+
+  @transition_types ~w(cut fade crossfade)
 
   @unsafe ~r/[\/\\:*?"<>|]/u
 
@@ -121,6 +124,94 @@ defmodule Beatgrid.Sets do
     pa = a.position
     a |> SetTrack.changeset(%{position: b.position}) |> Repo.update()
     b |> SetTrack.changeset(%{position: pa}) |> Repo.update()
+  end
+
+  # ── Connections (transition INTO an entry, from the previous track) ──────────
+
+  @doc """
+  Suggests a transition for mixing `prev` into `this`: a `crossfade` (beat-aware)
+  when both have outro/intro markers and effective BPMs within ~8%, a `fade` when
+  the markers exist but tempos diverge, else a `cut`. `from_ms`/`to_ms` default to
+  the outro(prev)/intro(this) markers (to_ms 0 when no intro).
+  """
+  @spec suggest_transition(Library.Track.t(), Library.Track.t()) :: map()
+  def suggest_transition(prev, this) do
+    out = Marker.outro(prev)
+    intro = Marker.intro(this)
+    bpm_prev = Library.effective(prev).bpm
+    bpm_this = Library.effective(this).bpm
+
+    type =
+      cond do
+        is_nil(out) or is_nil(intro) -> "cut"
+        bpm_close?(bpm_prev, bpm_this) -> "crossfade"
+        true -> "fade"
+      end
+
+    %{
+      "enabled" => true,
+      "type" => type,
+      "from_ms" => out && out["ms"],
+      "to_ms" => (intro && intro["ms"]) || 0
+    }
+  end
+
+  defp bpm_close?(a, b) when is_number(a) and is_number(b) and a > 0 and b > 0,
+    do: abs(a - b) / max(a, b) <= 0.08
+
+  defp bpm_close?(_a, _b), do: false
+
+  @doc "Suggested transitions for every consecutive pair: `[{receiving_track_id, transition}]`."
+  @spec suggest_all(RecSet.t()) :: [{Ecto.UUID.t(), map()}]
+  def suggest_all(%RecSet{} = set) do
+    set
+    |> tracks()
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.map(fn [prev, this] -> {this.id, suggest_transition(prev, this)} end)
+  end
+
+  @doc "Sets the incoming transition on the entry that receives it (the later track)."
+  @spec connect(RecSet.t(), Library.Track.t(), map()) ::
+          {:ok, SetTrack.t()} | {:error, Ecto.Changeset.t()}
+  def connect(%RecSet{id: set_id}, %{id: track_id}, attrs) do
+    Repo.get_by!(SetTrack, rec_set_id: set_id, track_id: track_id)
+    |> SetTrack.changeset(%{transition: normalize_transition(attrs)})
+    |> Repo.update()
+  end
+
+  @doc "Clears the incoming transition on an entry (back to plain sequential play)."
+  @spec disconnect(RecSet.t(), Library.Track.t()) ::
+          {:ok, SetTrack.t()} | {:error, Ecto.Changeset.t()}
+  def disconnect(%RecSet{id: set_id}, %{id: track_id}) do
+    Repo.get_by!(SetTrack, rec_set_id: set_id, track_id: track_id)
+    |> SetTrack.changeset(%{transition: nil})
+    |> Repo.update()
+  end
+
+  @doc "Auto-connects every consecutive pair (suggest + persist); returns `{:ok, count}`."
+  @spec connect_all(RecSet.t()) :: {:ok, non_neg_integer()}
+  def connect_all(%RecSet{} = set) do
+    count =
+      set
+      |> tracks()
+      |> Enum.chunk_every(2, 1, :discard)
+      |> Enum.count(fn [prev, this] ->
+        {:ok, _} = connect(set, this, suggest_transition(prev, this))
+        true
+      end)
+
+    {:ok, count}
+  end
+
+  defp normalize_transition(attrs) do
+    type = attrs["type"] || attrs[:type]
+
+    %{
+      "enabled" => (attrs["enabled"] || attrs[:enabled]) != false,
+      "type" => if(type in @transition_types, do: type, else: "crossfade"),
+      "from_ms" => attrs["from_ms"] || attrs[:from_ms],
+      "to_ms" => attrs["to_ms"] || attrs[:to_ms] || 0
+    }
   end
 
   @doc """
