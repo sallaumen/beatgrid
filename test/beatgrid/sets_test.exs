@@ -53,6 +53,33 @@ defmodule Beatgrid.SetsTest do
     assert ids.() == [a.id, b.id, c.id]
   end
 
+  test "remix reorders the existing tracks along the arc and pulls gold to a peak" do
+    {:ok, set} = Sets.create("Remix")
+
+    e = fn energy, attrs ->
+      song = insert(:soundcharts_song, camelot: "8A", tempo_bpm: 120.0, energy: energy)
+      insert(:track, Keyword.merge([soundcharts_song_id: song.id, status: :present], attrs))
+    end
+
+    lo = e.(0.2, [])
+    mid = e.(0.6, [])
+    hi = e.(0.95, [])
+    gold = e.(0.9, gold_manual: true)
+    Enum.each([lo, hi, gold, mid], &Sets.append(set, &1))
+
+    {:ok, _} = Sets.remix(set)
+    entries = Sets.entries(set)
+
+    # same tracks, now arc-shaped + connected
+    assert MapSet.new(entries, & &1.track.id) == MapSet.new([lo.id, mid.id, hi.id, gold.id])
+    assert hd(entries).role == "abertura"
+    assert List.last(entries).role == "queda"
+    assert Enum.all?(tl(entries), &(&1.transition && &1.transition["enabled"]))
+
+    # the gold track landed on a peak
+    assert Enum.find(entries, &(&1.track.id == gold.id)).role == "pico"
+  end
+
   test "next_after returns the next ordered track and is reorder-safe (the set pointer)" do
     {:ok, set} = Sets.create("Chain")
     a = track_with("8A", 120.0)

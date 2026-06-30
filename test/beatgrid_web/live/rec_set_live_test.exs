@@ -150,6 +150,24 @@ defmodule BeatgridWeb.RecSetLiveTest do
   end
 
   @tag :tmp_dir
+  test "Remixar reorganizes the current set's tracks into the arc", %{conn: conn} do
+    {:ok, set} = Sets.create("Remixable")
+    a = track_with("8A", 120.0, tag_title: "A")
+    b = track_with("9A", 124.0, tag_title: "B")
+    c = track_with("8A", 121.0, tag_title: "C")
+    Enum.each([a, b, c], &Sets.append(set, &1))
+
+    {:ok, view, _html} = live(conn, ~p"/set/#{set.id}")
+    view |> element("button[phx-click=remix]") |> render_click()
+
+    entries = Sets.entries(set)
+    assert length(entries) == 3
+    # every track got an arc role and the pairs are connected
+    assert Enum.all?(entries, &(&1.role in ~w(abertura pico respiro queda)))
+    assert Enum.all?(tl(entries), &(&1.transition && &1.transition["enabled"]))
+  end
+
+  @tag :tmp_dir
   test "changing the section updates the candidate preview live", %{conn: conn} do
     track_with("8A", 121.0, tag_title: "Pool")
     {:ok, set} = Sets.create("S")

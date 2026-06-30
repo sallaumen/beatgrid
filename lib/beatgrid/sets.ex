@@ -364,6 +364,54 @@ defmodule Beatgrid.Sets do
     {:ok, set}
   end
 
+  @doc """
+  Remixes an EXISTING set: keeps the same tracks but reorders them along the energy
+  arc (`Mixing.block_plan/1`), giving each slot the remaining track whose intensity
+  best fits and nudging "ouro" (gold) tracks toward the peaks so they spread across
+  the highlights. Re-tags the arc roles and re-connects every pair. `{:ok, set}`.
+  """
+  @spec remix(RecSet.t()) :: {:ok, RecSet.t()}
+  def remix(%RecSet{} = set) do
+    cards =
+      set
+      |> tracks()
+      |> Enum.map(&%{track: &1, intensity: Mixing.intensity(&1), gold: gold?(&1)})
+
+    cards
+    |> length()
+    |> Mixing.block_plan()
+    |> assign_arc(cards)
+    |> Enum.with_index(1)
+    |> Enum.each(fn {{track, role}, pos} ->
+      SetTrack
+      |> Repo.get_by!(rec_set_id: set.id, track_id: track.id)
+      |> SetTrack.changeset(%{position: pos, role: role})
+      |> Repo.update()
+    end)
+
+    connect_all(set)
+    {:ok, set}
+  end
+
+  # Greedy: walk the arc slots in order, giving each the remaining track whose
+  # intensity best fits (gold tracks get a nudge toward "pico" slots).
+  defp assign_arc(plan, cards) do
+    {picked, _} =
+      Enum.reduce(plan, {[], cards}, fn slot, {acc, remaining} ->
+        best = Enum.max_by(remaining, &slot_fit(slot, &1))
+        {[{best.track, slot.role} | acc], List.delete(remaining, best)}
+      end)
+
+    Enum.reverse(picked)
+  end
+
+  defp slot_fit(%{target_intensity: ti, role: role}, %{intensity: i, gold: gold}) do
+    fit = 1.0 - abs(ti - i)
+    if role == "pico" and gold, do: fit + 0.3, else: fit
+  end
+
+  defp gold?(track), do: track |> Library.gold() |> elem(0)
+
   defp greedy_fill(set, count, _role, _ti) when count <= 0, do: set
 
   defp greedy_fill(set, count, role, ti) do

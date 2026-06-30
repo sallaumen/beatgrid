@@ -200,6 +200,15 @@ defmodule BeatgridWeb.RecSetLive do
     {:noreply, socket |> reload() |> put_flash(:info, "#{n} transições conectadas.")}
   end
 
+  def handle_event("remix", _params, socket) do
+    {:ok, _set} = Sets.remix(socket.assigns.set)
+
+    {:noreply,
+     socket
+     |> reload()
+     |> put_flash(:info, "Set remixado no arco de energia (ouro nos picos) + reconectado.")}
+  end
+
   # --- auto-composition ---
 
   def handle_event("set_section", %{"role" => role}, socket) do
@@ -524,6 +533,14 @@ defmodule BeatgridWeb.RecSetLive do
                   class="text-green rounded-md bg-green/15 px-3 py-1.5 text-body-sm font-semibold hover:bg-green/25"
                 >
                   ▶ Tocar set
+                </button>
+                <button
+                  :if={length(@entries) > 1}
+                  phx-click="remix"
+                  class="rounded-md border border-primary/40 bg-primary/10 px-3 py-1.5 text-body-sm font-semibold text-primary hover:bg-primary/20"
+                  title="Reorganiza as faixas atuais no arco de energia (ouro nos picos) e reconecta"
+                >
+                  ↻ Remixar
                 </button>
                 <button
                   :if={length(@entries) > 1}
