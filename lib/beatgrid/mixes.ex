@@ -321,11 +321,14 @@ defmodule Beatgrid.Mixes do
   def detect_djs_by_image(%Mix{} = mix),
     do: Oban.insert(MixDjVisionWorker.new(%{mix_id: mix.id}))
 
-  @spec recognize_unnamed(Mix.t()) :: {:ok, Oban.Job.t()} | {:error, :no_credentials}
-  def recognize_unnamed(%Mix{} = mix) do
-    if Integrations.configured?(:audd),
-      do: Oban.insert(MixRecognizeWorker.new(%{mix_id: mix.id})),
-      else: {:error, :no_credentials}
+  @spec recognize_unnamed(Mix.t(), boolean()) :: {:ok, Oban.Job.t()} | {:error, :no_credentials}
+  def recognize_unnamed(%Mix{} = mix, retry_all \\ false) do
+    if Integrations.configured?(:audd) do
+      args = if retry_all, do: %{mix_id: mix.id, retry_all: true}, else: %{mix_id: mix.id}
+      Oban.insert(MixRecognizeWorker.new(args))
+    else
+      {:error, :no_credentials}
+    end
   end
 
   @spec recognize_segment(Segment.t()) :: {:ok, Oban.Job.t()} | {:error, :no_credentials}

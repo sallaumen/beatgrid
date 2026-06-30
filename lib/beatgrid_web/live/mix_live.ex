@@ -113,6 +113,16 @@ defmodule BeatgridWeb.MixLive do
     end
   end
 
+  def handle_event("recognize_retry_all", _params, socket) do
+    case Mixes.recognize_unnamed(socket.assigns.mix, true) do
+      {:ok, _} ->
+        {:noreply, put_flash(socket, :info, "Tentando reconhecer tudo de novo — atualiza quando terminar.")}
+
+      {:error, :no_credentials} ->
+        {:noreply, put_flash(socket, :error, "Configure AUDD_API_TOKEN no .env.")}
+    end
+  end
+
   def handle_event("recognize_seg", %{"id" => id}, socket) do
     case Enum.find(socket.assigns.mix.segments, &(&1.id == id)) do
       nil ->
@@ -250,6 +260,15 @@ defmodule BeatgridWeb.MixLive do
               class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Reconhecer faixas
+            </button>
+            <button
+              :if={playable?(@mix) and has_unmatched_attempts?(@mix)}
+              phx-click="recognize_retry_all"
+              disabled={not Beatgrid.Integrations.configured?(:audd)}
+              title="Re-tentar no AudD as faixas que ainda não casaram"
+              class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Tentar tudo de novo
             </button>
             <.integration_gate :if={playable?(@mix)} key={:audd} />
             <button
@@ -601,16 +620,27 @@ defmodule BeatgridWeb.MixLive do
     </a>
     <span
       :if={is_nil(@seg.matched_track_id) and not named?(@seg)}
-      title="Faixa sem nome — preencha artista/título acima (ou use o reconhecimento depois)"
+      title={
+        if @seg.audd_attempted_at,
+          do: "O AudD tentou e não reconheceu esta faixa — preencha à mão acima",
+          else: "Faixa sem nome — preencha artista/título acima (ou use o reconhecimento depois)"
+      }
       class="shrink-0 rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-ink-faint"
     >
-      sem nome
+      {if @seg.audd_attempted_at, do: "sem match", else: "sem nome"}
     </span>
     """
   end
 
   defp named?(%{artist: a, title: t}), do: present?(a) or present?(t)
   defp present?(s), do: is_binary(s) and String.trim(s) != ""
+
+  # Are there unnamed segments AudD already tried (no match)? Gates "Tentar tudo de novo".
+  defp has_unmatched_attempts?(mix),
+    do: Enum.any?(mix.segments, &(not named?(&1) and &1.audd_attempted_at))
+
+  defp progress_label(%{stage: "recognize_done", matched: m, no_match: nm, error: e, total: t}),
+    do: "Reconhecimento: #{m} reconhecidas · #{nm} sem match · #{e} erros (de #{t})"
 
   defp progress_label(%{stage: stage, done: done, total: total})
        when is_integer(done) and is_integer(total),

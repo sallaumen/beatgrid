@@ -343,4 +343,72 @@ defmodule BeatgridWeb.MixLiveTest do
       refute has_element?(view, "button[phx-click=redownload_audio]")
     end
   end
+
+  describe "recognition controls" do
+    # AudD is configured by default in tests (config/test.exs); don't mutate that global
+    # here — this module is async and would race other modules' gate tests.
+    test "'Tentar tudo de novo' appears for already-tried no-match segments and forces a retry", %{conn: conn} do
+      mix = insert(:mix, status: :ready, audio_path: "/tmp/_Mixes/x.mp3")
+
+      insert(:mix_segment,
+        mix: mix,
+        position: 0,
+        start_ms: 0,
+        artist: nil,
+        title: nil,
+        audd_attempted_at: ~U[2026-06-30 00:00:00Z]
+      )
+
+      {:ok, view, _} = live(conn, ~p"/sets-online/#{mix.id}")
+
+      assert has_element?(view, "button[phx-click=recognize_retry_all]")
+      render_click(view, "recognize_retry_all")
+
+      assert_enqueued(
+        worker: Beatgrid.Workers.MixRecognizeWorker,
+        args: %{mix_id: mix.id, retry_all: true}
+      )
+    end
+
+    test "no 'Tentar tudo de novo' when nothing has been tried yet", %{conn: conn} do
+      mix = insert(:mix, status: :ready, audio_path: "/tmp/_Mixes/x.mp3")
+      insert(:mix_segment, mix: mix, position: 0, start_ms: 0, artist: nil, title: nil)
+      {:ok, view, _} = live(conn, ~p"/sets-online/#{mix.id}")
+      refute has_element?(view, "button[phx-click=recognize_retry_all]")
+    end
+
+    test "an unnamed segment AudD already tried shows a 'sem match' marker", %{conn: conn} do
+      mix = insert(:mix, status: :ready, audio_path: "/tmp/_Mixes/x.mp3")
+
+      insert(:mix_segment,
+        mix: mix,
+        position: 0,
+        start_ms: 0,
+        artist: nil,
+        title: nil,
+        audd_attempted_at: ~U[2026-06-30 00:00:00Z]
+      )
+
+      {:ok, _v, html} = live(conn, ~p"/sets-online/#{mix.id}")
+      assert html =~ "sem match"
+    end
+
+    test "shows the recognition summary when the batch finishes", %{conn: conn} do
+      mix = insert(:mix, status: :ready, audio_path: "/tmp/_Mixes/x.mp3")
+      insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+      {:ok, view, _} = live(conn, ~p"/sets-online/#{mix.id}")
+
+      Beatgrid.Mixes.broadcast(%{
+        mix_id: mix.id,
+        stage: "recognize_done",
+        matched: 3,
+        no_match: 34,
+        error: 0,
+        total: 37
+      })
+
+      assert render(view) =~ "3 reconhecida"
+      assert render(view) =~ "34 sem match"
+    end
+  end
 end

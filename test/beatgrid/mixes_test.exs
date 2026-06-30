@@ -126,6 +126,23 @@ defmodule Beatgrid.MixesTest do
     end
   end
 
+  describe "recognize_unnamed/2" do
+    # AudD is configured by default in tests (config/test.exs); don't mutate that global
+    # here — this module is async and would race the gate tests in other modules.
+    test "default enqueues a batch recognize (skips already-tried)" do
+      mix = insert(:mix, audio_path: "/tmp/_Mixes/x.mp3")
+      assert {:ok, _} = Mixes.recognize_unnamed(mix)
+      assert_enqueued(worker: Beatgrid.Workers.MixRecognizeWorker, args: %{mix_id: mix.id})
+      refute_enqueued(worker: Beatgrid.Workers.MixRecognizeWorker, args: %{mix_id: mix.id, retry_all: true})
+    end
+
+    test "retry_all enqueues with the retry_all flag" do
+      mix = insert(:mix, audio_path: "/tmp/_Mixes/x.mp3")
+      assert {:ok, _} = Mixes.recognize_unnamed(mix, true)
+      assert_enqueued(worker: Beatgrid.Workers.MixRecognizeWorker, args: %{mix_id: mix.id, retry_all: true})
+    end
+  end
+
   describe "redownload_audio/1" do
     test "marks the mix downloading and enqueues a restore-only download" do
       mix =

@@ -50,6 +50,9 @@ config :beatgrid, Beatgrid.Mixes.Source, adapter: Beatgrid.Mixes.SourceMock
 config :beatgrid, Beatgrid.Audio.SetSegmenter, adapter: Beatgrid.Audio.SetSegmenterMock
 config :beatgrid, Beatgrid.Video.FrameSampler, adapter: Beatgrid.Video.FrameSamplerMock
 config :beatgrid, Beatgrid.Recognition, adapter: Beatgrid.Recognition.Mock
+# AudD is "configured" by default in tests (so recognize buttons aren't gated). The few
+# gate tests set api_token: nil locally. Avoid mutating this in async tests otherwise.
+config :beatgrid, Beatgrid.Recognition.Audd, api_token: "test-token"
 # No real sleeping between AudD calls / retries in tests.
 config :beatgrid, Beatgrid.Workers.MixRecognizeWorker, throttle_ms: 0, retry_backoff_ms: 0
 
