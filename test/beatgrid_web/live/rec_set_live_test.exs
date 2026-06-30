@@ -126,6 +126,21 @@ defmodule BeatgridWeb.RecSetLiveTest do
   end
 
   @tag :tmp_dir
+  test "the set page renders the energy/BPM arc chart for a set with 2+ tracks", %{conn: conn} do
+    {:ok, set} = Sets.create("Charted")
+    t1 = track_with("8A", 120.0, tag_title: "A")
+    t2 = track_with("9A", 124.0, tag_title: "B")
+    {:ok, _} = Sets.append(set, t1, "pico")
+    {:ok, _} = Sets.append(set, t2, "respiro")
+
+    {:ok, _view, html} = live(conn, ~p"/set/#{set.id}")
+
+    assert html =~ "Arco — energia + BPM"
+    assert html =~ "<svg"
+    assert html =~ "<polyline"
+  end
+
+  @tag :tmp_dir
   test "changing the section updates the candidate preview live", %{conn: conn} do
     track_with("8A", 121.0, tag_title: "Pool")
     {:ok, set} = Sets.create("S")

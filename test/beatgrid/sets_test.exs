@@ -193,6 +193,24 @@ defmodule Beatgrid.SetsTest do
     assert Enum.all?(tl(entries), &(&1.transition && &1.transition["enabled"]))
   end
 
+  test "arc_series returns energy + bpm + role per entry, in order" do
+    {:ok, set} = Sets.create("Arc")
+    s1 = insert(:soundcharts_song, camelot: "8A", tempo_bpm: 120.0, energy: 0.9)
+    s2 = insert(:soundcharts_song, camelot: "8A", tempo_bpm: 100.0, energy: 0.3)
+    t1 = insert(:track, soundcharts_song_id: s1.id, status: :present)
+    t2 = insert(:track, soundcharts_song_id: s2.id, status: :present)
+    {:ok, _} = Sets.append(set, t1, "pico")
+    {:ok, _} = Sets.append(set, t2, "respiro")
+
+    assert [
+             %{role: "pico", energy: e1, bpm: 120.0},
+             %{role: "respiro", energy: e2, bpm: 100.0}
+           ] = Sets.arc_series(set)
+
+    assert_in_delta e1, 0.9, 0.001
+    assert_in_delta e2, 0.3, 0.001
+  end
+
   @tag :tmp_dir
   test "export_m3u writes an .m3u with EXTINF + absolute paths under _Sets", %{tmp_dir: root} do
     {:ok, set} = Sets.create("My Set")

@@ -33,6 +33,22 @@ defmodule Beatgrid.Sets do
         ]
   def entries(%RecSet{id: id}), do: RecSetQuery.ordered_entries(id)
 
+  @doc """
+  Energy + BPM series for the set's arc chart: one point per entry, in order, each
+  `%{role, energy, bpm}` — `energy` (0–1) from `Mixing.intensity/1`, `bpm` the
+  effective BPM (or nil). Feeds the `/set/:id` visualization (auto or manual sets).
+  """
+  @spec arc_series(RecSet.t()) :: [
+          %{role: String.t() | nil, energy: float(), bpm: float() | nil}
+        ]
+  def arc_series(%RecSet{} = set) do
+    set
+    |> entries()
+    |> Enum.map(fn e ->
+      %{role: e.role, energy: Mixing.intensity(e.track), bpm: Library.effective(e.track).bpm}
+    end)
+  end
+
   @doc "The set's opening track (position order), or nil if empty — for \"Tocar set\"."
   @spec first_track(RecSet.t() | Ecto.UUID.t()) :: Library.Track.t() | nil
   def first_track(%RecSet{id: id}), do: first_track(id)

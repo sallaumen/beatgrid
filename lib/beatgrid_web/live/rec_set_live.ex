@@ -65,10 +65,12 @@ defmodule BeatgridWeb.RecSetLive do
     {:noreply, assign(socket, playing_track_id: np.track_id, playing_set_id: np.set_id)}
   end
 
-  defp load_set(socket, nil), do: assign(socket, set: nil, entries: [], candidates: [])
+  defp load_set(socket, nil), do: assign(socket, set: nil, entries: [], candidates: [], arc: [])
 
   defp load_set(socket, set) do
-    socket |> assign(set: set, entries: Sets.entries(set)) |> assign_candidates()
+    socket
+    |> assign(set: set, entries: Sets.entries(set), arc: Sets.arc_series(set))
+    |> assign_candidates()
   end
 
   defp reload(socket), do: load_set(socket, Sets.get(socket.assigns.set.id))
@@ -403,6 +405,7 @@ defmodule BeatgridWeb.RecSetLive do
 
   defp short(name), do: String.slice(name || "", 0, 8)
 
+  defp role_label("respiro"), do: "Respiro"
   defp role_label(nil), do: nil
   defp role_label(role), do: with(%{label: l} <- Mixing.section(role), do: l)
 
@@ -546,6 +549,8 @@ defmodule BeatgridWeb.RecSetLive do
             </div>
 
             <.toast :if={@toast} toast={@toast} />
+
+            <.arc_chart series={@arc} />
 
             <ol class="mt-4 space-y-1">
               <li :for={{e, i} <- Enum.with_index(@entries, 1)} class="space-y-1">
@@ -741,6 +746,132 @@ defmodule BeatgridWeb.RecSetLive do
     </form>
     """
   end
+
+  attr :series, :list, required: true
+
+  defp arc_chart(assigns) do
+    series = assigns.series
+    n = length(series)
+    bpms = series |> Enum.map(& &1.bpm) |> Enum.filter(&is_number/1)
+    {bmin, bmax} = if bpms == [], do: {0.0, 1.0}, else: {Enum.min(bpms), Enum.max(bpms)}
+
+    assigns =
+      assign(assigns,
+        n: n,
+        energy_pts: arc_energy_pts(series, n),
+        bpm_pts: arc_bpm_pts(series, n, bmin, bmax),
+        bmin: bmin,
+        bmax: bmax
+      )
+
+    ~H"""
+    <section
+      :if={@n >= 2}
+      class="mt-3 rounded-xl border border-white/8 bg-surface px-4 pb-2 pt-3"
+    >
+      <div class="mb-1 flex flex-wrap items-center justify-between gap-2">
+        <h3 class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+          Arco — energia + BPM
+        </h3>
+        <div class="flex items-center gap-3 text-[10px] text-ink-faint">
+          <span class="flex items-center gap-1">
+            <span class="inline-block size-2 rounded-full" style="background:#6c5ce7"></span>pico
+          </span>
+          <span class="flex items-center gap-1">
+            <span class="inline-block size-2 rounded-full" style="background:#5ad1a0"></span>respiro
+          </span>
+          <span class="flex items-center gap-1">
+            <span class="inline-block size-2 rounded-full" style="background:#7a7a85"></span>abertura/queda
+          </span>
+        </div>
+      </div>
+      <svg
+        viewBox="0 0 320 132"
+        width="100%"
+        preserveAspectRatio="xMidYMid meet"
+        role="img"
+        aria-label="Arco de energia e BPM do set, uma marca por faixa"
+      >
+        <text x="2" y="11" font-size="9" fill="#8b8b94">energia</text>
+        <polyline
+          points={arc_poly(@energy_pts)}
+          fill="none"
+          stroke="#6c5ce7"
+          stroke-width="1.5"
+          stroke-linejoin="round"
+        />
+        <circle :for={d <- @energy_pts} cx={d.x} cy={d.y} r="2.4" fill={arc_color(d.role)}>
+          <title>{d.label}</title>
+        </circle>
+        <line x1="10" y1="70" x2="310" y2="70" stroke="#ffffff" stroke-opacity="0.06" />
+        <text x="2" y="80" font-size="9" fill="#8b8b94">bpm {round(@bmin)}–{round(@bmax)}</text>
+        <polyline
+          points={arc_poly(@bpm_pts)}
+          fill="none"
+          stroke="#5ad1a0"
+          stroke-width="1.5"
+          stroke-linejoin="round"
+        />
+        <circle :for={d <- @bpm_pts} cx={d.x} cy={d.y} r="2.4" fill={arc_color(d.role)}>
+          <title>{d.label}</title>
+        </circle>
+      </svg>
+    </section>
+    """
+  end
+
+  defp arc_energy_pts(series, n) do
+    series
+    |> Enum.with_index()
+    |> Enum.map(fn {p, i} ->
+      %{
+        x: arc_px(i, n),
+        y: Float.round(62.0 - arc_clamp(p.energy) * 48.0, 1),
+        role: p.role,
+        label: "#{arc_role(p.role)} · energia #{round(p.energy * 100)}%"
+      }
+    end)
+  end
+
+  defp arc_bpm_pts(series, n, bmin, bmax) do
+    series
+    |> Enum.with_index()
+    |> Enum.map(fn {p, i} ->
+      %{
+        x: arc_px(i, n),
+        y: Float.round(126.0 - arc_norm(p.bpm, bmin, bmax) * 44.0, 1),
+        role: p.role,
+        label: arc_bpm_label(p.bpm)
+      }
+    end)
+  end
+
+  defp arc_px(_i, n) when n <= 1, do: 160.0
+  defp arc_px(i, n), do: Float.round(10.0 + i / (n - 1) * 300.0, 1)
+
+  defp arc_norm(bpm, bmin, bmax) when is_number(bpm) and bmax > bmin,
+    do: arc_clamp((bpm - bmin) / (bmax - bmin))
+
+  defp arc_norm(_bpm, _bmin, _bmax), do: 0.5
+
+  defp arc_clamp(v) when v < 0.0, do: 0.0
+  defp arc_clamp(v) when v > 1.0, do: 1.0
+  defp arc_clamp(v), do: v
+
+  defp arc_poly(pts), do: Enum.map_join(pts, " ", &"#{&1.x},#{&1.y}")
+
+  defp arc_color("pico"), do: "#6c5ce7"
+  defp arc_color("respiro"), do: "#5ad1a0"
+  defp arc_color(_), do: "#7a7a85"
+
+  defp arc_role("pico"), do: "Pico"
+  defp arc_role("respiro"), do: "Respiro"
+  defp arc_role("abertura"), do: "Abertura"
+  defp arc_role("queda"), do: "Queda"
+  defp arc_role(_), do: "Faixa"
+
+  defp arc_bpm_label(bpm) when is_number(bpm), do: "#{round(bpm)} BPM"
+  defp arc_bpm_label(_), do: "BPM —"
 
   attr :active, :string, default: nil
 
