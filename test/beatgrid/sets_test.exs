@@ -53,7 +53,7 @@ defmodule Beatgrid.SetsTest do
     assert ids.() == [a.id, b.id, c.id]
   end
 
-  test "remix reorders the existing tracks along the arc and pulls gold to a peak" do
+  test "remix reorders the existing tracks along the arc, keeping the same set" do
     {:ok, set} = Sets.create("Remix")
 
     e = fn energy, attrs ->
@@ -75,9 +75,19 @@ defmodule Beatgrid.SetsTest do
     assert hd(entries).role == "abertura"
     assert List.last(entries).role == "queda"
     assert Enum.all?(tl(entries), &(&1.transition && &1.transition["enabled"]))
+  end
 
-    # the gold track landed on a peak
-    assert Enum.find(entries, &(&1.track.id == gold.id)).role == "pico"
+  test "remix varies the order across clicks" do
+    {:ok, set} = Sets.create("Vary")
+    for i <- 0..9, do: Sets.append(set, track_with("8A", 118.0 + i))
+
+    orders =
+      for _ <- 1..20 do
+        {:ok, _} = Sets.remix(set)
+        Sets.tracks(set) |> Enum.map(& &1.id)
+      end
+
+    assert orders |> Enum.uniq() |> length() > 1
   end
 
   test "next_after returns the next ordered track and is reorder-safe (the set pointer)" do

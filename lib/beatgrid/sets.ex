@@ -393,16 +393,27 @@ defmodule Beatgrid.Sets do
     {:ok, set}
   end
 
-  # Greedy: walk the arc slots in order, giving each the remaining track whose
-  # intensity best fits (gold tracks get a nudge toward "pico" slots).
+  @remix_topk 4
+
+  # Walk the arc slots in order, giving each a track sampled from its top-K best fits.
+  # The arc/gold bias stays, but the exact order — especially which ouro lands on each
+  # peak — changes each click, so repeated remixes feel different (the user rolls until
+  # they like one).
   defp assign_arc(plan, cards) do
     {picked, _} =
       Enum.reduce(plan, {[], cards}, fn slot, {acc, remaining} ->
-        best = Enum.max_by(remaining, &slot_fit(slot, &1))
-        {[{best.track, slot.role} | acc], List.delete(remaining, best)}
+        chosen = pick_card(slot, remaining)
+        {[{chosen.track, slot.role} | acc], List.delete(remaining, chosen)}
       end)
 
     Enum.reverse(picked)
+  end
+
+  defp pick_card(slot, cards) do
+    cards
+    |> Enum.sort_by(&slot_fit(slot, &1), :desc)
+    |> Enum.take(@remix_topk)
+    |> Enum.random()
   end
 
   defp slot_fit(%{target_intensity: ti, role: role}, %{intensity: i, gold: gold}) do
