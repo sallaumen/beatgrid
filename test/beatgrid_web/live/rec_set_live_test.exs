@@ -108,6 +108,24 @@ defmodule BeatgridWeb.RecSetLiveTest do
   end
 
   @tag :tmp_dir
+  test "Planejar set builds a full arc-shaped, connected set", %{conn: conn} do
+    for i <- 0..14, do: track_with("8A", 118.0 + i, tag_title: "T#{i}")
+
+    {:ok, view, _html} = live(conn, ~p"/set")
+    new_set(view)
+
+    view |> form("#plan-set-form") |> render_submit(%{count: "10"})
+
+    [set] = Sets.list()
+    entries = Sets.entries(set)
+    assert length(entries) == 10
+    assert hd(entries).role == "abertura"
+    assert List.last(entries).role == "queda"
+    assert Enum.all?(entries, &(&1.role in ~w(abertura pico respiro queda)))
+    assert Enum.all?(tl(entries), &(&1.transition && &1.transition["enabled"]))
+  end
+
+  @tag :tmp_dir
   test "changing the section updates the candidate preview live", %{conn: conn} do
     track_with("8A", 121.0, tag_title: "Pool")
     {:ok, set} = Sets.create("S")

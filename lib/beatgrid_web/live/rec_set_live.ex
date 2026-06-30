@@ -214,6 +214,19 @@ defmodule BeatgridWeb.RecSetLive do
     {:noreply, reload(socket)}
   end
 
+  def handle_event("plan_set", %{"count" => count}, socket) do
+    n = to_plan_count(count)
+    {:ok, set} = Sets.plan_set(socket.assigns.set, n)
+
+    {:noreply,
+     socket
+     |> reload()
+     |> put_flash(
+       :info,
+       "Set planejado: #{length(Sets.entries(set))} faixas com arco de energia + transições."
+     )}
+  end
+
   # --- mixing console (weights + hard filters) ---
 
   def handle_event("set_weight", %{"dim" => dim, "value" => value}, socket) do
@@ -332,6 +345,13 @@ defmodule BeatgridWeb.RecSetLive do
     case Integer.parse(to_string(c)) do
       {n, _} when n > 0 -> min(n, 20)
       _ -> 1
+    end
+  end
+
+  defp to_plan_count(c) do
+    case Integer.parse(to_string(c)) do
+      {n, _} when n > 0 -> n |> max(2) |> min(60)
+      _ -> 16
     end
   end
 
@@ -637,6 +657,7 @@ defmodule BeatgridWeb.RecSetLive do
           </section>
 
           <aside class="w-[740px] shrink-0 overflow-y-auto border-l border-white/6 bg-rail px-4 py-5">
+            <.plan_form />
             <.section_fill active={@active_section} />
             <.console_panel
               weights={@weights}
@@ -682,6 +703,42 @@ defmodule BeatgridWeb.RecSetLive do
       <p class="text-ink-muted">Crie um set para começar a montar.</p>
       <button phx-click="new_set" class="text-body-sm text-primary hover:underline">+ Novo set</button>
     </div>
+    """
+  end
+
+  defp plan_form(assigns) do
+    ~H"""
+    <form
+      id="plan-set-form"
+      phx-submit="plan_set"
+      class="rounded-xl border border-primary/30 bg-primary/5 p-4"
+    >
+      <h3 class="text-body-sm font-semibold text-ink">✨ Planejar set completo</h3>
+      <p class="mt-1 text-caption text-ink-muted">
+        Monta um arco de energia (abertura → picos e respiros → queda), escolhe as faixas e
+        já conecta tudo com transições. Varia a cada vez.
+      </p>
+      <div class="mt-3 flex items-end gap-2">
+        <label
+          for="plan-count"
+          class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint"
+        >
+          Nº de faixas
+        </label>
+        <input
+          id="plan-count"
+          type="number"
+          name="count"
+          value="16"
+          min="2"
+          max="60"
+          class="w-20 rounded-md border border-white/8 bg-input px-2 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
+        />
+        <button class="rounded-md bg-primary px-3.5 py-1.5 text-body-sm font-semibold text-white">
+          Planejar set
+        </button>
+      </div>
+    </form>
     """
   end
 
