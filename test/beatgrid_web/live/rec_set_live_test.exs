@@ -31,6 +31,10 @@ defmodule BeatgridWeb.RecSetLiveTest do
   defp new_set(view),
     do: view |> element("button[phx-click=new_set]", "Novo set") |> render_click()
 
+  # The right-rail panels start collapsed; open one before interacting with it.
+  defp open_panel(view, id),
+    do: view |> element("button[phx-value-panel='#{id}']") |> render_click()
+
   @tag :tmp_dir
   test "build a set from search, append, play affordance, then export to M3U", %{
     conn: conn,
@@ -48,8 +52,9 @@ defmodule BeatgridWeb.RecSetLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/set")
     new_set(view)
+    open_panel(view, "search")
 
-    # search is always available — find and append the seed
+    # find and append the seed from the search panel
     view |> form("#track-search", %{q: "Seed"}) |> render_change()
 
     view
@@ -62,7 +67,9 @@ defmodule BeatgridWeb.RecSetLiveTest do
     assert render(view) =~ ~s(id="player-audio")
     refute render(view) =~ ~s(id="set-player")
 
-    # the harmonic candidate shows up — append it
+    # the harmonic candidate shows up in the candidates panel — append it
+    open_panel(view, "candidates")
+
     html =
       view |> element("button[phx-click=append][phx-value-track='#{nextt.id}']") |> render_click()
 
@@ -96,6 +103,7 @@ defmodule BeatgridWeb.RecSetLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/set")
     new_set(view)
+    open_panel(view, "fill")
 
     view |> form("#section-fill") |> render_submit(%{role: "pico", count: "2"})
 
@@ -113,6 +121,7 @@ defmodule BeatgridWeb.RecSetLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/set")
     new_set(view)
+    open_panel(view, "plan")
 
     view |> form("#plan-set-form") |> render_submit(%{count: "10"})
 
@@ -147,6 +156,8 @@ defmodule BeatgridWeb.RecSetLiveTest do
     Sets.append(set, track_with("8A", 120.0, tag_title: "Seed"))
 
     {:ok, view, _html} = live(conn, ~p"/set")
+    open_panel(view, "fill")
+    open_panel(view, "candidates")
 
     view |> form("#section-fill") |> render_change(%{role: "pico", count: "4"})
     assert render(view) =~ "Próxima faixa ideal · Pico"
@@ -164,6 +175,7 @@ defmodule BeatgridWeb.RecSetLiveTest do
     Sets.append(set, member)
 
     {:ok, view, _html} = live(conn, ~p"/set")
+    open_panel(view, "search")
     view |> form("#track-search", %{q: "zz"}) |> render_change()
 
     refute has_element?(view, "#search-results button[phx-value-track='#{member.id}']")
@@ -197,12 +209,14 @@ defmodule BeatgridWeb.RecSetLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/set")
     new_set(view)
+    open_panel(view, "search")
     view |> form("#track-search", %{q: "Prev"}) |> render_change()
 
     view
     |> element("#search-results button[phx-click=append][phx-value-track='#{prev.id}']")
     |> render_click()
 
+    open_panel(view, "candidates")
     before = render(view)
     view |> render_hook("set_weight", %{"dim" => "bpm", "value" => "100"})
     after_html = render(view)
@@ -213,6 +227,7 @@ defmodule BeatgridWeb.RecSetLiveTest do
   test "reset_console restores default weights", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/set")
     new_set(view)
+    open_panel(view, "console")
 
     view |> render_hook("set_weight", %{"dim" => "harmony", "value" => "0"})
     html = view |> element("button[phx-click=reset_console]") |> render_click()
@@ -228,12 +243,15 @@ defmodule BeatgridWeb.RecSetLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/set")
     new_set(view)
+    open_panel(view, "search")
     view |> form("#track-search", %{q: "P2"}) |> render_change()
 
     view
     |> element("#search-results button[phx-click=append][phx-value-track='#{prev.id}']")
     |> render_click()
 
+    open_panel(view, "console")
+    open_panel(view, "candidates")
     view |> element("button[phx-click=toggle_harmonic]") |> render_click()
     html = render(view)
     assert html =~ "Compat2"
@@ -245,30 +263,46 @@ defmodule BeatgridWeb.RecSetLiveTest do
     _t = track_with("8A", 120.0, tag_title: "X")
     {:ok, view, _html} = live(conn, ~p"/set")
     new_set(view)
-    html = render(view)
+    # "Mesa de mixagem" header is always visible; the faders render once expanded.
+    assert render(view) =~ "Mesa de mixagem"
+    html = open_panel(view, "console")
     # the colocated ".Fader" hook normalizes to its module-qualified name at render
     assert html =~ ~s(phx-hook="BeatgridWeb.UI.Fader")
     assert html =~ ~s(data-dim="bpm")
-    assert html =~ "Mesa de mixagem"
   end
 
   @tag :tmp_dir
-  test "the mixing console collapses and expands", %{conn: conn} do
+  test "the side panels collapse and expand (default collapsed)", %{conn: conn} do
     _t = track_with("8A", 120.0, tag_title: "X")
     {:ok, view, _html} = live(conn, ~p"/set")
     new_set(view)
 
-    # Open by default: the faders render.
-    assert render(view) =~ ~s(data-dim="bpm")
+    # Collapsed by default: the header shows, the faders don't.
+    html = render(view)
+    assert html =~ "Mesa de mixagem"
+    refute html =~ ~s(data-dim="bpm")
 
-    # Collapse: the faders are hidden, the header stays.
-    collapsed = view |> element("button[phx-click=toggle_console]") |> render_click()
+    # Expand: the faders render.
+    assert open_panel(view, "console") =~ ~s(data-dim="bpm")
+
+    # Collapse again: the faders are hidden, the header stays.
+    collapsed = open_panel(view, "console")
     refute collapsed =~ ~s(data-dim="bpm")
     assert collapsed =~ "Mesa de mixagem"
+  end
 
-    # Expand again: the faders come back.
-    assert view |> element("button[phx-click=toggle_console]") |> render_click() =~
-             ~s(data-dim="bpm")
+  @tag :tmp_dir
+  test "the Sets list can be collapsed and reopened", %{conn: conn} do
+    {:ok, set} = Sets.create("Hideable")
+    {:ok, view, html} = live(conn, ~p"/set/#{set.id}")
+    assert html =~ "Recolher lista de sets"
+
+    collapsed = view |> element("button[phx-click=toggle_sets]") |> render_click()
+    assert collapsed =~ "Mostrar lista de sets"
+    refute collapsed =~ "Recolher lista de sets"
+
+    reopened = view |> element("button[phx-click=toggle_sets]") |> render_click()
+    assert reopened =~ "Recolher lista de sets"
   end
 
   @tag :tmp_dir
@@ -312,6 +346,7 @@ defmodule BeatgridWeb.RecSetLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/set")
     new_set(view)
+    open_panel(view, "search")
     view |> form("#track-search", %{q: "Seed"}) |> render_change()
 
     view

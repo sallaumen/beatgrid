@@ -35,7 +35,8 @@ defmodule BeatgridWeb.RecSetLive do
        filters: default_filters(),
        candidate_limit: 12,
        console_nonce: 0,
-       console_open: true
+       open_panels: MapSet.new(),
+       sets_open: true
      )
      |> assign(sets: sets)
      |> load_set(List.first(sets))}
@@ -248,8 +249,16 @@ defmodule BeatgridWeb.RecSetLive do
      |> assign_candidates()}
   end
 
-  def handle_event("toggle_console", _params, socket) do
-    {:noreply, assign(socket, console_open: !socket.assigns.console_open)}
+  def handle_event("toggle_panel", %{"panel" => key}, socket) do
+    open = socket.assigns.open_panels
+
+    open = if MapSet.member?(open, key), do: MapSet.delete(open, key), else: MapSet.put(open, key)
+
+    {:noreply, assign(socket, open_panels: open)}
+  end
+
+  def handle_event("toggle_sets", _params, socket) do
+    {:noreply, assign(socket, sets_open: !socket.assigns.sets_open)}
   end
 
   def handle_event("toggle_harmonic", _params, socket) do
@@ -433,15 +442,25 @@ defmodule BeatgridWeb.RecSetLive do
     ~H"""
     <.app_shell active={:sets} socket={@socket}>
       <div class="flex h-[calc(100vh_-_5rem)]">
-        <aside class="flex w-60 shrink-0 flex-col border-r border-white/6 bg-rail">
+        <aside :if={@sets_open} class="flex w-60 shrink-0 flex-col border-r border-white/6 bg-rail">
           <div class="flex items-center justify-between px-4 py-3">
             <h2 class="text-[18px] font-semibold">Sets</h2>
-            <button
-              phx-click="new_set"
-              class="rounded-md bg-primary px-2.5 py-1 text-[12px] font-semibold text-white"
-            >
-              + Novo
-            </button>
+            <div class="flex items-center gap-1.5">
+              <button
+                phx-click="new_set"
+                class="rounded-md bg-primary px-2.5 py-1 text-[12px] font-semibold text-white"
+              >
+                + Novo
+              </button>
+              <button
+                phx-click="toggle_sets"
+                title="Recolher lista de sets"
+                aria-label="Recolher lista de sets"
+                class="rounded-md p-1 text-ink-faint hover:bg-white/5 hover:text-ink"
+              >
+                <span class="hero-chevron-double-left size-4" />
+              </button>
+            </div>
           </div>
           <div class="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
             <button
@@ -466,12 +485,25 @@ defmodule BeatgridWeb.RecSetLive do
           </button>
         </aside>
 
+        <button
+          :if={!@sets_open}
+          phx-click="toggle_sets"
+          title="Mostrar lista de sets"
+          aria-label="Mostrar lista de sets"
+          class="flex shrink-0 items-start border-r border-white/6 bg-rail px-1 pt-4 text-ink-faint hover:text-ink"
+        >
+          <span class="hero-chevron-double-right size-4" />
+        </button>
+
         <div :if={is_nil(@set)} class="flex-1">
           <.empty_state />
         </div>
 
-        <div :if={@set} class="flex min-w-0 flex-1">
-          <section class="min-w-0 flex-1 overflow-y-auto px-6 py-5">
+        <div
+          :if={@set}
+          class="flex min-w-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden"
+        >
+          <section class="min-w-0 flex-1 px-6 py-5 lg:overflow-y-auto">
             <header class="flex items-center justify-between gap-3">
               <form id="set-name" phx-change="rename" class="flex-1">
                 <input
@@ -661,37 +693,67 @@ defmodule BeatgridWeb.RecSetLive do
             </ol>
           </section>
 
-          <aside class="w-[740px] shrink-0 overflow-y-auto border-l border-white/6 bg-rail px-4 py-5">
-            <.plan_form />
-            <.section_fill active={@active_section} />
-            <.console_panel
-              weights={@weights}
-              filters={@filters}
-              folders={@folders}
-              from={last_track_title(@entries)}
-              nonce={@console_nonce}
-              open={@console_open}
-            />
-            <.candidate_list
-              :if={@entries != []}
-              candidates={@candidates}
-              weights={@weights}
-              empty?={false}
-              section={role_label(@active_section)}
-              playing_id={@playing_track_id}
-            />
-            <.candidate_list
-              :if={@entries == []}
-              candidates={@candidates}
-              weights={@weights}
-              empty?={true}
-              playing_id={@playing_track_id}
-            />
-            <.search_box
-              query={@search_query}
-              results={@search_results}
-              playing_id={@playing_track_id}
-            />
+          <aside class={[
+            "flex shrink-0 flex-col bg-rail lg:overflow-y-auto lg:border-l lg:border-white/6",
+            rail_width(@open_panels)
+          ]}>
+            <div class="space-y-2 p-3">
+              <.collapsible id="plan" title="Planejar set" open_panels={@open_panels}>
+                <.plan_form />
+              </.collapsible>
+
+              <.collapsible id="fill" title="Preencher seção" open_panels={@open_panels}>
+                <.section_fill active={@active_section} />
+              </.collapsible>
+
+              <.collapsible
+                id="console"
+                title="Mesa de mixagem"
+                subtitle={console_subtitle(last_track_title(@entries))}
+                open_panels={@open_panels}
+              >
+                <:action>
+                  <button
+                    phx-click="reset_console"
+                    class="rounded-md border border-white/8 px-2.5 py-1 text-[11px] font-semibold text-ink-muted hover:text-ink"
+                  >
+                    ↺ Resetar
+                  </button>
+                </:action>
+                <.console_body
+                  weights={@weights}
+                  filters={@filters}
+                  folders={@folders}
+                  nonce={@console_nonce}
+                />
+              </.collapsible>
+
+              <.collapsible id="candidates" title="Próximas faixas" open_panels={@open_panels}>
+                <.candidate_list
+                  :if={@entries != []}
+                  candidates={@candidates}
+                  weights={@weights}
+                  empty?={false}
+                  section={role_label(@active_section)}
+                  playing_id={@playing_track_id}
+                />
+                <.candidate_list
+                  :if={@entries == []}
+                  candidates={@candidates}
+                  weights={@weights}
+                  empty?={true}
+                  playing_id={@playing_track_id}
+                />
+              </.collapsible>
+
+              <.collapsible id="search" title="Buscar faixa" open_panels={@open_panels}>
+                <.search_box
+                  query={@search_query}
+                  results={@search_results}
+                  playing_id={@playing_track_id}
+                />
+              </.collapsible>
+            </div>
           </aside>
         </div>
       </div>
@@ -711,13 +773,55 @@ defmodule BeatgridWeb.RecSetLive do
     """
   end
 
+  defp rail_width(open_panels) do
+    if MapSet.size(open_panels) == 0, do: "w-full lg:w-80", else: "w-full lg:w-[720px]"
+  end
+
+  defp console_subtitle(nil), do: "ajuste o peso de cada critério"
+  defp console_subtitle(from), do: "a partir de #{from}"
+
+  attr :id, :string, required: true
+  attr :title, :string, required: true
+  attr :subtitle, :string, default: nil
+  attr :open_panels, :any, required: true
+  slot :action
+  slot :inner_block, required: true
+
+  defp collapsible(assigns) do
+    assigns = assign(assigns, :open, MapSet.member?(assigns.open_panels, assigns.id))
+
+    ~H"""
+    <section class="overflow-hidden rounded-xl border border-white/8 bg-surface">
+      <header class={[
+        "flex items-center justify-between gap-2 bg-surface-2",
+        @open && "border-b border-white/6"
+      ]}>
+        <button
+          type="button"
+          phx-click="toggle_panel"
+          phx-value-panel={@id}
+          aria-expanded={to_string(@open)}
+          class="flex min-w-0 flex-1 items-center gap-2 px-4 py-2.5 text-left hover:bg-white/5"
+        >
+          <span class={[
+            "hero-chevron-down size-4 shrink-0 text-ink-muted transition-transform",
+            !@open && "-rotate-90"
+          ]} />
+          <span class="min-w-0">
+            <span class="block text-body-sm font-semibold text-ink">{@title}</span>
+            <span :if={@subtitle} class="block truncate text-caption text-ink-faint">{@subtitle}</span>
+          </span>
+        </button>
+        <div :if={@open and @action != []} class="shrink-0 pr-3">{render_slot(@action)}</div>
+      </header>
+      <div :if={@open}>{render_slot(@inner_block)}</div>
+    </section>
+    """
+  end
+
   defp plan_form(assigns) do
     ~H"""
-    <form
-      id="plan-set-form"
-      phx-submit="plan_set"
-      class="rounded-xl border border-primary/30 bg-primary/5 p-4"
-    >
+    <form id="plan-set-form" phx-submit="plan_set" class="p-4">
       <h3 class="text-body-sm font-semibold text-ink">✨ Planejar set completo</h3>
       <p class="mt-1 text-caption text-ink-muted">
         Monta um arco de energia (abertura → picos e respiros → queda), escolhe as faixas e
@@ -881,7 +985,7 @@ defmodule BeatgridWeb.RecSetLive do
       id="section-fill"
       phx-change="set_section"
       phx-submit="fill"
-      class="mt-5 flex flex-wrap items-end gap-2"
+      class="flex flex-wrap items-end gap-2 p-4"
     >
       <label class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
         Preencher
@@ -918,134 +1022,98 @@ defmodule BeatgridWeb.RecSetLive do
   attr :weights, :map, required: true
   attr :filters, :map, required: true
   attr :folders, :list, required: true
-  attr :from, :string, default: nil
   attr :nonce, :integer, default: 0
-  attr :open, :boolean, default: true
 
-  defp console_panel(assigns) do
+  defp console_body(assigns) do
     assigns = assign(assigns, :dims, @fader_dims)
 
     ~H"""
-    <section class="mt-5 overflow-hidden rounded-xl border border-white/8 bg-surface">
-      <header class="flex items-center justify-between gap-3 border-b border-white/6 bg-surface-2 px-4 py-2.5">
-        <button
-          type="button"
-          phx-click="toggle_console"
-          aria-expanded={to_string(@open)}
-          class="flex min-w-0 flex-1 items-center gap-2 text-left"
-        >
-          <span class={[
-            "hero-chevron-down size-4 shrink-0 text-ink-muted transition-transform",
-            !@open && "-rotate-90"
-          ]} />
-          <span class="min-w-0">
-            <span class="flex items-center gap-2 text-body-sm font-semibold">
-              <span class="hero-adjustments-vertical size-4 text-primary" /> Mesa de mixagem
-            </span>
-            <span :if={@from} class="block truncate text-caption text-ink-faint">
-              a partir de <span class="text-ink-muted">{@from}</span>
-            </span>
-            <span :if={!@from} class="block text-caption text-ink-faint">
-              ajuste o peso de cada critério para a abertura
-            </span>
-          </span>
-        </button>
-        <button
-          :if={@open}
-          phx-click="reset_console"
-          class="shrink-0 rounded-md border border-white/8 px-2.5 py-1 text-[11px] font-semibold text-ink-muted hover:text-ink"
-        >
-          ↺ Resetar
-        </button>
-      </header>
+    <div>
+      <div class="flex items-start justify-between gap-4 px-4 py-4">
+        <.fader
+          :for={dim <- @dims}
+          dim={dim}
+          label={fader_label(dim)}
+          value={@weights[dim]}
+          nonce={@nonce}
+        />
+      </div>
 
-      <div :if={@open}>
-        <div class="flex items-start justify-between gap-4 px-4 py-4">
-          <.fader
-            :for={dim <- @dims}
-            dim={dim}
-            label={fader_label(dim)}
-            value={@weights[dim]}
-            nonce={@nonce}
-          />
-        </div>
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-2.5 border-t border-white/6 px-4 py-3">
+        <button
+          phx-click="toggle_harmonic"
+          aria-pressed={to_string(@filters.harmonic_only)}
+          class={[
+            "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-semibold transition-colors",
+            @filters.harmonic_only && "bg-info/15 text-info border border-info/40",
+            !@filters.harmonic_only &&
+              "border border-white/8 text-ink-muted hover:text-ink"
+          ]}
+        >
+          <span aria-hidden="true">{if @filters.harmonic_only, do: "🔒", else: "🔓"}</span> Travar tom
+        </button>
 
-        <div class="flex flex-wrap items-center gap-x-4 gap-y-2.5 border-t border-white/6 px-4 py-3">
+        <form
+          id="console-filters"
+          phx-change="set_filters"
+          class="flex flex-wrap items-center gap-2"
+        >
+          <label class="flex items-center gap-1.5 text-caption text-ink-muted">
+            BPM
+            <input
+              type="number"
+              name="bpm_min"
+              value={@filters.bpm_min && round(@filters.bpm_min)}
+              min="0"
+              placeholder="min"
+              phx-debounce="300"
+              class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
+            />
+            <span class="text-ink-faint">–</span>
+            <input
+              type="number"
+              name="bpm_max"
+              value={@filters.bpm_max && round(@filters.bpm_max)}
+              min="0"
+              placeholder="max"
+              phx-debounce="300"
+              class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
+            />
+          </label>
+          <label class="flex items-center gap-1.5 text-caption text-ink-muted">
+            Nota mín.
+            <input
+              type="number"
+              name="min_rating"
+              value={@filters.min_rating}
+              min="0"
+              max="10"
+              placeholder="0"
+              phx-debounce="300"
+              class="w-14 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
+            />
+          </label>
+        </form>
+
+        <div class="flex flex-wrap items-center gap-1.5">
+          <span class="text-caption text-ink-faint">Excluir estilos:</span>
           <button
-            phx-click="toggle_harmonic"
-            aria-pressed={to_string(@filters.harmonic_only)}
+            :for={f <- @folders}
+            phx-click="toggle_exclude_style"
+            phx-value-key={f.key}
+            aria-pressed={to_string(f.key in @filters.exclude_styles)}
             class={[
-              "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[12px] font-semibold transition-colors",
-              @filters.harmonic_only && "bg-info/15 text-info border border-info/40",
-              !@filters.harmonic_only &&
+              "rounded-full px-2 py-0.5 text-[11px] font-semibold transition-colors",
+              f.key in @filters.exclude_styles && "bg-coral/15 text-coral border border-coral/40",
+              f.key not in @filters.exclude_styles &&
                 "border border-white/8 text-ink-muted hover:text-ink"
             ]}
           >
-            <span aria-hidden="true">{if @filters.harmonic_only, do: "🔒", else: "🔓"}</span> Travar tom
+            {if f.key in @filters.exclude_styles, do: "✕ ", else: ""}{f.display_name}
           </button>
-
-          <form
-            id="console-filters"
-            phx-change="set_filters"
-            class="flex flex-wrap items-center gap-2"
-          >
-            <label class="flex items-center gap-1.5 text-caption text-ink-muted">
-              BPM
-              <input
-                type="number"
-                name="bpm_min"
-                value={@filters.bpm_min && round(@filters.bpm_min)}
-                min="0"
-                placeholder="min"
-                phx-debounce="300"
-                class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
-              />
-              <span class="text-ink-faint">–</span>
-              <input
-                type="number"
-                name="bpm_max"
-                value={@filters.bpm_max && round(@filters.bpm_max)}
-                min="0"
-                placeholder="max"
-                phx-debounce="300"
-                class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
-              />
-            </label>
-            <label class="flex items-center gap-1.5 text-caption text-ink-muted">
-              Nota mín.
-              <input
-                type="number"
-                name="min_rating"
-                value={@filters.min_rating}
-                min="0"
-                max="10"
-                placeholder="0"
-                phx-debounce="300"
-                class="w-14 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
-              />
-            </label>
-          </form>
-
-          <div class="flex flex-wrap items-center gap-1.5">
-            <span class="text-caption text-ink-faint">Excluir estilos:</span>
-            <button
-              :for={f <- @folders}
-              phx-click="toggle_exclude_style"
-              phx-value-key={f.key}
-              aria-pressed={to_string(f.key in @filters.exclude_styles)}
-              class={[
-                "rounded-full px-2 py-0.5 text-[11px] font-semibold transition-colors",
-                f.key in @filters.exclude_styles && "bg-coral/15 text-coral border border-coral/40",
-                f.key not in @filters.exclude_styles &&
-                  "border border-white/8 text-ink-muted hover:text-ink"
-              ]}
-            >
-              {if f.key in @filters.exclude_styles, do: "✕ ", else: ""}{f.display_name}
-            </button>
-          </div>
         </div>
       </div>
-    </section>
+    </div>
     """
   end
 
@@ -1059,7 +1127,7 @@ defmodule BeatgridWeb.RecSetLive do
     assigns = assign(assigns, :header, candidate_header(assigns.empty?, assigns.section))
 
     ~H"""
-    <div class="mt-5">
+    <div class="p-4">
       <p class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
         {@header}
       </p>
@@ -1120,7 +1188,7 @@ defmodule BeatgridWeb.RecSetLive do
 
   defp search_box(assigns) do
     ~H"""
-    <div class="mt-5">
+    <div class="p-4">
       <p class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
         Buscar e adicionar
       </p>
