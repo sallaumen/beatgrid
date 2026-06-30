@@ -36,7 +36,9 @@ defmodule BeatgridWeb.RecSetLive do
        candidate_limit: 12,
        console_nonce: 0,
        open_panels: MapSet.new(),
-       sets_open: true
+       sets_open: true,
+       plan_presets: Sets.plan_presets(),
+       max_plan_tracks: Sets.max_plan_tracks()
      )
      |> assign(sets: sets)
      |> load_set(List.first(sets))}
@@ -226,16 +228,17 @@ defmodule BeatgridWeb.RecSetLive do
     {:noreply, reload(socket)}
   end
 
-  def handle_event("plan_set", %{"count" => count}, socket) do
-    n = to_plan_count(count)
-    {:ok, set} = Sets.plan_set(socket.assigns.set, n)
+  def handle_event("plan_set", params, socket) do
+    preset = plan_preset_key(params["preset"], socket.assigns.plan_presets)
+    n = to_plan_count(params, preset)
+    {:ok, set} = Sets.plan_set(socket.assigns.set, n, preset: preset)
 
     {:noreply,
      socket
      |> reload()
      |> put_flash(
        :info,
-       "Set planejado: #{length(Sets.entries(set))} faixas com arco de energia + transições."
+       "Set planned: #{length(Sets.entries(set))} tracks with energy arc + transitions."
      )}
   end
 
@@ -362,11 +365,31 @@ defmodule BeatgridWeb.RecSetLive do
     end
   end
 
-  defp to_plan_count(c) do
-    case Integer.parse(to_string(c)) do
-      {n, _} when n > 0 -> n |> max(2) |> min(60)
-      _ -> 16
+  defp to_plan_count(%{"count" => count}, _preset),
+    do: count |> parse_positive_int(16) |> clamp_plan_count()
+
+  defp to_plan_count(%{"mode" => "duration", "duration_minutes" => minutes}, preset) do
+    minutes
+    |> parse_positive_int(300)
+    |> Sets.estimate_count_for_duration(preset: preset)
+  end
+
+  defp to_plan_count(%{"track_count" => count}, _preset),
+    do: count |> parse_positive_int(16) |> clamp_plan_count()
+
+  defp to_plan_count(_params, _preset), do: 16
+
+  defp parse_positive_int(value, fallback) do
+    case Integer.parse(to_string(value)) do
+      {n, _} when n > 0 -> n
+      _ -> fallback
     end
+  end
+
+  defp clamp_plan_count(n), do: n |> max(2) |> min(Sets.max_plan_tracks())
+
+  defp plan_preset_key(key, presets) do
+    if Enum.any?(presets, &(&1.key == key)), do: key, else: "custom"
   end
 
   defp total_time(entries) do
@@ -724,7 +747,7 @@ defmodule BeatgridWeb.RecSetLive do
           ]}>
             <div class="space-y-2 p-3">
               <.collapsible id="plan" title="Planejar set" open_panels={@open_panels}>
-                <.plan_form />
+                <.plan_form presets={@plan_presets} max_tracks={@max_plan_tracks} />
               </.collapsible>
 
               <.collapsible id="fill" title="Preencher seção" open_panels={@open_panels}>
@@ -800,7 +823,9 @@ defmodule BeatgridWeb.RecSetLive do
   end
 
   defp rail_width(open_panels) do
-    if MapSet.size(open_panels) == 0, do: "w-full lg:w-80", else: "w-full lg:w-[720px]"
+    if MapSet.size(open_panels) == 0,
+      do: "w-full lg:w-80",
+      else: "w-full lg:w-[560px] xl:w-[640px] 2xl:w-[720px]"
   end
 
   defp console_subtitle(nil), do: "ajuste o peso de cada critério"
@@ -845,32 +870,96 @@ defmodule BeatgridWeb.RecSetLive do
     """
   end
 
+  attr :presets, :list, required: true
+  attr :max_tracks, :integer, required: true
+
   defp plan_form(assigns) do
     ~H"""
-    <form id="plan-set-form" phx-submit="plan_set" class="p-4">
-      <h3 class="text-body-sm font-semibold text-ink">✨ Planejar set completo</h3>
-      <p class="mt-1 text-caption text-ink-muted">
-        Monta um arco de energia (abertura → picos e respiros → queda), escolhe as faixas e
-        já conecta tudo com transições. Varia a cada vez.
-      </p>
-      <div class="mt-3 flex items-end gap-2">
-        <label
-          for="plan-count"
-          class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint"
-        >
-          Nº de faixas
+    <form id="plan-set-form" phx-submit="plan_set" class="space-y-4 p-4">
+      <div>
+        <h3 class="text-body-sm font-semibold text-ink">Planning Studio</h3>
+        <p class="mt-1 text-caption text-ink-muted">
+          Build long sets from a musical preset, duration or track count, energy arc, and automatic transitions.
+        </p>
+      </div>
+
+      <div class="grid gap-3 md:grid-cols-[1.35fr_.65fr]">
+        <label class="space-y-1">
+          <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+            Preset
+          </span>
+          <select
+            name="preset"
+            class="w-full rounded-md border border-white/8 bg-input px-2 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
+          >
+            <option :for={preset <- @presets} value={preset.key}>
+              {preset.name}
+            </option>
+          </select>
         </label>
-        <input
-          id="plan-count"
-          type="number"
-          name="count"
-          value="16"
-          min="2"
-          max="60"
-          class="w-20 rounded-md border border-white/8 bg-input px-2 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
-        />
+
+        <label class="space-y-1">
+          <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+            Mode
+          </span>
+          <select
+            name="mode"
+            class="w-full rounded-md border border-white/8 bg-input px-2 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
+          >
+            <option value="duration" selected>Duration</option>
+            <option value="tracks">Tracks</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="grid gap-3 md:grid-cols-2">
+        <label class="space-y-1">
+          <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+            Duration
+          </span>
+          <div class="flex items-center gap-2">
+            <input
+              id="plan-duration"
+              type="number"
+              name="duration_minutes"
+              value="300"
+              min="15"
+              max="720"
+              class="w-full rounded-md border border-white/8 bg-input px-2 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
+            />
+            <span class="text-caption text-ink-faint">min</span>
+          </div>
+        </label>
+
+        <label class="space-y-1">
+          <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+            Tracks
+          </span>
+          <input
+            id="plan-count"
+            type="number"
+            name="track_count"
+            value="96"
+            min="2"
+            max={@max_tracks}
+            class="w-full rounded-md border border-white/8 bg-input px-2 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
+          />
+        </label>
+      </div>
+
+      <div class="rounded-lg border border-white/8 bg-surface-2 px-3 py-2">
+        <p class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+          Included presets
+        </p>
+        <p class="mt-1 text-caption text-ink-muted">
+          Roots focus, Roots to Forro MPB, Roots to Classic Forro, Forro Orbit, MPB Set, or Custom.
+        </p>
+      </div>
+
+      <div class="flex items-center justify-between gap-3">
+        <span class="text-caption text-ink-faint">Up to {@max_tracks} tracks per run.</span>
         <button class="rounded-md bg-primary px-3.5 py-1.5 text-body-sm font-semibold text-white">
-          Planejar set
+          Plan set
         </button>
       </div>
     </form>
