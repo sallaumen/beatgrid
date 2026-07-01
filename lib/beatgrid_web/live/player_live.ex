@@ -48,8 +48,7 @@ defmodule BeatgridWeb.PlayerLive do
         {:noreply,
          socket
          |> assign(now_playing: track, playing_set: load_playing_set(set_id))
-         |> push_markers()
-         |> push_set_plan()}
+         |> push_markers()}
     end
   end
 
@@ -173,35 +172,6 @@ defmodule BeatgridWeb.PlayerLive do
     markers = (socket.assigns.now_playing && socket.assigns.now_playing.cue_points) || []
     push_event(socket, "player_markers", %{markers: markers})
   end
-
-  # When a set is playing, push the ordered plan (src + bpm + incoming transition per
-  # entry) to the hook so it can drive the dual-deck crossfades client-side, plus the
-  # index of the track that just started. No set / deleted set → no push.
-  defp push_set_plan(%{assigns: %{now_playing: %{id: id}, playing_set: %{id: set_id}}} = socket) do
-    case Sets.get(set_id) do
-      nil ->
-        socket
-
-      set ->
-        tracks =
-          Enum.map(Sets.entries(set), fn e ->
-            %{
-              id: e.track.id,
-              src: ~p"/audio/#{e.track.id}",
-              bpm: Beatgrid.Library.effective(e.track).bpm,
-              transition: e.transition
-            }
-          end)
-
-        push_event(socket, "set_plan", %{
-          set_id: set_id,
-          tracks: tracks,
-          index: Enum.find_index(tracks, &(&1.id == id)) || 0
-        })
-    end
-  end
-
-  defp push_set_plan(socket), do: socket
 
   # Re-read the track fresh (so a concurrent track-page edit isn't clobbered), apply the
   # cue mutation, then update the player synchronously + tell the track's page. The fresh
@@ -379,8 +349,6 @@ defmodule BeatgridWeb.PlayerLive do
         data-preview-min-ms={Playback.preview_min_duration_ms()}
         class="hidden"
       ></audio>
-      <%!-- Deck B: the idle/overlap deck the .Player hook uses for crossfades (Part 4). --%>
-      <audio id="player-audio-b" phx-update="ignore" preload="none" class="hidden"></audio>
 
       <script :type={Phoenix.LiveView.ColocatedHook} name=".Player">
         export default {
@@ -396,9 +364,16 @@ defmodule BeatgridWeb.PlayerLive do
             }
             const setIcon = (t) => { const el = byId("player-toggle-icon"); if (el) el.textContent = t }
             this.playToken = 0
-            this.fadeToken = 0
+            this.lastAdvanceToken = null
             this.loadingAudio = false
             this.activeSetId = null
+
+            const playerVolume = () => {
+              const vol = byId("player-volume")
+              const value = vol ? Number(vol.value) : 100
+              if (!Number.isFinite(value)) return 1
+              return Math.max(0, Math.min(1, value / 100))
+            }
 
             const safePlay = (el) => {
               const attempt = el.play()
@@ -451,16 +426,12 @@ defmodule BeatgridWeb.PlayerLive do
             })
             a.addEventListener("beatgrid:seek", (e) => { if (a.duration) a.currentTime = e.detail.ms / 1000 })
 
-            const deckB = byId("player-audio-b")
-
             // Load + play a src. `atMs` (jump to a marker) wins; else a preview jumps
             // to the configured offset for long tracks; otherwise start at 0.
             const playSrc = (src, preview, atMs) => {
               this.playToken++
-              this.fadeToken++
               const token = this.playToken
-              this.xfading = false
-              if (deckB) deckB.pause()
+              this.lastAdvanceToken = null
               if (lane) lane.innerHTML = ""
               clearPendingStart()
               const start = () => {
@@ -470,6 +441,8 @@ defmodule BeatgridWeb.PlayerLive do
                 const durMs = (a.duration || 0) * 1000
                 if (atMs != null) a.currentTime = atMs / 1000
                 else a.currentTime = (preview && durMs >= minDur) ? offset / 1000 : 0
+                a.volume = playerVolume()
+                a.playbackRate = 1
                 safePlay(a)
                 a._pendingStart = null
               }
@@ -488,10 +461,7 @@ defmodule BeatgridWeb.PlayerLive do
             // User-initiated play from a page (may carry a set_id for set playback, or
             // an at_ms to start straight at a cue-point marker).
             a.addEventListener("beatgrid:play", (e) => {
-              // Single-track play (no set) clears any set plan so no stray crossfade fires;
-              // set play leaves it — the server re-pushes set_plan in response to now_playing.
               this.activeSetId = e.detail.set_id || null
-              if (!e.detail.set_id) { this.plan = null; this.setId = null }
               playSrc(e.detail.src, e.detail.preview, e.detail.at_ms)
               this.pushEvent("now_playing", {id: e.detail.id, set_id: e.detail.set_id || null})
             })
@@ -503,6 +473,13 @@ defmodule BeatgridWeb.PlayerLive do
             a.addEventListener("beatgrid:toggle", () => a.paused ? safePlay(a) : a.pause())
             a.addEventListener("beatgrid:stop", () => a.pause())
 
+            const requestAdvance = () => {
+              const hasSet = this.activeSetId != null
+              if (!hasSet || this.lastAdvanceToken === this.playToken) return
+              this.lastAdvanceToken = this.playToken
+              this.pushEvent("track_ended", {})
+            }
+
             // Body flag drives the now-playing disc spin (CSS), pause-aware + correct
             // for pages mounted mid-playback.
             const setPlaying = (on) => { document.body.dataset.playing = on ? "true" : "false" }
@@ -510,7 +487,7 @@ defmodule BeatgridWeb.PlayerLive do
             a.addEventListener("play", () => {
               setIcon("⏸")
               setPlaying(true)
-              this.pushEvent("playback_playing", {set_id: this.activeSetId || this.setId || null})
+              this.pushEvent("playback_playing", {set_id: this.activeSetId || null})
               window.dispatchEvent(new CustomEvent("beatgrid:playing", {detail: {source: "player-audio"}}))
             })
             a.addEventListener("pause", () => {
@@ -524,15 +501,13 @@ defmodule BeatgridWeb.PlayerLive do
               setPlaying(false)
               this.pushEvent("playback_paused", {})
               window.dispatchEvent(new CustomEvent("beatgrid:paused"))
-              this.pushEvent("track_ended", {})
+              requestAdvance()
             })
-            // A load/decode failure (e.g. a missing file mid-set) recovers the set by
-            // skipping to the next track instead of stalling silently.
             a.addEventListener("error", () => {
               setIcon("▶")
               setPlaying(false)
-              this.pushEvent("playback_paused", {})
-              this.pushEvent("track_ended", {})
+              if (!this.loadingAudio) this.pushEvent("playback_paused", {})
+              console.warn("Beatgrid media error", a.error)
             })
 
             a.addEventListener("loadedmetadata", () => {
@@ -549,130 +524,13 @@ defmodule BeatgridWeb.PlayerLive do
               if (seek && document.activeElement !== seek) seek.value = Math.floor(a.currentTime)
             })
 
-            // --- Part 4b: dual-deck crossfade for set autoplay -----------------------
-            // Deck A (#player-audio) stays primary (seek/markers/elapsed bound to it).
-            // Deck B (#player-audio-b) plays the INCOMING track during the overlap; at the
-            // end A reloads that track at B's exact position (same track, same spot = an
-            // inaudible switch) and B stops, so A is primary again. NOTE: the volume ramp
-            // runs on requestAnimationFrame — smooth in a foreground tab; a backgrounded
-            // tab throttles rAF (audio keeps playing, the fade just gets coarse).
-            this.plan = null
-            this.planIdx = 0
-            this.setId = null
-            this.xfading = false
-
-            this.handleEvent("set_plan", ({set_id, tracks, index}) => {
-              this.plan = tracks || null
-              this.planIdx = index || 0
-              this.setId = set_id
-              this.activeSetId = set_id || this.activeSetId
-            })
-
-            const currentBpm = () => (this.plan && this.plan[this.planIdx] && this.plan[this.planIdx].bpm) || null
-            const clampRate = (r) => Math.max(0.94, Math.min(1.06, r))   // BPM nudge ±6%
-            const W = 8000                                               // overlap window (ms)
-
-            const handBackToA = (next, posSec) => {
-              this.playToken++
-              const token = this.playToken
-              clearPendingStart()
-              const seekReady = () => {
-                a.removeEventListener("loadedmetadata", seekReady)
-                if (token !== this.playToken) return
-                a.currentTime = posSec
-                a.volume = 1
-                a.playbackRate = 1
-                // B keeps playing (same track, same spot) until A has buffered, then we
-                // swap in one shot — no silent gap (the old "engasgadinha" on handback).
-                const swap = () => {
-                  a.removeEventListener("canplay", swap)
-                  if (token !== this.playToken) return
-                  this.loadingAudio = false
-                  safePlay(a)
-                  deckB.pause()
-                  this.planIdx++
-                  this.xfading = false
-                  this.pushEvent("now_playing", {id: next.id, set_id: this.setId})
-                }
-                if (a.readyState >= 3) swap(); else a.addEventListener("canplay", swap)
-              }
-              this.loadingAudio = true
-              a.src = next.src
-              a.load()
-              a.addEventListener("loadedmetadata", seekReady)
-            }
-
-            const startCrossfade = (next) => {
-              if (!deckB || this.xfading) return
-              this.xfading = true
-              this.fadeToken++
-              const fadeToken = this.fadeToken
-              const tr = next.transition || {}
-              const type = tr.type || "crossfade"
-              const toMs = tr.to_ms || 0
-
-              if (type === "cut") {
-                this.planIdx++
-                playSrc(next.src, false, toMs)
-                this.pushEvent("now_playing", {id: next.id, set_id: this.setId})
-                this.xfading = false
-                return
-              }
-
-              const bpmA = currentBpm(), bpmB = next.bpm
-              deckB.src = next.src
-              deckB.load()
-              const startB = () => {
-                deckB.removeEventListener("loadedmetadata", startB)
-                if (fadeToken !== this.fadeToken) return
-                deckB.currentTime = toMs / 1000
-                deckB.volume = 0
-                deckB.playbackRate = (type === "crossfade" && bpmA && bpmB) ? clampRate(bpmA / bpmB) : 1
-                // Wait until B has buffered enough to play, so the fade-in doesn't stall.
-                const begin = () => {
-                  deckB.removeEventListener("canplay", begin)
-                  if (fadeToken !== this.fadeToken) return
-                  safePlay(deckB)
-                  const t0 = performance.now()
-                  const ramp = () => {
-                    if (fadeToken !== this.fadeToken) return
-                    const p = Math.min(1, (performance.now() - t0) / W)
-                    a.volume = Math.cos(p * Math.PI / 2)        // equal-power: A falls
-                    deckB.volume = Math.sin(p * Math.PI / 2)    // B rises
-                    if (p < 1) requestAnimationFrame(ramp)
-                    else handBackToA(next, deckB.currentTime)
-                  }
-                  requestAnimationFrame(ramp)
-                }
-                if (deckB.readyState >= 3) begin(); else deckB.addEventListener("canplay", begin)
-              }
-              deckB.addEventListener("loadedmetadata", startB)
-            }
-
-            // Arm the crossfade when A reaches the next track's `from_ms` (or ~10s before
-            // the end when there's no outro marker). Only while a set plan is loaded.
-            a.addEventListener("timeupdate", () => {
-              if (this.xfading || !this.plan) return
-              const next = this.plan[this.planIdx + 1]
-              if (!next || !(next.transition && next.transition.enabled)) return
-              const dur = (a.duration || 0) * 1000
-              if (!dur) return
-              // Honor the outro marker only if it's in the back half of the track; a
-              // marker detected mid-song (energy dip/breakdown) would otherwise cut the
-              // track off early — the "jump". Always leave room for the W overlap.
-              const raw = next.transition.from_ms
-              const honored = (raw != null && raw >= dur * 0.5) ? raw : dur - W
-              const fromMs = Math.max(0, Math.min(honored, dur - W))
-              if (a.currentTime * 1000 >= fromMs) startCrossfade(next)
-            })
-
             const seek = byId("player-seek")
             if (seek) seek.addEventListener("input", () => { a.currentTime = Number(seek.value) })
             const vol = byId("player-volume")
             if (vol) vol.addEventListener("input", () => { a.volume = Number(vol.value) / 100 })
 
             window.addEventListener("beatgrid:playing", (e) => {
-              if (e.detail.source !== "player-audio") { a.pause(); if (deckB) deckB.pause() }
+              if (e.detail.source !== "player-audio") a.pause()
             })
           }
         }

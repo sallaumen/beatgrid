@@ -125,6 +125,27 @@ defmodule BeatgridWeb.PlayerLiveTest do
     assert Playback.now_playing() == %{track_id: b.id, set_id: set.id}
   end
 
+  test "track_ended honors a set reorder made while playback is running", %{conn: conn} do
+    {:ok, set} = Sets.create("Live order")
+    a = insert(:track, tag_title: "First", status: :present)
+    b = insert(:track, tag_title: "Second", status: :present)
+    c = insert(:track, tag_title: "Third", status: :present)
+    {:ok, _} = Sets.append(set, a)
+    {:ok, _} = Sets.append(set, b)
+    {:ok, _} = Sets.append(set, c)
+
+    {:ok, view, _html} = live_isolated(conn, BeatgridWeb.PlayerLive)
+    render_hook(view, "now_playing", %{"id" => a.id, "set_id" => set.id})
+
+    :ok = Sets.move(set, c, :up)
+    render_hook(view, "track_ended", %{})
+
+    assert_push_event(view, "play_track", %{id: next_id})
+    assert next_id == c.id
+    assert render(view) =~ "Third"
+    assert Playback.now_playing() == %{track_id: c.id, set_id: set.id}
+  end
+
   test "track_ended at the end of the set drops the set context", %{conn: conn} do
     {:ok, set} = Sets.create("Solo")
     a = insert(:track, tag_title: "Only", status: :present)
@@ -137,6 +158,14 @@ defmodule BeatgridWeb.PlayerLiveTest do
 
     refute html =~ "/set/#{set.id}"
     assert Playback.now_playing() == %{track_id: a.id, set_id: nil}
+  end
+
+  test "renders live-safe single-deck set playback without client-side crossfade", %{conn: conn} do
+    {:ok, _view, html} = live_isolated(conn, BeatgridWeb.PlayerLive)
+
+    refute html =~ ~s(id="player-audio-b")
+    refute html =~ "startCrossfade"
+    refute html =~ "set_plan"
   end
 
   test "now_playing with an unknown track id clears the pointer (no ghost highlight)", %{
@@ -232,7 +261,7 @@ defmodule BeatgridWeb.PlayerLiveTest do
     end
   end
 
-  test "playing a set pushes the set_plan (ordered tracks + current index) to the hook", %{
+  test "playing a set keeps metadata server-owned without pushing a client queue plan", %{
     conn: conn
   } do
     {:ok, set} = Sets.create("S")
@@ -242,12 +271,11 @@ defmodule BeatgridWeb.PlayerLiveTest do
     {:ok, _} = Sets.append(set, b)
 
     {:ok, view, _html} = live_isolated(conn, BeatgridWeb.PlayerLive)
-    render_hook(view, "now_playing", %{"id" => a.id, "set_id" => set.id})
+    html = render_hook(view, "now_playing", %{"id" => a.id, "set_id" => set.id})
 
-    assert_push_event(view, "set_plan", %{tracks: tracks, index: 0})
-    assert length(tracks) == 2
-    assert hd(tracks).id == a.id
-    assert hd(tracks).bpm == 128.0
+    assert html =~ "A"
+    assert html =~ "S"
+    assert Playback.now_playing() == %{track_id: a.id, set_id: set.id}
   end
 
   describe "sticky mount" do
