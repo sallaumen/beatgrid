@@ -368,13 +368,6 @@ defmodule BeatgridWeb.PlayerLive do
             this.loadingAudio = false
             this.activeSetId = null
 
-            const playerVolume = () => {
-              const vol = byId("player-volume")
-              const value = vol ? Number(vol.value) : 100
-              if (!Number.isFinite(value)) return 1
-              return Math.max(0, Math.min(1, value / 100))
-            }
-
             const safePlay = (el) => {
               const attempt = el.play()
               if (attempt && typeof attempt.catch === "function") {
@@ -441,7 +434,9 @@ defmodule BeatgridWeb.PlayerLive do
                 const durMs = (a.duration || 0) * 1000
                 if (atMs != null) a.currentTime = atMs / 1000
                 else a.currentTime = (preview && durMs >= minDur) ? offset / 1000 : 0
-                a.volume = playerVolume()
+                // Volume is client-owned: it persists on this phx-update="ignore" <audio>
+                // element and is only changed by the slider's input listener. Do NOT reset
+                // it per load — that snapped the volume on every track change (live bug).
                 a.playbackRate = 1
                 safePlay(a)
                 a._pendingStart = null
