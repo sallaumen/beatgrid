@@ -4,206 +4,62 @@ defmodule BeatgridWeb.DashboardLive do
 
   import BeatgridWeb.UI
 
-  alias Beatgrid.{Analysis, Loudness, Markers, Operations, Repertoire, YouTube}
-  alias Beatgrid.Library.GenreFolders
-  alias Beatgrid.Workers.{EnrichWorker, ExampleSetWorker, RecommendWorker}
+  alias Beatgrid.{Dashboard, Repertoire}
 
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
-      Analysis.subscribe()
-      Loudness.subscribe()
-      YouTube.subscribe()
-      YouTube.subscribe_enrich()
-      Repertoire.subscribe()
+      Dashboard.subscribe()
     end
-
-    folders = GenreFolders.list()
-    gaps_folder = folders |> List.first() |> then(&(&1 && &1.key))
 
     {:ok,
      socket
-     |> assign(
-       page_title: "Painel",
-       overview: Repertoire.overview(),
-       genres: Repertoire.genre_distribution() |> Enum.sort_by(fn {_k, v} -> -v end),
-       artists: Repertoire.top_artists(10),
-       bpm: Repertoire.bpm_histogram(5) |> Enum.sort_by(fn {b, _} -> b end),
-       decades: Repertoire.decade_distribution() |> Enum.sort_by(fn {d, _} -> d end),
-       analysis: Analysis.progress(),
-       analysis_note: nil,
-       loudness: Loudness.progress(),
-       gain_pending: Loudness.gain_pending_count(),
-       gain_undo_batch: Loudness.latest_gain_batch(),
-       loudness_note: nil,
-       markers_unmapped: Markers.unmapped_count(),
-       markers_note: nil,
-       youtube_pending: YouTube.pending_count(),
-       youtube_note: nil,
-       enrich: nil,
-       rare_pending: YouTube.rare_unfiled_count(),
-       enrich_rare: nil,
-       folders: folders,
-       recommending?: false
-     )
-     |> assign_gaps(gaps_folder)}
+     |> assign(Dashboard.snapshot())}
   end
 
-  # One query feeds both the per-folder gap counts (for the folder chips) and the
-  # selected folder's recommendation list — grouping/filtering in Elixir avoids a
-  # second round-trip. Re-run whenever the gaps change (selection, generate, import,
-  # dismiss).
   defp assign_gaps(socket, folder) do
-    gaps = Repertoire.list_recommendations(source: :gaps, statuses: [:new, :imported])
-
-    assign(socket,
-      gaps_folder: folder,
-      gap_counts: Enum.frequencies_by(gaps, & &1.genre_folder),
-      recs: Enum.filter(gaps, &(&1.genre_folder == folder))
-    )
+    assign(socket, Dashboard.gaps(folder))
   end
 
   @impl true
   def handle_event("analyze_library", _params, socket) do
-    {:ok, n} = Analysis.enqueue_pending()
-
-    note =
-      if n > 0,
-        do: "#{n} faixa(s) enfileirada(s) — analisando em segundo plano…",
-        else: "Tudo já analisado. ✔"
-
-    {:noreply, assign(socket, analysis: Analysis.progress(), analysis_note: note)}
+    {:noreply, apply_dashboard_result(socket, Dashboard.run(:analyze_library))}
   end
 
   def handle_event("map_markers", _params, socket) do
-    {:ok, n} = Markers.enqueue_unmapped()
-
-    note =
-      if n == 0,
-        do: "Tudo já mapeado — nenhuma faixa sem marcadores.",
-        else: "Mapeando marcadores de #{n} faixa(s) em background — acompanhe em Jobs."
-
-    {:noreply, assign(socket, markers_unmapped: Markers.unmapped_count(), markers_note: note)}
+    {:noreply, apply_dashboard_result(socket, Dashboard.run(:map_markers))}
   end
 
   def handle_event("build_example_set", _params, socket) do
-    Oban.insert(ExampleSetWorker.new(%{}))
-
-    {:noreply,
-     put_flash(
-       socket,
-       :info,
-       "Montando set de exemplo (roots): detectando marcadores + conectando… abra REC SET em ~1 min."
-     )}
+    {:noreply, apply_dashboard_result(socket, Dashboard.run(:build_example_set))}
   end
 
   def handle_event("analyze_loudness", _params, socket) do
-    {:ok, n} = Loudness.enqueue_pending()
-
-    note =
-      if n > 0,
-        do: "#{n} faixa(s) na fila — medindo loudness em segundo plano…",
-        else: "Loudness de tudo já medido. ✔"
-
-    {:noreply, assign(socket, loudness: Loudness.progress(), loudness_note: note)}
+    {:noreply, apply_dashboard_result(socket, Dashboard.run(:analyze_loudness))}
   end
 
   def handle_event("apply_gain", _params, socket) do
-    {:ok, n, batch_id} = Loudness.enqueue_apply_pending()
-
-    note =
-      if n > 0,
-        do: "#{n} track(s) queued for gain application.",
-        else: "No tracks need gain application."
-
-    {:noreply,
-     assign(socket,
-       gain_pending: Loudness.gain_pending_count(),
-       gain_undo_batch: if(n > 0, do: batch_id, else: Loudness.latest_gain_batch()),
-       loudness_note: note
-     )}
+    {:noreply, apply_dashboard_result(socket, Dashboard.run(:apply_gain))}
   end
 
   def handle_event("restore_gain_backup", _params, socket) do
-    case socket.assigns.gain_undo_batch do
-      nil ->
-        {:noreply, assign(socket, loudness_note: "No gain backup is available to restore.")}
-
-      batch_id ->
-        {:ok, %{undone: undone, failed: failed}} = Operations.undo_batch(batch_id)
-
-        note =
-          if failed == 0,
-            do: "#{undone} gain backup(s) restored.",
-            else: "#{undone} gain backup(s) restored; #{failed} restore(s) failed."
-
-        {:noreply,
-         assign(socket,
-           loudness: Loudness.progress(),
-           gain_pending: Loudness.gain_pending_count(),
-           gain_undo_batch: Loudness.latest_gain_batch(),
-           loudness_note: note
-         )}
-    end
+    {:noreply,
+     apply_dashboard_result(
+       socket,
+       Dashboard.run({:restore_gain_backup, socket.assigns.gain_undo_batch})
+     )}
   end
 
   def handle_event("download_youtube", %{"urls" => urls}, socket) do
-    {:ok, n} = YouTube.enqueue(urls)
-
-    note =
-      if n > 0,
-        do: "#{n} na fila — baixando em segundo plano. Acompanhe em Jobs.",
-        else: "Cole ao menos uma URL do YouTube."
-
-    {:noreply, assign(socket, youtube_note: note)}
+    {:noreply, apply_dashboard_result(socket, Dashboard.run({:download_youtube, urls}))}
   end
 
   def handle_event("enrich_youtube", _params, socket) do
-    if Beatgrid.Integrations.configured?(:soundcharts) do
-      bid = Uniq.UUID.uuid7()
-
-      # The worker is `unique` per scope, so a click while one is already running is a
-      # no-op (conflict) — surface that instead of faking a fresh "queued" progress.
-      case Oban.insert(EnrichWorker.new(%{"scope" => "pending", "batch_id" => bid})) do
-        {:ok, %Oban.Job{conflict?: true}} ->
-          {:noreply,
-           assign(socket,
-             youtube_note: "Já existe um enriquecimento em andamento — veja em Jobs."
-           )}
-
-        {:ok, _job} ->
-          {:noreply, assign(socket, enrich: %{status: :queued}, youtube_note: nil)}
-
-        {:error, _reason} ->
-          {:noreply, assign(socket, youtube_note: "Não foi possível iniciar o enriquecimento.")}
-      end
-    else
-      {:noreply,
-       put_flash(
-         socket,
-         :error,
-         "Configure SOUNDCHARTS_APP_ID + SOUNDCHARTS_API_KEY no .env."
-       )}
-    end
+    {:noreply, apply_dashboard_result(socket, Dashboard.run(:enrich_youtube))}
   end
 
   def handle_event("enrich_rare", _params, socket) do
-    bid = Uniq.UUID.uuid7()
-
-    case Oban.insert(EnrichWorker.new(%{"scope" => "rare", "batch_id" => bid})) do
-      {:ok, %Oban.Job{conflict?: true}} ->
-        {:noreply,
-         assign(socket,
-           youtube_note: "Já existe um enriquecimento de raras em andamento — veja em Jobs."
-         )}
-
-      {:ok, _job} ->
-        {:noreply, assign(socket, enrich_rare: %{status: :queued}, youtube_note: nil)}
-
-      {:error, _reason} ->
-        {:noreply,
-         assign(socket, youtube_note: "Não foi possível iniciar o enriquecimento das raras.")}
-    end
+    {:noreply, apply_dashboard_result(socket, Dashboard.run(:enrich_rare))}
   end
 
   def handle_event("select_folder", %{"folder" => key}, socket) do
@@ -211,90 +67,43 @@ defmodule BeatgridWeb.DashboardLive do
   end
 
   def handle_event("fetch_gaps", _params, socket) do
-    folder = socket.assigns.gaps_folder
-
-    Oban.insert(
-      RecommendWorker.new(%{
-        "scope" => "folder",
-        "folder" => folder,
-        "batch_id" => Uniq.UUID.uuid7()
-      })
-    )
-
-    {:noreply, assign(socket, recommending?: true)}
+    {:noreply,
+     apply_dashboard_result(socket, Dashboard.run({:fetch_gaps, socket.assigns.gaps_folder}))}
   end
 
   def handle_event("download_rec", %{"id" => id}, socket) do
-    note =
-      case Repertoire.get_recommendation(id) do
-        nil ->
-          socket.assigns.youtube_note
+    result =
+      Dashboard.run({:download_recommendation, id},
+        folder: socket.assigns.gaps_folder,
+        current_note: socket.assigns.youtube_note
+      )
 
-        rec ->
-          YouTube.enqueue("ytsearch1:" <> (rec.youtube_query || ""))
-          Repertoire.set_recommendation_status(rec, :imported)
-          "#{rec.artist} — #{rec.song}: na fila — veja em Jobs."
-      end
-
-    {:noreply, socket |> assign_gaps(socket.assigns.gaps_folder) |> assign(youtube_note: note)}
+    {:noreply, apply_dashboard_result(socket, result)}
   end
 
   def handle_event("dismiss_rec", %{"id" => id}, socket) do
-    case Repertoire.get_recommendation(id) do
-      nil -> :ok
-      rec -> Repertoire.set_recommendation_status(rec, :dismissed)
-    end
-
-    {:noreply, assign_gaps(socket, socket.assigns.gaps_folder)}
+    {:noreply,
+     apply_dashboard_result(
+       socket,
+       Dashboard.run({:dismiss_recommendation, id}, folder: socket.assigns.gaps_folder)
+     )}
   end
 
   @impl true
   def handle_info({:analysis_tick}, socket) do
-    {:noreply, assign(socket, analysis: Analysis.progress())}
+    {:noreply, apply_dashboard_result(socket, Dashboard.refresh(:analysis_tick))}
   end
 
   def handle_info({:loudness_tick}, socket) do
-    {:noreply,
-     assign(socket,
-       loudness: Loudness.progress(),
-       gain_pending: Loudness.gain_pending_count(),
-       gain_undo_batch: Loudness.latest_gain_batch()
-     )}
+    {:noreply, apply_dashboard_result(socket, Dashboard.refresh(:loudness_tick))}
   end
 
   def handle_info({:youtube_tick}, socket) do
-    {:noreply, assign(socket, youtube_pending: YouTube.pending_count())}
+    {:noreply, apply_dashboard_result(socket, Dashboard.refresh(:youtube_tick))}
   end
 
-  # Batch enrich progress — "rare" scope (IA + análise local).
-  def handle_info({:enrich_progress, %{scope: "rare", status: :done} = p}, socket) do
-    {:noreply,
-     assign(socket,
-       enrich_rare: p,
-       rare_pending: YouTube.rare_unfiled_count(),
-       youtube_pending: YouTube.pending_count()
-     )}
-  end
-
-  def handle_info({:enrich_progress, %{scope: "rare"} = p}, socket) do
-    {:noreply, assign(socket, enrich_rare: p)}
-  end
-
-  # Batch enrich progress (only the "pending" scope concerns the dashboard).
-  def handle_info({:enrich_progress, %{scope: "pending", status: :done} = p}, socket) do
-    {:noreply,
-     assign(socket,
-       enrich: p,
-       youtube_note: enrich_summary(p),
-       youtube_pending: YouTube.pending_count()
-     )}
-  end
-
-  def handle_info({:enrich_progress, %{scope: "pending"} = p}, socket) do
-    {:noreply, assign(socket, enrich: p)}
-  end
-
-  def handle_info({:enrich_progress, _payload}, socket), do: {:noreply, socket}
+  def handle_info({:enrich_progress, _payload} = event, socket),
+    do: {:noreply, apply_dashboard_result(socket, Dashboard.refresh(event))}
 
   # Folder recommendation finished generating. Reload the persisted gaps and clear
   # the "Gerando…" state — but only for the folder currently on screen. Other
@@ -310,22 +119,13 @@ defmodule BeatgridWeb.DashboardLive do
 
   def handle_info({:recommend_progress, _payload}, socket), do: {:noreply, socket}
 
-  # Order matters: distinguish "0 because nothing was pending" from "0 because the
-  # quota ran out / no credentials" — the latter must NOT read as "nada pendente".
-  defp enrich_summary(%{total: 0}), do: "Nada pendente para enriquecer."
-
-  defp enrich_summary(%{done: 0, budget_exhausted: true}),
-    do: "Cota do Soundcharts esgotada em todas as contas."
-
-  defp enrich_summary(%{done: 0}),
-    do: "Nada enriquecido — verifique a conta do Soundcharts (veja os logs)."
-
-  defp enrich_summary(%{done: n, resolved: r} = p) do
-    base = "#{n} enriquecida(s) (#{r} com match)"
-    if p[:budget_exhausted], do: base <> " — cota esgotada.", else: base <> "."
-  end
-
   # --- helpers ---
+
+  defp apply_dashboard_result(socket, {:ok, assigns}), do: assign(socket, assigns)
+  defp apply_dashboard_result(socket, :ignore), do: socket
+
+  defp apply_dashboard_result(socket, {:flash, level, message}),
+    do: put_flash(socket, level, message)
 
   defp pct(_value, 0), do: 0
   defp pct(value, max), do: max(round(value / max * 100), 2)
