@@ -9,6 +9,7 @@ defmodule BeatgridWeb.TrackLive do
   alias Beatgrid.Library.Tracks
   alias Beatgrid.Loudness
   alias Beatgrid.Mixing
+  alias Beatgrid.Operations
   alias Beatgrid.Playback
   alias Beatgrid.Repertoire
   alias Beatgrid.Sets
@@ -35,7 +36,9 @@ defmodule BeatgridWeb.TrackLive do
          socket
          |> assign(
            track: track,
-           versions: Tracks.versions_of(track),
+           versions: Tracks.same_song_versions_of(track),
+           gain_backup: Operations.latest_gain_backup(track.id),
+           gain_operation: Operations.latest_gain_operation(track.id),
            next: Mixing.rank(prev: track, exclude: [track.id], limit: 8),
            tag_draft: "",
            editing_field: nil,
@@ -172,6 +175,21 @@ defmodule BeatgridWeb.TrackLive do
     {:ok, set} = Sets.create("Set: #{title(track)}")
     Sets.append(set, track)
     {:noreply, push_navigate(socket, to: ~p"/set")}
+  end
+
+  def handle_event("restore_gain_backup", _params, socket) do
+    case socket.assigns.gain_operation do
+      %{batch_id: batch_id} ->
+        {:ok, _summary} = Operations.undo_batch(batch_id)
+
+        {:noreply,
+         socket
+         |> assign(toast: {:ok, "Original backup restored."})
+         |> reload()}
+
+      _none ->
+        {:noreply, assign(socket, toast: {:error, "No original backup is available."})}
+    end
   end
 
   # Markers live on the global player now; this page only renames/removes them (the
@@ -428,7 +446,13 @@ defmodule BeatgridWeb.TrackLive do
 
   defp reload(socket) do
     track = Tracks.get_with_song(socket.assigns.track.id)
-    assign(socket, track: track, versions: Tracks.versions_of(track))
+
+    assign(socket,
+      track: track,
+      versions: Tracks.same_song_versions_of(track),
+      gain_backup: Operations.latest_gain_backup(track.id),
+      gain_operation: Operations.latest_gain_operation(track.id)
+    )
   end
 
   # Parse ms (no crash on junk), re-read the track fresh (no lost update), mutate, reload.
@@ -458,50 +482,103 @@ defmodule BeatgridWeb.TrackLive do
   def render(assigns) do
     ~H"""
     <.app_shell active={:biblioteca} socket={@socket}>
-      <div class="mx-auto max-w-5xl px-6 py-5">
+      <div
+        class="mx-auto w-full px-4 py-4 sm:px-5 lg:px-6 lg:py-5"
+        style="max-width:min(80rem, max(320px, calc(100vw - 18rem)))"
+      >
         <.link navigate={~p"/"} class="text-body-sm text-ink-muted hover:text-ink">
           ← Biblioteca
         </.link>
 
         <.enrich_toast :if={@toast} toast={@toast} />
 
-        <header class="mt-4 flex gap-5">
-          <div class={[
-            "shrink-0 rounded-xl",
-            @track.id == @playing_track_id && "ring-2 ring-primary"
-          ]}>
-            <.cover src={cover_src(@track)} artist={@track.tag_artist} size={84} />
-          </div>
-          <div class="min-w-0 flex-1">
-            <div class="flex min-w-0 items-center gap-2">
-              <h1 class="truncate text-[23px] font-semibold">{title(@track)}</h1>
-              <.ouro_badge track={@track} interactive />
-              <span
-                :if={@track.id == @playing_track_id}
-                class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary"
-              >
-                <.vinyl size={12} /> Tocando agora
-              </span>
-            </div>
-            <p class="text-body-lg text-ink-secondary">{@track.tag_artist || "—"}</p>
-            <div class="mt-3 flex items-center gap-4">
-              <.folder_badge :if={@track.genre_folder} folder={@track.genre_folder} />
-              <.stat label="BPM" value={bpm(@track)} class="text-primary" />
-              <div class="flex items-center gap-1.5">
-                <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Tom</span>
-                <.camelot_seal value={camelot(@track)} />
+        <div class="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+          <header class="min-w-0 rounded-xl border border-white/6 bg-surface p-4">
+            <div class="flex flex-col gap-4 md:flex-row md:items-start">
+              <div class={[
+                "shrink-0 rounded-xl",
+                @track.id == @playing_track_id && "ring-2 ring-primary"
+              ]}>
+                <.cover src={cover_src(@track)} artist={@track.tag_artist} size={82} />
               </div>
-              <.stat
-                :if={@track.loudness_lufs}
-                label="Vol."
-                value={format_gain(Loudness.gain_db(@track.loudness_lufs, @track.true_peak_dbtp))}
-              />
-              <.confidence_chip level={@track.sc_match_confidence} />
+
+              <div class="min-w-0 flex-1">
+                <div class="flex min-w-0 flex-wrap items-center gap-2">
+                  <h1 class="min-w-0 truncate text-[24px] font-semibold leading-tight sm:text-[28px]">
+                    {title(@track)}
+                  </h1>
+                  <.ouro_badge track={@track} interactive />
+                  <span
+                    :if={@track.id == @playing_track_id}
+                    class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary"
+                  >
+                    <.vinyl size={12} /> Playing now
+                  </span>
+                </div>
+
+                <p class="mt-0.5 truncate text-body-lg text-ink-secondary">
+                  {@track.tag_artist || "—"}
+                </p>
+
+                <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+                  <.folder_badge :if={@track.genre_folder} folder={@track.genre_folder} />
+                  <.stat label="BPM" value={bpm(@track)} class="text-primary" />
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+                      Key
+                    </span>
+                    <.camelot_seal value={camelot(@track)} />
+                  </div>
+                  <.stat
+                    :if={@track.loudness_lufs}
+                    label="Gain"
+                    value={format_gain(Loudness.gain_db(@track.loudness_lufs, @track.true_peak_dbtp))}
+                  />
+                  <.confidence_chip level={@track.sc_match_confidence} />
+                </div>
+              </div>
+
+              <div class="grid shrink-0 grid-cols-2 gap-2 md:w-44 md:grid-cols-1">
+                <button
+                  type="button"
+                  phx-click={
+                    if @track.id == @playing_track_id,
+                      do: JS.dispatch("beatgrid:toggle", to: "#player-audio"),
+                      else:
+                        JS.dispatch("beatgrid:play",
+                          to: "#player-audio",
+                          detail: %{src: ~p"/audio/#{@track.id}", id: @track.id, preview: false}
+                        )
+                  }
+                  class="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-4 py-2 text-[14px] font-semibold text-white shadow-lg shadow-primary/25 hover:bg-primary/90"
+                  title="Play in the global player"
+                >
+                  <.vinyl :if={@track.id == @playing_track_id} size={17} />
+                  <span :if={@track.id != @playing_track_id} aria-hidden="true">▶</span>
+                  {if @track.id == @playing_track_id, do: "Playing", else: "Play current"}
+                </button>
+                <button
+                  type="button"
+                  phx-click={JS.dispatch("beatgrid:add-marker", to: "#player-audio")}
+                  disabled={@track.id != @playing_track_id}
+                  class="inline-flex items-center justify-center gap-1.5 rounded-full border border-amber/40 bg-amber/10 px-3 py-2 text-[12px] font-semibold text-amber hover:bg-amber/20 disabled:cursor-not-allowed disabled:opacity-40"
+                  title={
+                    if @track.id == @playing_track_id,
+                      do: "Mark the current position",
+                      else: "Play this track before adding a marker"
+                  }
+                >
+                  <span aria-hidden="true">＋</span> Mark
+                </button>
+              </div>
+            </div>
+
+            <div class="mt-3 flex flex-wrap items-center gap-2 border-t border-white/6 pt-3">
               <button
                 phx-click="enrich_track"
                 data-confirm="Atualizar metadados consulta o Soundcharts (gasta cota). Continuar?"
                 disabled={@enriching? or not Beatgrid.Integrations.configured?(:soundcharts)}
-                class="ml-auto rounded-md border border-primary/40 bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary hover:bg-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                class="rounded-md border border-primary/40 bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {if @enriching?, do: "Atualizando…", else: "Atualizar metadados"}
               </button>
@@ -515,249 +592,18 @@ defmodule BeatgridWeb.TrackLive do
                 Apagar
               </button>
             </div>
-          </div>
+          </header>
 
-          <div class="flex shrink-0 flex-col items-end gap-2">
-            <button
-              type="button"
-              phx-click={
-                if @track.id == @playing_track_id,
-                  do: JS.dispatch("beatgrid:toggle", to: "#player-audio"),
-                  else:
-                    JS.dispatch("beatgrid:play",
-                      to: "#player-audio",
-                      detail: %{src: ~p"/audio/#{@track.id}", id: @track.id, preview: false}
-                    )
-              }
-              class="flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-[15px] font-semibold text-white shadow-lg shadow-primary/30 hover:bg-primary/90"
-              title="Tocar no player"
-            >
-              <.vinyl :if={@track.id == @playing_track_id} size={18} />
-              <span :if={@track.id != @playing_track_id} aria-hidden="true">▶</span>
-              {if @track.id == @playing_track_id, do: "Tocando", else: "Tocar"}
-            </button>
-            <button
-              type="button"
-              phx-click={JS.dispatch("beatgrid:add-marker", to: "#player-audio")}
-              disabled={@track.id != @playing_track_id}
-              class="flex items-center gap-1.5 rounded-full border border-amber/40 bg-amber/10 px-3.5 py-1.5 text-[12px] font-semibold text-amber hover:bg-amber/20 disabled:cursor-not-allowed disabled:opacity-40"
-              title={
-                if @track.id == @playing_track_id,
-                  do: "Marcar a posição atual",
-                  else: "Dê play nesta faixa para marcar"
-              }
-            >
-              <span aria-hidden="true">＋</span> Marcar
-            </button>
-          </div>
-        </header>
-
-        <section class="mt-5 rounded-xl border border-white/6 bg-surface p-4">
-          <.section_label>Dados (editáveis)</.section_label>
-          <div class="divide-y divide-white/4 mt-2">
-            <.editable_row
-              field={:title}
-              label="Título"
-              value={@track.tag_title}
-              display={@track.tag_title}
-              editing={@editing_field}
-              edited?={edited?(@track, "title")}
-              placeholder={@track.filename}
-            />
-            <.editable_row
-              field={:artist}
-              label="Artista"
-              value={@track.tag_artist}
-              display={@track.tag_artist}
-              editing={@editing_field}
-              edited?={edited?(@track, "artist")}
-            />
-            <.editable_row
-              field={:album}
-              label="Álbum"
-              value={@track.tag_album}
-              display={@track.tag_album}
-              editing={@editing_field}
-              edited?={edited?(@track, "album")}
-            />
-            <.editable_row
-              field={:year}
-              label="Ano"
-              type="number"
-              value={@track.tag_year}
-              display={@track.tag_year}
-              editing={@editing_field}
-              edited?={edited?(@track, "year")}
-            />
-            <.editable_row
-              field={:genre}
-              label="Gênero"
-              value={@track.tag_genre}
-              display={@track.tag_genre}
-              editing={@editing_field}
-              edited?={edited?(@track, "genre")}
-            />
-            <.editable_row
-              field={:bpm}
-              label="BPM"
-              type="number"
-              value={@track.bpm_manual}
-              display={bpm(@track)}
-              editing={@editing_field}
-              edited?={not is_nil(@track.bpm_manual)}
-              placeholder="auto"
-            />
-            <.editable_row
-              field={:key}
-              label="Tom"
-              value={@track.camelot_manual}
-              display={camelot(@track)}
-              editing={@editing_field}
-              edited?={not is_nil(@track.camelot_manual)}
-              placeholder="ex. 8A"
-            />
-            <.editable_row
-              field={:filename}
-              label="Arquivo"
-              value={@track.filename}
-              display={@track.filename}
-              editing={@editing_field}
-            />
-          </div>
-          <div
-            :if={@rename_undo}
-            class="mt-2 flex items-center justify-between gap-3 rounded-lg border border-green/30 bg-green/10 px-3 py-2 text-body-sm"
-          >
-            <span class="truncate">Arquivo renomeado no disco.</span>
-            <div class="flex shrink-0 items-center gap-3">
-              <button phx-click="undo_rename" class="font-semibold text-primary hover:underline">
-                Desfazer
-              </button>
-              <button
-                phx-click="dismiss_rename"
-                class="text-ink-muted hover:text-ink"
-                title="Dispensar"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <section
-          :if={@versions != []}
-          class="mt-5 rounded-xl border border-white/6 bg-surface p-4"
-        >
-          <.section_label>Outras versões ({length(@versions)})</.section_label>
-          <ul class="mt-2 divide-y divide-white/4">
-            <li :for={v <- @versions} class="flex items-center gap-3 py-2">
-              <.link
-                navigate={~p"/track/#{v.id}"}
-                class="min-w-0 flex-1 truncate text-body-sm hover:text-primary"
-              >
-                {title(v)}
-              </.link>
-              <span
-                :if={ver_label(v)}
-                class="shrink-0 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-wide text-ink-muted"
-              >
-                {ver_label(v)}
+          <section class="min-w-0 rounded-xl border border-white/6 bg-surface p-4">
+            <div class="flex items-center justify-between gap-3">
+              <.section_label>Loudness</.section_label>
+              <span class="text-caption text-ink-faint">
+                Target {format_lufs(Loudness.target_lufs())}
               </span>
-              <span :if={ver_dur(v)} class="shrink-0 font-mono text-[11px] text-ink-faint">
-                {ver_dur(v)}
-              </span>
-            </li>
-          </ul>
-        </section>
-
-        <section class="mt-5 rounded-xl border border-white/6 bg-surface p-4">
-          <div class="flex items-center justify-between">
-            <.section_label>Marcadores</.section_label>
-            <div class="flex items-center gap-2">
-              <button
-                type="button"
-                phx-click="detect_markers"
-                class="rounded-md border border-white/10 bg-input px-2.5 py-1 text-[11px] text-ink-secondary hover:text-ink"
-                title="Detectar intro/saída automaticamente por análise de áudio (mantém os manuais)"
-              >
-                Detectar
-              </button>
-              <button
-                type="button"
-                phx-click={JS.dispatch("beatgrid:add-marker", to: "#player-audio")}
-                disabled={@track.id != @playing_track_id}
-                class="rounded-md border border-amber/40 bg-amber/10 px-2.5 py-1 text-[11px] font-semibold text-amber hover:bg-amber/20 disabled:cursor-not-allowed disabled:opacity-40"
-                title={
-                  if @track.id == @playing_track_id,
-                    do: "Marcar a posição atual",
-                    else: "Dê play nesta faixa para marcar"
-                }
-              >
-                ＋ marcar
-              </button>
             </div>
-          </div>
-          <p class="text-caption text-ink-faint mt-1">
-            Aparecem no player de baixo em qualquer página. Clique no tempo para tocar a faixa a partir dele.
-          </p>
-          <div class="mt-3">
-            <.marker_list
-              markers={@track.cue_points || []}
-              track_id={@track.id}
-              play_src={~p"/audio/#{@track.id}"}
-              seekable={false}
-              id_prefix="track"
-            />
-          </div>
-        </section>
 
-        <section class="mt-5 rounded-xl border border-white/6 bg-surface p-4">
-          <div class="flex items-center justify-between">
-            <.section_label>Análise (Soundcharts × local)</.section_label>
-            <button
-              phx-click="reanalyze"
-              disabled={@analyzing?}
-              class="rounded-md border border-white/10 bg-input px-2.5 py-1 text-[11px] text-ink-secondary hover:text-ink disabled:opacity-50"
-            >
-              {if @analyzing?, do: "Analisando…", else: "Re-analisar"}
-            </button>
-          </div>
-          <div class="mt-3 grid grid-cols-2 gap-4">
-            <div>
-              <p class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
-                Soundcharts
-              </p>
-              <div class="mt-1 flex items-center gap-2 text-body-sm">
-                <span class="font-mono text-primary">{sc_bpm(@track) || "—"}</span>
-                <span class="text-ink-faint">BPM</span>
-                <.camelot_seal value={sc_camelot(@track)} />
-              </div>
-            </div>
-            <div>
-              <p class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
-                Detectado (local)
-              </p>
-              <div class="mt-1 flex items-center gap-2 text-body-sm">
-                <span class="font-mono text-amber">
-                  {(@track.bpm_detected && round(@track.bpm_detected)) ||
-                    if(@analyzing?, do: "…", else: "—")}
-                </span>
-                <span class="text-ink-faint">BPM</span>
-                <.camelot_seal value={@track.camelot_detected} />
-              </div>
-            </div>
-          </div>
-          <p :if={bpm_discrepancy?(@track)} class="mt-2 text-caption text-amber">
-            ⚠ Os BPMs divergem bastante (possível erro de dobro/metade) — confira ouvindo na onda.
-          </p>
-
-          <div class="mt-3 border-t border-white/6 pt-3">
-            <p class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
-              Loudness
-              <span class="text-ink-faint">· alvo {format_lufs(Loudness.target_lufs())}</span>
-            </p>
-            <div :if={@track.loudness_lufs} class="mt-2 space-y-1.5 text-body-sm">
-              <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <div :if={@track.loudness_lufs} class="mt-3 space-y-2 text-body-sm">
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span class="w-28 text-ink-faint">Current file</span>
                 <span class="text-amber font-mono">{format_lufs(@track.loudness_lufs)}</span>
                 <span :if={@track.true_peak_dbtp} class="text-ink-secondary font-mono">
@@ -770,7 +616,7 @@ defmodule BeatgridWeb.TrackLive do
 
               <div
                 :if={@track.original_loudness_lufs}
-                class="flex flex-wrap items-center gap-x-4 gap-y-1"
+                class="flex flex-wrap items-center gap-x-3 gap-y-1"
               >
                 <span class="w-28 text-ink-faint">Original backup</span>
                 <span class="font-mono text-ink-secondary">
@@ -781,187 +627,424 @@ defmodule BeatgridWeb.TrackLive do
                 </span>
               </div>
 
-              <div :if={@track.gain_applied_at} class="flex flex-wrap items-center gap-x-4 gap-y-1">
+              <div :if={@track.gain_applied_at} class="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span class="w-28 text-ink-faint">Applied gain</span>
                 <span class="font-mono text-primary">{format_gain(@track.gain_applied_db)}</span>
                 <span class="text-ink-muted">Full original backup available</span>
               </div>
             </div>
-            <p :if={!@track.loudness_lufs} class="text-ink-faint mt-1 text-caption">
+
+            <p :if={!@track.loudness_lufs} class="text-ink-faint mt-3 text-caption">
               Ainda não medido — rode “Analisar loudness” no Painel.
             </p>
-          </div>
-        </section>
 
-        <div class="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-2">
-          <section class="rounded-xl border border-white/6 bg-surface p-4">
-            <.section_label>Metadados</.section_label>
-            <dl class="mt-3 space-y-1.5">
-              <div :for={{k, v} <- meta_rows(@track)} class="flex justify-between gap-4 text-body-sm">
-                <dt class="text-ink-faint">{k}</dt>
-                <dd class="truncate text-right text-ink-secondary">{v}</dd>
-              </div>
-              <div
-                :if={is_binary((@track.raw_tags || %{})["youtube_url"])}
-                class="flex justify-between gap-4 text-body-sm"
+            <div :if={@gain_backup} class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                phx-click={
+                  JS.dispatch("beatgrid:play",
+                    to: "#player-audio",
+                    detail: %{src: ~p"/audio/#{@track.id}/original", id: @track.id, preview: true}
+                  )
+                }
+                class="inline-flex items-center justify-center gap-2 rounded-md border border-primary/35 bg-primary/10 px-3 py-2 text-[12px] font-semibold text-primary hover:bg-primary/20"
               >
-                <dt class="text-ink-faint">YouTube</dt>
-                <dd class="truncate text-right">
-                  <a
-                    href={@track.raw_tags["youtube_url"]}
-                    target="_blank"
-                    rel="noopener"
-                    class="text-primary hover:underline"
-                  >
-                    Abrir vídeo
-                  </a>
-                </dd>
-              </div>
-              <div
-                :if={is_binary((@track.raw_tags || %{})["youtube_playlist_url"])}
-                class="flex justify-between gap-4 text-body-sm"
+                <span aria-hidden="true">▶</span> Play original
+              </button>
+              <button
+                type="button"
+                phx-click="restore_gain_backup"
+                data-confirm="Restore the original pre-gain backup over the current file?"
+                class="inline-flex items-center justify-center rounded-md border border-amber/35 bg-amber/10 px-3 py-2 text-[12px] font-semibold text-amber hover:bg-amber/20"
               >
-                <dt class="text-ink-faint">Playlist</dt>
-                <dd class="truncate text-right">
-                  <a
-                    href={@track.raw_tags["youtube_playlist_url"]}
-                    target="_blank"
-                    rel="noopener"
-                    class="text-primary hover:underline"
-                  >
-                    Abrir playlist
-                  </a>
-                </dd>
-              </div>
-            </dl>
-            <.audio_profile :if={@track.soundcharts_song} song={@track.soundcharts_song} />
+                Restore original backup
+              </button>
+            </div>
           </section>
+        </div>
 
-          <div class="space-y-5">
-            <section class="rounded-xl border border-white/6 bg-surface p-4">
+        <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(340px,0.95fr)] xl:grid-cols-[minmax(0,1fr)_380px]">
+          <div class="min-w-0 space-y-4">
+            <section class="min-w-0 rounded-xl border border-white/6 bg-surface p-4">
+              <div class="flex items-center justify-between gap-3">
+                <.section_label>Marcadores</.section_label>
+                <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    phx-click="detect_markers"
+                    class="rounded-md border border-white/10 bg-input px-2.5 py-1 text-[11px] text-ink-secondary hover:text-ink"
+                    title="Detect intro/outro automatically by audio analysis"
+                  >
+                    Detect
+                  </button>
+                  <button
+                    type="button"
+                    phx-click={JS.dispatch("beatgrid:add-marker", to: "#player-audio")}
+                    disabled={@track.id != @playing_track_id}
+                    class="rounded-md border border-amber/40 bg-amber/10 px-2.5 py-1 text-[11px] font-semibold text-amber hover:bg-amber/20 disabled:cursor-not-allowed disabled:opacity-40"
+                    title="Mark the current player position"
+                  >
+                    + mark
+                  </button>
+                </div>
+              </div>
+              <div class="mt-3">
+                <.marker_list
+                  markers={@track.cue_points || []}
+                  track_id={@track.id}
+                  play_src={~p"/audio/#{@track.id}"}
+                  seekable={false}
+                  id_prefix="track"
+                />
+              </div>
+            </section>
+
+            <section class="min-w-0 rounded-xl border border-white/6 bg-surface p-4">
+              <div class="flex items-center justify-between gap-3">
+                <.section_label>Other versions of this song ({length(@versions)})</.section_label>
+              </div>
+              <ul :if={@versions != []} class="mt-2 divide-y divide-white/4">
+                <li :for={v <- @versions} class="flex min-w-0 items-center gap-3 py-2">
+                  <button
+                    type="button"
+                    phx-click={
+                      JS.dispatch("beatgrid:play",
+                        to: "#player-audio",
+                        detail: %{src: ~p"/audio/#{v.id}", id: v.id, preview: true}
+                      )
+                    }
+                    class="flex size-8 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/10 text-[12px] text-primary hover:bg-primary/20"
+                    title="Preview this version"
+                  >
+                    ▶
+                  </button>
+                  <div class="min-w-0 flex-1">
+                    <.link
+                      navigate={~p"/track/#{v.id}"}
+                      class="block truncate text-body-sm font-medium text-ink hover:text-primary hover:underline"
+                    >
+                      {title(v)}
+                    </.link>
+                    <p class="truncate text-caption text-ink-muted">{v.tag_artist || "—"}</p>
+                  </div>
+                  <span
+                    :if={ver_label(v)}
+                    class="hidden shrink-0 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-wide text-ink-muted sm:inline-flex"
+                  >
+                    {ver_label(v)}
+                  </span>
+                  <.camelot_seal value={camelot(v)} />
+                  <span class="hidden w-10 shrink-0 text-right font-mono text-[11px] text-primary sm:inline">
+                    {bpm(v)}
+                  </span>
+                  <span
+                    :if={v.loudness_lufs}
+                    class="hidden shrink-0 font-mono text-[11px] text-ink-muted md:inline"
+                  >
+                    {format_lufs(v.loudness_lufs)}
+                  </span>
+                </li>
+              </ul>
+              <p :if={@versions == []} class="mt-3 text-body-sm text-ink-faint">
+                No other version found yet.
+              </p>
+            </section>
+
+            <section class="min-w-0 rounded-xl border border-white/6 bg-surface p-4">
+              <.section_label>Próxima faixa ideal (harmônica)</.section_label>
+              <div :if={@next != []} class="mt-3 space-y-1">
+                <.link
+                  :for={s <- @next}
+                  navigate={~p"/track/#{s.track.id}"}
+                  class="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-surface-2"
+                >
+                  <.cover src={cover_src(s.track)} artist={s.track.tag_artist} size={34} />
+                  <div class="min-w-0 flex-1">
+                    <p class="truncate text-body font-medium">{title(s.track)}</p>
+                    <p class="truncate text-caption text-ink-muted">{s.track.tag_artist || "—"}</p>
+                  </div>
+                  <.camelot_seal value={s.camelot} />
+                  <span class="w-12 text-right font-mono text-body text-primary">{round(s.bpm)}</span>
+                </.link>
+              </div>
+              <p :if={@next == []} class="mt-3 text-body-sm text-ink-faint">
+                Sem sugestões harmônicas (faixa sem tom/BPM, ou nada compatível).
+              </p>
+            </section>
+
+            <section class="min-w-0 rounded-xl border border-white/6 bg-surface p-4">
+              <div class="flex items-center justify-between gap-3">
+                <div class="min-w-0">
+                  <.section_label>Sugestões parecidas (IA)</.section_label>
+                  <p class="mt-1 text-caption text-ink-faint">
+                    Faixas de outra origem que combinam com esta — mesmo clima, época e energia.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  phx-click="fetch_matches"
+                  disabled={@recommending?}
+                  class="inline-flex shrink-0 items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-[12px] font-semibold text-white transition-opacity disabled:opacity-50"
+                >
+                  <span
+                    :if={@recommending?}
+                    class="size-2 animate-pulse rounded-full bg-white/90"
+                    aria-hidden="true"
+                  ></span>
+                  {if @recommending?, do: "Gerando…", else: "Buscar parecidas"}
+                </button>
+              </div>
+
+              <div :if={@recs != []} class="mt-3 space-y-1.5">
+                <.rec_row :for={rec <- @recs} rec={rec} />
+              </div>
+
+              <div
+                :if={@recs == [] and @recommending?}
+                class="mt-3 flex items-center gap-2 rounded-lg border border-primary/25 bg-primary/8 px-3 py-3 text-body-sm text-ink-secondary"
+              >
+                <span class="size-2.5 animate-pulse rounded-full bg-primary" aria-hidden="true"></span>
+                Gerando sugestões com a IA… isso pode levar alguns segundos.
+              </div>
+
+              <p
+                :if={@recs == [] and not @recommending?}
+                class="mt-3 rounded-lg border border-dashed border-white/8 px-3 py-4 text-center text-body-sm text-ink-faint"
+              >
+                Nenhuma sugestão salva para esta faixa. Clique em <span class="text-ink-secondary">Buscar parecidas</span>.
+              </p>
+            </section>
+          </div>
+
+          <div class="min-w-0 space-y-4">
+            <section class="min-w-0 rounded-xl border border-white/6 bg-surface p-4">
+              <.section_label>Dados (editáveis)</.section_label>
+              <div class="divide-y divide-white/4 mt-2">
+                <.editable_row
+                  field={:title}
+                  label="Título"
+                  value={@track.tag_title}
+                  display={@track.tag_title}
+                  editing={@editing_field}
+                  edited?={edited?(@track, "title")}
+                  placeholder={@track.filename}
+                />
+                <.editable_row
+                  field={:artist}
+                  label="Artista"
+                  value={@track.tag_artist}
+                  display={@track.tag_artist}
+                  editing={@editing_field}
+                  edited?={edited?(@track, "artist")}
+                />
+                <.editable_row
+                  field={:album}
+                  label="Álbum"
+                  value={@track.tag_album}
+                  display={@track.tag_album}
+                  editing={@editing_field}
+                  edited?={edited?(@track, "album")}
+                />
+                <.editable_row
+                  field={:year}
+                  label="Ano"
+                  type="number"
+                  value={@track.tag_year}
+                  display={@track.tag_year}
+                  editing={@editing_field}
+                  edited?={edited?(@track, "year")}
+                />
+                <.editable_row
+                  field={:genre}
+                  label="Gênero"
+                  value={@track.tag_genre}
+                  display={@track.tag_genre}
+                  editing={@editing_field}
+                  edited?={edited?(@track, "genre")}
+                />
+                <.editable_row
+                  field={:bpm}
+                  label="BPM"
+                  type="number"
+                  value={@track.bpm_manual}
+                  display={bpm(@track)}
+                  editing={@editing_field}
+                  edited?={not is_nil(@track.bpm_manual)}
+                  placeholder="auto"
+                />
+                <.editable_row
+                  field={:key}
+                  label="Tom"
+                  value={@track.camelot_manual}
+                  display={camelot(@track)}
+                  editing={@editing_field}
+                  edited?={not is_nil(@track.camelot_manual)}
+                  placeholder="ex. 8A"
+                />
+                <.editable_row
+                  field={:filename}
+                  label="Arquivo"
+                  value={@track.filename}
+                  display={@track.filename}
+                  editing={@editing_field}
+                />
+              </div>
+              <div
+                :if={@rename_undo}
+                class="mt-2 flex items-center justify-between gap-3 rounded-lg border border-green/30 bg-green/10 px-3 py-2 text-body-sm"
+              >
+                <span class="truncate">Arquivo renomeado no disco.</span>
+                <div class="flex shrink-0 items-center gap-3">
+                  <button phx-click="undo_rename" class="font-semibold text-primary hover:underline">
+                    Desfazer
+                  </button>
+                  <button
+                    phx-click="dismiss_rename"
+                    class="text-ink-muted hover:text-ink"
+                    title="Dispensar"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section class="min-w-0 rounded-xl border border-white/6 bg-surface p-4">
               <.section_label>Minha nota</.section_label>
               <div class="mt-3"><.rating_control value={@track.rating} /></div>
-            </section>
 
-            <section class="rounded-xl border border-white/6 bg-surface p-4">
-              <.section_label>Minhas tags</.section_label>
-              <div class="mt-3 flex flex-wrap gap-1.5">
-                <span
-                  :for={tag <- @track.tags || []}
-                  class="inline-flex items-center gap-1 rounded-sm border border-primary/40 bg-primary/15 px-2 py-1 text-[11px] text-ink"
-                >
-                  {tag}
-                  <button
-                    phx-click="remove_tag"
-                    phx-value-tag={tag}
-                    class="text-ink-muted hover:text-coral"
-                  >✕</button>
-                </span>
-                <span :if={(@track.tags || []) == []} class="text-body-sm text-ink-faint">Sem tags ainda.</span>
+              <div class="mt-4 border-t border-white/6 pt-3">
+                <.section_label>Minhas tags</.section_label>
+                <div class="mt-3 flex flex-wrap gap-1.5">
+                  <span
+                    :for={tag <- @track.tags || []}
+                    class="inline-flex items-center gap-1 rounded-sm border border-primary/40 bg-primary/15 px-2 py-1 text-[11px] text-ink"
+                  >
+                    {tag}
+                    <button
+                      phx-click="remove_tag"
+                      phx-value-tag={tag}
+                      class="text-ink-muted hover:text-coral"
+                    >✕</button>
+                  </span>
+                  <span :if={(@track.tags || []) == []} class="text-body-sm text-ink-faint">Sem tags ainda.</span>
+                </div>
+                <form id="track-add-tag" phx-submit="add_tag" class="mt-2.5 flex gap-2">
+                  <input
+                    type="text"
+                    name="tag"
+                    value={@tag_draft}
+                    list="tag-suggestions"
+                    placeholder="+ nova tag"
+                    class="min-w-0 flex-1 rounded-md border border-white/8 bg-input px-2.5 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
+                  />
+                  <datalist id="tag-suggestions">
+                    <option :for={t <- @all_tags} value={t} />
+                  </datalist>
+                  <button class="rounded-md bg-primary px-3 py-1.5 text-body-sm font-semibold text-white">Adicionar</button>
+                </form>
               </div>
-              <form id="track-add-tag" phx-submit="add_tag" class="mt-2.5 flex gap-2">
-                <input
-                  type="text"
-                  name="tag"
-                  value={@tag_draft}
-                  list="tag-suggestions"
-                  placeholder="+ nova tag"
-                  class="flex-1 rounded-md border border-white/8 bg-input px-2.5 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
-                />
-                <datalist id="tag-suggestions">
-                  <option :for={t <- @all_tags} value={t} />
-                </datalist>
-                <button class="rounded-md bg-primary px-3 py-1.5 text-body-sm font-semibold text-white">Adicionar</button>
-              </form>
-            </section>
 
-            <section class="rounded-xl border border-white/6 bg-surface p-4">
-              <.section_label>Anotação pessoal</.section_label>
-              <form id="track-note" phx-change="save_note" class="mt-3">
+              <form id="track-note" phx-change="save_note" class="mt-4 border-t border-white/6 pt-3">
+                <.section_label>Anotação pessoal</.section_label>
                 <textarea
                   name="note"
                   rows="3"
                   phx-debounce="600"
                   placeholder="Observações suas sobre a faixa…"
-                  class="w-full resize-none rounded-md border border-white/8 bg-input px-3 py-2 text-body-sm focus:border-primary/50 focus:outline-none"
+                  class="mt-3 w-full resize-none rounded-md border border-white/8 bg-input px-3 py-2 text-body-sm focus:border-primary/50 focus:outline-none"
                 >{@track.personal_note}</textarea>
               </form>
             </section>
+
+            <section class="min-w-0 rounded-xl border border-white/6 bg-surface p-4">
+              <div class="flex items-center justify-between gap-3">
+                <.section_label>Análise (Soundcharts × local)</.section_label>
+                <button
+                  phx-click="reanalyze"
+                  disabled={@analyzing?}
+                  class="rounded-md border border-white/10 bg-input px-2.5 py-1 text-[11px] text-ink-secondary hover:text-ink disabled:opacity-50"
+                >
+                  {if @analyzing?, do: "Analisando…", else: "Re-analisar"}
+                </button>
+              </div>
+              <div class="mt-3 grid grid-cols-2 gap-4">
+                <div>
+                  <p class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+                    Soundcharts
+                  </p>
+                  <div class="mt-1 flex items-center gap-2 text-body-sm">
+                    <span class="font-mono text-primary">{sc_bpm(@track) || "—"}</span>
+                    <span class="text-ink-faint">BPM</span>
+                    <.camelot_seal value={sc_camelot(@track)} />
+                  </div>
+                </div>
+                <div>
+                  <p class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+                    Detectado (local)
+                  </p>
+                  <div class="mt-1 flex items-center gap-2 text-body-sm">
+                    <span class="font-mono text-amber">
+                      {(@track.bpm_detected && round(@track.bpm_detected)) ||
+                        if(@analyzing?, do: "…", else: "—")}
+                    </span>
+                    <span class="text-ink-faint">BPM</span>
+                    <.camelot_seal value={@track.camelot_detected} />
+                  </div>
+                </div>
+              </div>
+              <p :if={bpm_discrepancy?(@track)} class="mt-2 text-caption text-amber">
+                Os BPMs divergem bastante (possível erro de dobro/metade) — confira ouvindo na onda.
+              </p>
+            </section>
+
+            <section class="min-w-0 rounded-xl border border-white/6 bg-surface p-4">
+              <.section_label>Metadados</.section_label>
+              <dl class="mt-3 space-y-1.5">
+                <div
+                  :for={{k, v} <- meta_rows(@track)}
+                  class="flex justify-between gap-4 text-body-sm"
+                >
+                  <dt class="text-ink-faint">{k}</dt>
+                  <dd class="truncate text-right text-ink-secondary">{v}</dd>
+                </div>
+                <div
+                  :if={is_binary((@track.raw_tags || %{})["youtube_url"])}
+                  class="flex justify-between gap-4 text-body-sm"
+                >
+                  <dt class="text-ink-faint">YouTube</dt>
+                  <dd class="truncate text-right">
+                    <a
+                      href={@track.raw_tags["youtube_url"]}
+                      target="_blank"
+                      rel="noopener"
+                      class="text-primary hover:underline"
+                    >
+                      Abrir vídeo
+                    </a>
+                  </dd>
+                </div>
+                <div
+                  :if={is_binary((@track.raw_tags || %{})["youtube_playlist_url"])}
+                  class="flex justify-between gap-4 text-body-sm"
+                >
+                  <dt class="text-ink-faint">Playlist</dt>
+                  <dd class="truncate text-right">
+                    <a
+                      href={@track.raw_tags["youtube_playlist_url"]}
+                      target="_blank"
+                      rel="noopener"
+                      class="text-primary hover:underline"
+                    >
+                      Abrir playlist
+                    </a>
+                  </dd>
+                </div>
+              </dl>
+              <.audio_profile :if={@track.soundcharts_song} song={@track.soundcharts_song} />
+            </section>
           </div>
         </div>
-
-        <section class="mt-6 rounded-xl border border-white/6 bg-surface p-4">
-          <div class="flex items-center justify-between">
-            <.section_label>Próxima faixa ideal (harmônica)</.section_label>
-            <button
-              phx-click="start_set"
-              class="rounded-md bg-primary px-2.5 py-1 text-[12px] font-semibold text-white"
-            >
-              + Começar set
-            </button>
-          </div>
-          <div :if={@next != []} class="mt-3 space-y-1">
-            <.link
-              :for={s <- @next}
-              navigate={~p"/track/#{s.track.id}"}
-              class="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-surface-2"
-            >
-              <.cover src={cover_src(s.track)} artist={s.track.tag_artist} size={34} />
-              <div class="min-w-0 flex-1">
-                <p class="truncate text-body font-medium">{title(s.track)}</p>
-                <p class="truncate text-caption text-ink-muted">{s.track.tag_artist || "—"}</p>
-              </div>
-              <.camelot_seal value={s.camelot} />
-              <span class="w-12 text-right font-mono text-body text-primary">{round(s.bpm)}</span>
-            </.link>
-          </div>
-          <p :if={@next == []} class="mt-3 text-body-sm text-ink-faint">
-            Sem sugestões harmônicas (faixa sem tom/BPM, ou nada compatível).
-          </p>
-        </section>
-
-        <section class="mt-6 rounded-xl border border-white/6 bg-surface p-4">
-          <div class="flex items-center justify-between gap-3">
-            <div class="min-w-0">
-              <.section_label>Sugestões parecidas (IA)</.section_label>
-              <p class="mt-1 text-caption text-ink-faint">
-                Faixas de outra origem que combinam com esta — mesmo clima, época e energia.
-              </p>
-            </div>
-            <button
-              type="button"
-              phx-click="fetch_matches"
-              disabled={@recommending?}
-              class="inline-flex shrink-0 items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-[12px] font-semibold text-white transition-opacity disabled:opacity-50"
-            >
-              <span
-                :if={@recommending?}
-                class="size-2 animate-pulse rounded-full bg-white/90"
-                aria-hidden="true"
-              ></span>
-              {if @recommending?, do: "Gerando…", else: "Buscar parecidas"}
-            </button>
-          </div>
-
-          <div :if={@recs != []} class="mt-3 space-y-1.5">
-            <.rec_row :for={rec <- @recs} rec={rec} />
-          </div>
-
-          <div
-            :if={@recs == [] and @recommending?}
-            class="mt-3 flex items-center gap-2 rounded-lg border border-primary/25 bg-primary/8 px-3 py-3 text-body-sm text-ink-secondary"
-          >
-            <span class="size-2.5 animate-pulse rounded-full bg-primary" aria-hidden="true"></span>
-            Gerando sugestões com a IA… isso pode levar alguns segundos.
-          </div>
-
-          <p
-            :if={@recs == [] and not @recommending?}
-            class="mt-3 rounded-lg border border-dashed border-white/8 px-3 py-4 text-center text-body-sm text-ink-faint"
-          >
-            Nenhuma sugestão salva para esta faixa. Clique em <span class="text-ink-secondary">Buscar parecidas</span>.
-          </p>
-        </section>
       </div>
     </.app_shell>
     """
@@ -1188,9 +1271,6 @@ defmodule BeatgridWeb.TrackLive do
   defp title(track), do: track.tag_title || track.filename
 
   defp ver_label(track), do: Beatgrid.Library.Version.label(track.tag_title || track.filename)
-
-  defp ver_dur(%{duration_ms: ms}) when is_integer(ms) and ms > 0, do: format_secs(div(ms, 1000))
-  defp ver_dur(_track), do: nil
 
   # Effective BPM/Tom for the header: Soundcharts value, falling back to detected.
   defp bpm(%{bpm_manual: b}) when is_number(b), do: round(b)

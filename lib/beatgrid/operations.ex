@@ -23,6 +23,24 @@ defmodule Beatgrid.Operations do
   @spec count(keyword()) :: non_neg_integer()
   def count(opts \\ []), do: OperationQuery.count(opts)
 
+  @doc "Latest applied gain operation for a track, if one can be previewed/restored."
+  @spec latest_gain_operation(Ecto.UUID.t()) :: Operation.t() | nil
+  def latest_gain_operation(track_id) do
+    case list_by(track_id: track_id, kind: :gain, status: :applied, limit: 1) do
+      [%Operation{} = operation | _] -> operation
+      _ -> nil
+    end
+  end
+
+  @doc "Latest applied gain backup relative path for a track, if one can be previewed/restored."
+  @spec latest_gain_backup(Ecto.UUID.t()) :: String.t() | nil
+  def latest_gain_backup(track_id) do
+    case latest_gain_operation(track_id) do
+      %Operation{to: backup_rel_path} when is_binary(backup_rel_path) -> backup_rel_path
+      _ -> nil
+    end
+  end
+
   @doc """
   Reverts every still-applied operation in a batch, newest first, delegating to
   the owning context so the suggestion is flipped back to `:undone` too. One

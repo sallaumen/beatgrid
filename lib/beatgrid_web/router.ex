@@ -38,6 +38,7 @@ defmodule BeatgridWeb.Router do
       live "/sets-online/:id", MixLive, :show
     end
 
+    get "/audio/:id/original", AudioController, :original
     get "/audio/:id", AudioController, :show
     get "/sets-online/:id/audio", AudioController, :mix
   end

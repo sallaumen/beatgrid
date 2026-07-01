@@ -6,6 +6,7 @@ defmodule BeatgridWeb.TrackLiveTest do
 
   alias Beatgrid.Analysis
   alias Beatgrid.Library.{Marker, Tracks}
+  alias Beatgrid.Operations
   alias Beatgrid.Repertoire
   alias Beatgrid.Workers.{AnalyzeWorker, EnrichWorker, ExpandWorker, RecommendWorker}
 
@@ -184,12 +185,69 @@ defmodule BeatgridWeb.TrackLiveTest do
 
     {:ok, _view, html} = live(conn, ~p"/track/#{studio.id}")
 
-    assert html =~ "Outras versões"
+    assert html =~ "Other versions of this song"
     assert html =~ "Asa Branca (Ao Vivo)"
     assert html =~ "ao vivo"
   end
 
-  test "starts a set seeded with this track and navigates to /set", %{conn: conn} do
+  test "shows a compact comparison cockpit with original-backup playback and playable versions",
+       %{conn: conn} do
+    track =
+      insert(:track,
+        status: :present,
+        tag_artist: "Luiz Gonzaga",
+        tag_title: "Asa Branca",
+        norm_artist: "luiz gonzaga",
+        norm_title: "asa branca",
+        content_sha256: "original",
+        loudness_lufs: -14.1,
+        true_peak_dbtp: -3.8,
+        original_loudness_lufs: -9.8,
+        original_true_peak_dbtp: -0.4,
+        gain_applied_db: -4.2,
+        gain_applied_at: ~U[2026-01-01 00:01:00Z],
+        analyzed_at: ~U[2026-01-01 00:00:00Z]
+      )
+
+    version =
+      insert(:track,
+        status: :present,
+        tag_artist: "Dominguinhos",
+        tag_title: "Asa Branca (Ao Vivo)",
+        norm_artist: "dominguinhos",
+        norm_title: "asa branca ao vivo",
+        content_sha256: "version",
+        loudness_lufs: -13.7,
+        bpm_detected: 126.0,
+        camelot_detected: "8A"
+      )
+
+    {:ok, _operation} =
+      Operations.record(%{
+        track_id: track.id,
+        kind: :gain,
+        status: :applied,
+        from: "-4.2",
+        to: "_Backups/Gain/batch/_Inbox/asa-branca.mp3",
+        batch_id: Ecto.UUID.generate()
+      })
+
+    {:ok, view, html} = live(conn, ~p"/track/#{track.id}")
+
+    assert html =~ "Original backup"
+    assert html =~ "-9.8 LUFS"
+    assert html =~ "Current file"
+    assert html =~ "-14.1 LUFS"
+    assert has_element?(view, "button", "Play original")
+    assert has_element?(view, "button", "Restore original backup")
+    assert html =~ ~p"/audio/#{track.id}/original"
+    assert html =~ "Other versions of this song"
+    assert has_element?(view, "a[href='/track/#{version.id}']", "Asa Branca (Ao Vivo)")
+    assert html =~ ~p"/audio/#{version.id}"
+    refute html =~ "Start set"
+  end
+
+  test "does not render the old start-set action in the track cockpit", %{conn: conn} do
     track =
       insert(:track,
         status: :present,
@@ -198,12 +256,10 @@ defmodule BeatgridWeb.TrackLiveTest do
         analyzed_at: ~U[2026-01-01 00:00:00Z]
       )
 
-    {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
-    view |> element("button[phx-click=start_set]") |> render_click()
+    {:ok, view, html} = live(conn, ~p"/track/#{track.id}")
 
-    assert_redirect(view, ~p"/set")
-    assert [set] = Beatgrid.Sets.list()
-    assert Enum.map(Beatgrid.Sets.tracks(set), & &1.id) == [track.id]
+    refute has_element?(view, "button[phx-click=start_set]")
+    refute html =~ "Start set"
   end
 
   test "uses the unified player and renders manageable markers", %{conn: conn} do
@@ -637,11 +693,11 @@ defmodule BeatgridWeb.TrackLiveTest do
 
     # Another track playing → this page is not marked.
     send(view.pid, {:now_playing, %{track_id: Ecto.UUID.generate(), set_id: nil}})
-    refute render(view) =~ "Tocando agora"
+    refute render(view) =~ "Playing now"
 
     # This track becomes the now-playing one → the page lights up.
     send(view.pid, {:now_playing, %{track_id: track.id, set_id: nil}})
-    assert render(view) =~ "Tocando agora"
+    assert render(view) =~ "Playing now"
   end
 
   test "enrich button shows the soundcharts gate when no credentials are configured",

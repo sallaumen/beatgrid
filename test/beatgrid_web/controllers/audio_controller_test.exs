@@ -4,6 +4,8 @@ defmodule BeatgridWeb.AudioControllerTest do
 
   import Beatgrid.Factory
 
+  alias Beatgrid.Operations
+
   setup tags do
     if root = tags[:tmp_dir] do
       prev = Application.get_env(:beatgrid, :library_root)
@@ -43,6 +45,58 @@ defmodule BeatgridWeb.AudioControllerTest do
     assert conn.status == 416
     assert get_resp_header(conn, "content-range") == ["bytes */10"]
     assert conn.resp_body == ""
+  end
+
+  @tag :tmp_dir
+  test "serves the latest original gain backup, full and by range", %{conn: conn, tmp_dir: root} do
+    File.mkdir_p!(Path.join(root, "_Inbox"))
+    File.write!(Path.join(root, "_Inbox/song.mp3"), "current-audio")
+
+    backup_rel = "_Backups/Gain/batch/_Inbox/song.mp3"
+    File.mkdir_p!(Path.dirname(Path.join(root, backup_rel)))
+    File.write!(Path.join(root, backup_rel), "original-audio")
+
+    track =
+      insert(:track,
+        rel_path: "_Inbox/song.mp3",
+        filename: "song.mp3",
+        gain_applied_db: -4.0,
+        gain_applied_at: ~U[2026-01-01 00:00:00Z]
+      )
+
+    {:ok, _operation} =
+      Operations.record(%{
+        track_id: track.id,
+        kind: :gain,
+        status: :applied,
+        from: "-4.0",
+        to: backup_rel,
+        batch_id: Ecto.UUID.generate()
+      })
+
+    full = get(conn, ~p"/audio/#{track.id}/original")
+    assert full.status == 200
+    assert get_resp_header(full, "content-type") == ["audio/mpeg"]
+    assert get_resp_header(full, "accept-ranges") == ["bytes"]
+    assert full.resp_body == "original-audio"
+
+    ranged =
+      conn
+      |> put_req_header("range", "bytes=0-7")
+      |> get(~p"/audio/#{track.id}/original")
+
+    assert ranged.status == 206
+    assert get_resp_header(ranged, "content-range") == ["bytes 0-7/14"]
+    assert ranged.resp_body == "original"
+  end
+
+  @tag :tmp_dir
+  test "404 when the track has no original gain backup", %{conn: conn, tmp_dir: root} do
+    File.mkdir_p!(Path.join(root, "_Inbox"))
+    File.write!(Path.join(root, "_Inbox/song.mp3"), "current-audio")
+    track = insert(:track, rel_path: "_Inbox/song.mp3", filename: "song.mp3")
+
+    assert get(conn, ~p"/audio/#{track.id}/original").status == 404
   end
 
   test "404 when the track does not exist", %{conn: conn} do

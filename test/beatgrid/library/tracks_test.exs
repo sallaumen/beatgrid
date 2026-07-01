@@ -83,6 +83,55 @@ defmodule Beatgrid.Library.TracksTest do
   end
 
   describe "versions_of/1" do
+    test "finds same-song versions across artists by title base" do
+      reference =
+        insert(:track,
+          status: :present,
+          tag_artist: "Luiz Gonzaga",
+          tag_title: "Asa Branca",
+          norm_artist: "luiz gonzaga",
+          norm_title: "asa branca",
+          content_sha256: "original"
+        )
+
+      cover =
+        insert(:track,
+          status: :present,
+          tag_artist: "Dominguinhos",
+          tag_title: "Asa Branca (Ao Vivo)",
+          norm_artist: "dominguinhos",
+          norm_title: "asa branca ao vivo",
+          content_sha256: "cover"
+        )
+
+      exact_dup =
+        insert(:track,
+          status: :present,
+          tag_artist: "Luiz Gonzaga",
+          tag_title: "Asa Branca",
+          norm_artist: "luiz gonzaga",
+          norm_title: "asa branca",
+          content_sha256: "original"
+        )
+
+      unrelated =
+        insert(:track,
+          status: :present,
+          tag_artist: "Dominguinhos",
+          tag_title: "Qui Nem Jiló",
+          norm_artist: "dominguinhos",
+          norm_title: "qui nem jilo",
+          content_sha256: "other"
+        )
+
+      ids = reference |> Tracks.same_song_versions_of() |> Enum.map(& &1.id)
+
+      assert cover.id in ids
+      refute reference.id in ids
+      refute exact_dup.id in ids
+      refute unrelated.id in ids
+    end
+
     test "links different versions of the same song, excluding exact dups + other songs" do
       studio =
         insert(:track,

@@ -46,6 +46,34 @@ defmodule Beatgrid.Library.Tracks do
     end
   end
 
+  @doc """
+  Present tracks that look like the same song in another recording or version.
+
+  This is intentionally broader than `versions_of/1`: it matches by normalized
+  title base and can return covers/re-recordings by other artists. Exact-content
+  duplicates are excluded because those belong in dedup review.
+  """
+  @spec same_song_versions_of(Track.t()) :: [Track.t()]
+  def same_song_versions_of(%Track{} = track) do
+    base = Version.base_title(version_title(track))
+
+    if String.length(base) >= 4 do
+      like = "%#{base}%"
+
+      Track
+      |> where([t], t.status == :present and t.id != ^track.id)
+      |> where([t], ilike(t.norm_title, ^like))
+      |> preload(:soundcharts_song)
+      |> Repo.all()
+      |> Enum.filter(fn t ->
+        Version.base_title(version_title(t)) == base and not exact_dup?(t, track)
+      end)
+      |> Enum.sort_by(fn t -> {version_title(t), t.tag_artist || ""} end)
+    else
+      []
+    end
+  end
+
   defp version_title(track), do: track.tag_title || Path.rootname(track.filename || "")
 
   defp exact_dup?(%{content_sha256: a}, %{content_sha256: b})
