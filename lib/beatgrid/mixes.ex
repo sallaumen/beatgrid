@@ -89,7 +89,13 @@ defmodule Beatgrid.Mixes do
   end
 
   @spec list_mixes() :: [Mix.t()]
-  def list_mixes, do: Repo.all(from m in Mix, order_by: [desc: m.inserted_at])
+  def list_mixes do
+    Repo.all(
+      from m in Mix,
+        order_by: [desc: m.inserted_at],
+        preload: [:segments]
+    )
+  end
 
   @spec create_segment(map()) :: {:ok, Segment.t()} | {:error, Ecto.Changeset.t()}
   def create_segment(attrs), do: %Segment{} |> Segment.changeset(attrs) |> Repo.insert()

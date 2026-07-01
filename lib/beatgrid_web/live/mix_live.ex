@@ -229,11 +229,28 @@ defmodule BeatgridWeb.MixLive do
           ← Sets online
         </.link>
 
-        <header class="mt-3 flex items-baseline justify-between gap-4">
+        <header class="mt-3 flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
           <div class="min-w-0">
             <h1 class="truncate text-[22px] font-semibold">{@mix.title || @mix.source_url}</h1>
-            <p class="text-body-sm text-ink-secondary">
-              {@mix.dj || "—"} · {format_clock(@mix.duration_ms)}
+            <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-body-sm text-ink-secondary">
+              <span>{@mix.dj || "Unknown DJ"}</span>
+              <span class="text-ink-faint">·</span>
+              <span>{format_clock(@mix.duration_ms)}</span>
+              <span class="text-ink-faint">·</span>
+              <a
+                href={@mix.source_url}
+                target="_blank"
+                rel="noopener"
+                class="text-primary hover:underline"
+              >
+                Original link
+              </a>
+            </div>
+            <p
+              :if={@mix.description not in [nil, ""]}
+              class="mt-2 line-clamp-2 text-caption text-ink-muted"
+            >
+              {@mix.description}
             </p>
           </div>
           <div class="flex shrink-0 items-center gap-3">
@@ -327,8 +344,30 @@ defmodule BeatgridWeb.MixLive do
           :if={playable?(@mix)}
           id="mix-player"
           phx-hook=".MixPlayer"
-          class="sticky top-0 z-10 mt-3 rounded-lg border border-white/8 bg-surface/95 backdrop-blur px-3 py-2"
+          data-segment-starts={segment_starts(@mix.segments)}
+          class="sticky top-0 z-10 mt-3 rounded-lg border border-white/8 bg-surface/95 px-3 py-2 backdrop-blur"
         >
+          <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                data-mix-prev
+                class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-semibold text-ink-secondary hover:bg-white/10 hover:text-ink"
+              >
+                Previous track
+              </button>
+              <button
+                type="button"
+                data-mix-next
+                class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-semibold text-ink-secondary hover:bg-white/10 hover:text-ink"
+              >
+                Next track
+              </button>
+            </div>
+            <span class="text-caption text-ink-faint">
+              {length(@mix.segments)} detected tracks
+            </span>
+          </div>
           <audio
             id="mix-audio"
             controls
@@ -426,6 +465,42 @@ defmodule BeatgridWeb.MixLive do
         mounted() {
           this.audio = document.getElementById("mix-audio")
           if (!this.audio) return
+          const segmentStarts = () => {
+            return (this.el.dataset.segmentStarts || "")
+              .split(",")
+              .map((v) => Number(v))
+              .filter((v) => Number.isFinite(v))
+              .sort((a, b) => a - b)
+          }
+          const seekToMs = (ms) => {
+            const go = () => { try { this.audio.currentTime = ms / 1000 } catch (_) {} ; this.audio.play().catch(() => {}) }
+            if (this.audio.readyState >= 1) go()
+            else { this.audio.addEventListener("loadedmetadata", go, { once: true }); this.audio.load() }
+          }
+          const seekSegment = (direction) => {
+            const starts = segmentStarts()
+            if (starts.length === 0) return
+            const currentMs = this.audio.currentTime * 1000
+            if (direction === "next") {
+              const next = starts.find((start) => start > currentMs + 750)
+              seekToMs(next == null ? starts[starts.length - 1] : next)
+            } else {
+              const currentIndex = starts.findIndex((start, index) => {
+                const next = starts[index + 1]
+                return currentMs >= start - 750 && (next == null || currentMs < next - 750)
+              })
+              const previousIndex = currentIndex <= 0 ? 0 : currentIndex - 1
+              seekToMs(starts[previousIndex] || starts[0])
+            }
+          }
+          this.onPrev = (e) => {
+            if (!e.target.closest("[data-mix-prev]")) return
+            seekSegment("prev")
+          }
+          this.onNext = (e) => {
+            if (!e.target.closest("[data-mix-next]")) return
+            seekSegment("next")
+          }
           this.onClick = (e) => {
             const btn = e.target.closest("[data-seg-play]")
             if (!btn || !this.audio) return
@@ -443,10 +518,14 @@ defmodule BeatgridWeb.MixLive do
             })
           }
           document.addEventListener("click", this.onClick)
+          document.addEventListener("click", this.onPrev)
+          document.addEventListener("click", this.onNext)
           this.audio.addEventListener("timeupdate", this.onTime)
         },
         destroyed() {
           document.removeEventListener("click", this.onClick)
+          document.removeEventListener("click", this.onPrev)
+          document.removeEventListener("click", this.onNext)
           if (this.audio) this.audio.removeEventListener("timeupdate", this.onTime)
         },
       }
@@ -455,6 +534,14 @@ defmodule BeatgridWeb.MixLive do
   end
 
   defp playable?(mix), do: is_nil(mix.audio_deleted_at) and is_binary(mix.audio_path)
+
+  defp segment_starts(segments) do
+    segments
+    |> Enum.map(& &1.start_ms)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.sort()
+    |> Enum.map_join(",", &Integer.to_string/1)
+  end
 
   defp source_label(:manual), do: "manual"
   defp source_label(:chapter), do: "capítulos"

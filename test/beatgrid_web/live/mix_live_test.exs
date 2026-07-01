@@ -223,6 +223,32 @@ defmodule BeatgridWeb.MixLiveTest do
     assert html =~ ~s(data-start-ms="90000")
   end
 
+  test "detail header exposes source URL and player segment navigation controls", %{conn: conn} do
+    mix =
+      insert(:mix,
+        title: "Festival Research Set",
+        source_url: "https://soundcloud.com/dj/festival-research-set",
+        status: :ready,
+        audio_path: "/tmp/_Mixes/x.mp3",
+        audio_deleted_at: nil
+      )
+
+    insert(:mix_segment, mix: mix, position: 0, start_ms: 0, end_ms: 90_000)
+    insert(:mix_segment, mix: mix, position: 1, start_ms: 90_000, end_ms: 180_000)
+    insert(:mix_segment, mix: mix, position: 2, start_ms: 180_000, end_ms: 240_000)
+
+    {:ok, _view, html} = live(conn, ~p"/sets-online/#{mix.id}")
+
+    assert html =~ "Festival Research Set"
+    assert html =~ ~s(href="https://soundcloud.com/dj/festival-research-set")
+    assert html =~ "Original link"
+    assert html =~ "Previous track"
+    assert html =~ "Next track"
+    assert html =~ "data-mix-prev"
+    assert html =~ "data-mix-next"
+    assert html =~ ~s(data-segment-starts="0,90000,180000")
+  end
+
   test "set summary cards show DJ count, tracks, duration and library coverage", %{conn: conn} do
     track = insert(:track, status: :present)
     mix = insert(:mix, status: :ready, duration_ms: 600_000)

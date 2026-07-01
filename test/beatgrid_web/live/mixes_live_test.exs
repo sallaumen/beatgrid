@@ -15,6 +15,38 @@ defmodule BeatgridWeb.MixesLiveTest do
     assert html =~ "Importar"
   end
 
+  test "lists investigation metadata for imported mixes", %{conn: conn} do
+    track = insert(:track, status: :present)
+
+    mix =
+      insert(:mix,
+        title: "Long Forró Research",
+        dj: "DJ Roots",
+        source_url: "https://soundcloud.com/dj-roots/long-forro-research",
+        duration_ms: 10_800_000,
+        status: :ready
+      )
+
+    insert(:mix_segment,
+      mix: mix,
+      position: 0,
+      start_ms: 0,
+      end_ms: 120_000,
+      matched_track_id: track.id
+    )
+
+    insert(:mix_segment, mix: mix, position: 1, start_ms: 120_000, end_ms: 240_000)
+
+    {:ok, _view, html} = live(conn, ~p"/sets-online")
+
+    assert html =~ "Long Forró Research"
+    assert html =~ "DJ Roots"
+    assert html =~ "soundcloud.com/dj-roots/long-forro-research"
+    assert html =~ "3:00:00"
+    assert html =~ "2 tracks"
+    assert html =~ "50% library"
+  end
+
   test "submitting a SoundCloud URL enqueues a download and shows the new mix", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/sets-online")
 
