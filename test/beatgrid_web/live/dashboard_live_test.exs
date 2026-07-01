@@ -22,6 +22,15 @@ defmodule BeatgridWeb.DashboardLiveTest do
 
   setup :set_mox_global
 
+  test "renders stable control center regions", %{conn: conn} do
+    {:ok, _view, html} = live(conn, ~p"/painel")
+
+    assert html =~ ~s(id="dashboard-operations")
+    assert html =~ ~s(id="dashboard-imports")
+    assert html =~ ~s(id="dashboard-insights")
+    assert html =~ ~s(id="dashboard-gaps")
+  end
+
   test "shows headline KPIs and the genre / artist distributions", %{conn: conn} do
     insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB")
     song = insert(:soundcharts_song, tempo_bpm: 120.0, release_date: ~D[1975-03-01])
