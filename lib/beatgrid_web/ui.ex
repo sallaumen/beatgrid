@@ -902,7 +902,14 @@ defmodule BeatgridWeb.UI do
       />
       <.cover :if={!(@audio_src && @track_id)} src={@cover_src} artist={@artist} size={42} />
       <div class="min-w-0 flex-1">
-        <p class="truncate text-body font-medium">{@title}</p>
+        <.link
+          :if={@track_id}
+          navigate={"/track/#{@track_id}"}
+          class="block truncate text-body font-medium text-ink hover:text-primary hover:underline"
+        >
+          {@title}
+        </.link>
+        <p :if={!@track_id} class="truncate text-body font-medium">{@title}</p>
         <p :if={@artist} class="text-ink-muted truncate text-caption">{@artist}</p>
 
         <div :if={!@editing} class="mt-1.5 flex items-center gap-2 text-[12px]">

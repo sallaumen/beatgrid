@@ -329,27 +329,32 @@ defmodule BeatgridWeb.DedupLive do
     assigns = assign(assigns, artist: artist, title: title)
 
     ~H"""
-    <label class={[
-      "flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors",
+    <div class={[
+      "flex items-center gap-3 px-4 py-3 transition-colors",
       @chosen && "bg-green/8",
       !@chosen && "opacity-70 hover:opacity-100"
     ]}>
-      <input
-        type="radio"
-        name={"keeper-#{@group_id}"}
-        phx-click="pick_keeper"
-        phx-value-group={@group_id}
-        phx-value-track={@member.track_id}
-        checked={@chosen}
-        class="sr-only"
-      />
-      <span class={[
-        "flex size-[18px] shrink-0 items-center justify-center rounded-full border transition-colors",
-        @chosen && "border-green bg-green",
-        !@chosen && "border-white/25"
-      ]}>
-        <span :if={@chosen} class="size-2 rounded-full bg-[#0b0c10]" />
-      </span>
+      <label
+        class="flex cursor-pointer items-center justify-center"
+        title="Escolher cópia para manter"
+      >
+        <input
+          type="radio"
+          name={"keeper-#{@group_id}"}
+          phx-click="pick_keeper"
+          phx-value-group={@group_id}
+          phx-value-track={@member.track_id}
+          checked={@chosen}
+          class="sr-only"
+        />
+        <span class={[
+          "flex size-[18px] shrink-0 items-center justify-center rounded-full border transition-colors",
+          @chosen && "border-green bg-green",
+          !@chosen && "border-white/25"
+        ]}>
+          <span :if={@chosen} class="size-2 rounded-full bg-[#0b0c10]" />
+        </span>
+      </label>
 
       <.cover_play
         src={cover_src(@member.track)}
@@ -360,11 +365,14 @@ defmodule BeatgridWeb.DedupLive do
       />
 
       <div class="min-w-0 flex-1">
-        <p class="truncate text-body font-medium">
+        <.link
+          navigate={~p"/track/#{@member.track.id}"}
+          class="block truncate text-body font-medium text-ink hover:text-primary hover:underline"
+        >
           <span class="text-ink-muted">{@artist}</span>
           <span class="text-ink-faint">—</span>
           {@title}
-        </p>
+        </.link>
         <p class="truncate font-mono text-[11px] text-ink-faint">{quality_line(@member.track)}</p>
       </div>
 
@@ -387,7 +395,7 @@ defmodule BeatgridWeb.DedupLive do
       >
         → quarentena
       </span>
-    </label>
+    </div>
     """
   end
 

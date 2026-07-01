@@ -687,7 +687,12 @@ defmodule BeatgridWeb.RecSetLive do
                   <.cover src={cover_src(e.track)} artist={e.track.tag_artist} size={34} />
                   <div class="min-w-0 flex-1">
                     <div class="flex min-w-0 items-center gap-1.5">
-                      <p class="truncate text-body font-medium">{title(e.track)}</p>
+                      <.link
+                        navigate={~p"/track/#{e.track.id}"}
+                        class="truncate text-body font-medium text-ink hover:text-primary hover:underline"
+                      >
+                        {title(e.track)}
+                      </.link>
                       <.ouro_badge track={e.track} />
                     </div>
                     <p class="truncate text-caption text-ink-muted">{e.track.tag_artist || "—"}</p>
@@ -1277,7 +1282,12 @@ defmodule BeatgridWeb.RecSetLive do
           <.cover src={cover_src(c.track)} artist={c.track.tag_artist} size={30} />
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
-              <p class="min-w-0 flex-1 truncate text-body-sm font-medium">{title(c.track)}</p>
+              <.link
+                navigate={~p"/track/#{c.track.id}"}
+                class="min-w-0 flex-1 truncate text-body-sm font-medium text-ink hover:text-primary hover:underline"
+              >
+                {title(c.track)}
+              </.link>
               <.folder_badge :if={c.track.genre_folder} folder={c.track.genre_folder} />
             </div>
             <p class="truncate text-caption text-ink-muted">{c.track.tag_artist || "—"}</p>
@@ -1345,7 +1355,12 @@ defmodule BeatgridWeb.RecSetLive do
           />
           <.cover src={cover_src(t)} artist={t.tag_artist} size={30} />
           <div class="min-w-0 flex-1">
-            <p class="truncate text-body-sm font-medium">{title(t)}</p>
+            <.link
+              navigate={~p"/track/#{t.id}"}
+              class="block truncate text-body-sm font-medium text-ink hover:text-primary hover:underline"
+            >
+              {title(t)}
+            </.link>
             <p class="truncate text-caption text-ink-muted">{t.tag_artist || "—"}</p>
           </div>
           <.camelot_seal value={camelot(t)} />

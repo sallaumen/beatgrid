@@ -69,11 +69,12 @@ defmodule BeatgridWeb.LibraryLiveTest do
   test "library rows can play in the global player and still link to the track", %{conn: conn} do
     track = insert(:track, status: :present, tag_title: "Sina", tag_artist: "Djavan")
 
-    {:ok, _view, html} = live(conn, ~p"/")
+    {:ok, view, html} = live(conn, ~p"/")
 
     assert html =~ "beatgrid:play"
     assert html =~ "#player-audio"
-    assert html =~ "/track/#{track.id}"
+    assert has_element?(view, "a[href='/track/#{track.id}']", "Sina")
+    refute html =~ ~s(<a href="/track/#{track.id}" class="contents">)
   end
 
   test "shows the empty state when filters match nothing", %{conn: conn} do

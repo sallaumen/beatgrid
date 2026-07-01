@@ -18,12 +18,13 @@ defmodule BeatgridWeb.ImportsLiveTest do
   end
 
   test "lista só faixas do youtube", %{conn: conn} do
-    insert(:track,
-      status: :present,
-      source_playlist: "youtube",
-      tag_title: "Do Tubo",
-      norm_title: "do tubo"
-    )
+    youtube_track =
+      insert(:track,
+        status: :present,
+        source_playlist: "youtube",
+        tag_title: "Do Tubo",
+        norm_title: "do tubo"
+      )
 
     insert(:track,
       status: :present,
@@ -32,8 +33,9 @@ defmodule BeatgridWeb.ImportsLiveTest do
       norm_title: "do disco"
     )
 
-    {:ok, _view, html} = live(conn, ~p"/importados")
+    {:ok, view, html} = live(conn, ~p"/importados")
     assert html =~ "Do Tubo"
+    assert has_element?(view, "a[href='/track/#{youtube_track.id}']", "Do Tubo")
     refute html =~ "Do Disco"
   end
 

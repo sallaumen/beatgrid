@@ -863,33 +863,36 @@ defmodule BeatgridWeb.LibraryLive do
           preview={true}
           playing?={track.id == @playing_id}
         />
-        <.link navigate={~p"/track/#{track.id}"} class="contents">
-          <div class="min-w-0">
-            <div class="flex min-w-0 items-center gap-1.5">
-              <p class="truncate text-body font-medium">{track.tag_title || track.filename}</p>
-              <.ouro_badge track={track} />
-            </div>
-            <p class="truncate text-caption text-ink-muted">{track.tag_artist || "—"}</p>
-          </div>
-          <div><.folder_badge :if={track.genre_folder} folder={track.genre_folder} /></div>
-          <span class="text-right font-mono text-body text-primary">{bpm(track)}</span>
-          <.camelot_seal value={camelot(track)} />
-          <div class="h-[5px] w-full rounded-full bg-white/5">
-            <div class="h-full rounded-full bg-green" style={"width:#{energy_pct(track)}%"} />
-          </div>
-          <div class="text-right"><.rating_badge value={track.rating} /></div>
-          <div class="text-right">
-            <span
-              :if={track.loudness_lufs}
-              class="text-ink-secondary font-mono text-caption"
-              title={format_lufs(track.loudness_lufs)}
+        <div class="min-w-0">
+          <div class="flex min-w-0 items-center gap-1.5">
+            <.link
+              navigate={~p"/track/#{track.id}"}
+              class="truncate text-body font-medium text-ink hover:text-primary hover:underline"
             >
-              {format_gain(Loudness.gain_db(track.loudness_lufs, track.true_peak_dbtp))}
-            </span>
-            <span :if={!track.loudness_lufs} class="text-ink-faint text-caption">–</span>
+              {track.tag_title || track.filename}
+            </.link>
+            <.ouro_badge track={track} />
           </div>
-          <div class="text-right"><.confidence_chip level={track.sc_match_confidence} /></div>
-        </.link>
+          <p class="truncate text-caption text-ink-muted">{track.tag_artist || "—"}</p>
+        </div>
+        <div><.folder_badge :if={track.genre_folder} folder={track.genre_folder} /></div>
+        <span class="text-right font-mono text-body text-primary">{bpm(track)}</span>
+        <.camelot_seal value={camelot(track)} />
+        <div class="h-[5px] w-full rounded-full bg-white/5">
+          <div class="h-full rounded-full bg-green" style={"width:#{energy_pct(track)}%"} />
+        </div>
+        <div class="text-right"><.rating_badge value={track.rating} /></div>
+        <div class="text-right">
+          <span
+            :if={track.loudness_lufs}
+            class="text-ink-secondary font-mono text-caption"
+            title={format_lufs(track.loudness_lufs)}
+          >
+            {format_gain(Loudness.gain_db(track.loudness_lufs, track.true_peak_dbtp))}
+          </span>
+          <span :if={!track.loudness_lufs} class="text-ink-faint text-caption">–</span>
+        </div>
+        <div class="text-right"><.confidence_chip level={track.sc_match_confidence} /></div>
         <.row_menu track={track} open?={@row_menu == track.id} folders={@folders} />
       </div>
     </div>

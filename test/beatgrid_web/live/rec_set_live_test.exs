@@ -468,6 +468,24 @@ defmodule BeatgridWeb.RecSetLiveTest do
   end
 
   @tag :tmp_dir
+  test "track names in the set link to the track page", %{conn: conn} do
+    seed =
+      track_with("8A", 120.0,
+        tag_title: "LinkedSeed",
+        tag_artist: "A",
+        norm_title: "linkedseed",
+        norm_artist: "a"
+      )
+
+    {:ok, set} = Sets.create("Linked Set")
+    Sets.append(set, seed)
+
+    {:ok, view, _html} = live(conn, ~p"/set/#{set.id}")
+
+    assert has_element?(view, "a[href='/track/#{seed.id}']", "LinkedSeed")
+  end
+
+  @tag :tmp_dir
   test "/set/:id with an unknown id redirects to /set (drops the stale id)", %{conn: conn} do
     {:ok, _} = Sets.create("Existe")
 

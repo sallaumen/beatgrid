@@ -114,7 +114,12 @@ defmodule BeatgridWeb.ImportsLive do
             />
             <div class="min-w-0">
               <div class="flex items-center gap-1.5">
-                <p class="truncate text-body font-medium">{track_title(track)}</p>
+                <.link
+                  navigate={~p"/track/#{track.id}"}
+                  class="truncate text-body font-medium text-ink hover:text-primary hover:underline"
+                >
+                  {track_title(track)}
+                </.link>
                 <.ouro_badge track={track} />
               </div>
               <p class="truncate text-caption text-ink-muted">

@@ -53,15 +53,16 @@ defmodule BeatgridWeb.ReviewLiveTest do
   defp select_btn(id), do: "button[phx-click=toggle_select][phx-value-id='#{id}']"
 
   test "shows the three tabs and a pending rename card", %{conn: conn} do
-    pending_rename()
+    suggestion = pending_rename()
 
-    {:ok, _view, html} = live(conn, ~p"/revisao")
+    {:ok, view, html} = live(conn, ~p"/revisao")
 
     assert html =~ "Central de Revisão"
     assert html =~ "Renomeações"
     assert html =~ "Classificação"
     assert html =~ "Auditoria"
     assert html =~ "Djavan - Sina.mp3"
+    assert has_element?(view, "a[href='/track/#{suggestion.track_id}']", "Sina")
     # global player present; no local review-player
     assert html =~ ~s(id="player-audio")
     refute html =~ ~s(id="review-player")

@@ -69,9 +69,9 @@ defmodule BeatgridWeb.DedupLiveTest do
 
   @tag :tmp_dir
   test "renders a pending group card with its members and match tag", %{conn: conn, tmp_dir: root} do
-    exact_pair(root)
+    %{keep: keep, dup: dup} = exact_pair(root)
 
-    {:ok, _view, html} = live(conn, ~p"/dedup")
+    {:ok, view, html} = live(conn, ~p"/dedup")
 
     assert html =~ "Duplicatas"
     assert html =~ "· 1 grupo"
@@ -80,6 +80,8 @@ defmodule BeatgridWeb.DedupLiveTest do
     # both members shown (artist — title)
     assert html =~ "Djavan"
     assert html =~ "Sina"
+    assert has_element?(view, "a[href='/track/#{keep.id}']", "Sina")
+    assert has_element?(view, "a[href='/track/#{dup.id}']", "Sina")
     # a mono quality/placement line for the members
     assert html =~ "320"
     assert html =~ "128"
