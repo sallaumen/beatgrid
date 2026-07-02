@@ -32,8 +32,13 @@ jobs:
 
       - uses: erlef/setup-beam@v1
         with:
-          otp-version: "27"
-          elixir-version: "1.19"
+          version-file: .tool-versions
+          version-type: strict
+
+      # ffmpeg/ffprobe are REQUIRED runtime tools (see README); the suite's
+      # untagged paths probe for the binary, so the runner must have it.
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ffmpeg
 
       - name: Cache deps and build
         uses: actions/cache@v4
