@@ -33,6 +33,18 @@ defmodule Beatgrid.Workers.DownloadWorkerTest do
     assert {:cancel, @unavailable} = DownloadWorker.perform(job())
   end
 
+  test "private / removed / age-gated videos are cancelled too" do
+    for message <- [
+          "ERROR: [youtube] x: Private video. Sign in if you've been granted access\n",
+          "ERROR: [youtube] x: This video has been removed by the uploader\n",
+          "ERROR: [youtube] x: Sign in to confirm your age. This video may be inappropriate\n"
+        ] do
+      reason = {:yt_dlp_exit, 1, message}
+      stub_download({:error, reason})
+      assert {:cancel, ^reason} = DownloadWorker.perform(job())
+    end
+  end
+
   test "other transient errors are retried" do
     stub_download({:error, :timeout})
     assert {:error, :timeout} = DownloadWorker.perform(job())

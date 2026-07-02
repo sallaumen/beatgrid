@@ -42,6 +42,7 @@ defmodule Beatgrid.Dashboard.ReadModel do
       markers_unmapped: Markers.unmapped_count(),
       markers_note: nil,
       youtube_pending: YouTube.pending_count(),
+      youtube_failed: YouTube.failed_download_count(),
       youtube_note: nil,
       enrich: nil,
       rare_pending: YouTube.rare_unfiled_count(),
@@ -77,7 +78,13 @@ defmodule Beatgrid.Dashboard.ReadModel do
      }}
   end
 
-  def refresh(:youtube_tick), do: {:ok, %{youtube_pending: YouTube.pending_count()}}
+  def refresh(:youtube_tick) do
+    {:ok,
+     %{
+       youtube_pending: YouTube.pending_count(),
+       youtube_failed: YouTube.failed_download_count()
+     }}
+  end
 
   def refresh({:enrich_progress, %{scope: "rare", status: :done} = payload}) do
     {:ok,

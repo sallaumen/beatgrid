@@ -215,6 +215,10 @@ defmodule Beatgrid.YouTube do
     |> Enum.map(& &1.id)
   end
 
+  @doc "Downloads that gave up for good (discarded/cancelled jobs) — surfaced on the Painel."
+  @spec failed_download_count() :: non_neg_integer()
+  def failed_download_count, do: Beatgrid.Jobs.failed_count(DownloadWorker)
+
   @doc "Faixas que o Soundcharts já tentou e não achou, ainda não arquivadas (raras/Ouro)."
   @spec rare_unfiled_count() :: non_neg_integer()
   def rare_unfiled_count,

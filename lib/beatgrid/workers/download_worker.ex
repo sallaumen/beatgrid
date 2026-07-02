@@ -60,8 +60,20 @@ defmodule Beatgrid.Workers.DownloadWorker do
 
   defp rate_limited?(_reason), do: false
 
+  # Genuinely permanent yt-dlp refusals — retrying burns 10 attempts for nothing
+  # (76 real jobs did exactly that before "Private video" & friends were listed).
+  @permanent [
+    "Video unavailable",
+    "not available",
+    "Private video",
+    "no longer available",
+    "removed by the uploader",
+    "account associated with this video has been terminated",
+    "Sign in to confirm your age"
+  ]
+
   defp unavailable?({:yt_dlp_exit, _code, out}) when is_binary(out),
-    do: out =~ "Video unavailable" or out =~ "not available"
+    do: Enum.any?(@permanent, &String.contains?(out, &1))
 
   defp unavailable?(_reason), do: false
 

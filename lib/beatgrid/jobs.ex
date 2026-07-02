@@ -23,6 +23,16 @@ defmodule Beatgrid.Jobs do
   defp maybe_filter_states(query, nil), do: query
   defp maybe_filter_states(query, states), do: where(query, [j], j.state in ^states)
 
+  @doc "How many jobs of `worker` gave up (discarded or cancelled)."
+  @spec failed_count(module()) :: non_neg_integer()
+  def failed_count(worker) do
+    name = worker |> Module.split() |> Enum.join(".")
+
+    Oban.Job
+    |> where([j], j.worker == ^name and j.state in ["discarded", "cancelled"])
+    |> Repo.aggregate(:count, :id)
+  end
+
   @doc "Re-run a failed/cancelled job."
   @spec retry(integer()) :: :ok
   def retry(id), do: Oban.retry_job(id)
