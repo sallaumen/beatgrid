@@ -20,6 +20,13 @@ defmodule Beatgrid.AI do
   @doc "Configured AI model (default \"sonnet\")."
   def model, do: config(:model, "sonnet")
 
+  @doc """
+  Model for the metadata verifier (`:verifier_model`, falling back to the main
+  model). The verifier's verdicts gate renames, so it can afford a stronger
+  model than bulk classification — plan-covered via the `claude` CLI.
+  """
+  def verifier_model, do: config(:verifier_model, model())
+
   @doc "Configured classification batch size (default 15)."
   def batch_size, do: config(:batch_size, 15)
 

@@ -27,13 +27,22 @@ defmodule Beatgrid.Library.MetadataAI do
   Verifies/derives the canonical "Artist - Title" for each track and whether the linked
   Soundcharts match is the SAME recording (vs. a cover/original by another artist).
   """
+  # Web searches per batch make the verifier legitimately slower than a plain
+  # completion — give it the long budget instead of dying at the 120s default.
+  @resolve_timeout_ms 300_000
+
   @spec resolve_names([Track.t()]) :: {:ok, [Resolution.t()]} | {:error, term()}
   def resolve_names(tracks) when is_list(tracks) do
     tracks = Repo.preload(tracks, :soundcharts_song)
     folders = GenreFolders.list()
     prompt = build_resolve_prompt(folders, tracks)
 
-    with {:ok, %{"resolutions" => list}} <- AI.complete(prompt, resolve_schema()) do
+    with {:ok, %{"resolutions" => list}} <-
+           AI.complete(prompt, resolve_schema(),
+             model: AI.verifier_model(),
+             timeout_ms: @resolve_timeout_ms,
+             allowed_tools: ["WebSearch"]
+           ) do
       {:ok, to_resolutions(list, tracks)}
     end
   end
@@ -107,7 +116,8 @@ defmodule Beatgrid.Library.MetadataAI do
 
     Evidence priority — the file is the source of truth for WHICH recording this is:
     - Trust the file's OWN signals first: tags (file_artist/file_title), filename, and
-      especially youtube_title (where the track came from).
+      especially youtube_title (where the track came from). album/year/duration and
+      youtube_views help confirm which release/recording it is.
     - When youtube_title (or the tags) name a performer that differs from the Soundcharts
       match's artist, treat it as a strong cover signal → keep the file's performer and set
       same_recording=false.
@@ -115,9 +125,20 @@ defmodule Beatgrid.Library.MetadataAI do
       confirm plausibility or fix obvious tag noise — never to overwrite a clearly-named
       performer with the original/most-famous artist.
 
-    Calibrate confidence: high (>= 0.8) only when the file evidence is clear AND consistent;
-    medium when you had to choose between conflicting signals; low when the metadata is sparse
-    or contradictory.
+    RESEARCH, don't guess: you know Brazilian music (forró, MPB, baião, xote) — use that
+    knowledge actively. When you do NOT already recognize an artist-title pairing, use the
+    WebSearch tool (e.g. search "<artist> <title> música") to confirm the performer exists,
+    really records this song, and the canonical spelling of both names. A quick search on the
+    doubtful ones beats a guessed verdict on all of them.
+
+    Calibrate confidence on YOUR CERTAINTY about the returned "Artist - Title" — not on how
+    much metadata the line carried:
+    - high (>= 0.8): you recognize the pairing as real (or verified it by searching) and the
+      file's signals agree. A correct, known pairing deserves HIGH even when there is no
+      Soundcharts match — a missing match is not doubt about the name.
+    - medium (0.5-0.79): plausible but unverified — the search was inconclusive, or signals
+      mildly conflict.
+    - low (< 0.5): sparse or contradictory evidence; the pairing may well be wrong.
 
     Folder context:
     #{rubric}
@@ -137,9 +158,25 @@ defmodule Beatgrid.Library.MetadataAI do
     yt = (track.raw_tags || %{})["youtube_title"]
 
     "#{index}. file_artist=#{inspect(track.tag_artist)} file_title=#{inspect(track.tag_title)}" <>
+      " album=#{inspect(track.tag_album)} year=#{inspect(track.tag_year)}" <>
+      " duration=#{duration_str(track.duration_ms)}" <>
       " filename=#{inspect(track.filename)} youtube_title=#{inspect(yt)}" <>
+      popularity_signal(track) <>
       " folder=#{inspect(track.genre_folder)}#{match_signals(song)}"
   end
+
+  defp duration_str(ms) when is_integer(ms) and ms > 0 do
+    total = div(ms, 1000)
+    seconds = total |> rem(60) |> Integer.to_string() |> String.pad_leading(2, "0")
+    "#{div(total, 60)}:#{seconds}"
+  end
+
+  defp duration_str(_ms), do: "?"
+
+  defp popularity_signal(%{youtube_views: views}) when is_integer(views) and views > 0,
+    do: " youtube_views=#{views}"
+
+  defp popularity_signal(_track), do: ""
 
   defp match_signals(%{} = song) do
     year = song.release_date && song.release_date.year

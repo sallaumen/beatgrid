@@ -75,8 +75,10 @@ config :beatgrid, Beatgrid.YouTube.Downloader, adapter: Beatgrid.YouTube.YtDlp
 config :beatgrid, Beatgrid.Video.FrameSampler, adapter: Beatgrid.Video.FrameSampler.FfmpegCli
 config :beatgrid, Beatgrid.Recognition, adapter: Beatgrid.Recognition.Audd
 
-# AI classifier: which `claude` model and how many tracks per classification call.
-config :beatgrid, Beatgrid.AI, model: "sonnet", batch_size: 15
+# AI: model for bulk classification + batch size, and a stronger model for the
+# metadata VERIFIER — its calls are few, button-triggered, and gate disk renames.
+# Plan-covered via the `claude` CLI; drop verifier_model to "sonnet" if too slow.
+config :beatgrid, Beatgrid.AI, model: "sonnet", batch_size: 15, verifier_model: "opus"
 
 # Soundcharts budget: hard cap on successful API calls + a safety floor below
 # which the client refuses to call (the free tier is ~1,000 requests total).

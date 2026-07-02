@@ -30,7 +30,16 @@ defmodule Beatgrid.AI.ClaudeCli do
   @spec build_args(String.t(), map(), keyword()) :: [String.t()]
   def build_args(prompt, schema, opts) do
     ["-p", prompt, "--output-format", "json", "--json-schema", Jason.encode!(schema)] ++
-      model_args(opts) ++ add_dir_args(opts)
+      model_args(opts) ++ add_dir_args(opts) ++ tool_args(opts)
+  end
+
+  # Headless runs get NO tools unless the caller allows them explicitly (e.g. the
+  # metadata verifier grounds its verdicts with WebSearch).
+  defp tool_args(opts) do
+    case opts[:allowed_tools] do
+      [_ | _] = tools -> ["--allowedTools", Enum.join(tools, ",")]
+      _ -> []
+    end
   end
 
   defp add_dir_args(opts) do

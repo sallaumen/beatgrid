@@ -63,6 +63,12 @@ defmodule Beatgrid.AI.ClaudeCliTest do
       assert "-p" in args and "hi" in args
       assert "--model" in args and "sonnet" in args
       assert "--add-dir" in args and "/tmp/x" in args
+      refute "--allowedTools" in args
+    end
+
+    test "build_args allows tools only when the caller asks" do
+      args = ClaudeCli.build_args("hi", %{}, allowed_tools: ["WebSearch"])
+      assert "--allowedTools" in args and "WebSearch" in args
     end
   end
 

@@ -54,6 +54,38 @@ defmodule Beatgrid.Library.MetadataAITest do
       assert r.confidence == 0.7
       assert r.rationale =~ "forró"
     end
+
+    test "grounds the verifier: rich track context, WebSearch allowed, long budget" do
+      track =
+        insert(:track,
+          status: :present,
+          tag_artist: "Luiz Gonzaga",
+          tag_title: "Penerando",
+          tag_album: "Forró do Rei",
+          tag_year: 1962,
+          duration_ms: 152_000,
+          youtube_views: 340_000,
+          filename: "Penerando.mp3",
+          soundcharts_song_id: nil
+        )
+
+      expect(Beatgrid.AI.Mock, :complete, fn prompt, _schema, opts ->
+        assert prompt =~ "WebSearch"
+        assert prompt =~ ~s(album="Forró do Rei")
+        assert prompt =~ "year=1962"
+        assert prompt =~ "duration=2:32"
+        assert prompt =~ "youtube_views=340000"
+        # a known pairing without a Soundcharts match must still qualify as high
+        assert prompt =~ "a missing match is not doubt"
+
+        assert opts[:allowed_tools] == ["WebSearch"]
+        assert opts[:timeout_ms] == 300_000
+
+        {:ok, %{"resolutions" => []}}
+      end)
+
+      assert {:ok, []} = MetadataAI.resolve_names([track])
+    end
   end
 
   describe "parse_titles/1" do
