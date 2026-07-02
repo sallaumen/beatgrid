@@ -37,7 +37,7 @@ defmodule Beatgrid.SetsConnectionsTest do
       assert Sets.suggest_transition(b, c)["type"] == "cut"
     end
 
-    test "fade when markers exist but BPMs diverge" do
+    test "echo-out when markers exist but BPMs diverge (the tail masks the tempo jump)" do
       a =
         insert(:track,
           status: :present,
@@ -54,7 +54,11 @@ defmodule Beatgrid.SetsConnectionsTest do
         )
         |> with_song()
 
-      assert Sets.suggest_transition(a, b)["type"] == "fade"
+      assert Sets.suggest_transition(a, b)["type"] == "echo"
+    end
+
+    test "the transition vocabulary includes echo, in UI order" do
+      assert Sets.transition_types() == ~w(cut fade crossfade echo)
     end
   end
 
@@ -88,7 +92,7 @@ defmodule Beatgrid.SetsConnectionsTest do
     assert third.transition["enabled"] == true
   end
 
-  test "an invalid transition type is coerced to crossfade" do
+  test "an invalid transition type degrades to the safest behavior: cut" do
     {:ok, set} = Sets.create("S")
     a = insert(:track, status: :present)
     b = insert(:track, status: :present)
@@ -96,6 +100,95 @@ defmodule Beatgrid.SetsConnectionsTest do
     {:ok, _} = Sets.append(set, b)
 
     {:ok, _} = Sets.connect(set, b, %{"type" => "bogus"})
-    assert Enum.find(Sets.entries(set), &(&1.track.id == b.id)).transition["type"] == "crossfade"
+    assert Enum.find(Sets.entries(set), &(&1.track.id == b.id)).transition["type"] == "cut"
+  end
+
+  describe "entry_after/2 (the console hint)" do
+    test "returns the next entry with clamped transition and playback facts" do
+      {:ok, set} = Sets.create("S")
+
+      a =
+        insert(:track,
+          status: :present,
+          bpm_detected: 100.0,
+          duration_ms: 200_000,
+          cue_points: [%{"ms" => 30_000, "type" => "outro", "source" => "auto"}]
+        )
+
+      b =
+        insert(:track,
+          status: :present,
+          bpm_detected: 130.0,
+          duration_ms: 180_000,
+          cue_points: [%{"ms" => 4_000, "type" => "intro", "source" => "auto"}]
+        )
+
+      {:ok, _} = Sets.append(set, a)
+      {:ok, _} = Sets.append(set, b)
+      {:ok, _} = Sets.connect_all(set)
+
+      hint = Sets.entry_after(set.id, a.id)
+
+      assert hint.track.id == b.id
+      assert hint.position == 2
+      assert hint.bpm == 130.0
+      assert hint.outgoing_bpm == 100.0
+      assert hint.duration_ms == 180_000
+      assert [%{"type" => "intro"}] = hint.markers
+
+      # the persisted outro sat mid-song (30s of 200s) — the hint clamps it to
+      # the outgoing track's back half, away from the "salto no meio" bug
+      assert hint.transition["type"] == "echo"
+      assert hint.transition["from_ms"] == 100_000
+    end
+
+    test "a missing from_ms falls back to an end window, clear of the tail" do
+      {:ok, set} = Sets.create("S")
+      a = insert(:track, status: :present, duration_ms: 200_000)
+      b = insert(:track, status: :present)
+      {:ok, _} = Sets.append(set, a)
+      {:ok, _} = Sets.append(set, b)
+      {:ok, _} = Sets.connect(set, b, %{"type" => "crossfade", "from_ms" => nil})
+
+      assert Sets.entry_after(set.id, a.id).transition["from_ms"] == 192_000
+    end
+
+    test "nil for the last track, an unknown track, and sequential (no transition) entries" do
+      {:ok, set} = Sets.create("S")
+      a = insert(:track, status: :present)
+      b = insert(:track, status: :present)
+      {:ok, _} = Sets.append(set, a)
+      {:ok, _} = Sets.append(set, b)
+
+      assert Sets.entry_after(set.id, b.id) == nil
+      assert Sets.entry_after(set.id, Ecto.UUID.generate()) == nil
+      assert Sets.entry_after(set.id, a.id).transition == nil
+    end
+  end
+
+  test "structural mutations broadcast {:set_changed, id} for hint revalidation" do
+    {:ok, set} = Sets.create("S")
+    Sets.subscribe_set(set.id)
+
+    a = insert(:track, status: :present)
+    b = insert(:track, status: :present)
+
+    {:ok, _} = Sets.append(set, a)
+    assert_receive {:set_changed, _}
+
+    {:ok, _} = Sets.append(set, b)
+    assert_receive {:set_changed, _}
+
+    Sets.move(set, b, :top)
+    assert_receive {:set_changed, _}
+
+    {:ok, _} = Sets.connect(set, b, %{"type" => "cut"})
+    assert_receive {:set_changed, _}
+
+    {:ok, _} = Sets.disconnect(set, b)
+    assert_receive {:set_changed, _}
+
+    :ok = Sets.remove(set, b)
+    assert_receive {:set_changed, _}
   end
 end

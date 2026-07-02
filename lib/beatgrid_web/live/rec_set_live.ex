@@ -449,10 +449,12 @@ defmodule BeatgridWeb.RecSetLive do
 
   defp transition_abbrev("cut"), do: "corte"
   defp transition_abbrev("fade"), do: "fade"
+  defp transition_abbrev("echo"), do: "eco"
   defp transition_abbrev(_crossfade), do: "xfade"
 
   defp transition_title("cut"), do: "Corte seco no marcador"
   defp transition_title("fade"), do: "Fade (sai A / entra B, sem casar BPM)"
+  defp transition_title("echo"), do: "Echo-out (cauda de delay em A enquanto B entra)"
   defp transition_title(_crossfade), do: "Crossfade beat-aware (casa BPM no overlap)"
 
   defp candidate_header(true, _section), do: "Sugestões de abertura"
@@ -634,7 +636,7 @@ defmodule BeatgridWeb.RecSetLive do
                     class="flex overflow-hidden rounded border border-primary/30"
                   >
                     <button
-                      :for={t <- ~w(cut fade crossfade)}
+                      :for={t <- Sets.transition_types()}
                       type="button"
                       phx-click="set_transition_type"
                       phx-value-track={e.track.id}

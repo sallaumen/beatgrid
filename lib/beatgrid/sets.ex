@@ -16,9 +16,26 @@ defmodule Beatgrid.Sets do
   alias Beatgrid.Repo
   alias Beatgrid.Sets.{RecSet, RecSetQuery, SetTrack}
 
-  @transition_types ~w(cut fade crossfade)
+  @transition_types ~w(cut fade crossfade echo)
+
+  # Console hint clamps (never-again #4: from_ms is never trusted blindly).
+  @default_outro_window_ms 8_000
+  @min_tail_ms 3_000
 
   @unsafe ~r/[\/\\:*?"<>|]/u
+
+  @doc "The transition-type vocabulary, in UI order — screens mirror the engine."
+  @spec transition_types() :: [String.t()]
+  def transition_types, do: @transition_types
+
+  @doc "Subscribe to one set's structural changes (membership/order/transitions)."
+  @spec subscribe_set(Ecto.UUID.t()) :: :ok | {:error, term()}
+  def subscribe_set(set_id), do: Phoenix.PubSub.subscribe(Beatgrid.PubSub, "sets:#{set_id}")
+
+  # Every mutation of a set's structure notifies live listeners (the Discotecagem
+  # console re-pulls its next-track hint), keeping lookahead revocable.
+  defp broadcast_set_changed(set_id),
+    do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, "sets:#{set_id}", {:set_changed, set_id})
 
   @spec list() :: [RecSet.t()]
   defdelegate list, to: RecSetQuery
@@ -81,6 +98,59 @@ defmodule Beatgrid.Sets do
     end
   end
 
+  @doc """
+  The Discotecagem console hint: the entry that follows `current_track_id` in the
+  set's CURRENT order — its track, the incoming transition (with `from_ms` already
+  clamped to the outgoing track's back half; never trusted blindly), and the
+  playback facts a deck needs (effective BPM, duration, markers). Nil when current
+  is last or not a member. Fresh-read every call: a pointer, never a plan.
+  """
+  @spec entry_after(Ecto.UUID.t(), Ecto.UUID.t()) :: map() | nil
+  def entry_after(set_id, current_track_id) when is_binary(set_id) do
+    entries = RecSetQuery.ordered_entries(set_id)
+
+    with idx when is_integer(idx) <-
+           Enum.find_index(entries, &(&1.track.id == current_track_id)),
+         %{} = next <- Enum.at(entries, idx + 1) do
+      build_hint(Enum.at(entries, idx).track, next)
+    else
+      _ -> nil
+    end
+  end
+
+  defp build_hint(outgoing, %{track: track} = entry) do
+    %{
+      track: track,
+      position: entry.position,
+      role: entry.role,
+      transition: clamp_transition(entry.transition, outgoing),
+      bpm: Library.effective(track).bpm,
+      outgoing_bpm: Library.effective(outgoing).bpm,
+      duration_ms: track.duration_ms,
+      markers: track.cue_points || []
+    }
+  end
+
+  # Mid-song auto-outros are still persisted (the old "salto no meio"), so the
+  # hint clamps from_ms to the outgoing track's back half and away from its tail;
+  # a missing from_ms falls back to an end window. The client re-clamps against
+  # the real media duration.
+  defp clamp_transition(nil, _outgoing), do: nil
+
+  defp clamp_transition(transition, %{duration_ms: dur}) when is_integer(dur) and dur > 0 do
+    from = transition["from_ms"] || dur - @default_outro_window_ms
+
+    clamped =
+      from
+      |> max(div(dur, 2))
+      |> min(dur - @min_tail_ms)
+      |> max(0)
+
+    Map.put(transition, "from_ms", clamped)
+  end
+
+  defp clamp_transition(transition, _outgoing), do: transition
+
   @spec create(String.t()) :: {:ok, RecSet.t()} | {:error, Ecto.Changeset.t()}
   def create(name), do: %RecSet{} |> RecSet.changeset(%{name: name}) |> Repo.insert()
 
@@ -105,14 +175,18 @@ defmodule Beatgrid.Sets do
   def append(set, track, role \\ nil)
 
   def append(%RecSet{id: id}, track, role) do
-    %SetTrack{}
-    |> SetTrack.changeset(%{
-      rec_set_id: id,
-      track_id: track.id,
-      position: RecSetQuery.count(id) + 1,
-      role: role
-    })
-    |> Repo.insert(on_conflict: :nothing, conflict_target: [:rec_set_id, :track_id])
+    result =
+      %SetTrack{}
+      |> SetTrack.changeset(%{
+        rec_set_id: id,
+        track_id: track.id,
+        position: RecSetQuery.count(id) + 1,
+        role: role
+      })
+      |> Repo.insert(on_conflict: :nothing, conflict_target: [:rec_set_id, :track_id])
+
+    broadcast_set_changed(id)
+    result
   end
 
   @doc "Removes a track from the set and re-numbers the remaining positions."
@@ -123,6 +197,7 @@ defmodule Beatgrid.Sets do
     |> Repo.delete_all()
 
     reindex(set)
+    broadcast_set_changed(id)
     :ok
   end
 
@@ -143,6 +218,7 @@ defmodule Beatgrid.Sets do
 
     if idx && swap_idx in 0..(length(rows) - 1)//1 do
       swap_positions(Enum.at(rows, idx), Enum.at(rows, swap_idx))
+      broadcast_set_changed(id)
     end
 
     :ok
@@ -166,6 +242,7 @@ defmodule Beatgrid.Sets do
     |> Repo.update()
 
     reindex(set)
+    broadcast_set_changed(id)
     :ok
   end
 
@@ -173,9 +250,10 @@ defmodule Beatgrid.Sets do
 
   @doc """
   Suggests a transition for mixing `prev` into `this`: a `crossfade` (beat-aware)
-  when both have outro/intro markers and effective BPMs within ~8%, a `fade` when
-  the markers exist but tempos diverge, else a `cut`. `from_ms`/`to_ms` default to
-  the outro(prev)/intro(this) markers (to_ms 0 when no intro).
+  when both have outro/intro markers and effective BPMs within ~8%, an `echo`
+  (echo-out — the delay tail masks the tempo jump) when the markers exist but
+  tempos diverge, else a `cut`. `from_ms`/`to_ms` default to the outro(prev)/
+  intro(this) markers (to_ms 0 when no intro). `fade` stays selectable manually.
   """
   @spec suggest_transition(Library.Track.t(), Library.Track.t()) :: map()
   def suggest_transition(prev, this) do
@@ -188,7 +266,7 @@ defmodule Beatgrid.Sets do
       cond do
         is_nil(out) or is_nil(intro) -> "cut"
         bpm_close?(bpm_prev, bpm_this) -> "crossfade"
-        true -> "fade"
+        true -> "echo"
       end
 
     %{
@@ -217,18 +295,28 @@ defmodule Beatgrid.Sets do
   @spec connect(RecSet.t(), Library.Track.t(), map()) ::
           {:ok, SetTrack.t()} | {:error, Ecto.Changeset.t()}
   def connect(%RecSet{id: set_id}, %{id: track_id}, attrs) do
-    Repo.get_by!(SetTrack, rec_set_id: set_id, track_id: track_id)
-    |> SetTrack.changeset(%{transition: normalize_transition(attrs)})
-    |> Repo.update()
+    result =
+      SetTrack
+      |> Repo.get_by!(rec_set_id: set_id, track_id: track_id)
+      |> SetTrack.changeset(%{transition: normalize_transition(attrs)})
+      |> Repo.update()
+
+    broadcast_set_changed(set_id)
+    result
   end
 
   @doc "Clears the incoming transition on an entry (back to plain sequential play)."
   @spec disconnect(RecSet.t(), Library.Track.t()) ::
           {:ok, SetTrack.t()} | {:error, Ecto.Changeset.t()}
   def disconnect(%RecSet{id: set_id}, %{id: track_id}) do
-    Repo.get_by!(SetTrack, rec_set_id: set_id, track_id: track_id)
-    |> SetTrack.changeset(%{transition: nil})
-    |> Repo.update()
+    result =
+      SetTrack
+      |> Repo.get_by!(rec_set_id: set_id, track_id: track_id)
+      |> SetTrack.changeset(%{transition: nil})
+      |> Repo.update()
+
+    broadcast_set_changed(set_id)
+    result
   end
 
   @doc "Auto-connects every consecutive pair (suggest + persist); returns `{:ok, count}`."
@@ -251,7 +339,9 @@ defmodule Beatgrid.Sets do
 
     %{
       "enabled" => (attrs["enabled"] || attrs[:enabled]) != false,
-      "type" => if(type in @transition_types, do: type, else: "crossfade"),
+      # An unknown type degrades to the SAFEST behavior (plain cut), never to an
+      # overlap the engine would then execute with bogus parameters.
+      "type" => if(type in @transition_types, do: type, else: "cut"),
       "from_ms" => attrs["from_ms"] || attrs[:from_ms],
       "to_ms" => attrs["to_ms"] || attrs[:to_ms] || 0
     }

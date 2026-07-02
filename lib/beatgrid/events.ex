@@ -19,6 +19,7 @@ defmodule Beatgrid.Events do
   | `recommendations` | `Beatgrid.Repertoire`             | `{:recommend_progress, recommend_progress()}`       | Painel, Detalhe da faixa       |
   | `now_playing`     | `Beatgrid.Playback`               | `{:now_playing, now_playing()}`                     | Player + todas as telas        |
   | `markers`         | `Beatgrid.Playback` (`_markers`)  | `{:markers_changed, track_id}`                      | Player, Detalhe da faixa       |
+  | `sets:<id>`       | `Beatgrid.Sets` (`subscribe_set`) | `{:set_changed, set_id}`                            | Discotecagem (hint revalidation) |
   """
 
   @typedoc "Pointer to what is playing — never the track itself."
