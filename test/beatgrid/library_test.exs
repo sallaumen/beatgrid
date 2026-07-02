@@ -1,5 +1,6 @@
 defmodule Beatgrid.LibraryTest do
-  use Beatgrid.DataCase, async: true
+  # async: false — the hard-delete tests override the global :library_root.
+  use Beatgrid.DataCase, async: false
 
   alias Beatgrid.Library
   alias Beatgrid.Library.Track

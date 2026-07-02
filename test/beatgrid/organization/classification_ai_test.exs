@@ -1,5 +1,6 @@
 defmodule Beatgrid.Organization.ClassificationAITest do
-  use Beatgrid.DataCase, async: true
+  # async: false — the auto-apply test overrides the global :library_root.
+  use Beatgrid.DataCase, async: false
 
   alias Beatgrid.AI.Mock
   alias Beatgrid.Library.Tracks
