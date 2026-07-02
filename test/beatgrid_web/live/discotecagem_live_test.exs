@@ -60,12 +60,21 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
           {"crossfade", "Xfade"},
           {"echo", "Eco"},
           {"filter", "Filtro"},
+          {"lowpass", "Afunda"},
           {"bass_swap", "Grave"},
           {"brake", "Freio"}
         ] do
       assert html =~ ~s(data-dj-fire="#{key}")
       assert html =~ label
     end
+
+    # the live FX section: per-deck filter/echo/vinyl-tone + master punch + loops
+    assert html =~ "Efeitos"
+    assert html =~ "dj-filter-a"
+    assert html =~ "dj-echofx-b"
+    assert html =~ "dj-punch"
+    assert html =~ "dj-tom-a"
+    assert html =~ "dj-loop-b-4"
 
     # AUTO starts on; toggling flips the panel's guidance and tells the engine
     assert html =~ "AUTO ligado"

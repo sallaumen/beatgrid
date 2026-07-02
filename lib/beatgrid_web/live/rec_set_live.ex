@@ -453,6 +453,7 @@ defmodule BeatgridWeb.RecSetLive do
   defp transition_abbrev("filter"), do: "filtro"
   defp transition_abbrev("bass_swap"), do: "grave"
   defp transition_abbrev("brake"), do: "freio"
+  defp transition_abbrev("lowpass"), do: "afunda"
   defp transition_abbrev(_crossfade), do: "xfade"
 
   defp transition_title("cut"), do: "Corte seco no marcador"
@@ -464,6 +465,10 @@ defmodule BeatgridWeb.RecSetLive do
     do: "Troca de grave (B entra sem corpo e os graves trocam de mão)"
 
   defp transition_title("brake"), do: "Freio de vinil (o prato de A para e B entra no impacto)"
+
+  defp transition_title("lowpass"),
+    do: "Afunda (low-pass leva A para debaixo d'água enquanto B sobe)"
+
   defp transition_title(_crossfade), do: "Crossfade beat-aware (casa BPM no overlap)"
 
   defp candidate_header(true, _section), do: "Sugestões de abertura"

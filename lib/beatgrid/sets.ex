@@ -16,7 +16,7 @@ defmodule Beatgrid.Sets do
   alias Beatgrid.Repo
   alias Beatgrid.Sets.{RecSet, RecSetQuery, SetTrack}
 
-  @transition_types ~w(cut fade crossfade echo filter bass_swap brake)
+  @transition_types ~w(cut fade crossfade echo filter bass_swap brake lowpass)
 
   # Console hint clamps (never-again #4: from_ms is never trusted blindly).
   @default_outro_window_ms 8_000

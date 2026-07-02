@@ -353,6 +353,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
   defp t_label("filter"), do: "FILTRO"
   defp t_label("bass_swap"), do: "GRAVE"
   defp t_label("brake"), do: "FREIO"
+  defp t_label("lowpass"), do: "AFUNDA"
   defp t_label(_type), do: "SEQ"
 
   # The manual-fire palette: {engine key, button label, one-line description, accent}.
@@ -363,6 +364,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
       {"crossfade", "Xfade", "deslize longo com sync", "#2d9cff"},
       {"echo", "Eco", "cauda de delay no tempo", "#ffb020"},
       {"filter", "Filtro", "varredura tira o corpo", "#5ad1a0"},
+      {"lowpass", "Afunda", "some embaixo d'água", "#6c5ce7"},
       {"bass_swap", "Grave", "graves trocam de mão", "#ff5d6c"},
       {"brake", "Freio", "o prato para, o outro entra", "#e08e00"}
     ]
@@ -471,7 +473,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             <div
               id="dj-transitions"
               phx-update="ignore"
-              class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7"
+              class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8"
             >
               <button
                 :for={{key, label, desc, color} <- transition_buttons()}
@@ -487,6 +489,46 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 </span>
                 <span class="text-[9px] leading-tight text-ink-faint">{desc}</span>
               </button>
+            </div>
+          </section>
+
+          <section
+            class="mt-4 rounded-2xl border border-white/8 p-4"
+            style="background:linear-gradient(180deg,#11131a,#0e0f15);box-shadow:0 10px 30px rgba(0,0,0,.35)"
+          >
+            <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+              <h2 class="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
+                Efeitos
+              </h2>
+              <p class="text-[10px] text-ink-faint">
+                Ao vivo, por deck — resetam quando o deck carrega outra faixa.
+              </p>
+            </div>
+            <div
+              id="dj-fx"
+              phx-update="ignore"
+              class="mt-3 grid items-stretch gap-3 lg:grid-cols-[1fr_200px_1fr]"
+            >
+              <.fx_cluster d="a" accent="#8b7bf0" />
+              <div class="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-white/6 bg-[#101218] p-3">
+                <span class="text-[9px] font-bold uppercase tracking-[0.16em] text-coral">
+                  Punch
+                </span>
+                <input
+                  id="dj-punch"
+                  type="range"
+                  min="0"
+                  max="100"
+                  value="0"
+                  aria-label="Punch do master"
+                  class="w-full"
+                  style="accent-color:#ff5d6c"
+                />
+                <span class="text-[9px] text-ink-faint">
+                  som mais estourado — comprime e engorda o master
+                </span>
+              </div>
+              <.fx_cluster d="b" accent="#2d9cff" />
             </div>
           </section>
 
@@ -535,6 +577,17 @@ defmodule BeatgridWeb.DiscotecagemLive do
           color: #ffb020;
           background: rgba(255, 176, 32, 0.12);
           box-shadow: 0 0 10px rgba(255, 176, 32, 0.35);
+        }
+        [id^="dj-loop-"][data-on="true"] {
+          border-color: #5ad1a0;
+          color: #5ad1a0;
+          background: rgba(90, 209, 160, 0.12);
+          box-shadow: 0 0 8px rgba(90, 209, 160, 0.3);
+        }
+        [id^="dj-tom-"][data-on="true"] {
+          border-color: #8b7bf0;
+          color: #8b7bf0;
+          background: rgba(139, 123, 240, 0.12);
         }
       </style>
 
@@ -595,6 +648,44 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 // esperando (dirigido a evento — funciona com a aba em segundo plano).
                 deckFreed: () => {
                   if (this.pendingHint) this.armHint(this.pendingHint)
+                },
+                loopState: ({deck, on, startMs, endMs, beats}) => {
+                  for (const b of [1, 2, 4, 8]) {
+                    const chip = byId(`dj-loop-${deck}-${b}`)
+                    if (chip) chip.dataset.on = on && beats === b ? "true" : "false"
+                  }
+                  const region = byId(`dj-loopregion-${deck}`)
+                  if (region) {
+                    // Mesma fonte de duração do playhead: a mídia real primeiro
+                    // (metadados de VBR mentem), o banco como fallback.
+                    const dur =
+                      (this.engine.decks[deck].el.duration || 0) * 1000 ||
+                      (this.tracks[deck] && this.tracks[deck].duration_ms)
+                    if (on && endMs != null && dur) {
+                      region.style.left = `${(startMs / dur) * 100}%`
+                      region.style.width = `${((endMs - startMs) / dur) * 100}%`
+                      region.style.display = "block"
+                    } else {
+                      region.style.display = "none"
+                    }
+                  }
+                  if (on) {
+                    this.log(
+                      `loop ${beats ? beats + (beats === 1 ? " tempo" : " tempos") : "manual"} no deck ${deck.toUpperCase()}`
+                    )
+                  }
+                },
+                fxReset: ({deck}) => {
+                  const filter = byId(`dj-filter-${deck}`)
+                  if (filter) filter.value = 0
+                  const echofx = byId(`dj-echofx-${deck}`)
+                  if (echofx) echofx.value = 0
+                  const tom = byId(`dj-tom-${deck}`)
+                  if (tom) tom.dataset.on = "false"
+                  // resetChain devolve o fader do deck para 1 — o slider tem
+                  // que acompanhar, senão o próximo play "estoura" sem aviso.
+                  const level = byId(`dj-level-${deck}`)
+                  if (level) level.value = 100
                 },
                 pflState: ({a, b}) => {
                   const btnA = byId("dj-pfl-a")
@@ -696,7 +787,32 @@ defmodule BeatgridWeb.DiscotecagemLive do
                   if (ms != null && ms !== "") this.engine.cueTo(d, Number(ms))
                 })
               }
+              for (const beats of [1, 2, 4, 8]) {
+                byId(`dj-loop-${d}-${beats}`).addEventListener("click", () =>
+                  this.engine.beatLoop(d, beats)
+                )
+              }
+              const filterEl = byId(`dj-filter-${d}`)
+              filterEl.addEventListener("input", (e) =>
+                this.engine.setFilter(d, Number(e.target.value) / 100)
+              )
+              filterEl.addEventListener("dblclick", (e) => {
+                e.target.value = 0
+                this.engine.setFilter(d, 0)
+              })
+              byId(`dj-echofx-${d}`).addEventListener("input", (e) =>
+                this.engine.setEchoSend(d, Number(e.target.value) / 100)
+              )
+              byId(`dj-tom-${d}`).addEventListener("click", (e) => {
+                const on = e.currentTarget.dataset.on !== "true"
+                e.currentTarget.dataset.on = on ? "true" : "false"
+                this.engine.setVinylMode(d, on)
+                this.log(on ? `TOM (vinil) ligado no deck ${d.toUpperCase()}` : `TOM desligado no deck ${d.toUpperCase()}`)
+              })
             }
+            byId("dj-punch").addEventListener("input", (e) =>
+              this.engine.setPunch(Number(e.target.value) / 100)
+            )
             byId("dj-xfader").addEventListener("input", (e) =>
               this.engine.setCrossfader(Number(e.target.value) / 100)
             )
@@ -1049,8 +1165,18 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 if (pad && pad.dataset.ms) this.engine.cueTo(a.deck, Number(pad.dataset.ms))
                 break
               }
+              case "autoloop":
+                if (a.pressed) this.engine.beatLoop(a.deck, [1, 2, 4, 8][a.index - 1])
+                break
+              case "loopctl":
+                if (a.pressed)
+                  this.engine.loopControl(a.deck, ["in", "out", "toggle", "half"][a.index - 1])
+                break
+              case "jog_touch":
+                this.engine.jogTouch(a.deck, a.pressed)
+                break
               case "jog_turn":
-                this.engine.nudge(a.deck, a.delta * 40)
+                this.engine.jogTurn(a.deck, a.delta)
                 break
               case "browse":
                 this.moveCursor(a.delta)
@@ -1301,6 +1427,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 style={"width:0%;background:linear-gradient(90deg,#{@accent}55,#{@accent})"}
               >
               </div>
+              <div
+                id={"dj-loopregion-#{@d}"}
+                class="pointer-events-none absolute inset-y-0 rounded-sm"
+                style="display:none;background:rgba(90,209,160,.35);border:1px solid rgba(90,209,160,.7)"
+              >
+              </div>
               <div id={"dj-marks-#{@d}"} class="pointer-events-none absolute inset-0"></div>
             </div>
 
@@ -1352,6 +1484,22 @@ defmodule BeatgridWeb.DiscotecagemLive do
               >
                 <span class="text-[10px]">●</span>
                 <span id={"dj-padlab-#{@d}-#{n}"}>—</span>
+              </button>
+            </div>
+
+            <div class="flex w-full items-center gap-1.5">
+              <span class="w-8 text-[8px] font-bold uppercase tracking-wider text-ink-faint">
+                Loop
+              </span>
+              <button
+                :for={beats <- [1, 2, 4, 8]}
+                id={"dj-loop-#{@d}-#{beats}"}
+                type="button"
+                data-on="false"
+                title={"Loop de #{beats} #{if beats == 1, do: "tempo", else: "tempos"}"}
+                class="h-6 flex-1 rounded-md border border-white/8 bg-[#101218] font-mono text-[10px] font-bold text-ink-faint transition-colors hover:border-green/50 hover:text-green"
+              >
+                {beats}
               </button>
             </div>
           </div>
@@ -1578,6 +1726,65 @@ defmodule BeatgridWeb.DiscotecagemLive do
     """
   end
 
+  attr :d, :string, required: true
+  attr :accent, :string, required: true
+
+  # Cluster de efeitos por deck (conteúdo estático dentro da região ignore do
+  # painel Efeitos — o hook liga os listeners e o engine reseta no load).
+  defp fx_cluster(assigns) do
+    ~H"""
+    <div class="rounded-xl border border-white/6 bg-[#101218] p-3">
+      <div class="flex items-center justify-between">
+        <span
+          class="rounded px-1.5 py-px text-[9px] font-bold uppercase tracking-[0.14em]"
+          style={"background:#{@accent}22;color:#{@accent}"}
+        >
+          Deck {String.upcase(@d)}
+        </span>
+        <button
+          id={"dj-tom-#{@d}"}
+          type="button"
+          data-on="false"
+          title="Modo vinil: o pitch passa a mudar a afinação (tom) junto com o tempo"
+          class="rounded-md border border-white/10 bg-input px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-ink-faint transition-colors hover:text-ink"
+        >
+          Tom
+        </button>
+      </div>
+      <div class="mt-2 flex items-center gap-2">
+        <span class="w-9 text-[9px] font-bold uppercase tracking-wider text-ink-faint">
+          Filtro
+        </span>
+        <input
+          id={"dj-filter-#{@d}"}
+          type="range"
+          min="-100"
+          max="100"
+          value="0"
+          aria-label={"Filtro do deck #{String.upcase(@d)}"}
+          title="Esquerda afoga (low-pass), direita só ar (high-pass) — duplo clique volta ao centro"
+          class="flex-1"
+          style={"accent-color:#{@accent}"}
+        />
+      </div>
+      <div class="mt-1.5 flex items-center gap-2">
+        <span class="w-9 text-[9px] font-bold uppercase tracking-wider text-ink-faint">Eco</span>
+        <input
+          id={"dj-echofx-#{@d}"}
+          type="range"
+          min="0"
+          max="100"
+          value="0"
+          aria-label={"Eco do deck #{String.upcase(@d)}"}
+          title="Abre o delay sincronizado ao BPM da faixa"
+          class="flex-1"
+          style={"accent-color:#{@accent}"}
+        />
+      </div>
+    </div>
+    """
+  end
+
   attr :midi, :map, required: true
 
   defp midi_panel(assigns) do
@@ -1596,8 +1803,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
         </span>
       </div>
       <p class="mt-1 text-[10px] leading-relaxed text-ink-faint">
-        Numark DJ2GO2 Touch via USB — plugue e os controles físicos passam a mexer na mesa
-        (play, cue, sync, pitch, volumes, crossfader, pads e o load pelo browse).
+        Numark DJ2GO2 Touch via USB — plugue e os controles físicos passam a mexer na mesa:
+        play, cue, sync, pitch, volumes, crossfader, o prato (segurar o topo = vinil na mão,
+        girar pela borda = ajuste fino), pads de cue e loop, fone e o load pelo browse.
       </p>
       <div
         id="dj-midi-log"

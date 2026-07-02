@@ -48,7 +48,12 @@ const RAMP = Object.freeze({
   bassSwapMoveS: 0.35, // the swap itself is fast — that's the trick
   bassCutDb: -24,
   brakeS: 1.1, // vinyl brake: platter stops in about a second
+  lowpassS: 4.0, // "afunda": low-pass sweep drowns the outgoing track
+  lowpassFloorHz: 160,
   autoFireSlackMs: 15_000, // AUTO won't fire a window it is already far past
+  bendStep: 0.0035, // jog edge: rate offset per encoder tick
+  bendMax: 0.12,
+  scratchStepS: 0.006, // jog top held: seconds scrubbed per encoder tick
 })
 
 const SYNC_RATE_CLAMP = 0.08 // ±8%, matching the set-builder's bpm_close? band
@@ -94,10 +99,16 @@ class Deck {
     this.hpf = ctx.createBiquadFilter() // "filtro" sweep; 10 Hz = transparent
     this.hpf.type = "highpass"
     this.hpf.frequency.value = 10
+    this.lpf = ctx.createBiquadFilter() // "afunda"/filtro bipolar; 20 kHz = transparent
+    this.lpf.type = "lowpass"
+    this.lpf.frequency.value = 20_000
     this.bass = ctx.createBiquadFilter() // "troca de grave"; 0 dB = flat
     this.bass.type = "lowshelf"
     this.bass.frequency.value = 200
     this.bass.gain.value = 0
+
+    this.baseRate = 1 // tempo alvo (pitch fader / SYNC); o bend do jog decai para cá
+    this.loop = {on: false, startMs: null, endMs: null, beats: null}
     this.dry = ctx.createGain()
     this.echoSend = ctx.createGain()
     this.delay = ctx.createDelay(2.0)
@@ -112,7 +123,8 @@ class Deck {
 
     sourceFor(el).disconnect()
     sourceFor(el).connect(this.hpf)
-    this.hpf.connect(this.bass)
+    this.hpf.connect(this.lpf)
+    this.lpf.connect(this.bass)
     this.bass.connect(this.dry)
     this.bass.connect(this.echoSend)
     this.echoSend.connect(this.delay)
@@ -131,6 +143,15 @@ class Deck {
     this.trackId = track.id
     this.bpm = track.bpm || null
     this.durationMs = track.duration_ms || null
+    this.loop = {on: false, startMs: null, endMs: null, beats: null}
+    // Beat-synced default so the manual echo send sounds musical right away.
+    this.delay.delayTime.value = Math.min(
+      this.bpm ? (60 / this.bpm) * 0.75 : RAMP.echoFallbackDelayMs / 1000,
+      2.0
+    )
+    // The media load algorithm resets el.playbackRate to 1 — mirror it, or the
+    // first nudge/TOM toggle after a manual preload would pitch-jump.
+    this.baseRate = 1
     this.el.src = track.src
     this.el.load()
     this._pendingSeekMs = atMs
@@ -179,13 +200,14 @@ class Deck {
   syncTo(targetBpm) {
     if (!this.bpm || !targetBpm) return false
     const rate = targetBpm / this.bpm
-    const clamped = Math.min(1 + SYNC_RATE_CLAMP, Math.max(1 - SYNC_RATE_CLAMP, rate))
+    this.baseRate = Math.min(1 + SYNC_RATE_CLAMP, Math.max(1 - SYNC_RATE_CLAMP, rate))
     this.el.preservesPitch = true
-    this.el.playbackRate = clamped
+    this.el.playbackRate = this.baseRate
     return true
   }
 
   resetRate() {
+    this.baseRate = 1
     this.el.preservesPitch = true
     this.el.playbackRate = 1
   }
@@ -217,6 +239,7 @@ class Deck {
     const nodes = [
       this.gain,
       this.hpf,
+      this.lpf,
       this.bass,
       this.dry,
       this.echoSend,
@@ -253,10 +276,25 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
   const xfade = {a: ctx.createGain(), b: ctx.createGain(), pos: 0.5}
 
+  // "Estourado": compressor before the master. IMPORTANT: WebAudio's
+  // DynamicsCompressor applies automatic makeup gain, so a low fixed threshold
+  // would boost/squash the whole night even "at zero". Transparência em 0 vem
+  // de threshold 0 dB (nada a comprimir → makeup 1); o slider EMPURRA o
+  // threshold para baixo e o drive para cima.
+  const punch = ctx.createGain()
+  const punchComp = ctx.createDynamicsCompressor()
+  punchComp.threshold.value = 0
+  punchComp.knee.value = 12
+  punchComp.ratio.value = 8
+  punchComp.attack.value = 0.004
+  punchComp.release.value = 0.24
+
   decks.a.gain.connect(xfade.a)
   decks.b.gain.connect(xfade.b)
-  xfade.a.connect(master)
-  xfade.b.connect(master)
+  xfade.a.connect(punch)
+  xfade.b.connect(punch)
+  punch.connect(punchComp)
+  punchComp.connect(master)
 
   const g = equalPower(xfade.pos)
   xfade.a.gain.value = g.a
@@ -423,6 +461,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   function maybeFire(deck) {
     const hint = state.hint
     if (!state.autoOn || !hint || deck.id !== state.activeDeck) return
+    // pause() and scrubbing both fire 'timeupdate' — a jog-held (or otherwise
+    // silent) deck must never be the source of an automatic transition.
+    if (!deck.audible() || jog[deck.id].held) return
     if (!hint.transition) return // sequential entries advance on `ended`
 
     const fromMs = clampFromMs(hint.transition["from_ms"], deck)
@@ -445,7 +486,16 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
   // ── transitions ──────────────────────────────────────────────────────────────
 
-  const TRANSITIONS = () => ({cut, fade, crossfade, echo, filter, bass_swap: bassSwap, brake})
+  const TRANSITIONS = () => ({
+    cut,
+    fade,
+    crossfade,
+    echo,
+    filter,
+    bass_swap: bassSwap,
+    brake,
+    lowpass,
+  })
 
   function fireTransition(from, to, transition, mode) {
     const token = ++state.transitionToken
@@ -469,6 +519,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     settleTransitionParams(from)
     settleTransitionParams(to)
     neutralizeIncoming(to, type)
+    // The incoming chain was just washed neutral — tell the UI so the FX
+    // sliders don't lie over transparent audio.
+    emit("fxReset", {deck: to.id})
 
     const run = TRANSITIONS()[type] || cut
     run(from, to, toMs, token)
@@ -482,6 +535,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     deck.settleParam(deck.dry.gain)
     deck.settleParam(deck.echoSend.gain)
     deck.settleParam(deck.hpf.frequency)
+    deck.settleParam(deck.lpf.frequency)
     deck.settleParam(deck.bass.gain)
   }
 
@@ -494,6 +548,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     to.dry.gain.linearRampToValueAtTime(1, now + 0.3)
     to.echoSend.gain.linearRampToValueAtTime(0, now + 0.3)
     to.hpf.frequency.linearRampToValueAtTime(10, now + 0.2)
+    to.lpf.frequency.linearRampToValueAtTime(20_000, now + 0.2)
     if (type !== "bass_swap") to.bass.gain.linearRampToValueAtTime(0, now + 0.3)
     if (type === "cut" || type === "crossfade" || type === "brake") {
       to.gain.gain.linearRampToValueAtTime(1, now + 0.2)
@@ -605,6 +660,26 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     })
   }
 
+  // "Afunda": the mirror of the filter sweep — the outgoing track loses its
+  // highs and sinks underwater while the next one surfaces on top.
+  function lowpass(from, to, toMs, token) {
+    const now = ctx.currentTime
+    from.lpf.frequency.setValueAtTime(Math.min(from.lpf.frequency.value, 20_000), now)
+    from.lpf.frequency.exponentialRampToValueAtTime(RAMP.lowpassFloorHz, now + RAMP.lowpassS)
+    from.gain.gain.setValueAtTime(from.gain.gain.value, now + RAMP.lowpassS - 0.6)
+    from.gain.gain.linearRampToValueAtTime(0, now + RAMP.lowpassS)
+
+    riseIncoming(to, RAMP.lowpassS * 0.5)
+    startIncoming(to, toMs)
+    setXfadeTo(sideOf(to.id), RAMP.lowpassS * 0.8)
+
+    after(RAMP.lowpassS + 0.2, () => {
+      if (token !== state.transitionToken) return
+      from.pause()
+      resetChain(from)
+    })
+  }
+
   // Bass swap: the incoming track rides bodiless over the outgoing groove, then
   // the low end changes hands in one fast move — the forró/house handover.
   function bassSwap(from, to, toMs, token) {
@@ -645,10 +720,13 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // JS interval — the final pause is timeout-guarded and lands regardless.
   function brake(from, to, toMs, token) {
     const el = from.el
+    cancelBend(from.id) // the wind-down owns playbackRate — no bend ping-pong
+    from._braking = true
     el.preservesPitch = false
     const startRate = el.playbackRate
     const t0 = performance.now()
     const restoreRate = () => {
+      from._braking = false
       el.preservesPitch = true
       el.playbackRate = 1
     }
@@ -671,6 +749,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     })
     after(RAMP.brakeS + 0.05, () => {
       clearInterval(iv)
+      from._braking = false
       if (token !== state.transitionToken) {
         // The wind-down must never outlive an aborted brake.
         restoreRate()
@@ -693,9 +772,13 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     deck.echoSend.gain.setValueAtTime(0, now)
     deck.settleParam(deck.hpf.frequency)
     deck.hpf.frequency.setValueAtTime(10, now)
+    deck.settleParam(deck.lpf.frequency)
+    deck.lpf.frequency.setValueAtTime(20_000, now)
     deck.settleParam(deck.bass.gain)
     deck.bass.gain.setValueAtTime(0, now)
+    clearLoop(deck)
     deck.resetRate()
+    emit("fxReset", {deck: deck.id})
   }
 
   // ── crossfader (automated glides + manual takeover) ─────────────────────────
@@ -765,6 +848,157 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     master.gain.setTargetAtTime(Math.min(Math.max(value, 0), 1.2), now, RAMP.manualFaderTau)
   }
 
+  // ── jog wheel: top touch = vinyl hold/scratch; edge turn = pitch bend ───────
+
+  const jog = {
+    a: {held: false, wasPlaying: false, bend: 0, decay: null},
+    b: {held: false, wasPlaying: false, bend: 0, decay: null},
+  }
+
+  function applyRate(deck) {
+    deck.el.playbackRate = Math.max(deck.baseRate * (1 + jog[deck.id].bend), 0.0625)
+  }
+
+  function cancelBend(deckId) {
+    const j = jog[deckId]
+    j.bend = 0
+    if (j.decay) {
+      clearInterval(j.decay)
+      j.decay = null
+    }
+  }
+
+  // Touching the platter top while playing = holding the vinyl: playback stops,
+  // turns scrub the record, releasing lets it run from there.
+  function jogTouch(deckId, held) {
+    const deck = decks[deckId]
+    const j = jog[deckId]
+    if (held === j.held) return
+    j.held = held
+    if (deck.trackId == null) return
+    if (held) {
+      cancelBend(deckId)
+      j.wasPlaying = deck.audible()
+      j.heldToken = deck.loadToken
+      if (j.wasPlaying) deck.el.pause()
+    } else if (j.wasPlaying) {
+      j.wasPlaying = false
+      // Only resume what was actually held — if the deck was reloaded or
+      // retired meanwhile, releasing the platter must not blast anything.
+      if (j.heldToken === deck.loadToken && deck.trackId != null) {
+        deck.el.play().catch(() => {})
+      }
+    }
+  }
+
+  function jogTurn(deckId, delta) {
+    const deck = decks[deckId]
+    if (deck.trackId == null) return
+    if (deck._braking) return // the brake owns playbackRate until it finishes
+    const j = jog[deckId]
+    if (j.held || !deck.audible()) {
+      // Vinyl drag (held) or fine seek (paused): move the record itself.
+      const step = j.held ? RAMP.scratchStepS : RAMP.scratchStepS * 6
+      deck.el.currentTime = Math.max(deck.el.currentTime + delta * step, 0)
+      return
+    }
+    // Edge nudge while playing: bend the tempo, then decay back to base —
+    // never a position jump (that skip was audible).
+    j.bend = Math.min(Math.max(j.bend + delta * RAMP.bendStep, -RAMP.bendMax), RAMP.bendMax)
+    applyRate(deck)
+    if (!j.decay) {
+      j.decay = setInterval(() => {
+        j.bend *= 0.82
+        if (Math.abs(j.bend) < 0.003) {
+          j.bend = 0
+          clearInterval(j.decay)
+          j.decay = null
+        }
+        applyRate(deck)
+      }, 60)
+    }
+  }
+
+  // ── beat loops (pads AUTO/MANUAL da controladora + chips na tela) ───────────
+
+  const loopTimers = {a: null, b: null}
+
+  function clearLoop(deck) {
+    deck.loop = {on: false, startMs: null, endMs: null, beats: null}
+    if (loopTimers[deck.id]) {
+      clearInterval(loopTimers[deck.id])
+      loopTimers[deck.id] = null
+    }
+    emit("loopState", {deck: deck.id, ...deck.loop})
+  }
+
+  function armLoopChecker(deck) {
+    if (loopTimers[deck.id]) return
+    loopTimers[deck.id] = setInterval(() => {
+      const loop = deck.loop
+      if (!loop.on || loop.endMs == null) return
+      const pos = deck.positionMs()
+      if (pos >= loop.endMs && pos <= loop.endMs + 400) {
+        // Natural overrun of the loop edge: wrap.
+        deck.el.currentTime = loop.startMs / 1000
+      } else if (pos > loop.endMs + 400) {
+        // The DJ deliberately seeked past the loop — it must not fence the track.
+        clearLoop(deck)
+      }
+    }, 20)
+  }
+
+  function beatMs(deck) {
+    const bpm = deck.bpm ? deck.bpm * deck.el.playbackRate : null
+    return bpm ? 60_000 / bpm : 500
+  }
+
+  // A loop must end before the track does, or `ended` never fires wrapped and
+  // the boundary logic starves.
+  function clampLoopEnd(deck, endMs) {
+    const durMs = (deck.el.duration || 0) * 1000
+    return durMs ? Math.min(endMs, durMs - 100) : endMs
+  }
+
+  function beatLoop(deckId, beats) {
+    const deck = decks[deckId]
+    if (deck.trackId == null) return
+    if (deck.loop.on && deck.loop.beats === beats) {
+      clearLoop(deck)
+      return
+    }
+    const start = deck.positionMs()
+    deck.loop = {
+      on: true,
+      startMs: start,
+      endMs: clampLoopEnd(deck, start + beats * beatMs(deck)),
+      beats,
+    }
+    armLoopChecker(deck)
+    emit("loopState", {deck: deckId, ...deck.loop})
+  }
+
+  function loopControl(deckId, action) {
+    const deck = decks[deckId]
+    if (deck.trackId == null) return
+    const loop = deck.loop
+    if (action === "in") {
+      deck.loop = {on: false, startMs: deck.positionMs(), endMs: null, beats: null}
+    } else if (action === "out" && loop.startMs != null) {
+      const endMs = clampLoopEnd(deck, Math.max(deck.positionMs(), loop.startMs + 30))
+      deck.loop = {...loop, on: true, endMs, beats: null}
+      armLoopChecker(deck)
+    } else if (action === "toggle" && loop.endMs != null) {
+      deck.loop = {...loop, on: !loop.on}
+      if (deck.loop.on) armLoopChecker(deck)
+    } else if (action === "half" && loop.endMs != null) {
+      const len = Math.max((loop.endMs - loop.startMs) / 2, 30)
+      // O tamanho mudou — não é mais o loop do pad de N tempos.
+      deck.loop = {...loop, endMs: loop.startMs + len, beats: null}
+    }
+    emit("loopState", {deck: deckId, ...deck.loop})
+  }
+
   watchOutgoing(decks.a)
   watchOutgoing(decks.b)
   wireOutputs()
@@ -780,6 +1014,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     loadDeck(deckId, track, {autoplay = false, atMs = 0} = {}) {
       const deck = decks[deckId]
       if (!deck.load(track, atMs)) return false
+      // A fresh load is a fresh instrument — loop off (chips/região avisados),
+      // FX neutros, tempo natural. Vale para preload manual também.
+      resetChain(deck)
       if (state.hint && state.hint.deck === deckId) {
         // The DJ overrode the armed preload: the hint must point at what is
         // REALLY on the deck, and the old track's entry point means nothing.
@@ -794,7 +1031,6 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         // scheduled for these decks must not run.
         state.transitionToken++
         this.resume()
-        resetChain(deck)
         deck.play()
         state.activeDeck = deckId
         state.firedForTrack = null
@@ -809,7 +1045,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     armHint(hint) {
       const idle = state.activeDeck === "a" ? "b" : "a"
       const deck = decks[idle]
-      if (deck.audible()) return false
+      // A jog-held deck is IN THE DJ'S HAND — loading over it would make the
+      // release play a different track than the one being scratched.
+      if (deck.audible() || jog[idle].held) return false
       resetChain(deck)
       deck.load(hint.track, hint.transition ? hint.transition["to_ms"] || 0 : 0)
       state.hint = {...hint, deck: idle}
@@ -876,10 +1114,16 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       })
     },
 
-    nudge(deckId, deltaMs) {
-      const deck = decks[deckId]
-      if (deck.trackId == null) return
-      deck.el.currentTime = Math.max(deck.el.currentTime + deltaMs / 1000, 0)
+    // Jog físico e de tela: topo segurado = vinil na mão; borda = nudge.
+    jogTouch,
+    jogTurn,
+
+    // Loops de batida (pads AUTO) e loop manual (in/out/liga/metade).
+    beatLoop,
+    loopControl,
+
+    loopState(deckId) {
+      return {...decks[deckId].loop}
     },
 
     sync(deckId) {
@@ -889,8 +1133,48 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
     setRate(deckId, rate) {
       const deck = decks[deckId]
-      deck.el.preservesPitch = true
-      deck.el.playbackRate = Math.min(Math.max(rate, 1 - SYNC_RATE_CLAMP), 1 + SYNC_RATE_CLAMP)
+      deck.baseRate = Math.min(Math.max(rate, 1 - SYNC_RATE_CLAMP), 1 + SYNC_RATE_CLAMP)
+      applyRate(deck)
+    },
+
+    // ── efeitos de performance (coisas que a controladora não tem) ─────────────
+
+    // Filtro bipolar: -1 = afogado no low-pass, 0 = neutro, +1 = só ar (high-pass).
+    setFilter(deckId, value) {
+      const deck = decks[deckId]
+      const v = Math.min(Math.max(value, -1), 1)
+      const now = ctx.currentTime
+      deck.settleParam(deck.lpf.frequency)
+      deck.settleParam(deck.hpf.frequency)
+      const lpfHz = v < 0 ? 20_000 * Math.pow(150 / 20_000, -v) : 20_000
+      const hpfHz = v > 0 ? 10 * Math.pow(4_000 / 10, v) : 10
+      deck.lpf.frequency.setTargetAtTime(lpfHz, now, 0.03)
+      deck.hpf.frequency.setTargetAtTime(hpfHz, now, 0.03)
+    },
+
+    // Eco manual: abre o send do delay (já sincronizado ao BPM no load).
+    setEchoSend(deckId, value) {
+      const deck = decks[deckId]
+      const now = ctx.currentTime
+      deck.settleGain(deck.echoSend)
+      deck.echoSend.gain.setTargetAtTime(Math.min(Math.max(value, 0), 1) * 0.9, now, 0.02)
+    },
+
+    // Modo TOM (vinil): o pitch passa a mudar a afinação junto com o tempo.
+    setVinylMode(deckId, on) {
+      const deck = decks[deckId]
+      deck.el.preservesPitch = !on
+      applyRate(deck)
+    },
+
+    // PUNCH ("estourado"): abaixa o threshold e sobe o drive juntos — em 0 o
+    // compressor não pega nada (transparente), no talo esmaga e engorda.
+    setPunch(value) {
+      const now = ctx.currentTime
+      const v = Math.min(Math.max(value, 0), 1)
+      punchComp.threshold.setTargetAtTime(-24 * v, now, 0.05)
+      punch.gain.cancelScheduledValues(now)
+      punch.gain.setTargetAtTime(1 + v * 1.2, now, 0.05)
     },
 
     setCrossfader,
@@ -976,11 +1260,26 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
     destroy() {
       cancelAnimationFrame(xfadeAnim)
+      for (const d of ["a", "b"]) {
+        if (loopTimers[d]) clearInterval(loopTimers[d])
+        if (jog[d].decay) clearInterval(jog[d].decay)
+      }
       decks.a.pause()
       decks.b.pause()
       decks.a.destroyGraph()
       decks.b.destroyGraph()
-      const nodes = [xfade.a, xfade.b, master, masterAnalyser, cue.a, cue.b, cue.bus, ...outputNodes]
+      const nodes = [
+        xfade.a,
+        xfade.b,
+        punch,
+        punchComp,
+        master,
+        masterAnalyser,
+        cue.a,
+        cue.b,
+        cue.bus,
+        ...outputNodes,
+      ]
       for (const node of nodes) {
         try {
           node.disconnect()
