@@ -1456,7 +1456,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
           },
 
           applyPitch(d, v) {
-            const rate = 0.92 + v * 0.16
+            // v ∈ [0,1] → rate ∈ [0.80, 1.20] = ±20% (bem lento a bem rápido).
+            const rate = 0.8 + v * 0.4
             this.engine.setRate(d, rate)
             const lab = byId(`dj-pitchlab-${d}`)
             if (lab) lab.textContent = `${((rate - 1) * 100).toFixed(1)}%`
@@ -1514,7 +1515,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             if (pitchLab) pitchLab.textContent = `${((deck.baseRate - 1) * 100).toFixed(1)}%`
             const pitchEl = byId(`dj-pitch-${d}`)
             if (pitchEl && document.activeElement !== pitchEl) {
-              pitchEl.value = Math.round(((deck.baseRate - 0.92) / 0.16) * 100)
+              pitchEl.value = Math.round(((deck.baseRate - 0.8) / 0.4) * 100)
             }
           },
 

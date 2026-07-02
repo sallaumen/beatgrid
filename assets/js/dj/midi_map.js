@@ -71,7 +71,10 @@ export function decode([status, data1, data2]) {
 function decodeCC(channel, cc, value) {
   const deck = DECK_BY_CHANNEL[channel]
   if (deck) {
-    if (cc === 0x09) return {type: "pitch", deck, value: value / 127}
+    // Fader de pitch da DJ2GO2 manda 0 no topo / 127 embaixo — invertemos aqui
+    // para o valor semântico ser 0 = mais lento (−) e 1 = mais rápido (+), casando
+    // o sentido físico (empurrar pra cima acelera) com a tela.
+    if (cc === 0x09) return {type: "pitch", deck, value: 1 - value / 127}
     if (cc === 0x16) return {type: "level", deck, value: value / 127}
     if (cc === 0x06) return {type: "jog_turn", deck, delta: value < 64 ? value : value - 128}
     return null

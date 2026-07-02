@@ -60,6 +60,7 @@ const RAMP = Object.freeze({
 })
 
 const SYNC_RATE_CLAMP = 0.08 // ±8%, matching the set-builder's bpm_close? band
+const PITCH_RATE_CLAMP = 0.2 // ±20% for the manual pitch fader (well wide/slow on purpose)
 
 // The AudioContext and MediaElementSource nodes must survive LiveView remounts:
 // createMediaElementSource() works exactly once per element, forever.
@@ -1232,7 +1233,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
     setRate(deckId, rate) {
       const deck = decks[deckId]
-      deck.baseRate = Math.min(Math.max(rate, 1 - SYNC_RATE_CLAMP), 1 + SYNC_RATE_CLAMP)
+      deck.baseRate = Math.min(Math.max(rate, 1 - PITCH_RATE_CLAMP), 1 + PITCH_RATE_CLAMP)
       applyRate(deck)
     },
 
