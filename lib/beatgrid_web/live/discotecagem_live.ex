@@ -37,7 +37,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
-     assign(socket,
+     socket
+     |> assign(
        page_title: "Discotecagem",
        sets: Sets.list(),
        set: nil,
@@ -55,7 +56,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
        lib_query: "",
        lib_tracks: [],
        midi: %{connected: false, name: nil}
-     )}
+     )
+     |> ensure_library_loaded()}
   end
 
   # ── seleção e partida ────────────────────────────────────────────────────────
@@ -354,7 +356,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
   # ── helpers ──────────────────────────────────────────────────────────────────
 
-  defp ensure_library_loaded(%{assigns: %{rail_tab: "biblioteca", lib_tracks: []}} = socket),
+  # A Biblioteca fica sempre visível — carrega assim que estiver vazia (mount,
+  # troca de lista ativa), não só quando a aba estava aberta.
+  defp ensure_library_loaded(%{assigns: %{lib_tracks: []}} = socket),
     do: assign(socket, lib_tracks: search_library(socket.assigns.lib_query))
 
   defp ensure_library_loaded(socket), do: socket
@@ -565,7 +569,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
           </div>
         </div>
 
-        <div id="dj-console" phx-hook=".DjConsole" data-auto={to_string(@auto?)} class="mt-3">
+        <div
+          id="dj-console"
+          phx-hook=".DjConsole"
+          data-auto={to_string(@auto?)}
+          data-rail-tab={@rail_tab}
+          class="mt-3"
+        >
           <div
             id="dj-waves"
             phx-update="ignore"
@@ -607,153 +617,117 @@ defmodule BeatgridWeb.DiscotecagemLive do
               accent="#2d9cff"
             />
           </div>
-          <div class="mt-2 grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]">
-            <div class="flex min-w-0 flex-col gap-2.5">
-              <details
-                id="dj-details-trans"
-                open
-                class="rounded-xl border border-white/8"
-                style="background:linear-gradient(180deg,#11131a,#0e0f15)"
-              >
-                <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2">
-                  <div class="flex items-center gap-2">
-                    <span class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
-                      Transições
-                    </span>
-                    <span
-                      id="dj-tdir-wrap"
-                      phx-update="ignore"
-                      class="rounded-md bg-white/5 px-2 py-0.5 font-mono text-[11px]"
-                      title="Deck no ar (lado do crossfader) ▸ deck de destino"
-                    >
-                      <span id="dj-tdir" class="text-ink-faint">—</span>
-                    </span>
-                    <span
-                      id="dj-tlen-wrap"
-                      phx-update="ignore"
-                      class="flex items-center gap-1 opacity-40 transition-opacity hover:opacity-100"
-                      title="Comprimento das transições (segundos, aceita quebrado)"
-                    >
-                      <input
-                        id="dj-tlen"
-                        type="range"
-                        min="1.5"
-                        max="20"
-                        step="0.1"
-                        value="8"
-                        aria-label="Comprimento das transições"
-                        class="h-1 w-14 cursor-pointer"
-                        style="accent-color:#8b7bf0"
-                      />
-                      <input
-                        id="dj-tlen-num"
-                        type="number"
-                        min="1.5"
-                        max="20"
-                        step="0.1"
-                        value="8"
-                        aria-label="Comprimento em segundos"
-                        class="w-8 border-0 bg-transparent p-0 text-right font-mono text-[10px] text-ink-secondary focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
-                      />
-                      <span class="text-[9px] text-ink-faint">s</span>
-                    </span>
-                  </div>
-                  <span class="text-[9px] text-ink-faint">
+          <div class="mt-2 grid items-start gap-3 lg:grid-cols-[210px_minmax(0,1fr)_minmax(300px,360px)]">
+            <details
+              id="dj-details-trans"
+              open
+              class="rounded-xl border border-white/8"
+              style="background:linear-gradient(180deg,#11131a,#0e0f15)"
+            >
+              <summary class="flex cursor-pointer list-none flex-col gap-1 px-3 py-2">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
+                    Transições
+                  </span>
+                  <span
+                    id="dj-tdir-wrap"
+                    phx-update="ignore"
+                    class="rounded-md bg-white/5 px-2 py-0.5 font-mono text-[11px]"
+                    title="Deck no ar (lado do crossfader) ▸ deck de destino"
+                  >
+                    <span id="dj-tdir" class="text-ink-faint">—</span>
+                  </span>
+                </div>
+                <div class="flex items-center justify-between gap-2">
+                  <span
+                    id="dj-tlen-wrap"
+                    phx-update="ignore"
+                    class="flex items-center gap-1 opacity-60 transition-opacity hover:opacity-100"
+                    title="Comprimento das transições (segundos, aceita quebrado)"
+                  >
+                    <input
+                      id="dj-tlen"
+                      type="range"
+                      min="1.5"
+                      max="20"
+                      step="0.1"
+                      value="8"
+                      aria-label="Comprimento das transições"
+                      class="h-1 w-14 cursor-pointer"
+                      style="accent-color:#8b7bf0"
+                    />
+                    <input
+                      id="dj-tlen-num"
+                      type="number"
+                      min="1.5"
+                      max="20"
+                      step="0.1"
+                      value="8"
+                      aria-label="Comprimento em segundos"
+                      class="w-8 border-0 bg-transparent p-0 text-right font-mono text-[10px] text-ink-secondary focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                    <span class="text-[9px] text-ink-faint">s</span>
+                  </span>
+                  <span class="whitespace-nowrap text-[9px] text-ink-faint">
                     {if @auto?, do: "AUTO fura a fila", else: "clique dispara"}
                   </span>
-                </summary>
-                <div id="dj-transitions" phx-update="ignore" class="flex flex-wrap gap-1.5 px-3 pb-3">
-                  <button
-                    :for={{key, label, desc, color} <- transition_buttons()}
-                    type="button"
-                    data-dj-fire={key}
-                    title={desc}
-                    disabled
-                    class="flex-1 rounded-lg border border-white/8 bg-[#101218] px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-35"
-                    style={"--tc:#{color};color:#{color};min-width:58px"}
-                  >
-                    {label}
-                  </button>
                 </div>
-              </details>
-
-              <details
-                id="dj-details-fx"
-                class="rounded-xl border border-white/8"
-                style="background:linear-gradient(180deg,#11131a,#0e0f15)"
-              >
-                <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2">
-                  <span class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
-                    Efeitos
-                  </span>
-                  <span class="text-[9px] text-ink-faint">filtro · eco · tom · punch ▾</span>
-                </summary>
-                <div
-                  id="dj-fx"
-                  phx-update="ignore"
-                  class="grid items-stretch gap-2 px-3 pb-3 sm:grid-cols-2"
+              </summary>
+              <div id="dj-transitions" phx-update="ignore" class="grid grid-cols-2 gap-1.5 px-3 pb-3">
+                <button
+                  :for={{key, label, desc, color} <- transition_buttons()}
+                  type="button"
+                  data-dj-fire={key}
+                  title={desc}
+                  disabled
+                  class="rounded-lg border border-white/8 bg-[#101218] px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-35"
+                  style={"--tc:#{color};color:#{color}"}
                 >
-                  <.fx_cluster d="a" accent="#8b7bf0" />
-                  <.fx_cluster d="b" accent="#2d9cff" />
-                  <div class="flex items-center gap-2 rounded-xl border border-white/6 bg-[#101218] px-3 py-2 sm:col-span-2">
-                    <span class="text-[9px] font-bold uppercase tracking-[0.16em] text-coral">
-                      Punch
-                    </span>
-                    <input
-                      id="dj-punch"
-                      type="range"
-                      min="0"
-                      max="100"
-                      value="0"
-                      aria-label="Punch do master"
-                      class="flex-1"
-                      style="accent-color:#ff5d6c"
-                    />
-                    <span class="text-[9px] text-ink-faint">estoura o master</span>
-                  </div>
-                </div>
-              </details>
+                  {label}
+                </button>
+              </div>
+            </details>
 
-              <details
-                class="rounded-xl border border-white/8"
-                style="background:linear-gradient(180deg,#11131a,#0e0f15)"
-              >
-                <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2">
-                  <span class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
-                    Controladora & fone
-                  </span>
-                  <span class={[
-                    "size-2 rounded-full",
-                    @midi.connected && "bg-green",
-                    !@midi.connected && "bg-white/20"
-                  ]}></span>
-                </summary>
-                <.midi_panel midi={@midi} />
-              </details>
-
-              <section class="rounded-xl border border-white/8 bg-surface px-3 py-2">
-                <span class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
-                  Eventos
-                </span>
-                <div
-                  id="dj-log"
-                  phx-update="ignore"
-                  class="mt-1 flex max-h-24 flex-col gap-0.5 overflow-auto font-mono text-[10px] leading-relaxed text-ink-muted"
-                >
-                  <p class="text-ink-faint">— mesa pronta —</p>
-                </div>
-              </section>
-            </div>
-
-            <.set_rail
+            <.queue_panel
               set={@set}
               entries={@entries}
               pointer_id={@pointer_id}
               hint={@hint}
               rail_tab={@rail_tab}
-              lib_query={@lib_query}
-              lib_tracks={@lib_tracks}
             />
+            <.library_panel rail_tab={@rail_tab} lib_query={@lib_query} lib_tracks={@lib_tracks} />
+          </div>
+
+          <div class="mt-2 grid items-start gap-3 lg:grid-cols-2">
+            <details
+              class="rounded-xl border border-white/8"
+              style="background:linear-gradient(180deg,#11131a,#0e0f15)"
+            >
+              <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2">
+                <span class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
+                  Controladora & fone
+                </span>
+                <span class={[
+                  "size-2 rounded-full",
+                  @midi.connected && "bg-green",
+                  !@midi.connected && "bg-white/20"
+                ]}></span>
+              </summary>
+              <.midi_panel midi={@midi} />
+            </details>
+
+            <section class="rounded-xl border border-white/8 bg-surface px-3 py-2">
+              <span class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
+                Eventos
+              </span>
+              <div
+                id="dj-log"
+                phx-update="ignore"
+                class="mt-1 flex max-h-24 flex-col gap-0.5 overflow-auto font-mono text-[10px] leading-relaxed text-ink-muted"
+              >
+                <p class="text-ink-faint">— mesa pronta —</p>
+              </div>
+            </section>
           </div>
 
           <div id="dj-audio-rack" phx-update="ignore">
@@ -803,6 +777,29 @@ defmodule BeatgridWeb.DiscotecagemLive do
           color: #8b7bf0;
           background: rgba(139, 123, 240, 0.12);
         }
+        .dj-knob-face {
+          box-shadow:
+            inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+            0 2px 6px rgba(0, 0, 0, 0.5);
+        }
+        .dj-knob-hub {
+          box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.7);
+        }
+        .dj-knob-native {
+          -webkit-appearance: none;
+          appearance: none;
+          margin: 0;
+          touch-action: none;
+        }
+        .dj-knob-native::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          appearance: none;
+        }
+        .dj-knob-dial:focus-within {
+          border-radius: 9999px;
+          outline: 2px solid rgba(255, 255, 255, 0.25);
+          outline-offset: 2px;
+        }
       </style>
 
       <script :type={Phoenix.LiveView.ColocatedHook} name=".DjConsole">
@@ -818,10 +815,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
           target_error: "a faixa do outro deck falhou — carregue outra",
           too_fast: "calma — uma transição acabou de disparar",
         }
-        // Ordem da paleta: pads SAMPLER da controladora disparam estas — lado
-        // esquerdo as 4 primeiras, lado direito as 4 últimas.
-        // Anel de foco dos Efeitos: o browse anda por aqui e o cue level ajusta
-        // o item focado (sliders absolutos; TOM alterna).
+        // Anel de foco dos Efeitos (tecla de seção 3): o browse anda por aqui e o
+        // cue level ajusta o item focado (sliders absolutos; TOM alterna). Cada
+        // slider é o modelo por baixo de um knob giratório no deck (ver initKnobs).
         const FX_RING = [
           {id: "dj-filter-a", label: "Filtro A", kind: "slider", min: -100, max: 100, reset: 0, set: (h, v) => h.engine.setFilter("a", v / 100)},
           {id: "dj-echofx-a", label: "Eco A", kind: "slider", min: 0, max: 100, reset: 0, set: (h, v) => h.engine.setEchoSend("a", v / 100)},
@@ -948,6 +944,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
                   if (filter) filter.value = 0
                   const echofx = byId(`dj-echofx-${deck}`)
                   if (echofx) echofx.value = 0
+                  this.renderKnobById(`dj-filter-${deck}`)
+                  this.renderKnobById(`dj-echofx-${deck}`)
                   const tom = byId(`dj-tom-${deck}`)
                   if (tom) tom.dataset.on = "false"
                   // resetChain devolve o fader do deck para 1 — o slider tem
@@ -1110,14 +1108,11 @@ defmodule BeatgridWeb.DiscotecagemLive do
                   this.engine.beatLoop(d, beats)
                 )
               }
-              const filterEl = byId(`dj-filter-${d}`)
-              filterEl.addEventListener("input", (e) =>
+              // Filtro/eco: o <input> é o modelo do knob (initKnobs). Só o listener
+              // de "input" (engine) fica aqui; o duplo-clique de reset é do knob.
+              byId(`dj-filter-${d}`).addEventListener("input", (e) =>
                 this.engine.setFilter(d, Number(e.target.value) / 100)
               )
-              filterEl.addEventListener("dblclick", (e) => {
-                e.target.value = 0
-                this.engine.setFilter(d, 0)
-              })
               byId(`dj-echofx-${d}`).addEventListener("input", (e) =>
                 this.engine.setEchoSend(d, Number(e.target.value) / 100)
               )
@@ -1148,6 +1143,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 if (!res.ok) this.log(FIRE_ERRORS[res.reason] || "transição indisponível")
               })
             }
+
+            // Filtro/eco/punch agora são knobs giratórios; o <input type=range>
+            // por baixo continua o modelo (engine, foco, reset no load intactos).
+            this.initKnobs()
 
             // Saídas de áudio: "principal" move a mesa inteira (ctx.setSinkId —
             // na controladora de 4 canais o fone passa a sair na 3/4); o "fone
@@ -1637,38 +1636,133 @@ defmodule BeatgridWeb.DiscotecagemLive do
             }
           },
 
+          // ── knobs giratórios (filtro/eco por deck + punch) ─────────────────
+          // O range escondido é o modelo; arraste vertical / roda / duplo clique
+          // mudam o .value e disparam "input" (o listener existente chama o
+          // engine; o render redesenha). Mudanças programáticas (foco/cue/reset)
+          // chamam renderKnobById para redesenhar sem re-disparar o engine.
+          initKnobs() {
+            for (const knob of this.el.querySelectorAll("[data-knob]")) {
+              const input = knob.querySelector(".dj-knob-native")
+              if (!input) continue
+              const span = () => Number(input.max) - Number(input.min)
+              const commit = (v) => {
+                const nv = Math.max(Number(input.min), Math.min(Number(input.max), Math.round(v)))
+                if (String(nv) !== input.value) {
+                  input.value = nv
+                  input.dispatchEvent(new Event("input", {bubbles: true}))
+                }
+              }
+              input.addEventListener("input", () => this.renderKnob(knob, input))
+              let startY = 0, startVal = 0, dragging = false
+              const onMove = (e) => {
+                if (dragging) commit(startVal + ((startY - e.clientY) / 150) * span())
+              }
+              const onUp = () => {
+                dragging = false
+                window.removeEventListener("pointermove", onMove)
+                window.removeEventListener("pointerup", onUp)
+              }
+              input.addEventListener("pointerdown", (e) => {
+                dragging = true
+                startY = e.clientY
+                startVal = Number(input.value)
+                window.addEventListener("pointermove", onMove)
+                window.addEventListener("pointerup", onUp)
+                e.preventDefault()
+              })
+              input.addEventListener(
+                "wheel",
+                (e) => {
+                  e.preventDefault()
+                  commit(Number(input.value) + (e.deltaY < 0 ? 1 : -1) * (span() / 40))
+                },
+                {passive: false}
+              )
+              input.addEventListener("dblclick", () => {
+                const bip = knob.dataset.bipolar === "true"
+                commit(bip ? (Number(input.min) + Number(input.max)) / 2 : Number(input.min))
+              })
+              this.renderKnob(knob, input)
+            }
+          },
+
+          renderKnob(knob, input) {
+            input = input || knob.querySelector(".dj-knob-native")
+            if (!input) return
+            const min = Number(input.min), max = Number(input.max), val = Number(input.value)
+            const t = max > min ? (val - min) / (max - min) : 0
+            const sweep = 270
+            const accent = knob.dataset.accent || "#8b7bf0"
+            const track = "rgba(255,255,255,.08)"
+            const face = knob.querySelector(".dj-knob-face")
+            const rotor = knob.querySelector(".dj-knob-rotor")
+            const num = knob.querySelector(".dj-knob-num")
+            if (face && knob.dataset.bipolar === "true") {
+              const c = sweep / 2, v = t * sweep
+              const lo = Math.min(c, v), hi = Math.max(c, v)
+              face.style.background = `conic-gradient(from -135deg, ${track} 0deg ${lo}deg, ${accent} ${lo}deg ${hi}deg, ${track} ${hi}deg ${sweep}deg, transparent ${sweep}deg)`
+            } else if (face) {
+              const v = t * sweep
+              face.style.background = `conic-gradient(from -135deg, ${accent} 0deg ${v}deg, ${track} ${v}deg ${sweep}deg, transparent ${sweep}deg)`
+            }
+            if (rotor) rotor.style.transform = `rotate(${-135 + t * sweep}deg)`
+            if (num) num.textContent = `${val}${knob.dataset.unit || ""}`
+          },
+
+          renderKnobById(id) {
+            const input = byId(id)
+            const knob = input && input.closest("[data-knob]")
+            if (knob) this.renderKnob(knob, input)
+          },
+
           moveCursor(delta) {
-            const rows = Array.from(document.querySelectorAll("[data-dj-entry]"))
+            const rows = this.entryRows()
             if (!rows.length) return
             this.cursor = Math.min(Math.max(this.cursor + Math.sign(delta), 0), rows.length - 1)
             this.applyCursorOutline(rows)
             rows[this.cursor].scrollIntoView({block: "nearest"})
           },
 
+          // Fila e Biblioteca ficam SEMPRE visíveis lado a lado; o browse anda só
+          // pela lista ativa (data-rail-tab no console) para o cursor não pular de
+          // uma lista para a outra.
+          entryRows() {
+            const tab = this.el.dataset.railTab
+            const scope = byId(tab === "biblioteca" ? "dj-lib-list" : "dj-queue-list")
+            return scope ? Array.from(scope.querySelectorAll("[data-dj-entry]")) : []
+          },
+
           applyCursorOutline(rows) {
-            rows = rows || Array.from(document.querySelectorAll("[data-dj-entry]"))
+            rows = rows || this.entryRows()
             rows.forEach((r, i) => {
               r.style.outline = i === this.cursor ? "1px solid #ffb020" : ""
             })
           },
 
-          // As linhas da fila são re-renderizadas pelo servidor — o contorno do
-          // cursor MIDI é reaplicado a cada patch para não sumir. Trocar de aba
-          // (fila ↔ biblioteca) zera o cursor: a lista embaixo é outra.
+          // Zera o contorno do cursor nas DUAS listas — applyCursorOutline só
+          // enxerga a lista ativa, então trocar de lista deixaria a antiga marcada.
+          clearCursorOutlineAll() {
+            for (const r of document.querySelectorAll("[data-dj-entry]")) r.style.outline = ""
+          },
+
+          // As linhas são re-renderizadas pelo servidor — o contorno do cursor MIDI
+          // é reaplicado a cada patch para não sumir. Trocar a lista ativa (fila ↔
+          // biblioteca) zera o cursor E limpa a marca da lista que deixou de ser a
+          // ativa (as duas ficam visíveis lado a lado agora).
           updated() {
-            const panel = byId("dj-rail-panel")
-            const tab = panel ? panel.dataset.tab : null
+            const tab = this.el.dataset.railTab
             if (tab !== this._railTab) {
               this._railTab = tab
               this.cursor = -1
-              this.applyCursorOutline()
+              this.clearCursorOutlineAll()
               return
             }
             if (this.cursor >= 0) this.applyCursorOutline()
           },
 
           loadCursor(deck) {
-            const rows = Array.from(document.querySelectorAll("[data-dj-entry]"))
+            const rows = this.entryRows()
             if (this.cursor >= rows.length) this.cursor = rows.length - 1
             const row = rows[this.cursor]
             if (row) this.pushEvent("load_deck", {deck, track_id: row.dataset.trackId})
@@ -1687,11 +1781,18 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
           setFocusSection(name, railTab) {
             this.clearFocusOutline()
+            // Saindo da lista para efeitos/transições não há rail_tab nem patch do
+            // servidor para limpar o cursor — apaga a marca das linhas na mão.
+            if (name !== "lista") {
+              this.cursor = -1
+              this.clearCursorOutlineAll()
+            }
             this.focus = {section: name, index: 0}
             if (railTab) this.pushEvent("rail_tab", {tab: railTab})
-            const detailsId = {efeitos: "dj-details-fx", transicoes: "dj-details-trans"}[name]
-            if (detailsId) {
-              const d = byId(detailsId)
+            // Efeitos agora moram nos decks (knobs sempre visíveis); só as
+            // transições ainda ficam num <details> que pode estar fechado.
+            if (name === "transicoes") {
+              const d = byId("dj-details-trans")
               if (d) d.open = true
             }
             this.applyFocusOutline()
@@ -1713,21 +1814,29 @@ defmodule BeatgridWeb.DiscotecagemLive do
             this.applyFocusOutline()
           },
 
+          // Os inputs dos knobs são invisíveis (opacity 0) — o contorno de foco vai
+          // no invólucro [data-knob] para aparecer em volta do botão giratório.
+          focusTarget(el) {
+            return (el && el.closest("[data-knob]")) || el
+          },
+
           applyFocusOutline() {
             const ring = this.focusRing()
             ring.forEach((el, i) => {
               const on = i === this.focus.index
-              el.style.outline = on ? "2px solid #ffb020" : ""
-              el.style.outlineOffset = on ? "2px" : ""
+              const t = this.focusTarget(el)
+              t.style.outline = on ? "2px solid #ffb020" : ""
+              t.style.outlineOffset = on ? "2px" : ""
             })
-            const focused = ring[this.focus.index]
+            const focused = this.focusTarget(ring[this.focus.index])
             if (focused) focused.scrollIntoView({block: "nearest"})
           },
 
           clearFocusOutline() {
             for (const el of this.focusRing()) {
-              el.style.outline = ""
-              el.style.outlineOffset = ""
+              const t = this.focusTarget(el)
+              t.style.outline = ""
+              t.style.outlineOffset = ""
             }
           },
 
@@ -1751,6 +1860,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             } else {
               el.value = spec.reset
               spec.set(this, spec.reset)
+              this.renderKnobById(spec.id)
               this.log(`${spec.label} zerado`)
             }
           },
@@ -1777,6 +1887,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             const value = Math.round(spec.min + v * (spec.max - spec.min))
             el.value = value
             spec.set(this, value)
+            this.renderKnobById(spec.id)
           },
         }
       </script>
@@ -2059,6 +2170,37 @@ defmodule BeatgridWeb.DiscotecagemLive do
               </button>
             </div>
 
+            <div class="flex w-full items-center justify-center gap-3 py-0.5">
+              <.knob
+                id={"dj-filter-#{@d}"}
+                label="Filtro"
+                accent={@accent}
+                min={-100}
+                max={100}
+                value={0}
+                bipolar={true}
+                title="Filtro bipolar: esquerda afoga (low-pass), direita só ar (high-pass) — duplo clique volta ao centro"
+              />
+              <.knob
+                id={"dj-echofx-#{@d}"}
+                label="Eco"
+                accent={@accent}
+                min={0}
+                max={100}
+                value={0}
+                title="Abre o delay sincronizado ao BPM da faixa"
+              />
+              <button
+                id={"dj-tom-#{@d}"}
+                type="button"
+                data-on="false"
+                title="Modo vinil: o pitch passa a mudar a afinação (tom) junto com o tempo"
+                class="h-8 rounded-md border border-white/10 bg-input px-2 text-[9px] font-bold uppercase tracking-wider text-ink-faint transition-colors hover:text-ink"
+              >
+                Tom
+              </button>
+            </div>
+
             <div class="grid w-full grid-cols-4 gap-1">
               <button
                 :for={n <- 1..4}
@@ -2169,13 +2311,25 @@ defmodule BeatgridWeb.DiscotecagemLive do
           </div>
         </div>
 
-        <div class="flex items-center gap-1.5">
-          <span
-            id="dj-echo-light"
-            data-on="false"
-            class="size-2 rounded-full bg-white/10 transition-all"
-          ></span>
-          <span class="text-[8px] font-bold uppercase tracking-[0.18em] text-ink-faint">Eco</span>
+        <div class="flex items-center gap-4">
+          <div class="flex items-center gap-1.5">
+            <span
+              id="dj-echo-light"
+              data-on="false"
+              class="size-2 rounded-full bg-white/10 transition-all"
+            ></span>
+            <span class="text-[8px] font-bold uppercase tracking-[0.18em] text-ink-faint">Eco</span>
+          </div>
+          <.knob
+            id="dj-punch"
+            label="Punch"
+            accent="#ff5d6c"
+            min={0}
+            max={100}
+            value={0}
+            size={40}
+            title="Estoura o master (compressor) — duplo clique zera"
+          />
         </div>
 
         <div class="w-full">
@@ -2233,58 +2387,51 @@ defmodule BeatgridWeb.DiscotecagemLive do
   attr :pointer_id, :string, default: nil
   attr :hint, :map, default: nil
   attr :rail_tab, :string, default: "fila"
-  attr :lib_query, :string, default: ""
-  attr :lib_tracks, :list, default: []
 
-  defp set_rail(assigns) do
+  # Fila do set — sempre visível na coluna do meio. O botão do título marca esta
+  # lista como a ativa do browse (a controladora anda por ela); as teclas de
+  # seção da controladora fazem o mesmo via `rail_tab`.
+  defp queue_panel(assigns) do
     ~H"""
-    <section
-      id="dj-rail-panel"
-      data-tab={@rail_tab}
-      class="flex max-h-[calc(100vh-580px)] min-h-[240px] flex-col overflow-hidden rounded-2xl border border-white/8 bg-surface p-3"
-    >
+    <section class={[
+      "flex max-h-[calc(100vh-470px)] min-h-[260px] flex-col overflow-hidden rounded-2xl border bg-surface p-3 transition-colors",
+      @rail_tab == "fila" && "border-primary/40",
+      @rail_tab != "fila" && "border-white/8"
+    ]}>
       <div class="flex shrink-0 items-center justify-between gap-2">
-        <div class="flex items-center gap-1">
-          <button
-            :for={
-              {tab, label} <- [
-                {"fila", fila_tab_label(@entries, @pointer_id)},
-                {"biblioteca", "Biblioteca"}
-              ]
-            }
-            type="button"
-            phx-click="rail_tab"
-            phx-value-tab={tab}
-            aria-pressed={to_string(@rail_tab == tab)}
-            title="O botão do browse na controladora alterna entre as abas"
-            class={[
-              "rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] transition-colors",
-              @rail_tab == tab && "bg-primary/15 text-primary",
-              @rail_tab != tab && "text-ink-faint hover:bg-white/5 hover:text-ink"
-            ]}
+        <button
+          type="button"
+          phx-click="rail_tab"
+          phx-value-tab="fila"
+          title="Marcar a fila como a lista que o browse navega"
+          class="flex items-center gap-2"
+        >
+          <span class="text-[10px] font-bold uppercase tracking-[0.12em] text-ink-secondary">
+            {fila_tab_label(@entries, @pointer_id)}
+          </span>
+          <span
+            :if={@rail_tab == "fila"}
+            class="rounded bg-primary/15 px-1.5 py-px text-[8px] font-bold uppercase tracking-wider text-primary"
           >
-            {label}
-          </button>
-        </div>
+            browse ▸
+          </span>
+        </button>
         <.link
-          :if={@rail_tab == "fila" && @set}
+          :if={@set}
           navigate={~p"/set/#{@set.id}"}
           class="truncate text-[11px] font-semibold text-primary hover:underline"
         >
-          {@set.name} ({length(@entries)})
+          {@set.name}
         </.link>
-        <span :if={@rail_tab == "biblioteca"} class="text-[10px] text-ink-faint">
-          gire o browse para navegar · LOAD carrega
-        </span>
       </div>
 
-      <p :if={@rail_tab == "fila" && !@set} class="mt-3 text-[12px] text-ink-faint">
+      <p :if={!@set} class="mt-3 text-[12px] text-ink-faint">
         Escolha um set acima para montar a fila — os botões A/B carregam a faixa no deck.
       </p>
 
       <ol
-        :if={@rail_tab == "fila" && @set}
-        id="dj-rail"
+        :if={@set}
+        id="dj-queue-list"
         class="mt-2 flex min-h-0 flex-1 flex-col gap-1 overflow-auto pr-1"
       >
         <li
@@ -2328,58 +2475,90 @@ defmodule BeatgridWeb.DiscotecagemLive do
           <.load_buttons track_id={e.track.id} />
         </li>
       </ol>
+    </section>
+    """
+  end
 
-      <div :if={@rail_tab == "biblioteca"} class="flex min-h-0 flex-1 flex-col">
-        <form id="dj-lib-search" phx-change="search_library" class="mt-2 shrink-0">
-          <input
-            type="search"
-            name="q"
-            value={@lib_query}
-            placeholder="Buscar na biblioteca…"
-            aria-label="Buscar na biblioteca"
-            phx-debounce="250"
-            autocomplete="off"
-            class="w-full rounded-lg border border-white/10 bg-input px-3 py-1.5 text-[12px] text-ink placeholder:text-ink-faint focus:border-primary/60 focus:outline-none"
-          />
-        </form>
-        <p :if={@lib_tracks == []} class="mt-3 text-[12px] text-ink-faint">
-          Nenhuma faixa encontrada.
-        </p>
-        <ol class="mt-2 flex min-h-0 flex-1 flex-col gap-1 overflow-auto pr-1">
-          <li
-            :for={t <- @lib_tracks}
-            data-dj-entry
-            data-track-id={t.id}
-            class="flex items-center gap-2.5 rounded-lg border border-transparent px-2 py-1.5 hover:bg-white/3"
-          >
-            <.cover src={cover_src(t)} artist={t.tag_artist} size={28} />
-            <div class="min-w-0 flex-1">
-              <.link
-                navigate={~p"/track/#{t.id}"}
-                class="block truncate text-[12px] font-medium text-ink hover:text-primary"
-              >
-                {t.tag_title || t.filename}
-              </.link>
-              <p class="truncate text-[10px] text-ink-muted">{t.tag_artist || "—"}</p>
-            </div>
-            <span class="font-mono text-[10px] text-ink-faint">
-              {bpm_text(Library.effective(t).bpm)}
-            </span>
-            <.camelot_seal value={Library.effective(t).camelot} />
-            <span
-              :if={t.rating}
-              class="font-mono text-[10px] font-bold"
-              style={"color:#{rating_color(t.rating)}"}
+  attr :rail_tab, :string, default: "fila"
+  attr :lib_query, :string, default: ""
+  attr :lib_tracks, :list, default: []
+
+  # Biblioteca — sempre visível na coluna da direita. Mesma mecânica de "lista
+  # ativa" da fila: o browse navega a que estiver marcada.
+  defp library_panel(assigns) do
+    ~H"""
+    <section class={[
+      "flex max-h-[calc(100vh-470px)] min-h-[260px] flex-col overflow-hidden rounded-2xl border bg-surface p-3 transition-colors",
+      @rail_tab == "biblioteca" && "border-primary/40",
+      @rail_tab != "biblioteca" && "border-white/8"
+    ]}>
+      <button
+        type="button"
+        phx-click="rail_tab"
+        phx-value-tab="biblioteca"
+        title="Marcar a biblioteca como a lista que o browse navega"
+        class="flex shrink-0 items-center gap-2"
+      >
+        <span class="text-[10px] font-bold uppercase tracking-[0.12em] text-ink-secondary">
+          Biblioteca
+        </span>
+        <span
+          :if={@rail_tab == "biblioteca"}
+          class="rounded bg-primary/15 px-1.5 py-px text-[8px] font-bold uppercase tracking-wider text-primary"
+        >
+          browse ▸
+        </span>
+      </button>
+
+      <form id="dj-lib-search" phx-change="search_library" class="mt-2 shrink-0">
+        <input
+          type="search"
+          name="q"
+          value={@lib_query}
+          placeholder="Buscar na biblioteca…"
+          aria-label="Buscar na biblioteca"
+          phx-debounce="250"
+          autocomplete="off"
+          class="w-full rounded-lg border border-white/10 bg-input px-3 py-1.5 text-[12px] text-ink placeholder:text-ink-faint focus:border-primary/60 focus:outline-none"
+        />
+      </form>
+      <p :if={@lib_tracks == []} class="mt-3 text-[12px] text-ink-faint">
+        Nenhuma faixa encontrada.
+      </p>
+      <ol id="dj-lib-list" class="mt-2 flex min-h-0 flex-1 flex-col gap-1 overflow-auto pr-1">
+        <li
+          :for={t <- @lib_tracks}
+          data-dj-entry
+          data-track-id={t.id}
+          class="flex items-center gap-2.5 rounded-lg border border-transparent px-2 py-1.5 hover:bg-white/3"
+        >
+          <.cover src={cover_src(t)} artist={t.tag_artist} size={28} />
+          <div class="min-w-0 flex-1">
+            <.link
+              navigate={~p"/track/#{t.id}"}
+              class="block truncate text-[12px] font-medium text-ink hover:text-primary"
             >
-              {t.rating}
-            </span>
-            <.load_buttons track_id={t.id} />
-          </li>
-        </ol>
-        <p :if={length(@lib_tracks) >= 50} class="mt-1.5 text-center text-[10px] text-ink-faint">
-          mostrando as primeiras 50 — refine a busca para achar o resto
-        </p>
-      </div>
+              {t.tag_title || t.filename}
+            </.link>
+            <p class="truncate text-[10px] text-ink-muted">{t.tag_artist || "—"}</p>
+          </div>
+          <span class="font-mono text-[10px] text-ink-faint">
+            {bpm_text(Library.effective(t).bpm)}
+          </span>
+          <.camelot_seal value={Library.effective(t).camelot} />
+          <span
+            :if={t.rating}
+            class="font-mono text-[10px] font-bold"
+            style={"color:#{rating_color(t.rating)}"}
+          >
+            {t.rating}
+          </span>
+          <.load_buttons track_id={t.id} />
+        </li>
+      </ol>
+      <p :if={length(@lib_tracks) >= 50} class="mt-1.5 text-center text-[10px] text-ink-faint">
+        mostrando as primeiras 50 — refine a busca para achar o resto
+      </p>
     </section>
     """
   end
@@ -2424,61 +2603,55 @@ defmodule BeatgridWeb.DiscotecagemLive do
     """
   end
 
-  attr :d, :string, required: true
+  attr :id, :string, required: true
+  attr :label, :string, required: true
   attr :accent, :string, required: true
+  attr :min, :integer, required: true
+  attr :max, :integer, required: true
+  attr :value, :integer, default: 0
+  attr :bipolar, :boolean, default: false
+  attr :unit, :string, default: ""
+  attr :size, :integer, default: 46
+  attr :title, :string, default: nil
 
-  # Cluster de efeitos por deck (conteúdo estático dentro da região ignore do
-  # painel Efeitos — o hook liga os listeners e o engine reseta no load).
-  defp fx_cluster(assigns) do
+  # Knob giratório: o <input type=range> por baixo continua sendo o MODELO
+  # (o hook lê/escreve .value, o FX_RING/foco navega, o engine reseta no load);
+  # o hook `initKnobs` desenha o arco (conic-gradient) e o ponteiro a partir do
+  # valor e traduz o arraste vertical / roda / duplo clique em mudanças de valor.
+  defp knob(assigns) do
     ~H"""
-    <div class="rounded-xl border border-white/6 bg-[#101218] p-3">
-      <div class="flex items-center justify-between">
-        <span
-          class="rounded px-1.5 py-px text-[9px] font-bold uppercase tracking-[0.14em]"
-          style={"background:#{@accent}22;color:#{@accent}"}
-        >
-          Deck {String.upcase(@d)}
-        </span>
-        <button
-          id={"dj-tom-#{@d}"}
-          type="button"
-          data-on="false"
-          title="Modo vinil: o pitch passa a mudar a afinação (tom) junto com o tempo"
-          class="rounded-md border border-white/10 bg-input px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-ink-faint transition-colors hover:text-ink"
-        >
-          Tom
-        </button>
-      </div>
-      <div class="mt-2 flex items-center gap-2">
-        <span class="w-9 text-[9px] font-bold uppercase tracking-wider text-ink-faint">
-          Filtro
+    <div
+      class="dj-knob flex select-none flex-col items-center gap-1"
+      data-knob
+      data-accent={@accent}
+      data-bipolar={to_string(@bipolar)}
+      data-unit={@unit}
+    >
+      <div class="dj-knob-dial relative" style={"width:#{@size}px;height:#{@size}px"} title={@title}>
+        <div class="dj-knob-face absolute inset-0 rounded-full"></div>
+        <div class="dj-knob-hub absolute rounded-full border border-white/12 bg-input" style="inset:5px">
+        </div>
+        <div class="dj-knob-rotor pointer-events-none absolute inset-0">
+          <span
+            class="absolute left-1/2 top-[3px] h-[30%] w-[2px] -translate-x-1/2 rounded-full"
+            style={"background:#{@accent}"}
+          >
+          </span>
+        </div>
+        <span class="dj-knob-num pointer-events-none absolute inset-0 flex items-center justify-center font-mono text-[8px] font-bold text-ink-secondary">
         </span>
         <input
-          id={"dj-filter-#{@d}"}
+          id={@id}
           type="range"
-          min="-100"
-          max="100"
-          value="0"
-          aria-label={"Filtro do deck #{String.upcase(@d)}"}
-          title="Esquerda afoga (low-pass), direita só ar (high-pass) — duplo clique volta ao centro"
-          class="flex-1"
-          style={"accent-color:#{@accent}"}
+          min={@min}
+          max={@max}
+          value={@value}
+          step="1"
+          aria-label={@label}
+          class="dj-knob-native absolute inset-0 size-full cursor-ns-resize opacity-0"
         />
       </div>
-      <div class="mt-1.5 flex items-center gap-2">
-        <span class="w-9 text-[9px] font-bold uppercase tracking-wider text-ink-faint">Eco</span>
-        <input
-          id={"dj-echofx-#{@d}"}
-          type="range"
-          min="0"
-          max="100"
-          value="0"
-          aria-label={"Eco do deck #{String.upcase(@d)}"}
-          title="Abre o delay sincronizado ao BPM da faixa"
-          class="flex-1"
-          style={"accent-color:#{@accent}"}
-        />
-      </div>
+      <span class="text-[8px] font-bold uppercase tracking-wider text-ink-faint">{@label}</span>
     </div>
     """
   end
