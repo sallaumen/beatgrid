@@ -3,7 +3,9 @@ defmodule Beatgrid.Library.Tracks do
   Context for tracks — the physical audio files in the library. Reads are
   delegated to `Beatgrid.Library.TrackQuery`; mutations live here.
   """
-  import Ecto.Query
+  # `where` only — reads live in `TrackQuery`; the import serves the
+  # `mark_missing_except/1` bulk mutation below.
+  import Ecto.Query, only: [where: 3]
 
   alias Beatgrid.Library.{Marker, Normalize, Track, TrackQuery, Version}
   alias Beatgrid.Repo
@@ -28,11 +30,8 @@ defmodule Beatgrid.Library.Tracks do
       base = Version.base_key(track.tag_artist, version_title(track))
       self_norm = Normalize.normalize(version_title(track))
 
-      Track
-      |> where([t], t.status == :present and t.norm_artist == ^track.norm_artist)
-      |> where([t], t.id != ^track.id)
-      |> preload(:soundcharts_song)
-      |> Repo.all()
+      track.norm_artist
+      |> TrackQuery.present_by_artist(track.id)
       |> Enum.filter(fn t ->
         # A "different version" must render differently — compare the SAME
         # (filename-aware) title source base_key uses, not the tag-only norm_title.
@@ -58,13 +57,8 @@ defmodule Beatgrid.Library.Tracks do
     base = Version.base_title(version_title(track))
 
     if String.length(base) >= 4 do
-      like = "%#{base}%"
-
-      Track
-      |> where([t], t.status == :present and t.id != ^track.id)
-      |> where([t], ilike(t.norm_title, ^like))
-      |> preload(:soundcharts_song)
-      |> Repo.all()
+      base
+      |> TrackQuery.present_by_title_fragment(track.id)
       |> Enum.filter(fn t ->
         Version.base_title(version_title(t)) == base and not exact_dup?(t, track)
       end)

@@ -39,4 +39,7 @@ defmodule Beatgrid.Organization.MoveSuggestionQuery do
   defp reduce_opt({:batch_id, batch_id}, q), do: where(q, [s], s.batch_id == ^batch_id)
   defp reduce_opt({:preload, preloads}, q), do: preload(q, ^preloads)
   defp reduce_opt({:order_by, order}, q), do: order_by(q, ^order)
+
+  defp reduce_opt({opt, value}, _q),
+    do: raise(Beatgrid.Query.FilterError, field: opt, value: value)
 end

@@ -18,8 +18,8 @@ defmodule Beatgrid.Workers.MixRecognizeWorker do
 
   require Logger
 
-  alias Beatgrid.{Integrations, Mixes, Repo}
-  alias Beatgrid.Mixes.Segment
+  alias Beatgrid.{Integrations, Mixes}
+  alias Beatgrid.Mixes.{MixQuery, Segment}
 
   @recognizer Application.compile_env(
                 :beatgrid,
@@ -45,7 +45,7 @@ defmodule Beatgrid.Workers.MixRecognizeWorker do
 
   # Manual single segment: always (re-)attempt it, even if previously tried — the user asked.
   defp run(%{"segment_id" => sid}) do
-    case Segment |> Repo.get(sid) |> Repo.preload(:mix) do
+    case MixQuery.get_segment_with_mix(sid) do
       %Segment{mix: %{audio_path: path, audio_deleted_at: nil} = mix} = seg
       when is_binary(path) ->
         unless named?(seg), do: identify_segment(seg, path)

@@ -7,9 +7,7 @@ defmodule Beatgrid.Soundcharts do
   `soundcharts_songs` and never re-fetched. Resolution is idempotent: a track
   already linked to a song makes no API calls.
   """
-  import Ecto.Query
-
-  alias Beatgrid.Library.{Normalize, Track, Tracks}
+  alias Beatgrid.Library.{Normalize, Track, TrackQuery, Tracks}
   alias Beatgrid.Repo
   alias Beatgrid.Soundcharts.{Accounts, ApiCall, Camelot, Http, Response, Song, SongQuery}
 
@@ -51,10 +49,7 @@ defmodule Beatgrid.Soundcharts do
   """
   @spec backfill() :: %{songs: non_neg_integer(), tracks: non_neg_integer()}
   def backfill do
-    Track
-    |> where([t], not is_nil(t.soundcharts_song_id))
-    |> preload(:soundcharts_song)
-    |> Repo.all()
+    TrackQuery.resolved_with_song()
     |> Enum.reduce(%{songs: 0, tracks: 0}, fn track, acc ->
       {:ok, song} = backfill_song(track.soundcharts_song)
       {:ok, {_item, confidence}} = pick_match([song_as_item(song)], track)

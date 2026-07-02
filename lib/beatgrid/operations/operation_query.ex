@@ -36,4 +36,7 @@ defmodule Beatgrid.Operations.OperationQuery do
   defp reduce_opt({:limit, n}, q), do: limit(q, ^n)
   defp reduce_opt({:preload, preloads}, q), do: preload(q, ^preloads)
   defp reduce_opt({:order_by, order}, q), do: order_by(q, ^order)
+
+  defp reduce_opt({opt, value}, _q),
+    do: raise(Beatgrid.Query.FilterError, field: opt, value: value)
 end

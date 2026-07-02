@@ -24,4 +24,7 @@ defmodule Beatgrid.Repertoire.RecommendationQuery do
   defp reduce_opt({:song, s}, q), do: where(q, [r], r.song == ^s)
   defp reduce_opt({:preload, p}, q), do: preload(q, ^p)
   defp reduce_opt({:order_by, o}, q), do: order_by(q, ^o)
+
+  defp reduce_opt({opt, value}, _q),
+    do: raise(Beatgrid.Query.FilterError, field: opt, value: value)
 end

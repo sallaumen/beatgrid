@@ -14,10 +14,8 @@ defmodule Beatgrid.Mixing do
   to the locally-detected analysis (`Beatgrid.Analysis`), so tracks without a
   Soundcharts match still participate.
   """
-  import Ecto.Query
-
   alias Beatgrid.Library
-  alias Beatgrid.Library.Track
+  alias Beatgrid.Library.{Track, TrackQuery}
   alias Beatgrid.Mixing.StyleAffinity
   alias Beatgrid.Repo
   alias Beatgrid.Soundcharts.{Camelot, Song}
@@ -220,28 +218,10 @@ defmodule Beatgrid.Mixing do
   end
 
   defp candidates(exclude, prev_eff, opts) do
-    Track
-    |> where([t], t.status == :present)
-    |> where([t], t.id not in ^exclude)
-    |> where(
-      [t],
-      not is_nil(t.soundcharts_song_id) or not is_nil(t.camelot_detected) or
-        not is_nil(t.bpm_detected)
-    )
-    |> maybe_min_rating(opts[:min_rating])
-    |> maybe_exclude_styles(opts[:exclude_styles])
-    |> preload(:soundcharts_song)
-    |> Repo.all()
+    exclude
+    |> TrackQuery.mixing_candidates(Keyword.take(opts, [:min_rating, :exclude_styles]))
     |> filter_effective(prev_eff, opts)
   end
-
-  defp maybe_min_rating(query, n) when is_integer(n), do: where(query, [t], t.rating >= ^n)
-  defp maybe_min_rating(query, _), do: query
-
-  defp maybe_exclude_styles(query, [_ | _] = keys),
-    do: where(query, [t], t.genre_folder not in ^keys)
-
-  defp maybe_exclude_styles(query, _), do: query
 
   defp filter_effective(tracks, prev_eff, opts) do
     bpm_min = opts[:bpm_min]

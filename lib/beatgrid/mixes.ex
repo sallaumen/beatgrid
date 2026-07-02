@@ -4,13 +4,15 @@ defmodule Beatgrid.Mixes do
   ordered `Segment`s (the tracks within it). This module is the data/query boundary;
   download, audio analysis, and AI naming live in their own ports/workers.
   """
-  import Ecto.Query
+  # `from` only — reads live in `MixQuery`; the import serves the transactional
+  # delete_all + reinsert mutations below.
+  import Ecto.Query, only: [from: 2]
   require Logger
 
   alias Beatgrid.Integrations
   alias Beatgrid.Library
-  alias Beatgrid.Library.{Normalize, Track}
-  alias Beatgrid.Mixes.{DjPart, DjTimestamps, Mix, Segment}
+  alias Beatgrid.Library.{Normalize, TrackQuery}
+  alias Beatgrid.Mixes.{DjPart, DjTimestamps, Mix, MixQuery, Segment}
   alias Beatgrid.Repo
 
   alias Beatgrid.Workers.{
@@ -79,23 +81,13 @@ defmodule Beatgrid.Mixes do
   def create_mix(attrs), do: %Mix{} |> Mix.changeset(attrs) |> Repo.insert()
 
   @spec get_mix(binary()) :: Mix.t() | nil
-  def get_mix(id), do: Repo.get(Mix, id)
+  defdelegate get_mix(id), to: MixQuery, as: :get
 
   @spec get_with_segments(binary()) :: Mix.t() | nil
-  def get_with_segments(id) do
-    Mix
-    |> Repo.get(id)
-    |> Repo.preload(segments: from(s in Segment, order_by: [asc: s.position]))
-  end
+  defdelegate get_with_segments(id), to: MixQuery
 
   @spec list_mixes() :: [Mix.t()]
-  def list_mixes do
-    Repo.all(
-      from m in Mix,
-        order_by: [desc: m.inserted_at],
-        preload: [:segments]
-    )
-  end
+  defdelegate list_mixes, to: MixQuery, as: :list
 
   @spec create_segment(map()) :: {:ok, Segment.t()} | {:error, Ecto.Changeset.t()}
   def create_segment(attrs), do: %Segment{} |> Segment.changeset(attrs) |> Repo.insert()
@@ -144,14 +136,7 @@ defmodule Beatgrid.Mixes do
   end
 
   @spec get_with_dj_parts(binary()) :: Mix.t() | nil
-  def get_with_dj_parts(id) do
-    Mix
-    |> Repo.get(id)
-    |> Repo.preload(
-      segments: from(s in Segment, order_by: [asc: s.position]),
-      dj_parts: from(p in DjPart, order_by: [asc: p.position])
-    )
-  end
+  defdelegate get_with_dj_parts(id), to: MixQuery
 
   @spec group_by_dj([Segment.t()], [DjPart.t()]) :: [{DjPart.t() | nil, [Segment.t()]}]
   def group_by_dj(segments, dj_parts) do
@@ -197,11 +182,10 @@ defmodule Beatgrid.Mixes do
   def replace_dj_parts(%Mix{} = mix, :manual, parts, opts),
     do: do_replace_dj_parts(mix, :manual, parts, opts)
 
-  defp has_manual_dj_parts?(%Mix{id: id}),
-    do: Repo.exists?(from p in DjPart, where: p.mix_id == ^id and p.source == :manual)
+  defp has_manual_dj_parts?(%Mix{id: id}), do: MixQuery.manual_dj_parts?(id)
 
   defp do_replace_dj_parts(%Mix{id: id} = mix, source, parts, opts \\ []) do
-    segments = Repo.all(from s in Segment, where: s.mix_id == ^id, order_by: [asc: s.start_ms])
+    segments = MixQuery.segments_by_start(id)
     duration = mix.duration_ms || end_of(segments)
 
     snapped =
@@ -289,7 +273,7 @@ defmodule Beatgrid.Mixes do
   end
 
   def rename_dj_part(id, name) when is_binary(id) do
-    case Repo.get(DjPart, id) do
+    case MixQuery.get_dj_part(id) do
       nil -> {:error, :not_found}
       part -> rename_dj_part(part, name)
     end
@@ -299,7 +283,7 @@ defmodule Beatgrid.Mixes do
   def delete_dj_part(%DjPart{} = part), do: Repo.delete(part)
 
   def delete_dj_part(id) when is_binary(id) do
-    case Repo.get(DjPart, id) do
+    case MixQuery.get_dj_part(id) do
       nil -> {:error, :not_found}
       part -> Repo.delete(part)
     end
@@ -367,12 +351,7 @@ defmodule Beatgrid.Mixes do
     nt = Normalize.normalize(title)
 
     if na != "" and nt != "" do
-      Track
-      |> where([t], t.status == :present and t.norm_artist == ^na and t.norm_title == ^nt)
-      |> order_by([t], asc: t.inserted_at)
-      |> limit(1)
-      |> Repo.one()
-      |> case do
+      case TrackQuery.present_by_normalized_pair(na, nt) do
         nil -> nil
         track -> %{track_id: track.id, confidence: :high}
       end

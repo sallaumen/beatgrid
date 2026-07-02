@@ -6,10 +6,12 @@ defmodule Beatgrid.Sets do
   (`fill_section/3`) or greedily (`auto_fill/2`). A finished set exports to an
   `.m3u` playlist under `<library_root>/_Sets` that Serato/VLC read directly.
   """
-  import Ecto.Query
+  # `where` only — reads live in the query modules; the import serves the
+  # membership delete mutation below.
+  import Ecto.Query, only: [where: 3]
 
   alias Beatgrid.Library
-  alias Beatgrid.Library.Marker
+  alias Beatgrid.Library.{Marker, TrackQuery}
   alias Beatgrid.Mixing
   alias Beatgrid.Repo
   alias Beatgrid.Sets.{RecSet, RecSetQuery, SetTrack}
@@ -265,14 +267,7 @@ defmodule Beatgrid.Sets do
     end
   end
 
-  defp seed_roots_track do
-    Repo.one(
-      from t in Library.Track,
-        where: t.status == :present and t.genre_folder == "forro_roots",
-        order_by: [desc_nulls_last: t.analyzed_at],
-        limit: 1
-    )
-  end
+  defp seed_roots_track, do: TrackQuery.latest_analyzed_present("forro_roots")
 
   defp normalize_transition(attrs) do
     type = attrs["type"] || attrs[:type]
@@ -428,15 +423,7 @@ defmodule Beatgrid.Sets do
     preset = plan_preset(Keyword.get(opts, :preset, "custom"))
     exclude_styles = preset_exclude_styles(preset, opts)
 
-    avg_ms =
-      Library.Track
-      |> where([t], t.status == :present)
-      |> where([t], not is_nil(t.duration_ms) and t.duration_ms > 0)
-      |> maybe_exclude_styles(exclude_styles)
-      |> select([t], avg(t.duration_ms))
-      |> Repo.one()
-
-    track_ms = duration_ms(avg_ms)
+    track_ms = exclude_styles |> TrackQuery.avg_present_duration_ms() |> duration_ms()
 
     minutes
     |> Kernel.*(60_000)
@@ -506,12 +493,6 @@ defmodule Beatgrid.Sets do
 
   defp preset_exclude_styles(preset, opts) do
     (preset.exclude_styles ++ Keyword.get(opts, :exclude_styles, [])) |> Enum.uniq()
-  end
-
-  defp maybe_exclude_styles(query, []), do: query
-
-  defp maybe_exclude_styles(query, styles) do
-    where(query, [t], t.genre_folder not in ^styles)
   end
 
   @doc """

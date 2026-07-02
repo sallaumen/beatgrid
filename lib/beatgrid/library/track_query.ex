@@ -149,29 +149,15 @@ defmodule Beatgrid.Library.TrackQuery do
 
   defp apply_filter(q, :bpm_min, v) do
     case to_num(v) do
-      nil ->
-        q
-
-      n ->
-        where(
-          q,
-          [t, song: s],
-          fragment("coalesce(?, ?, ?)", t.bpm_manual, s.tempo_bpm, t.bpm_detected) >= ^n
-        )
+      nil -> q
+      n -> where(q, ^dynamic(^effective_bpm() >= ^n))
     end
   end
 
   defp apply_filter(q, :bpm_max, v) do
     case to_num(v) do
-      nil ->
-        q
-
-      n ->
-        where(
-          q,
-          [t, song: s],
-          fragment("coalesce(?, ?, ?)", t.bpm_manual, s.tempo_bpm, t.bpm_detected) <= ^n
-        )
+      nil -> q
+      n -> where(q, ^dynamic(^effective_bpm() <= ^n))
     end
   end
 
@@ -221,12 +207,24 @@ defmodule Beatgrid.Library.TrackQuery do
             do: Camelot.neighbors(code),
             else: [code]
 
-        where(
-          q,
-          [t, song: s],
-          fragment("coalesce(?, ?, ?)", t.camelot_manual, s.camelot, t.camelot_detected) in ^codes
-        )
+        where(q, ^dynamic(^effective_camelot() in ^codes))
     end
+  end
+
+  # Effective values: manual override → Soundcharts → locally detected. Shared by
+  # the range filters and the BPM sort so the three never drift apart.
+  defp effective_bpm do
+    dynamic(
+      [t, song: s],
+      fragment("coalesce(?, ?, ?)", t.bpm_manual, s.tempo_bpm, t.bpm_detected)
+    )
+  end
+
+  defp effective_camelot do
+    dynamic(
+      [t, song: s],
+      fragment("coalesce(?, ?, ?)", t.camelot_manual, s.camelot, t.camelot_detected)
+    )
   end
 
   @gold_view_threshold Beatgrid.Gold.view_threshold()
@@ -289,6 +287,96 @@ defmodule Beatgrid.Library.TrackQuery do
 
   defp truthy(v), do: v in [true, "true", "on", "1"]
 
+  @doc "Present tracks by the same normalized artist (excluding `except_id`), song preloaded."
+  @spec present_by_artist(String.t(), Ecto.UUID.t()) :: [Track.t()]
+  def present_by_artist(norm_artist, except_id) do
+    Track
+    |> where([t], t.status == :present and t.norm_artist == ^norm_artist)
+    |> where([t], t.id != ^except_id)
+    |> preload(:soundcharts_song)
+    |> Repo.all()
+  end
+
+  @doc "Present tracks whose normalized title contains `fragment` (excluding `except_id`), song preloaded."
+  @spec present_by_title_fragment(String.t(), Ecto.UUID.t()) :: [Track.t()]
+  def present_by_title_fragment(fragment, except_id) do
+    like = "%#{fragment}%"
+
+    Track
+    |> where([t], t.status == :present and t.id != ^except_id)
+    |> where([t], ilike(t.norm_title, ^like))
+    |> preload(:soundcharts_song)
+    |> Repo.all()
+  end
+
+  @doc "Every track already linked to a Soundcharts song, song preloaded — the backfill input."
+  @spec resolved_with_song() :: [Track.t()]
+  def resolved_with_song do
+    Track
+    |> where([t], not is_nil(t.soundcharts_song_id))
+    |> preload(:soundcharts_song)
+    |> Repo.all()
+  end
+
+  @doc """
+  Candidates for the set scorer: present, not in `exclude`, carrying at least one
+  mixing signal (Soundcharts match, detected key or detected BPM), optionally gated
+  by `:min_rating` / `:exclude_styles`, with the song preloaded.
+  """
+  @spec mixing_candidates([Ecto.UUID.t()], keyword()) :: [Track.t()]
+  def mixing_candidates(exclude, opts \\ []) do
+    Track
+    |> where([t], t.status == :present)
+    |> where([t], t.id not in ^exclude)
+    |> where(
+      [t],
+      not is_nil(t.soundcharts_song_id) or not is_nil(t.camelot_detected) or
+        not is_nil(t.bpm_detected)
+    )
+    |> min_rating(opts[:min_rating])
+    |> exclude_styles(opts[:exclude_styles])
+    |> preload(:soundcharts_song)
+    |> Repo.all()
+  end
+
+  defp min_rating(q, n) when is_integer(n), do: where(q, [t], t.rating >= ^n)
+  defp min_rating(q, _), do: q
+
+  defp exclude_styles(q, [_ | _] = keys), do: where(q, [t], t.genre_folder not in ^keys)
+  defp exclude_styles(q, _), do: q
+
+  @doc "The oldest present track exactly matching a normalized artist + title pair."
+  @spec present_by_normalized_pair(String.t(), String.t()) :: Track.t() | nil
+  def present_by_normalized_pair(norm_artist, norm_title) do
+    Track
+    |> where([t], t.status == :present)
+    |> where([t], t.norm_artist == ^norm_artist and t.norm_title == ^norm_title)
+    |> order_by([t], asc: t.inserted_at)
+    |> limit(1)
+    |> Repo.one()
+  end
+
+  @doc "Most recently analyzed present track of a genre folder — the example-set seed."
+  @spec latest_analyzed_present(String.t()) :: Track.t() | nil
+  def latest_analyzed_present(genre_folder) do
+    Track
+    |> where([t], t.status == :present and t.genre_folder == ^genre_folder)
+    |> order_by([t], desc_nulls_last: t.analyzed_at)
+    |> limit(1)
+    |> Repo.one()
+  end
+
+  @doc "Average duration (ms) of present tracks outside `excluded_styles` — set-length planning."
+  @spec avg_present_duration_ms([String.t()]) :: number() | Decimal.t() | nil
+  def avg_present_duration_ms(excluded_styles) do
+    Track
+    |> where([t], t.status == :present)
+    |> where([t], not is_nil(t.duration_ms) and t.duration_ms > 0)
+    |> exclude_styles(excluded_styles)
+    |> select([t], avg(t.duration_ms))
+    |> Repo.one()
+  end
+
   defp sorted(q, filters) do
     case filters[:sort] || filters["sort"] do
       {field, dir} -> order_by(q, ^order_terms(field, dir))
@@ -309,14 +397,7 @@ defmodule Beatgrid.Library.TrackQuery do
   defp order_terms(:loudness, :asc), do: [{nulls(:desc), dynamic([t], t.loudness_lufs)}]
   defp order_terms(:loudness, :desc), do: [{nulls(:asc), dynamic([t], t.loudness_lufs)}]
 
-  defp order_terms(:bpm, d),
-    do: [
-      {nulls(d),
-       dynamic(
-         [t, song: s],
-         fragment("coalesce(?, ?, ?)", t.bpm_manual, s.tempo_bpm, t.bpm_detected)
-       )}
-    ]
+  defp order_terms(:bpm, d), do: [{nulls(d), effective_bpm()}]
 
   # Sort the "Tom" column by the Camelot wheel, not lexically (else "10A" sorts
   # before "2A"). Order by the numeric part (1–12) extracted in SQL, then the A/B
@@ -406,4 +487,7 @@ defmodule Beatgrid.Library.TrackQuery do
     do: where(q, [t], is_nil(t.sc_attempted_at))
 
   defp reduce_opt({:order_by, order}, q), do: order_by(q, ^order)
+
+  defp reduce_opt({opt, value}, _q),
+    do: raise(Beatgrid.Query.FilterError, field: opt, value: value)
 end

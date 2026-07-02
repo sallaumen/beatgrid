@@ -33,4 +33,7 @@ defmodule Beatgrid.Library.RenameSuggestionQuery do
   defp reduce_opt({:confidence, confidence}, q), do: where(q, [s], s.confidence == ^confidence)
   defp reduce_opt({:preload, preloads}, q), do: preload(q, ^preloads)
   defp reduce_opt({:order_by, order}, q), do: order_by(q, ^order)
+
+  defp reduce_opt({opt, value}, _q),
+    do: raise(Beatgrid.Query.FilterError, field: opt, value: value)
 end
