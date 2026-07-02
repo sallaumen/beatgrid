@@ -27,6 +27,17 @@ defmodule Beatgrid.Workers.MixRecognizeWorker do
                 Beatgrid.Recognition.Audd
               )
 
+  @spec enqueue(Beatgrid.Mixes.Mix.t() | Segment.t(), keyword()) ::
+          {:ok, Oban.Job.t()} | {:error, term()}
+  def enqueue(target, opts \\ [])
+
+  def enqueue(%Beatgrid.Mixes.Mix{id: id}, opts) do
+    args = if opts[:retry_all], do: %{mix_id: id, retry_all: true}, else: %{mix_id: id}
+    args |> new() |> Oban.insert()
+  end
+
+  def enqueue(%Segment{id: id}, _opts), do: %{segment_id: id} |> new() |> Oban.insert()
+
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
     if Integrations.configured?(:audd), do: run(args), else: {:cancel, :no_credentials}

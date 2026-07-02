@@ -14,6 +14,9 @@ defmodule Beatgrid.Workers.ReResolveWorker do
   alias Beatgrid.Library.NameSync
   alias Beatgrid.Review
 
+  @spec enqueue(Ecto.UUID.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
+  def enqueue(suggestion_id), do: %{suggestion_id: suggestion_id} |> new() |> Oban.insert()
+
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"suggestion_id" => id}}) do
     case NameSync.get(id) do

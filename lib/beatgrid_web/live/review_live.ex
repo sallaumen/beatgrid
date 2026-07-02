@@ -106,7 +106,7 @@ defmodule BeatgridWeb.ReviewLive do
   def handle_event("re_resolve", %{"id" => id}, socket) do
     if Beatgrid.Integrations.configured?(:soundcharts) do
       toast =
-        case %{"suggestion_id" => id} |> ReResolveWorker.new() |> Oban.insert() do
+        case ReResolveWorker.enqueue(id) do
           {:ok, _job} -> {:resolving, %{}}
           _ -> {:error, :re_resolve}
         end
@@ -162,17 +162,10 @@ defmodule BeatgridWeb.ReviewLive do
   defp maybe_folder(args, _params), do: args
 
   defp queue_reeval(socket, args) do
-    case enqueue_reeval(args) do
+    case ReevaluateWorker.enqueue(args) do
       {:ok, _job} -> assign(socket, reeval: %{status: :queued})
       _ -> assign(socket, reeval: %{status: :error})
     end
-  end
-
-  defp enqueue_reeval(args) do
-    args
-    |> Map.put("batch_id", Uniq.UUID.uuid7())
-    |> ReevaluateWorker.new()
-    |> Oban.insert()
   end
 
   @impl true

@@ -18,15 +18,23 @@ defmodule Beatgrid.Workers.ImportWorker do
   alias Beatgrid.Library
   alias Beatgrid.Workers.EnrichWorker
 
+  @spec enqueue([map()], Ecto.UUID.t(), keyword()) :: {:ok, Oban.Job.t()} | {:error, term()}
+  def enqueue(items, batch_id, opts \\ []) do
+    %{
+      "items" => items,
+      "batch_id" => batch_id,
+      "resolve_soundcharts" => Keyword.get(opts, :resolve_soundcharts, false)
+    }
+    |> new()
+    |> Oban.insert()
+  end
+
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"items" => items, "batch_id" => bid} = args}) do
     summary = Library.import_files(items, bid)
 
     if args["resolve_soundcharts"] do
-      {:ok, _job} =
-        %{"scope" => "pending", "batch_id" => Uniq.UUID.uuid7()}
-        |> EnrichWorker.new()
-        |> Oban.insert()
+      {:ok, _job} = EnrichWorker.enqueue("pending")
     end
 
     {:ok, summary}

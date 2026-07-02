@@ -94,7 +94,7 @@ defmodule Beatgrid.Dashboard do
   end
 
   def run(:build_example_set, _opts) do
-    Oban.insert(ExampleSetWorker.new(%{}))
+    {:ok, _job} = ExampleSetWorker.enqueue()
 
     {:flash, :info,
      "Montando set de exemplo (roots): detectando marcadores + conectando… abra REC SET em ~1 min."}
@@ -169,13 +169,7 @@ defmodule Beatgrid.Dashboard do
   def run(:enrich_rare, _opts), do: enqueue_enrich("rare")
 
   def run({:fetch_gaps, folder}, _opts) do
-    Oban.insert(
-      RecommendWorker.new(%{
-        "scope" => "folder",
-        "folder" => folder,
-        "batch_id" => Uniq.UUID.uuid7()
-      })
-    )
+    {:ok, _job} = RecommendWorker.enqueue_for_folder(folder)
 
     {:ok, %{recommending?: true}}
   end
@@ -266,9 +260,7 @@ defmodule Beatgrid.Dashboard do
   end
 
   defp enqueue_enrich(scope) do
-    batch_id = Uniq.UUID.uuid7()
-
-    case Oban.insert(EnrichWorker.new(%{"scope" => scope, "batch_id" => batch_id})) do
+    case EnrichWorker.enqueue(scope) do
       {:ok, %Oban.Job{conflict?: true}} ->
         {:ok, %{youtube_note: enrich_conflict_note(scope)}}
 

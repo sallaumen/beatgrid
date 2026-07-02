@@ -29,6 +29,18 @@ defmodule Beatgrid.Workers.EnrichWorker do
   alias Beatgrid.Review
   alias Beatgrid.YouTube
 
+  @doc "Enqueues an enrich for a scope (`\"track\"` needs `id:`); stamps a batch id when absent."
+  @spec enqueue(String.t(), keyword()) :: {:ok, Oban.Job.t()} | {:error, term()}
+  def enqueue(scope, opts \\ []) do
+    %{"scope" => scope, "batch_id" => opts[:batch_id] || Uniq.UUID.uuid7()}
+    |> put_id(opts[:id])
+    |> new()
+    |> Oban.insert()
+  end
+
+  defp put_id(args, nil), do: args
+  defp put_id(args, id), do: Map.put(args, "id", id)
+
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"scope" => "track", "id" => id, "batch_id" => bid}}) do
     YouTube.broadcast_enrich(%{

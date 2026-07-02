@@ -42,7 +42,7 @@ defmodule Beatgrid.Analysis do
       [status: :present, analyzed: false]
       |> Tracks.list_by()
       |> Enum.reduce(0, fn track, acc ->
-        case Oban.insert(AnalyzeWorker.new(%{track_id: track.id})) do
+        case AnalyzeWorker.enqueue(track.id) do
           {:ok, _job} -> acc + 1
           _error -> acc
         end

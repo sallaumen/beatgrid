@@ -85,7 +85,7 @@ defmodule BeatgridWeb.TrackLive do
   end
 
   defp enqueue_analyze(socket) do
-    Oban.insert(AnalyzeWorker.new(%{track_id: socket.assigns.track.id}))
+    {:ok, _job} = AnalyzeWorker.enqueue(socket.assigns.track.id)
     assign(socket, analyzing?: true)
   end
 
@@ -206,7 +206,7 @@ defmodule BeatgridWeb.TrackLive do
     do: {:noreply, mutate_markers(socket, ms, &Tracks.set_marker_type(&1, &2, type))}
 
   def handle_event("detect_markers", _params, socket) do
-    Oban.insert(MarkerAnalyzeWorker.new(%{"track_id" => socket.assigns.track.id}))
+    {:ok, _job} = MarkerAnalyzeWorker.enqueue(socket.assigns.track.id)
 
     {:noreply,
      put_flash(socket, :info, "Detectando marcadores… (intro/saída por análise de áudio)")}
@@ -218,9 +218,7 @@ defmodule BeatgridWeb.TrackLive do
 
   def handle_event("enrich_track", _params, socket) do
     if Beatgrid.Integrations.configured?(:soundcharts) do
-      id = socket.assigns.track.id
-      bid = Uniq.UUID.uuid7()
-      Oban.insert(EnrichWorker.new(%{"scope" => "track", "id" => id, "batch_id" => bid}))
+      {:ok, _job} = EnrichWorker.enqueue("track", id: socket.assigns.track.id)
       {:noreply, assign(socket, enriching?: true, toast: nil)}
     else
       {:noreply,
@@ -233,13 +231,7 @@ defmodule BeatgridWeb.TrackLive do
   end
 
   def handle_event("fetch_matches", _params, socket) do
-    Oban.insert(
-      RecommendWorker.new(%{
-        "scope" => "track",
-        "track_id" => socket.assigns.track.id,
-        "batch_id" => Uniq.UUID.uuid7()
-      })
-    )
+    {:ok, _job} = RecommendWorker.enqueue_for_track(socket.assigns.track.id)
 
     {:noreply, assign(socket, recommending?: true)}
   end

@@ -307,13 +307,8 @@ defmodule BeatgridWeb.LibraryLive do
     else
       batch_id = Uniq.UUID.uuid7()
 
-      Oban.insert(
-        ImportWorker.new(%{
-          "items" => items,
-          "batch_id" => batch_id,
-          "resolve_soundcharts" => import_state.soundcharts
-        })
-      )
+      {:ok, _job} =
+        ImportWorker.enqueue(items, batch_id, resolve_soundcharts: import_state.soundcharts)
 
       {:noreply,
        assign(socket,

@@ -13,6 +13,9 @@ defmodule Beatgrid.Workers.MarkerAnalyzeWorker do
   alias Beatgrid.Library.Tracks
   alias Beatgrid.Markers
 
+  @spec enqueue(Ecto.UUID.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
+  def enqueue(track_id), do: %{track_id: track_id} |> new() |> Oban.insert()
+
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"track_id" => track_id}}) do
     case Tracks.get(track_id) do

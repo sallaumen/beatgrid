@@ -65,7 +65,7 @@ defmodule BeatgridWeb.MixLive do
 
     if playable?(mix) do
       {:ok, _} = Mixes.set_status(mix, :analyzing)
-      {:ok, _} = Oban.insert(MixAnalyzeWorker.new(%{mix_id: mix.id}))
+      {:ok, _} = MixAnalyzeWorker.enqueue(mix)
       {:noreply, assign(socket, mix: Mixes.get_with_dj_parts(mix.id))}
     else
       {:noreply, put_flash(socket, :error, "Áudio apagado — não dá pra reanalisar.")}

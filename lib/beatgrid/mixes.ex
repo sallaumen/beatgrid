@@ -63,7 +63,7 @@ defmodule Beatgrid.Mixes do
   def import_url(url) do
     with {:ok, source} <- detect_source(url),
          {:ok, mix} <- create_mix(%{source: source, source_url: url, status: :downloading}),
-         {:ok, _job} <- Oban.insert(MixDownloadWorker.new(%{mix_id: mix.id})) do
+         {:ok, _job} <- MixDownloadWorker.enqueue(mix) do
       {:ok, mix}
     end
   end
@@ -138,7 +138,7 @@ defmodule Beatgrid.Mixes do
   @spec redownload_audio(Mix.t()) :: {:ok, Mix.t()} | {:error, term()}
   def redownload_audio(%Mix{} = mix) do
     with {:ok, updated} <- update_mix(mix, %{status: :downloading}),
-         {:ok, _job} <- Oban.insert(MixDownloadWorker.new(%{mix_id: mix.id, restore_only: true})) do
+         {:ok, _job} <- MixDownloadWorker.enqueue(mix, restore_only: true) do
       {:ok, updated}
     end
   end
@@ -323,7 +323,7 @@ defmodule Beatgrid.Mixes do
 
     with {:ok, n} <- replace_dj_parts(mix, :chapter, parts),
          {:ok, _} <- update_mix(mix, %{chapters_role: :djs}),
-         {:ok, _} <- Oban.insert(MixAnalyzeWorker.new(%{mix_id: mix.id})) do
+         {:ok, _} <- MixAnalyzeWorker.enqueue(mix) do
       {:ok, n}
     end
   end
@@ -334,34 +334,29 @@ defmodule Beatgrid.Mixes do
   def analyze_all(%Mix{} = mix) do
     if is_binary(mix.audio_path) and is_nil(mix.audio_deleted_at) do
       {:ok, _} = set_status(mix, :analyzing)
-      Oban.insert(MixAnalyzeWorker.new(%{mix_id: mix.id, free_djs: true}))
+      MixAnalyzeWorker.enqueue(mix, free_djs: true)
     else
       {:error, :no_audio}
     end
   end
 
   @spec detect_djs_by_audio(Mix.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
-  def detect_djs_by_audio(%Mix{} = mix),
-    do: Oban.insert(MixDjAudioWorker.new(%{mix_id: mix.id}))
+  def detect_djs_by_audio(%Mix{} = mix), do: MixDjAudioWorker.enqueue(mix)
 
   @spec detect_djs_by_image(Mix.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
-  def detect_djs_by_image(%Mix{} = mix),
-    do: Oban.insert(MixDjVisionWorker.new(%{mix_id: mix.id}))
+  def detect_djs_by_image(%Mix{} = mix), do: MixDjVisionWorker.enqueue(mix)
 
   @spec recognize_unnamed(Mix.t(), boolean()) :: {:ok, Oban.Job.t()} | {:error, :no_credentials}
   def recognize_unnamed(%Mix{} = mix, retry_all \\ false) do
-    if Integrations.configured?(:audd) do
-      args = if retry_all, do: %{mix_id: mix.id, retry_all: true}, else: %{mix_id: mix.id}
-      Oban.insert(MixRecognizeWorker.new(args))
-    else
-      {:error, :no_credentials}
-    end
+    if Integrations.configured?(:audd),
+      do: MixRecognizeWorker.enqueue(mix, retry_all: retry_all),
+      else: {:error, :no_credentials}
   end
 
   @spec recognize_segment(Segment.t()) :: {:ok, Oban.Job.t()} | {:error, :no_credentials}
   def recognize_segment(%Segment{} = seg) do
     if Integrations.configured?(:audd),
-      do: Oban.insert(MixRecognizeWorker.new(%{segment_id: seg.id})),
+      do: MixRecognizeWorker.enqueue(seg),
       else: {:error, :no_credentials}
   end
 

@@ -100,7 +100,7 @@ defmodule Beatgrid.Loudness do
       [status: :present, loudness_attempted: false]
       |> Tracks.list_by()
       |> Enum.reduce(0, fn track, acc ->
-        case Oban.insert(LoudnessWorker.new(%{track_id: track.id})) do
+        case LoudnessWorker.enqueue(track.id) do
           {:ok, _job} -> acc + 1
           _error -> acc
         end
@@ -117,7 +117,7 @@ defmodule Beatgrid.Loudness do
     count =
       gain_pending()
       |> Enum.reduce(0, fn track, acc ->
-        case Oban.insert(GainApplyWorker.new(%{track_id: track.id, batch_id: batch_id})) do
+        case GainApplyWorker.enqueue(track.id, batch_id) do
           {:ok, _job} -> acc + 1
           _error -> acc
         end

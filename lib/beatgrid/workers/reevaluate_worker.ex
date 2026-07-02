@@ -10,6 +10,15 @@ defmodule Beatgrid.Workers.ReevaluateWorker do
 
   @batch 15
 
+  @doc "Enqueues a re-evaluation for the given scope args, stamping a fresh batch id."
+  @spec enqueue(map()) :: {:ok, Oban.Job.t()} | {:error, term()}
+  def enqueue(scope_args) when is_map(scope_args) do
+    scope_args
+    |> Map.put("batch_id", Uniq.UUID.uuid7())
+    |> new()
+    |> Oban.insert()
+  end
+
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"batch_id" => batch_id} = args}) do
     suggestions = Review.suggestions_for_scope(args)

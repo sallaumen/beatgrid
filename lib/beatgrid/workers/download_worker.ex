@@ -20,6 +20,18 @@ defmodule Beatgrid.Workers.DownloadWorker do
 
   alias Beatgrid.YouTube
 
+  @spec enqueue(String.t(), keyword()) :: {:ok, Oban.Job.t()} | {:error, term()}
+  def enqueue(url, opts \\ []) do
+    %{
+      url: url,
+      video_id: opts[:video_id],
+      title: opts[:title],
+      playlist_url: opts[:playlist_url]
+    }
+    |> new()
+    |> Oban.insert()
+  end
+
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"url" => url} = args}) do
     case YouTube.download_and_ingest(url, args["playlist_url"]) do

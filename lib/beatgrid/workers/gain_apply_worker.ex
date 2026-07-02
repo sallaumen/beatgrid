@@ -11,6 +11,10 @@ defmodule Beatgrid.Workers.GainApplyWorker do
   alias Beatgrid.Library.Tracks
   alias Beatgrid.Loudness
 
+  @spec enqueue(Ecto.UUID.t(), Ecto.UUID.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
+  def enqueue(track_id, batch_id),
+    do: %{track_id: track_id, batch_id: batch_id} |> new() |> Oban.insert()
+
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"track_id" => id} = args}) do
     case Tracks.get(id) do

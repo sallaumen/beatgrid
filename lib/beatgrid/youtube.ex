@@ -55,7 +55,7 @@ defmodule Beatgrid.YouTube do
 
   def enqueue(urls) when is_list(urls) do
     urls = urls |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
-    Enum.each(urls, fn url -> %{url: url} |> ExpandWorker.new() |> Oban.insert() end)
+    Enum.each(urls, fn url -> {:ok, _job} = ExpandWorker.enqueue(url) end)
     {:ok, length(urls)}
   end
 
@@ -77,9 +77,8 @@ defmodule Beatgrid.YouTube do
     playlist_url = if length(entries) > 1, do: url, else: nil
 
     Enum.each(entries, fn e ->
-      %{url: e.url, video_id: e.id, title: e.title, playlist_url: playlist_url}
-      |> DownloadWorker.new()
-      |> Oban.insert()
+      {:ok, _job} =
+        DownloadWorker.enqueue(e.url, video_id: e.id, title: e.title, playlist_url: playlist_url)
     end)
 
     broadcast_tick()
@@ -227,7 +226,7 @@ defmodule Beatgrid.YouTube do
     tracks = Enum.map(ids, &Tracks.get/1) |> Enum.reject(&is_nil/1)
 
     Enum.each(tracks, fn t ->
-      if is_nil(t.bpm_detected), do: Oban.insert(AnalyzeWorker.new(%{track_id: t.id}))
+      if is_nil(t.bpm_detected), do: AnalyzeWorker.enqueue(t.id)
     end)
 
     if tracks != [], do: ClassificationAI.reclassify(tracks: tracks)

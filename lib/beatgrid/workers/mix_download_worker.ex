@@ -19,6 +19,12 @@ defmodule Beatgrid.Workers.MixDownloadWorker do
   alias Beatgrid.Mixes
   alias Beatgrid.Workers.MixAnalyzeWorker
 
+  @spec enqueue(Beatgrid.Mixes.Mix.t(), keyword()) :: {:ok, Oban.Job.t()} | {:error, term()}
+  def enqueue(%Beatgrid.Mixes.Mix{id: id}, opts \\ []) do
+    args = if opts[:restore_only], do: %{mix_id: id, restore_only: true}, else: %{mix_id: id}
+    args |> new() |> Oban.insert()
+  end
+
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"mix_id" => mix_id} = args}) do
     case Mixes.get_mix(mix_id) do
@@ -51,7 +57,7 @@ defmodule Beatgrid.Workers.MixDownloadWorker do
 
   defp on_fetched(mix, meta, _restore_only) do
     {:ok, mix} = Mixes.update_mix(mix, Map.put(meta, :status, :analyzing))
-    {:ok, _} = Oban.insert(MixAnalyzeWorker.new(%{mix_id: mix.id}))
+    {:ok, _} = MixAnalyzeWorker.enqueue(mix)
     Mixes.broadcast(%{mix_id: mix.id, status: :analyzing})
     :ok
   end

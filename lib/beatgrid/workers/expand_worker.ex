@@ -7,6 +7,9 @@ defmodule Beatgrid.Workers.ExpandWorker do
 
   alias Beatgrid.YouTube
 
+  @spec enqueue(String.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
+  def enqueue(url), do: %{url: url} |> new() |> Oban.insert()
+
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"url" => url}}) do
     case YouTube.expand_and_enqueue(url) do

@@ -327,20 +327,21 @@ defmodule Beatgrid.LoudnessTest do
   end
 
   describe "LoudnessWorker.perform/1" do
-    test "measures + stores; no-op for a missing track id" do
+    test "measures + stores; cancels for a missing track id" do
       track = insert(:track, status: :present)
       expect(LoudnessMock, :measure, fn _ -> {:ok, %{lufs: -10.0, true_peak: -1.0, lra: 4.0}} end)
 
       assert :ok = LoudnessWorker.perform(%Oban.Job{args: %{"track_id" => track.id}})
       assert Beatgrid.Repo.get(Track, track.id).loudness_lufs == -10.0
 
-      assert :ok = LoudnessWorker.perform(%Oban.Job{args: %{"track_id" => Ecto.UUID.generate()}})
+      assert {:cancel, :track_not_found} =
+               LoudnessWorker.perform(%Oban.Job{args: %{"track_id" => Ecto.UUID.generate()}})
     end
   end
 
   describe "GainApplyWorker.perform/1" do
     @tag :tmp_dir
-    test "applies gain and no-ops for a missing track id", %{tmp_dir: root} do
+    test "applies gain and cancels for a missing track id", %{tmp_dir: root} do
       rel_path = "_Inbox/worker.mp3"
       write_library_file(root, rel_path, "original-audio")
 
@@ -362,7 +363,8 @@ defmodule Beatgrid.LoudnessTest do
       assert :ok = GainApplyWorker.perform(%Oban.Job{args: %{"track_id" => track.id}})
       assert Beatgrid.Repo.get!(Track, track.id).gain_applied_db == 6.0
 
-      assert :ok = GainApplyWorker.perform(%Oban.Job{args: %{"track_id" => Ecto.UUID.generate()}})
+      assert {:cancel, :track_not_found} =
+               GainApplyWorker.perform(%Oban.Job{args: %{"track_id" => Ecto.UUID.generate()}})
     end
   end
 

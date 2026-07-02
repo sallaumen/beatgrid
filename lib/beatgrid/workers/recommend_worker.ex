@@ -10,6 +10,20 @@ defmodule Beatgrid.Workers.RecommendWorker do
   alias Beatgrid.Repertoire
   alias Beatgrid.Repertoire.RecommendationAI
 
+  @spec enqueue_for_folder(String.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
+  def enqueue_for_folder(folder) do
+    %{"scope" => "folder", "folder" => folder, "batch_id" => Uniq.UUID.uuid7()}
+    |> new()
+    |> Oban.insert()
+  end
+
+  @spec enqueue_for_track(Ecto.UUID.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
+  def enqueue_for_track(track_id) do
+    %{"scope" => "track", "track_id" => track_id, "batch_id" => Uniq.UUID.uuid7()}
+    |> new()
+    |> Oban.insert()
+  end
+
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"scope" => "folder", "folder" => key, "batch_id" => bid}}) do
     case GenreFolders.get_by_key(key) do

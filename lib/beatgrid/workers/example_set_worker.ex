@@ -11,6 +11,9 @@ defmodule Beatgrid.Workers.ExampleSetWorker do
   alias Beatgrid.Markers
   alias Beatgrid.Sets
 
+  @spec enqueue() :: {:ok, Oban.Job.t()} | {:error, term()}
+  def enqueue, do: %{} |> new() |> Oban.insert()
+
   @impl Oban.Worker
   def perform(_job) do
     case Sets.build_example() do

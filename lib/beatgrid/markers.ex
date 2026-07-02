@@ -67,7 +67,7 @@ defmodule Beatgrid.Markers do
     count =
       unmapped_ids()
       |> Enum.reduce(0, fn id, acc ->
-        case Oban.insert(MarkerAnalyzeWorker.new(%{track_id: id})) do
+        case MarkerAnalyzeWorker.enqueue(id) do
           {:ok, _job} -> acc + 1
           _error -> acc
         end

@@ -17,6 +17,9 @@ defmodule Beatgrid.Workers.MixDjAudioWorker do
                Beatgrid.Audio.SetSegmenter.LibrosaCli
              )
 
+  @spec enqueue(Beatgrid.Mixes.Mix.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
+  def enqueue(%Beatgrid.Mixes.Mix{id: id}), do: %{mix_id: id} |> new() |> Oban.insert()
+
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"mix_id" => mix_id}}) do
     case Mixes.get_mix(mix_id) do
