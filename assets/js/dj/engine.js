@@ -51,8 +51,11 @@ const RAMP = Object.freeze({
   lowpassS: 4.0, // "afunda": low-pass sweep drowns the outgoing track
   lowpassFloorHz: 160,
   autoFireSlackMs: 15_000, // AUTO won't fire a window it is already far past
-  bendStep: 0.0035, // jog edge: rate offset per encoder tick
-  bendMax: 0.12,
+  // Jog edge nudge: strong enough to FEEL on real hardware (o BPM ao vivo na
+  // tela mostra o quanto está dobrando) and slow to settle back.
+  bendStep: 0.006,
+  bendMax: 0.16,
+  bendDecay: 0.9, // per 60ms tick — full nudge settles in ~2s
   scratchStepS: 0.006, // jog top held: seconds scrubbed per encoder tick
 })
 
@@ -908,7 +911,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     applyRate(deck)
     if (!j.decay) {
       j.decay = setInterval(() => {
-        j.bend *= 0.82
+        j.bend *= RAMP.bendDecay
         if (Math.abs(j.bend) < 0.003) {
           j.bend = 0
           clearInterval(j.decay)
@@ -1106,11 +1109,20 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     cueTo(deckId, ms) {
       const deck = decks[deckId]
       if (deck.trackId == null) return
+      // A deliberate jump past the loop end EXITS the loop — the 20ms checker
+      // must not read the landing spot as a natural overrun and snap back.
+      if (deck.loop.on && deck.loop.endMs != null && ms >= deck.loop.endMs) {
+        clearLoop(deck)
+      }
       // The cue OWNS the start position now — a stale armed to_ms must not
       // yank the deck elsewhere on the next play.
       deck._pendingSeekMs = null
       deck.whenReady(() => {
-        deck.el.currentTime = ms / 1000
+        // Never seek AT/past the end: the element would fire `ended` and the
+        // boundary logic would advance the set off a mere waveform click.
+        const durMs = (deck.el.duration || 0) * 1000
+        const clamped = durMs ? Math.min(ms, durMs - 300) : ms
+        deck.el.currentTime = Math.max(clamped, 0) / 1000
       })
     },
 

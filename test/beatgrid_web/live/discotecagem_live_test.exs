@@ -76,6 +76,10 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert html =~ "dj-tom-a"
     assert html =~ "dj-loop-b-4"
 
+    # Serato-style waveform lanes at the top of the console
+    assert html =~ "dj-wave-a"
+    assert html =~ "dj-wave-b"
+
     # AUTO starts on; toggling flips the panel's guidance and tells the engine
     assert html =~ "AUTO ligado"
     html = render_click(view, "toggle_auto", %{})
