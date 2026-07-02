@@ -83,7 +83,7 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     # AUTO starts on; toggling flips the panel's guidance and tells the engine
     assert html =~ "AUTO ligado"
     html = render_click(view, "toggle_auto", %{})
-    assert html =~ "Modo manual"
+    assert html =~ "clique dispara"
     assert_push_event(view, "dj_auto", %{on: false})
   end
 
@@ -161,7 +161,7 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert html =~ "Um"
     assert html =~ "Dois"
     assert html =~ "Próxima"
-    assert html =~ "Modo manual"
+    assert html =~ "clique dispara"
     assert Sets.entry_after(set.id, a.id).track.id == b.id
   end
 

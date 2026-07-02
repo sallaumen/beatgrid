@@ -9,52 +9,67 @@ defmodule Beatgrid.SetsConnectionsTest do
   defp with_song(track), do: Repo.preload(track, :soundcharts_song)
 
   describe "suggest_transition/2" do
-    test "crossfade with intro+outro markers and close BPM; cut when a marker is missing" do
-      a =
-        insert(:track,
-          status: :present,
-          bpm_detected: 128.0,
-          cue_points: [%{"ms" => 100_000, "type" => "outro", "source" => "auto"}]
-        )
-        |> with_song()
+    # Every suggestion track carries out+intro markers so the choice is driven by
+    # BPM/energy/key, not by the missing-marker fallback.
+    defp mixable(bpm, attrs \\ []) do
+      base = [
+        status: :present,
+        bpm_detected: bpm,
+        duration_ms: 200_000,
+        cue_points: [
+          %{"ms" => 150_000, "type" => "outro", "source" => "auto"},
+          %{"ms" => 4_000, "type" => "intro", "source" => "auto"}
+        ]
+      ]
 
-      b =
-        insert(:track,
-          status: :present,
-          bpm_detected: 130.0,
-          cue_points: [%{"ms" => 4_000, "type" => "intro", "source" => "auto"}]
-        )
-        |> with_song()
-
-      c = insert(:track, status: :present, bpm_detected: 130.0, cue_points: []) |> with_song()
-
-      t = Sets.suggest_transition(a, b)
-      assert t["type"] == "crossfade"
-      assert t["from_ms"] == 100_000
-      assert t["to_ms"] == 4_000
-
-      # No intro marker on c → cut.
-      assert Sets.suggest_transition(b, c)["type"] == "cut"
+      insert(:track, Keyword.merge(base, attrs)) |> with_song()
     end
 
-    test "echo-out when markers exist but BPMs diverge (the tail masks the tempo jump)" do
-      a =
-        insert(:track,
-          status: :present,
-          bpm_detected: 100.0,
-          cue_points: [%{"ms" => 90_000, "type" => "outro", "source" => "auto"}]
-        )
-        |> with_song()
+    test "cut when a marker is missing" do
+      a = mixable(128.0)
+      c = insert(:track, status: :present, bpm_detected: 130.0, cue_points: []) |> with_song()
+      assert Sets.suggest_transition(a, c)["type"] == "cut"
+      assert Sets.suggest_transition(a, c)["reason"] =~ "Sem marcadores"
+    end
 
-      b =
-        insert(:track,
-          status: :present,
-          bpm_detected: 145.0,
-          cue_points: [%{"ms" => 3_000, "type" => "intro", "source" => "auto"}]
-        )
-        |> with_song()
+    test "close BPM with unknown keys → crossfade, carrying its from/to markers" do
+      a = mixable(128.0)
+      b = mixable(130.0)
+      t = Sets.suggest_transition(a, b)
+      assert t["type"] == "crossfade"
+      assert t["from_ms"] == 150_000
+      assert t["to_ms"] == 4_000
+      assert t["reason"] =~ "casado"
+    end
 
+    test "a big BPM jump UP → brake (rare, dramatic); a big drop → afunda" do
+      slow = mixable(100.0)
+      fast = mixable(150.0)
+      assert Sets.suggest_transition(slow, fast)["type"] == "brake"
+      assert Sets.suggest_transition(fast, slow)["type"] == "lowpass"
+    end
+
+    test "a moderate BPM gap → echo (the tail masks the tempo change)" do
+      a = mixable(120.0)
+      b = mixable(133.0)
       assert Sets.suggest_transition(a, b)["type"] == "echo"
+    end
+
+    test "close BPM but an energy jump up → filter; energy drop → fade" do
+      hot = insert(:soundcharts_song, energy: 0.85)
+      cool = insert(:soundcharts_song, energy: 0.35)
+      a = mixable(128.0, soundcharts_song_id: cool.id) |> with_song()
+      b = mixable(130.0, soundcharts_song_id: hot.id) |> with_song()
+      assert Sets.suggest_transition(a, b)["type"] == "filter"
+      assert Sets.suggest_transition(b, a)["type"] == "fade"
+    end
+
+    test "close BPM with clashing keys → bass swap (sidesteps the harmonic clash)" do
+      clash_a = insert(:soundcharts_song, camelot: "8A", energy: 0.5)
+      clash_b = insert(:soundcharts_song, camelot: "3B", energy: 0.5)
+      a = mixable(128.0, soundcharts_song_id: clash_a.id) |> with_song()
+      b = mixable(130.0, soundcharts_song_id: clash_b.id) |> with_song()
+      assert Sets.suggest_transition(a, b)["type"] == "bass_swap"
     end
 
     test "the transition vocabulary includes the console classics, in UI order" do
@@ -137,9 +152,10 @@ defmodule Beatgrid.SetsConnectionsTest do
       assert hint.duration_ms == 180_000
       assert [%{"type" => "intro"}] = hint.markers
 
-      # the persisted outro sat mid-song (30s of 200s) — the hint clamps it to
-      # the outgoing track's back half, away from the "salto no meio" bug
-      assert hint.transition["type"] == "echo"
+      # 100→130 BPM is a +30% jump → brake (the big-jump case); the persisted
+      # outro sat mid-song (30s of 200s), so the hint clamps from_ms to the
+      # outgoing track's back half, away from the "salto no meio" bug
+      assert hint.transition["type"] == "brake"
       assert hint.transition["from_ms"] == 100_000
     end
 

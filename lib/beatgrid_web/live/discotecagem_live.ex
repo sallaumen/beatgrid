@@ -573,7 +573,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             style="background:linear-gradient(180deg,#0e0f15,#0b0c10)"
           >
             <div class="relative">
-              <canvas id="dj-wave-a" class="block w-full cursor-crosshair" style="height:56px"></canvas>
+              <canvas id="dj-wave-a" class="block w-full cursor-crosshair" style="height:44px"></canvas>
               <span
                 class="pointer-events-none absolute left-2 top-1 text-[9px] font-bold uppercase tracking-wider"
                 style="color:#8b7bf0"
@@ -582,7 +582,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               </span>
             </div>
             <div class="relative border-t border-white/5">
-              <canvas id="dj-wave-b" class="block w-full cursor-crosshair" style="height:56px"></canvas>
+              <canvas id="dj-wave-b" class="block w-full cursor-crosshair" style="height:44px"></canvas>
               <span
                 class="pointer-events-none absolute left-2 top-1 text-[9px] font-bold uppercase tracking-wider"
                 style="color:#2d9cff"
@@ -607,124 +607,127 @@ defmodule BeatgridWeb.DiscotecagemLive do
               accent="#2d9cff"
             />
           </div>
-          <section
-            class="mt-3 rounded-2xl border border-white/8 p-3"
-            style="background:linear-gradient(180deg,#11131a,#0e0f15);box-shadow:0 10px 30px rgba(0,0,0,.35)"
-          >
-            <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-              <div class="flex items-center gap-3">
-                <h2 class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
-                  Transições
-                </h2>
-                <span
-                  id="dj-tdir-wrap"
-                  phx-update="ignore"
-                  class="rounded-md bg-white/5 px-2 py-0.5 font-mono text-[11px]"
-                  title="Deck no ar (lado do crossfader) ▸ deck de destino"
-                >
-                  <span id="dj-tdir" class="text-ink-faint">—</span>
-                </span>
-              </div>
-              <p class="text-[10px] text-ink-faint">
-                {if @auto?,
-                  do:
-                    "AUTO ligado — o console dispara a transição marcada do set; um botão fura a fila na hora.",
-                  else:
-                    "Modo manual — você dispara: do deck no ar para o outro deck, na hora do clique."}
-              </p>
-            </div>
-            <div
-              id="dj-transitions"
-              phx-update="ignore"
-              class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8"
-            >
-              <button
-                :for={{key, label, desc, color} <- transition_buttons()}
-                type="button"
-                data-dj-fire={key}
-                title={desc}
-                disabled
-                class="flex flex-col items-center gap-0.5 rounded-lg border border-white/8 bg-[#101218] px-2 py-1.5 transition-all disabled:opacity-35"
-                style={"--tc:#{color}"}
+          <div class="mt-2 grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]">
+            <div class="flex min-w-0 flex-col gap-2.5">
+              <details
+                open
+                class="rounded-xl border border-white/8"
+                style="background:linear-gradient(180deg,#11131a,#0e0f15)"
               >
-                <span class="text-[10px] font-bold uppercase tracking-wider" style={"color:#{color}"}>
-                  {label}
-                </span>
-                <span class="text-[8px] leading-tight text-ink-faint">{desc}</span>
-              </button>
-            </div>
-          </section>
+                <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2">
+                  <div class="flex items-center gap-2">
+                    <span class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
+                      Transições
+                    </span>
+                    <span
+                      id="dj-tdir-wrap"
+                      phx-update="ignore"
+                      class="rounded-md bg-white/5 px-2 py-0.5 font-mono text-[11px]"
+                      title="Deck no ar (lado do crossfader) ▸ deck de destino"
+                    >
+                      <span id="dj-tdir" class="text-ink-faint">—</span>
+                    </span>
+                  </div>
+                  <span class="text-[9px] text-ink-faint">
+                    {if @auto?, do: "AUTO fura a fila", else: "clique dispara"}
+                  </span>
+                </summary>
+                <div id="dj-transitions" phx-update="ignore" class="flex flex-wrap gap-1.5 px-3 pb-3">
+                  <button
+                    :for={{key, label, desc, color} <- transition_buttons()}
+                    type="button"
+                    data-dj-fire={key}
+                    title={desc}
+                    disabled
+                    class="flex-1 rounded-lg border border-white/8 bg-[#101218] px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-35"
+                    style={"--tc:#{color};color:#{color};min-width:58px"}
+                  >
+                    {label}
+                  </button>
+                </div>
+              </details>
 
-          <section
-            class="mt-3 rounded-2xl border border-white/8 p-3"
-            style="background:linear-gradient(180deg,#11131a,#0e0f15);box-shadow:0 10px 30px rgba(0,0,0,.35)"
-          >
-            <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-              <h2 class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
-                Efeitos
-              </h2>
-              <p class="text-[10px] text-ink-faint">
-                Ao vivo, por deck — resetam quando o deck carrega outra faixa.
-              </p>
-            </div>
-            <div
-              id="dj-fx"
-              phx-update="ignore"
-              class="mt-3 grid items-stretch gap-3 lg:grid-cols-[1fr_200px_1fr]"
-            >
-              <.fx_cluster d="a" accent="#8b7bf0" />
-              <div class="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-white/6 bg-[#101218] p-3">
-                <span class="text-[9px] font-bold uppercase tracking-[0.16em] text-coral">
-                  Punch
+              <details
+                class="rounded-xl border border-white/8"
+                style="background:linear-gradient(180deg,#11131a,#0e0f15)"
+              >
+                <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2">
+                  <span class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
+                    Efeitos
+                  </span>
+                  <span class="text-[9px] text-ink-faint">filtro · eco · tom · punch ▾</span>
+                </summary>
+                <div
+                  id="dj-fx"
+                  phx-update="ignore"
+                  class="grid items-stretch gap-2 px-3 pb-3 sm:grid-cols-2"
+                >
+                  <.fx_cluster d="a" accent="#8b7bf0" />
+                  <.fx_cluster d="b" accent="#2d9cff" />
+                  <div class="flex items-center gap-2 rounded-xl border border-white/6 bg-[#101218] px-3 py-2 sm:col-span-2">
+                    <span class="text-[9px] font-bold uppercase tracking-[0.16em] text-coral">
+                      Punch
+                    </span>
+                    <input
+                      id="dj-punch"
+                      type="range"
+                      min="0"
+                      max="100"
+                      value="0"
+                      aria-label="Punch do master"
+                      class="flex-1"
+                      style="accent-color:#ff5d6c"
+                    />
+                    <span class="text-[9px] text-ink-faint">estoura o master</span>
+                  </div>
+                </div>
+              </details>
+
+              <details
+                class="rounded-xl border border-white/8"
+                style="background:linear-gradient(180deg,#11131a,#0e0f15)"
+              >
+                <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2">
+                  <span class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
+                    Controladora & fone
+                  </span>
+                  <span class={[
+                    "size-2 rounded-full",
+                    @midi.connected && "bg-green",
+                    !@midi.connected && "bg-white/20"
+                  ]}></span>
+                </summary>
+                <.midi_panel midi={@midi} />
+              </details>
+
+              <section class="rounded-xl border border-white/8 bg-surface px-3 py-2">
+                <span class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
+                  Eventos
                 </span>
-                <input
-                  id="dj-punch"
-                  type="range"
-                  min="0"
-                  max="100"
-                  value="0"
-                  aria-label="Punch do master"
-                  class="w-full"
-                  style="accent-color:#ff5d6c"
-                />
-                <span class="text-[9px] text-ink-faint">
-                  som mais estourado — comprime e engorda o master
-                </span>
-              </div>
-              <.fx_cluster d="b" accent="#2d9cff" />
+                <div
+                  id="dj-log"
+                  phx-update="ignore"
+                  class="mt-1 flex max-h-24 flex-col gap-0.5 overflow-auto font-mono text-[10px] leading-relaxed text-ink-muted"
+                >
+                  <p class="text-ink-faint">— mesa pronta —</p>
+                </div>
+              </section>
             </div>
-          </section>
+
+            <.set_rail
+              set={@set}
+              entries={@entries}
+              pointer_id={@pointer_id}
+              hint={@hint}
+              rail_tab={@rail_tab}
+              lib_query={@lib_query}
+              lib_tracks={@lib_tracks}
+            />
+          </div>
 
           <div id="dj-audio-rack" phx-update="ignore">
             <audio id="dj-audio-a" preload="auto" class="hidden"></audio>
             <audio id="dj-audio-b" preload="auto" class="hidden"></audio>
-          </div>
-        </div>
-
-        <div class="mt-3 grid items-start gap-3 lg:grid-cols-[1fr_300px]">
-          <.set_rail
-            set={@set}
-            entries={@entries}
-            pointer_id={@pointer_id}
-            hint={@hint}
-            rail_tab={@rail_tab}
-            lib_query={@lib_query}
-            lib_tracks={@lib_tracks}
-          />
-          <div class="flex flex-col gap-4">
-            <.midi_panel midi={@midi} />
-            <section class="rounded-2xl border border-white/8 bg-surface p-4">
-              <h2 class="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
-                Eventos da mesa
-              </h2>
-              <div
-                id="dj-log"
-                phx-update="ignore"
-                class="mt-2 flex max-h-44 flex-col gap-0.5 overflow-auto font-mono text-[10px] leading-relaxed text-ink-muted"
-              >
-                <p class="text-ink-faint">— mesa pronta —</p>
-              </div>
-            </section>
           </div>
         </div>
       </div>
@@ -741,6 +744,15 @@ defmodule BeatgridWeb.DiscotecagemLive do
           border-color: var(--tc);
           background: color-mix(in srgb, var(--tc) 10%, #101218);
           box-shadow: 0 0 14px color-mix(in srgb, var(--tc) 25%, transparent);
+        }
+        summary::-webkit-details-marker {
+          display: none;
+        }
+        details > summary {
+          transition: background 0.15s;
+        }
+        details > summary:hover {
+          background: rgba(255, 255, 255, 0.03);
         }
         #dj-pfl-a[data-on="true"],
         #dj-pfl-b[data-on="true"] {
@@ -800,7 +812,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 const c = byId(`dj-wave-${d}`)
                 if (!c) continue
                 c.width = Math.floor(c.clientWidth * dpr)
-                c.height = Math.floor(56 * dpr)
+                c.height = Math.floor(c.clientHeight * dpr)
               }
             }
             this.sizeWaves()
@@ -1712,7 +1724,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
     ~H"""
     <section
-      class="rounded-2xl border p-3 transition-colors"
+      class="rounded-2xl border p-2 transition-colors"
       style={"background:linear-gradient(180deg,#11131a,#0e0f15);box-shadow:0 10px 30px rgba(0,0,0,.35);border-color:#{if @active, do: @accent <> "66", else: "rgba(255,255,255,.08)"}"}
     >
       <div class="flex items-center justify-between gap-1">
@@ -1771,7 +1783,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
       <div id={"dj-client-#{@d}"} phx-update="ignore" class="mt-2">
         <div class="flex items-stretch gap-2.5">
           <div class="flex flex-1 flex-col items-center gap-2">
-            <div class="relative size-24 select-none">
+            <div class="relative size-20 select-none">
               <div
                 id={"dj-jogring-#{@d}"}
                 class="absolute inset-0 rounded-full"
@@ -1895,7 +1907,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           <div class="flex w-9 flex-col items-center gap-1">
             <span class="text-[8px] font-bold uppercase tracking-wider text-ink-faint">Pitch</span>
             <div
-              class="flex h-40 items-center justify-center rounded-md border border-white/8 bg-base px-1"
+              class="flex h-28 items-center justify-center rounded-md border border-white/8 bg-base px-1"
               style="box-shadow:inset 0 1px 3px rgba(0,0,0,.6)"
             >
               <input
@@ -1905,7 +1917,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 max="100"
                 value="50"
                 aria-label={"Pitch do deck #{String.upcase(@d)}"}
-                class="h-36 w-5 cursor-pointer appearance-none bg-transparent"
+                class="h-24 w-5 cursor-pointer appearance-none bg-transparent"
                 style={"writing-mode:vertical-lr;direction:rtl;accent-color:#{@accent}"}
               />
             </div>
@@ -2014,6 +2026,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
           {@hint.track.tag_title || @hint.track.filename}
         </p>
         <p class="truncate text-[10px] text-ink-muted">{@hint.track.tag_artist || "—"}</p>
+        <p
+          :if={@hint.transition && @hint.transition["reason"]}
+          class="mt-1 text-[9px] leading-tight text-amber/70"
+        >
+          {@hint.transition["reason"]}
+        </p>
       </div>
       <div
         :if={!@hint}
@@ -2038,9 +2056,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
     <section
       id="dj-rail-panel"
       data-tab={@rail_tab}
-      class="rounded-2xl border border-white/8 bg-surface p-4"
+      class="flex max-h-[calc(100vh-580px)] min-h-[240px] flex-col overflow-hidden rounded-2xl border border-white/8 bg-surface p-3"
     >
-      <div class="flex items-center justify-between gap-2">
+      <div class="flex shrink-0 items-center justify-between gap-2">
         <div class="flex items-center gap-1">
           <button
             :for={
@@ -2082,7 +2100,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
       <ol
         :if={@rail_tab == "fila" && @set}
         id="dj-rail"
-        class="mt-2 flex max-h-[420px] flex-col gap-1 overflow-auto pr-1"
+        class="mt-2 flex min-h-0 flex-1 flex-col gap-1 overflow-auto pr-1"
       >
         <li
           :for={e <- @entries}
@@ -2118,7 +2136,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               e.transition["type"] == "echo" && "bg-amber/15 text-amber",
               e.transition["type"] != "echo" && "bg-white/6 text-ink-muted"
             ]}
-            title="Transição de entrada desta faixa"
+            title={e.transition["reason"] || "Transição de entrada desta faixa"}
           >
             {t_label(e.transition["type"])}
           </span>
@@ -2126,8 +2144,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
         </li>
       </ol>
 
-      <div :if={@rail_tab == "biblioteca"}>
-        <form id="dj-lib-search" phx-change="search_library" class="mt-2">
+      <div :if={@rail_tab == "biblioteca"} class="flex min-h-0 flex-1 flex-col">
+        <form id="dj-lib-search" phx-change="search_library" class="mt-2 shrink-0">
           <input
             type="search"
             name="q"
@@ -2142,7 +2160,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
         <p :if={@lib_tracks == []} class="mt-3 text-[12px] text-ink-faint">
           Nenhuma faixa encontrada.
         </p>
-        <ol class="mt-2 flex max-h-[380px] flex-col gap-1 overflow-auto pr-1">
+        <ol class="mt-2 flex min-h-0 flex-1 flex-col gap-1 overflow-auto pr-1">
           <li
             :for={t <- @lib_tracks}
             data-dj-entry

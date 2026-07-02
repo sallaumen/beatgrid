@@ -259,28 +259,78 @@ defmodule Beatgrid.Sets do
   def suggest_transition(prev, this) do
     out = Marker.outro(prev)
     intro = Marker.intro(this)
-    bpm_prev = Library.effective(prev).bpm
-    bpm_this = Library.effective(this).bpm
+    a = Library.effective(prev)
+    b = Library.effective(this)
 
-    type =
-      cond do
-        is_nil(out) or is_nil(intro) -> "cut"
-        bpm_close?(bpm_prev, bpm_this) -> "crossfade"
-        true -> "echo"
-      end
+    {type, reason} = choose_transition(a, b, out, intro)
 
     %{
       "enabled" => true,
       "type" => type,
+      # Por que o console escolheu esta transição — mostrado na UI para tirar o
+      # "mistério" da remixagem automática.
+      "reason" => reason,
       "from_ms" => out && out["ms"],
       "to_ms" => (intro && intro["ms"]) || 0
     }
   end
 
-  defp bpm_close?(a, b) when is_number(a) and is_number(b) and a > 0 and b > 0,
-    do: abs(a - b) / max(a, b) <= 0.08
+  # A escolha usa três sinais — o salto de BPM (com direção), a compatibilidade
+  # de tom (Camelot) e a mudança de energia — para variar entre as sete
+  # transições em vez de cair sempre no eco. Ordem: casos dramáticos de tempo
+  # primeiro (o freio fica RARO, só em saltos grandes, como todo DJ recomenda),
+  # depois a família casada (BPM próximo) decidida por energia e harmonia.
+  defp choose_transition(a, b, out, intro) do
+    cond do
+      is_nil(out) or is_nil(intro) ->
+        {"cut", "Sem marcadores de saída/entrada — corte seco no tempo."}
 
-  defp bpm_close?(_a, _b), do: false
+      true ->
+        delta = bpm_delta(a.bpm, b.bpm)
+        harm = Mixing.harmony(a.camelot, b.camelot)
+        # nil quando qualquer faixa não tem energia do Soundcharts: sem isso,
+        # comparar energia (0–1) com um proxy de BPM daria escalas diferentes.
+        d_energy = energy_delta(a.energy, b.energy)
+
+        cond do
+          delta > 0.13 ->
+            {"brake", "Salto forte de BPM (#{pct(delta)}) — o freio de vinil marca a virada."}
+
+          delta < -0.13 ->
+            {"lowpass", "Queda forte de BPM (#{pct(delta)}) — afunda a faixa que sai."}
+
+          abs(delta) > 0.08 ->
+            {"echo", "BPMs diferentes (#{pct(delta)}) — a cauda de eco disfarça o salto."}
+
+          is_number(d_energy) and d_energy > 0.12 ->
+            {"filter", "Subindo a energia com BPM próximo — o filtro abre a entrada."}
+
+          is_number(d_energy) and d_energy < -0.12 ->
+            {"fade", "Baixando a energia — fade suave entre as faixas."}
+
+          # Compatível OU desconhecido (0.5 neutro): o mix casado é seguro.
+          harm >= 0.5 ->
+            {"crossfade", "BPMs próximos e tons compatíveis — mix casado no overlap."}
+
+          # Choque de tom detectado (vizinhos distantes na roda Camelot).
+          true ->
+            {"bass_swap", "BPMs próximos, mas tons que brigam — troca de grave evita o choque."}
+        end
+    end
+  end
+
+  # Variação relativa de BPM com sinal: >0 acelera, <0 desacelera.
+  defp bpm_delta(a, b) when is_number(a) and is_number(b) and a > 0 and b > 0, do: (b - a) / a
+  defp bpm_delta(_a, _b), do: 0.0
+
+  # Só compara energia quando AMBAS as faixas têm o valor real do Soundcharts
+  # (mesma escala 0–1, clampeado contra imports fora do intervalo); nil = pular.
+  defp energy_delta(a, b) when is_number(a) and is_number(b), do: clamp01(b) - clamp01(a)
+  defp energy_delta(_a, _b), do: nil
+
+  defp clamp01(v), do: v |> max(0.0) |> min(1.0)
+
+  defp pct(delta), do: "#{if delta > 0, do: "+", else: ""}#{round(delta * 100)}%"
 
   @doc "Suggested transitions for every consecutive pair: `[{receiving_track_id, transition}]`."
   @spec suggest_all(RecSet.t()) :: [{Ecto.UUID.t(), map()}]
@@ -336,12 +386,15 @@ defmodule Beatgrid.Sets do
 
   defp normalize_transition(attrs) do
     type = attrs["type"] || attrs[:type]
+    reason = attrs["reason"] || attrs[:reason]
 
     %{
       "enabled" => (attrs["enabled"] || attrs[:enabled]) != false,
       # An unknown type degrades to the SAFEST behavior (plain cut), never to an
       # overlap the engine would then execute with bogus parameters.
       "type" => if(type in @transition_types, do: type, else: "cut"),
+      # Preserved when the console suggested it; nil for a hand-set transition.
+      "reason" => reason,
       "from_ms" => attrs["from_ms"] || attrs[:from_ms],
       "to_ms" => attrs["to_ms"] || attrs[:to_ms] || 0
     }
