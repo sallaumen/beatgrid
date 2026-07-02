@@ -32,12 +32,14 @@ const PAD_NOTES = {
   0x12: {type: "autoloop", index: 2},
   0x13: {type: "autoloop", index: 3},
   0x14: {type: "autoloop", index: 4},
-  // Modo MANUAL (padrão 0x01/0x11/0x21/0x31 dos quatro modos de pad; se a
-  // controladora mandar outra nota, o monitor mostra o cru para calibrarmos).
-  0x21: {type: "loopctl", index: 1},
-  0x22: {type: "loopctl", index: 2},
-  0x23: {type: "loopctl", index: 3},
-  0x24: {type: "loopctl", index: 4},
+  // Modo MANUAL repropositado como TECLAS DE SEÇÃO do console: 1 Biblioteca,
+  // 2 Efeitos, 3 Transições, 4 Fila — o browse passa a navegar a seção focada
+  // e o cue level vira o knob de valor dela. (Notas no padrão 0x01/0x11/0x21/
+  // 0x31 dos quatro modos; o monitor mostra o cru se o hardware divergir.)
+  0x21: {type: "focus", index: 1},
+  0x22: {type: "focus", index: 2},
+  0x23: {type: "focus", index: 3},
+  0x24: {type: "focus", index: 4},
   0x31: {type: "sampler", index: 1},
   0x32: {type: "sampler", index: 2},
   0x33: {type: "sampler", index: 3},

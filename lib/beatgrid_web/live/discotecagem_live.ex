@@ -610,6 +610,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           <div class="mt-2 grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]">
             <div class="flex min-w-0 flex-col gap-2.5">
               <details
+                id="dj-details-trans"
                 open
                 class="rounded-xl border border-white/8"
                 style="background:linear-gradient(180deg,#11131a,#0e0f15)"
@@ -677,6 +678,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               </details>
 
               <details
+                id="dj-details-fx"
                 class="rounded-xl border border-white/8"
                 style="background:linear-gradient(180deg,#11131a,#0e0f15)"
               >
@@ -819,6 +821,17 @@ defmodule BeatgridWeb.DiscotecagemLive do
         // Ordem da paleta: pads SAMPLER da controladora disparam estas — lado
         // esquerdo as 4 primeiras, lado direito as 4 últimas.
         const PAD_TRANSITIONS = ["cut", "fade", "crossfade", "echo", "filter", "lowpass", "bass_swap", "brake"]
+        // Anel de foco dos Efeitos: o browse anda por aqui e o cue level ajusta
+        // o item focado (sliders absolutos; TOM alterna).
+        const FX_RING = [
+          {id: "dj-filter-a", label: "Filtro A", kind: "slider", min: -100, max: 100, reset: 0, set: (h, v) => h.engine.setFilter("a", v / 100)},
+          {id: "dj-echofx-a", label: "Eco A", kind: "slider", min: 0, max: 100, reset: 0, set: (h, v) => h.engine.setEchoSend("a", v / 100)},
+          {id: "dj-tom-a", label: "Tom A", kind: "toggle"},
+          {id: "dj-filter-b", label: "Filtro B", kind: "slider", min: -100, max: 100, reset: 0, set: (h, v) => h.engine.setFilter("b", v / 100)},
+          {id: "dj-echofx-b", label: "Eco B", kind: "slider", min: 0, max: 100, reset: 0, set: (h, v) => h.engine.setEchoSend("b", v / 100)},
+          {id: "dj-tom-b", label: "Tom B", kind: "toggle"},
+          {id: "dj-punch", label: "Punch", kind: "slider", min: 0, max: 100, reset: 0, set: (h, v) => h.engine.setPunch(v / 100)},
+        ]
         const byId = (id) => document.getElementById(id)
         const fmt = (ms) => {
           if (ms == null || !isFinite(ms)) return "0:00"
@@ -833,6 +846,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
             this.hint = null
             this.pendingHint = null
             this.cursor = -1
+            // Foco de seção da controladora: pads MANUAL escolhem ONDE o browse
+            // navega e o cue level ajusta. "lista" = comportamento clássico.
+            this.focus = {section: "lista", index: 0}
 
             // ── formas de onda (estilo Serato: playhead fixo, a onda corre) ──
             this.sizeWaves = () => {
@@ -990,19 +1006,20 @@ defmodule BeatgridWeb.DiscotecagemLive do
             // guardado no navegador. stopPropagation evita fechar o <details>.
             const tlen = byId("dj-tlen")
             const tnum = byId("dj-tlen-num")
-            if (tlen && tnum) {
-              const applyLen = (v) => {
-                const s = this.engine.setTransitionLength(Number(v))
-                if (isFinite(s)) {
-                  tlen.value = s
-                  tnum.value = s.toFixed(1)
-                  try {
-                    localStorage.setItem("dj-tlen", s)
-                  } catch (_e) {
-                    // modo privado / storage cheio — segue sem persistir
-                  }
+            // Exposto como método: o cue level (foco em Transições) também ajusta.
+            this.applyLen = (v) => {
+              const s = this.engine.setTransitionLength(Number(v))
+              if (isFinite(s)) {
+                if (tlen) tlen.value = s
+                if (tnum) tnum.value = s.toFixed(1)
+                try {
+                  localStorage.setItem("dj-tlen", s)
+                } catch (_e) {
+                  // modo privado / storage cheio — segue sem persistir
                 }
               }
+            }
+            if (tlen && tnum) {
               let saved = 8
               try {
                 const raw = parseFloat(localStorage.getItem("dj-tlen"))
@@ -1010,9 +1027,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
               } catch (_e) {
                 // idem
               }
-              applyLen(saved)
-              tlen.addEventListener("input", (e) => applyLen(e.target.value))
-              tnum.addEventListener("change", (e) => applyLen(e.target.value))
+              this.applyLen(saved)
+              tlen.addEventListener("input", (e) => this.applyLen(e.target.value))
+              tnum.addEventListener("change", (e) => this.applyLen(e.target.value))
               for (const el of [tlen, tnum]) {
                 el.addEventListener("click", (e) => e.stopPropagation())
                 el.addEventListener("pointerdown", (e) => e.stopPropagation())
@@ -1582,7 +1599,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 if (a.pressed) this.engine.togglePfl(a.deck)
                 break
               case "cue_gain":
-                this.engine.setCueLevel(a.value * 1.2)
+                this.applyCueKnob(a.value)
                 break
               case "hotcue": {
                 if (!a.pressed) break
@@ -1593,9 +1610,17 @@ defmodule BeatgridWeb.DiscotecagemLive do
               case "autoloop":
                 if (a.pressed) this.engine.beatLoop(a.deck, [1, 2, 4, 8][a.index - 1])
                 break
-              case "loopctl":
-                if (a.pressed)
-                  this.engine.loopControl(a.deck, ["in", "out", "toggle", "half"][a.index - 1])
+              case "focus":
+                // Pads MANUAL: 1 Biblioteca · 2 Efeitos · 3 Transições · 4 Fila.
+                if (a.pressed) {
+                  const target = [
+                    ["lista", "biblioteca"],
+                    ["efeitos", null],
+                    ["transicoes", null],
+                    ["lista", "fila"],
+                  ][a.index - 1]
+                  if (target) this.setFocusSection(target[0], target[1])
+                }
                 break
               case "jog_touch":
                 this.engine.jogTouch(a.deck, a.pressed)
@@ -1604,11 +1629,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 this.engine.jogTurn(a.deck, a.delta)
                 break
               case "browse":
-                this.moveCursor(a.delta)
+                if (this.focus.section === "lista") this.moveCursor(a.delta)
+                else this.moveFocus(a.delta)
                 break
               case "browse_press":
-                // Apertar o knob alterna Fila do set ↔ Biblioteca.
-                if (a.pressed) this.pushEvent("toggle_rail_tab", {})
+                // Ação do foco: na lista alterna Fila ↔ Biblioteca; nos efeitos
+                // alterna/zera o item; nas transições DISPARA a focada.
+                if (a.pressed) this.focusAction()
                 break
               case "load_a":
                 if (a.pressed) this.loadCursor("a")
@@ -1655,6 +1682,110 @@ defmodule BeatgridWeb.DiscotecagemLive do
             const row = rows[this.cursor]
             if (row) this.pushEvent("load_deck", {deck, track_id: row.dataset.trackId})
             else this.log("gire o browse para escolher uma faixa antes do LOAD")
+          },
+
+          // ── foco de seção (controladora sem trackpad) ──────────────────────
+
+          focusRing() {
+            if (this.focus.section === "efeitos") {
+              return FX_RING.map((f) => byId(f.id)).filter(Boolean)
+            }
+            if (this.focus.section === "transicoes") return this.fireBtns || []
+            return []
+          },
+
+          setFocusSection(name, railTab) {
+            this.clearFocusOutline()
+            this.focus = {section: name, index: 0}
+            if (railTab) this.pushEvent("rail_tab", {tab: railTab})
+            const detailsId = {efeitos: "dj-details-fx", transicoes: "dj-details-trans"}[name]
+            if (detailsId) {
+              const d = byId(detailsId)
+              if (d) d.open = true
+            }
+            this.applyFocusOutline()
+            const label = {
+              lista: railTab === "biblioteca" ? "Biblioteca" : "Fila do set",
+              efeitos: "Efeitos",
+              transicoes: "Transições",
+            }[name]
+            this.log(`foco: ${label} — browse navega, cue level ajusta`)
+          },
+
+          moveFocus(delta) {
+            const ring = this.focusRing()
+            if (!ring.length) return
+            this.focus.index = Math.min(
+              Math.max(this.focus.index + Math.sign(delta), 0),
+              ring.length - 1
+            )
+            this.applyFocusOutline()
+          },
+
+          applyFocusOutline() {
+            const ring = this.focusRing()
+            ring.forEach((el, i) => {
+              const on = i === this.focus.index
+              el.style.outline = on ? "2px solid #ffb020" : ""
+              el.style.outlineOffset = on ? "2px" : ""
+            })
+            const focused = ring[this.focus.index]
+            if (focused) focused.scrollIntoView({block: "nearest"})
+          },
+
+          clearFocusOutline() {
+            for (const el of this.focusRing()) {
+              el.style.outline = ""
+              el.style.outlineOffset = ""
+            }
+          },
+
+          // Apertar o knob do browse = "ação" do item focado.
+          focusAction() {
+            if (this.focus.section === "lista") {
+              this.pushEvent("toggle_rail_tab", {})
+              return
+            }
+            if (this.focus.section === "transicoes") {
+              const btn = (this.fireBtns || [])[this.focus.index]
+              if (btn && !btn.disabled) btn.click()
+              else this.log("transição indisponível — nada no ar ou deck vazio")
+              return
+            }
+            const spec = FX_RING[this.focus.index]
+            const el = spec && byId(spec.id)
+            if (!el) return
+            if (spec.kind === "toggle") {
+              el.click() // o listener do TOM alterna e loga sozinho
+            } else {
+              el.value = spec.reset
+              spec.set(this, spec.reset)
+              this.log(`${spec.label} zerado`)
+            }
+          },
+
+          // Cue level: volume do fone quando o foco está na lista; senão, o
+          // VALOR do item focado (efeito, ou o comprimento nas transições).
+          applyCueKnob(v) {
+            if (this.focus.section === "lista") {
+              this.engine.setCueLevel(v * 1.2)
+              return
+            }
+            if (this.focus.section === "transicoes") {
+              this.applyLen(1.5 + v * (20 - 1.5))
+              return
+            }
+            const spec = FX_RING[this.focus.index]
+            const el = spec && byId(spec.id)
+            if (!el) return
+            if (spec.kind === "toggle") {
+              const want = v >= 0.5
+              if ((el.dataset.on === "true") !== want) el.click()
+              return
+            }
+            const value = Math.round(spec.min + v * (spec.max - spec.min))
+            el.value = value
+            spec.set(this, value)
           },
         }
       </script>
@@ -2381,7 +2512,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
       <p class="mt-1 text-[10px] leading-relaxed text-ink-faint">
         Numark DJ2GO2 Touch via USB — plugue e os controles físicos passam a mexer na mesa:
         play, cue, sync, pitch, volumes, crossfader, o prato (segurar o topo = vinil na mão,
-        girar pela borda = ajuste fino), pads de cue e loop, fone e o load pelo browse.
+        girar pela borda = ajuste fino), fone e o load pelo browse. Pads: CUES = hot cues ·
+        AUTO = loops · MANUAL = seções (1 Biblioteca, 2 Efeitos, 3 Transições, 4 Fila — o
+        browse navega a seção e o cue level vira o knob de valor) · SAMPLER = as 8 transições.
       </p>
       <div
         id="dj-midi-log"
