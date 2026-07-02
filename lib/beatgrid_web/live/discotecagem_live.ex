@@ -27,9 +27,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
   import BeatgridWeb.UI
 
   alias Beatgrid.Library
+  alias Beatgrid.Library.TrackQuery
   alias Beatgrid.Library.Tracks
   alias Beatgrid.Playback
   alias Beatgrid.Sets
+
+  @library_page 50
 
   @impl true
   def mount(_params, _session, socket) do
@@ -47,6 +50,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
        auto?: true,
        pointer_id: nil,
        hint: nil,
+       hint_deck: nil,
+       rail_tab: "fila",
+       lib_query: "",
+       lib_tracks: [],
        midi: %{connected: false, name: nil}
      )}
   end
@@ -54,8 +61,15 @@ defmodule BeatgridWeb.DiscotecagemLive do
   # ── seleção e partida ────────────────────────────────────────────────────────
 
   @impl true
-  def handle_event("select_set", %{"set_id" => ""}, socket),
-    do: {:noreply, assign(socket, set: nil, entries: [])}
+  def handle_event("select_set", %{"set_id" => ""}, socket) do
+    # Sem set, a dica antiga não pode continuar armada — a reprodução segue,
+    # mas a sequência para na faixa atual.
+    {:noreply,
+     socket
+     |> assign(set: nil, entries: [])
+     |> push_event("dj_set", %{id: nil})
+     |> push_hint(nil)}
+  end
 
   def handle_event("select_set", %{"set_id" => id}, socket) do
     case Sets.get(id) do
@@ -63,10 +77,19 @@ defmodule BeatgridWeb.DiscotecagemLive do
         {:noreply, socket}
 
       set ->
-        {:noreply,
-         socket
-         |> subscribe_once(set.id)
-         |> assign(set: set, entries: Sets.entries(set))}
+        socket =
+          socket
+          |> subscribe_once(set.id)
+          |> assign(set: set, entries: Sets.entries(set))
+          |> push_event("dj_set", %{id: set.id})
+
+        # Trocar de set no meio da música: a dica armada do set antigo é
+        # substituída (ou limpa, se a faixa atual não pertence ao novo set).
+        if socket.assigns.playing? && socket.assigns.pointer_id do
+          {:noreply, push_hint(socket, Sets.entry_after(set.id, socket.assigns.pointer_id))}
+        else
+          {:noreply, socket}
+        end
     end
   end
 
@@ -116,7 +139,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
            "Deck #{String.upcase(deck)} está no ar — carregue no outro deck."
          )}
 
-      track = Tracks.get_with_song(id) ->
+      track = get_track(id) ->
         {:noreply,
          socket
          |> assign_deck(deck, track)
@@ -128,8 +151,41 @@ defmodule BeatgridWeb.DiscotecagemLive do
          })}
 
       true ->
-        {:noreply, socket}
+        {:noreply, put_flash(socket, :error, "Faixa não encontrada — atualize a lista.")}
     end
+  end
+
+  # Ejeta um deck parado (o cliente ainda recusa se estiver audível).
+  def handle_event("eject_deck", %{"deck" => deck}, socket) when deck in ["a", "b"] do
+    if socket.assigns.playing? and socket.assigns.active_deck == deck do
+      {:noreply, put_flash(socket, :error, "Deck #{String.upcase(deck)} está no ar.")}
+    else
+      {:noreply,
+       socket
+       |> assign_deck(deck, nil)
+       |> push_event("dj_eject", %{deck: deck})}
+    end
+  end
+
+  # ── fila ↔ biblioteca (o botão do browse alterna; girar navega as linhas) ──
+
+  def handle_event("rail_tab", %{"tab" => tab}, socket) when tab in ["fila", "biblioteca"],
+    do: {:noreply, socket |> assign(rail_tab: tab) |> ensure_library_loaded()}
+
+  def handle_event("toggle_rail_tab", _params, socket) do
+    tab = if socket.assigns.rail_tab == "fila", do: "biblioteca", else: "fila"
+    {:noreply, socket |> assign(rail_tab: tab) |> ensure_library_loaded()}
+  end
+
+  def handle_event("search_library", %{"q" => q}, socket),
+    do: {:noreply, assign(socket, lib_query: q, lib_tracks: search_library(q))}
+
+  # O cliente avisa quando os DOIS decks silenciaram (pausa manual, fim sem
+  # próxima, player global assumiu): o quiet mode não pode ficar preso ligado
+  # com a sala em silêncio, e um deck pausado pode receber carga.
+  def handle_event("console_idle", _params, socket) do
+    Playback.deactivate_quiet_mode()
+    {:noreply, assign(socket, playing?: false)}
   end
 
   def handle_event("toggle_auto", _params, socket) do
@@ -175,24 +231,32 @@ defmodule BeatgridWeb.DiscotecagemLive do
   def handle_event("transition_started", %{"to_track_id" => to_id, "deck" => deck}, socket) do
     socket =
       socket
-      |> assign(active_deck: deck, playing?: true, pointer_id: to_id)
+      |> assign(active_deck: deck, playing?: true)
       |> assign_deck_by_id(deck, to_id)
 
-    case socket.assigns.set do
+    # Só faixa que PERTENCE ao set vira ponteiro do set — transicionar para uma
+    # faixa avulsa da Biblioteca não pode carimbar o set no now-playing.
+    case in_set_entry(socket, to_id) do
       nil ->
         Playback.set_now_playing(%{track_id: to_id, set_id: nil})
-        {:noreply, socket}
+        {:noreply, push_hint(socket, nil)}
 
-      set ->
+      _entry ->
+        set = socket.assigns.set
         Playback.set_now_playing(%{track_id: to_id, set_id: set.id})
         Playback.activate_quiet_mode()
-        {:noreply, push_hint(socket, Sets.entry_after(set.id, to_id))}
+
+        {:noreply,
+         socket
+         |> assign(pointer_id: to_id)
+         |> push_hint(Sets.entry_after(set.id, to_id))}
     end
   end
 
-  # O cliente armou a dica num deck concreto — refletimos no cabeçalho do deck.
-  def handle_event("hint_armed", %{"deck" => deck, "track_id" => id}, socket),
-    do: {:noreply, assign_deck_by_id(socket, deck, id)}
+  # O cliente armou a dica num deck concreto — cabeçalho do deck + card Próxima.
+  def handle_event("hint_armed", %{"deck" => deck, "track_id" => id}, socket)
+      when deck in ["a", "b"],
+      do: {:noreply, socket |> assign(hint_deck: deck) |> assign_deck_by_id(deck, id)}
 
   def handle_event("track_ended", %{"track_id" => id}, socket) do
     Playback.set_now_playing(%{track_id: id, set_id: nil})
@@ -207,10 +271,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
     socket = put_flash(socket, :error, "Erro ao tocar uma faixa — pulada.")
 
     cond do
-      is_nil(set) ->
-        {:noreply, socket}
-
       deck == socket.assigns.active_deck and not is_nil(next) ->
+        # O cliente enfileira a carga se o outro deck ainda estiver soltando a
+        # rampa da transição (pendingLoad) — nada de carga recusada e silêncio.
         {:noreply,
          push_event(socket, "dj_load", %{
            deck: other_deck(deck),
@@ -220,23 +283,37 @@ defmodule BeatgridWeb.DiscotecagemLive do
          })}
 
       deck == socket.assigns.active_deck ->
+        # A faixa no ar morreu e não há próxima: o silêncio é real — o estado
+        # (e o quiet mode!) precisam refletir isso, como em track_ended.
+        Playback.set_now_playing(%{track_id: id, set_id: nil})
+        Playback.deactivate_quiet_mode()
         {:noreply, assign(socket, playing?: false, active_deck: nil, hint: nil)}
+
+      is_nil(set) ->
+        {:noreply, socket}
 
       true ->
         {:noreply, push_hint(socket, next)}
     end
   end
 
-  # Reconexão de socket: adotamos o que o cliente ainda está tocando e
-  # ressincronizamos o modo AUTO — o engine não guarda esse flag pelo socket.
-  def handle_event("console_resync", %{"playing_track_id" => id, "deck" => deck}, socket)
-      when is_binary(id) and is_binary(deck) do
-    socket = push_event(socket, "dj_auto", %{on: socket.assigns.auto?})
-    handle_event("deck_started", %{"deck" => deck, "track_id" => id}, socket)
-  end
+  # Reconexão de socket: o servidor remonta com assigns zerados, então o
+  # CLIENTE é a fonte da verdade — adota set, AUTO e a faixa que segue tocando
+  # (sem isso, o remount forçava AUTO ligado e o reabastecimento de dicas parava).
+  def handle_event("console_resync", params, socket) do
+    socket =
+      socket
+      |> adopt_resync_set(params["set_id"])
+      |> assign(auto?: params["auto"] == true)
 
-  def handle_event("console_resync", _params, socket),
-    do: {:noreply, push_event(socket, "dj_auto", %{on: socket.assigns.auto?})}
+    case params do
+      %{"playing_track_id" => id, "deck" => deck} when is_binary(id) and is_binary(deck) ->
+        handle_event("deck_started", %{"deck" => deck, "track_id" => id}, socket)
+
+      _params ->
+        {:noreply, socket}
+    end
+  end
 
   def handle_event("midi_status", params, socket) do
     {:noreply,
@@ -247,10 +324,16 @@ defmodule BeatgridWeb.DiscotecagemLive do
   # ANTES da transição disparar — a raiz do bug da festa, agora coberta.
   @impl true
   def handle_info({:set_changed, set_id}, %{assigns: %{set: %{id: set_id} = set}} = socket) do
-    socket = assign(socket, entries: Sets.entries(set))
+    old_entries = socket.assigns.entries
+    entries = Sets.entries(set)
+    socket = assign(socket, entries: entries)
 
     if socket.assigns.playing? && socket.assigns.pointer_id do
-      {:noreply, push_hint(socket, Sets.entry_after(set_id, socket.assigns.pointer_id))}
+      hint =
+        Sets.entry_after(set_id, socket.assigns.pointer_id) ||
+          removed_pointer_hint(old_entries, entries, socket.assigns.pointer_id, set_id)
+
+      {:noreply, push_hint(socket, hint)}
     else
       {:noreply, socket}
     end
@@ -259,17 +342,69 @@ defmodule BeatgridWeb.DiscotecagemLive do
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   # Saiu da página com a mesa no ar: o áudio morre junto (elementos locais),
-  # então zera o ponteiro global. Se a mesa estava parada, o player global pode
-  # estar tocando — não tocamos no ponteiro dele.
+  # então anuncia "nada tocando" para as outras telas. Se a mesa estava parada,
+  # o player global pode estar tocando — não tocamos no ponteiro dele.
   @impl true
   def terminate(_reason, %{assigns: %{playing?: true}}) do
-    Playback.reset_now_playing()
+    Playback.clear_now_playing()
     Playback.deactivate_quiet_mode()
   end
 
   def terminate(_reason, _socket), do: :ok
 
   # ── helpers ──────────────────────────────────────────────────────────────────
+
+  defp ensure_library_loaded(%{assigns: %{rail_tab: "biblioteca", lib_tracks: []}} = socket),
+    do: assign(socket, lib_tracks: search_library(socket.assigns.lib_query))
+
+  defp ensure_library_loaded(socket), do: socket
+
+  # O limite vai NA QUERY — sem ele, cada tecla materializava a biblioteca
+  # inteira (com preloads) para ficar com 50.
+  defp search_library(q) do
+    filters =
+      if q in [nil, ""], do: %{limit: @library_page}, else: %{search: q, limit: @library_page}
+
+    TrackQuery.library(filters)
+  end
+
+  # Ids vêm do cliente: um id malformado não pode derrubar a LiveView (o
+  # remount destruiria o áudio), e um id sumido vira nil, não crash.
+  defp get_track(id) when is_binary(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, _} -> Tracks.get_with_song(id)
+      :error -> nil
+    end
+  end
+
+  defp get_track(_id), do: nil
+
+  defp adopt_resync_set(socket, set_id) when is_binary(set_id) do
+    case Sets.get(set_id) do
+      nil -> socket
+      set -> socket |> subscribe_once(set.id) |> assign(set: set, entries: Sets.entries(set))
+    end
+  end
+
+  defp adopt_resync_set(socket, _set_id), do: socket
+
+  # A faixa no ar foi REMOVIDA do set no meio da música: a sucessora herda a
+  # posição dela — a dica cai para a entrada seguinte ao vizinho anterior que
+  # ainda pertence ao set, em vez de matar a sequência.
+  defp removed_pointer_hint(old_entries, entries, pointer_id, set_id) do
+    member? = fn id -> Enum.any?(entries, &(&1.track.id == id)) end
+
+    with idx when is_integer(idx) <- Enum.find_index(old_entries, &(&1.track.id == pointer_id)),
+         prev_id when is_binary(prev_id) <-
+           old_entries
+           |> Enum.take(idx)
+           |> Enum.reverse()
+           |> Enum.find_value(fn e -> if member?.(e.track.id), do: e.track.id end) do
+      Sets.entry_after(set_id, prev_id)
+    else
+      _ -> nil
+    end
+  end
 
   defp subscribe_once(socket, set_id) do
     if MapSet.member?(socket.assigns.subscribed, set_id) do
@@ -293,7 +428,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
     cond do
       current && current.id == id -> socket
-      track = Tracks.get_with_song(id) -> assign_deck(socket, deck, track)
+      track = get_track(id) -> assign_deck(socket, deck, track)
       true -> socket
     end
   end
@@ -322,7 +457,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
     if socket.assigns.hint == nil do
       socket
     else
-      socket |> assign(hint: nil) |> push_event("dj_hint_clear", %{})
+      socket |> assign(hint: nil, hint_deck: nil) |> push_event("dj_hint_clear", %{})
     end
   end
 
@@ -331,7 +466,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
       socket
     else
       socket
-      |> assign(hint: hint)
+      # hint_deck volta quando o cliente confirmar onde armou (hint_armed)
+      |> assign(hint: hint, hint_deck: nil)
       |> push_event("dj_hint", %{
         track: track_payload(hint.track),
         transition: hint.transition,
@@ -408,6 +544,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             <button
               type="button"
               phx-click="toggle_auto"
+              aria-pressed={to_string(@auto?)}
               title="Com AUTO ligado, o console dispara as transições sozinho na janela marcada."
               class={[
                 "flex h-9 items-center gap-1.5 rounded-lg border px-3 text-[11px] font-bold uppercase tracking-wider",
@@ -462,7 +599,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               active={@playing? and @active_deck == "a"}
               accent="#8b7bf0"
             />
-            <.mixer hint={@hint} playing={@playing?} />
+            <.mixer hint={@hint} hint_deck={@hint_deck} playing={@playing?} in_set={@set != nil} />
             <.deck_panel
               d="b"
               track={@deck_b}
@@ -565,7 +702,15 @@ defmodule BeatgridWeb.DiscotecagemLive do
         </div>
 
         <div class="mt-3 grid items-start gap-3 lg:grid-cols-[1fr_300px]">
-          <.set_rail set={@set} entries={@entries} pointer_id={@pointer_id} hint={@hint} />
+          <.set_rail
+            set={@set}
+            entries={@entries}
+            pointer_id={@pointer_id}
+            hint={@hint}
+            rail_tab={@rail_tab}
+            lib_query={@lib_query}
+            lib_tracks={@lib_tracks}
+          />
           <div class="flex flex-col gap-4">
             <.midi_panel midi={@midi} />
             <section class="rounded-2xl border border-white/8 bg-surface p-4">
@@ -627,6 +772,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           no_audible: "nada no ar — dê play primeiro",
           empty_target: "o outro deck está vazio",
           target_loading: "o outro deck ainda está carregando",
+          target_error: "a faixa do outro deck falhou — carregue outra",
           too_fast: "calma — uma transição acabou de disparar",
         }
         // Ordem da paleta: pads SAMPLER da controladora disparam estas — lado
@@ -705,9 +851,15 @@ defmodule BeatgridWeb.DiscotecagemLive do
                   if (on) this.log(`eco ligado — delay ${delayMs}ms`)
                 },
                 // Um deck acabou de silenciar: é a hora de armar a dica que estava
-                // esperando (dirigido a evento — funciona com a aba em segundo plano).
+                // esperando (dirigido a evento — funciona com a aba em segundo plano),
+                // reprocessar uma carga recusada, e avisar o servidor se a sala
+                // ficou em silêncio (o quiet mode não pode ficar preso ligado).
                 deckFreed: () => {
                   if (this.pendingHint) this.armHint(this.pendingHint)
+                  if (this.pendingLoad) this.retryPendingLoad()
+                  if (!this.engine.decks.a.audible() && !this.engine.decks.b.audible()) {
+                    this.pushEvent("console_idle", {})
+                  }
                 },
                 loopState: ({deck, on, startMs, endMs, beats}) => {
                   for (const b of [1, 2, 4, 8]) {
@@ -796,15 +948,28 @@ defmodule BeatgridWeb.DiscotecagemLive do
             // Depuração no console do navegador (e testes sem controladora).
             window.__djEngine = this.engine
 
-            this.handleEvent("dj_load", ({deck, track, autoplay, at_ms}) => {
-              if (!this.engine.loadDeck(deck, track, {autoplay, atMs: at_ms || 0})) {
-                this.log(`deck ${deck.toUpperCase()} está no ar — carga recusada`)
+            this.handleEvent("dj_load", (payload) => {
+              if (!this.applyLoad(payload)) {
+                // Deck ainda audível (ex.: soltando a rampa de uma transição
+                // quando o entrante deu erro): a carga fica na fila e entra
+                // assim que o deck liberar — nunca "recusada" com silêncio.
+                this.pendingLoad = payload
+                this.log(`deck ${payload.deck.toUpperCase()} ainda no ar — carga na fila`)
+              }
+            })
+            this.handleEvent("dj_set", ({id}) => {
+              this.setId = id
+            })
+            this.handleEvent("dj_eject", ({deck}) => {
+              if (!this.engine.eject(deck)) {
+                this.log(`deck ${deck.toUpperCase()} está no ar — não dá para ejetar`)
                 return
               }
-              this.tracks[deck] = track
-              this.renderDeckStatics(deck, track)
-              this.loadWave(deck, track)
-              this.log(`deck ${deck.toUpperCase()} ← ${track.title}`)
+              this.tracks[deck] = null
+              this.waves[deck] = null
+              if (this.pendingLoad && this.pendingLoad.deck === deck) this.pendingLoad = null
+              this.clearDeckStatics(deck)
+              this.log(`deck ${deck.toUpperCase()} ejetado`)
             })
             this.handleEvent("dj_hint", (hint) => this.armHint(hint))
             this.handleEvent("dj_hint_clear", () => {
@@ -820,6 +985,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               this.engine.stopAll()
               this.hint = null
               this.pendingHint = null
+              this.pendingLoad = null
             })
 
             for (const d of ["a", "b"]) {
@@ -877,6 +1043,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
             byId("dj-xfader").addEventListener("input", (e) =>
               this.engine.setCrossfader(Number(e.target.value) / 100)
             )
+            // Solta o foco ao largar o knob — o guard de activeElement travava
+            // o espelhamento das transições automáticas depois de um clique.
+            byId("dj-xfader").addEventListener("pointerup", (e) => e.target.blur())
 
             // The transitions palette: fire NOW, from the crossfader's deck
             // into the other one. Same protocol as AUTO — the server just
@@ -1012,11 +1181,15 @@ defmodule BeatgridWeb.DiscotecagemLive do
           },
 
           reconnected() {
+            // O servidor remontou zerado: manda a verdade do cliente — set,
+            // AUTO e o que segue tocando.
             const snap = this.engine.snapshot()
             const deck = snap.a.playing ? "a" : snap.b.playing ? "b" : null
             this.pushEvent("console_resync", {
               deck,
               playing_track_id: deck ? snap[deck].trackId : null,
+              auto: snap.auto,
+              set_id: this.setId || null,
             })
           },
 
@@ -1056,6 +1229,39 @@ defmodule BeatgridWeb.DiscotecagemLive do
             this.loadWave(deck, hint.track)
             this.pushEvent("hint_armed", {deck, track_id: hint.track.id})
             this.log(`próxima armada no deck ${deck.toUpperCase()}: ${hint.track.title}`)
+          },
+
+          // Executa uma carga vinda do servidor; false = deck ainda audível.
+          applyLoad({deck, track, autoplay, at_ms}) {
+            if (!this.engine.loadDeck(deck, track, {autoplay, atMs: at_ms || 0})) return false
+            this.pendingLoad = null
+            this.tracks[deck] = track
+            this.renderDeckStatics(deck, track)
+            this.loadWave(deck, track)
+            this.log(`deck ${deck.toUpperCase()} ← ${track.title}`)
+            return true
+          },
+
+          retryPendingLoad() {
+            if (this.pendingLoad) this.applyLoad(this.pendingLoad)
+          },
+
+          clearDeckStatics(d) {
+            const marks = byId(`dj-marks-${d}`)
+            if (marks) marks.innerHTML = ""
+            for (let n = 1; n <= 4; n++) {
+              const pad = byId(`dj-pad-${d}-${n}`)
+              const lab = byId(`dj-padlab-${d}-${n}`)
+              if (pad) {
+                pad.disabled = true
+                delete pad.dataset.ms
+                pad.style.borderColor = ""
+                pad.style.color = ""
+              }
+              if (lab) lab.textContent = "—"
+            }
+            const bpmEl = byId(`dj-jogbpm-${d}`)
+            if (bpmEl) bpmEl.textContent = ""
           },
 
           // Decodifica e guarda o envelope de picos; se o deck trocar de faixa
@@ -1211,6 +1417,14 @@ defmodule BeatgridWeb.DiscotecagemLive do
             }
             const icon = byId(`dj-playicon-${d}`)
             if (icon) icon.textContent = deck.audible() ? "⏸" : "▶"
+            // O pitch na tela segue o baseRate real — SYNC (botão, MIDI ou o
+            // auto-sync do xfade/grave) nunca mais deixa o fader mentindo.
+            const pitchLab = byId(`dj-pitchlab-${d}`)
+            if (pitchLab) pitchLab.textContent = `${((deck.baseRate - 1) * 100).toFixed(1)}%`
+            const pitchEl = byId(`dj-pitch-${d}`)
+            if (pitchEl && document.activeElement !== pitchEl) {
+              pitchEl.value = Math.round(((deck.baseRate - 0.92) / 0.16) * 100)
+            }
           },
 
           // UI mirror of the manual-fire palette: which direction a click would
@@ -1240,6 +1454,11 @@ defmodule BeatgridWeb.DiscotecagemLive do
             const active = snap.activeDeck
             if (!hint || !hint.transition || !active || !snap[active].playing) {
               el.textContent = "—"
+              return
+            }
+            // Com AUTO desligado ninguém vai disparar sozinho — não prometa.
+            if (!snap.auto) {
+              el.textContent = "manual"
               return
             }
             const remaining = (hint.transition.from_ms || 0) - snap[active].posMs
@@ -1312,6 +1531,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
               case "browse":
                 this.moveCursor(a.delta)
                 break
+              case "browse_press":
+                // Apertar o knob alterna Fila do set ↔ Biblioteca.
+                if (a.pressed) this.pushEvent("toggle_rail_tab", {})
+                break
               case "load_a":
                 if (a.pressed) this.loadCursor("a")
                 break
@@ -1337,15 +1560,26 @@ defmodule BeatgridWeb.DiscotecagemLive do
           },
 
           // As linhas da fila são re-renderizadas pelo servidor — o contorno do
-          // cursor MIDI é reaplicado a cada patch para não sumir.
+          // cursor MIDI é reaplicado a cada patch para não sumir. Trocar de aba
+          // (fila ↔ biblioteca) zera o cursor: a lista embaixo é outra.
           updated() {
+            const panel = byId("dj-rail-panel")
+            const tab = panel ? panel.dataset.tab : null
+            if (tab !== this._railTab) {
+              this._railTab = tab
+              this.cursor = -1
+              this.applyCursorOutline()
+              return
+            }
             if (this.cursor >= 0) this.applyCursorOutline()
           },
 
           loadCursor(deck) {
             const rows = Array.from(document.querySelectorAll("[data-dj-entry]"))
+            if (this.cursor >= rows.length) this.cursor = rows.length - 1
             const row = rows[this.cursor]
             if (row) this.pushEvent("load_deck", {deck, track_id: row.dataset.trackId})
+            else this.log("gire o browse para escolher uma faixa antes do LOAD")
           },
         }
       </script>
@@ -1520,8 +1754,18 @@ defmodule BeatgridWeb.DiscotecagemLive do
           <p class="truncate text-[10px] text-ink-muted">{@track.tag_artist || "—"}</p>
         </div>
         <p :if={!@track} class="text-[11px] text-ink-faint">
-          Deck vazio — carregue uma faixa pela fila do set.
+          Deck vazio — carregue pela fila do set ou pela Biblioteca.
         </p>
+        <button
+          :if={@track}
+          type="button"
+          phx-click="eject_deck"
+          phx-value-deck={@d}
+          title="Ejetar o deck (só quando parado)"
+          class="ml-auto flex size-5 shrink-0 items-center justify-center rounded-md text-[10px] text-ink-faint transition-colors hover:bg-white/5 hover:text-coral"
+        >
+          ✕
+        </button>
       </div>
 
       <div id={"dj-client-#{@d}"} phx-update="ignore" class="mt-2">
@@ -1674,7 +1918,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
   end
 
   attr :hint, :map, default: nil
+  attr :hint_deck, :string, default: nil
   attr :playing, :boolean, default: false
+  attr :in_set, :boolean, default: false
 
   defp mixer(assigns) do
     ~H"""
@@ -1757,7 +2003,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
       <div :if={@hint} class="mt-2 rounded-lg border border-amber/25 bg-amber/8 p-2">
         <div class="flex items-center justify-between gap-2">
           <span class="text-[9px] font-bold uppercase tracking-[0.16em] text-amber">
-            Próxima · {t_label(@hint.transition && @hint.transition["type"])}
+            Próxima · {t_label(@hint.transition && @hint.transition["type"])}{if @hint_deck,
+              do: " · deck #{String.upcase(@hint_deck)}"}
           </span>
           <span id="dj-countdown-wrap" phx-update="ignore" class="font-mono text-[10px] text-amber">
             <span id="dj-countdown">—</span>
@@ -1772,7 +2019,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
         :if={!@hint}
         class="mt-2 rounded-lg border border-white/6 p-2 text-center text-[10px] text-ink-faint"
       >
-        {if @playing, do: "Última faixa do set", else: "Sem próxima armada"}
+        {if @playing && @in_set, do: "Última faixa do set", else: "Sem próxima armada"}
       </div>
     </section>
     """
@@ -1782,28 +2029,61 @@ defmodule BeatgridWeb.DiscotecagemLive do
   attr :entries, :list, default: []
   attr :pointer_id, :string, default: nil
   attr :hint, :map, default: nil
+  attr :rail_tab, :string, default: "fila"
+  attr :lib_query, :string, default: ""
+  attr :lib_tracks, :list, default: []
 
   defp set_rail(assigns) do
     ~H"""
-    <section class="rounded-2xl border border-white/8 bg-surface p-4">
-      <div class="flex items-center justify-between">
-        <h2 class="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
-          Fila do set
-        </h2>
+    <section
+      id="dj-rail-panel"
+      data-tab={@rail_tab}
+      class="rounded-2xl border border-white/8 bg-surface p-4"
+    >
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-1">
+          <button
+            :for={
+              {tab, label} <- [
+                {"fila", fila_tab_label(@entries, @pointer_id)},
+                {"biblioteca", "Biblioteca"}
+              ]
+            }
+            type="button"
+            phx-click="rail_tab"
+            phx-value-tab={tab}
+            aria-pressed={to_string(@rail_tab == tab)}
+            title="O botão do browse na controladora alterna entre as abas"
+            class={[
+              "rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] transition-colors",
+              @rail_tab == tab && "bg-primary/15 text-primary",
+              @rail_tab != tab && "text-ink-faint hover:bg-white/5 hover:text-ink"
+            ]}
+          >
+            {label}
+          </button>
+        </div>
         <.link
-          :if={@set}
+          :if={@rail_tab == "fila" && @set}
           navigate={~p"/set/#{@set.id}"}
-          class="text-[11px] font-semibold text-primary hover:underline"
+          class="truncate text-[11px] font-semibold text-primary hover:underline"
         >
           {@set.name} ({length(@entries)})
         </.link>
+        <span :if={@rail_tab == "biblioteca"} class="text-[10px] text-ink-faint">
+          gire o browse para navegar · LOAD carrega
+        </span>
       </div>
 
-      <p :if={!@set} class="mt-3 text-[12px] text-ink-faint">
+      <p :if={@rail_tab == "fila" && !@set} class="mt-3 text-[12px] text-ink-faint">
         Escolha um set acima para montar a fila — os botões A/B carregam a faixa no deck.
       </p>
 
-      <ol :if={@set} id="dj-rail" class="mt-2 flex max-h-[420px] flex-col gap-1 overflow-auto pr-1">
+      <ol
+        :if={@rail_tab == "fila" && @set}
+        id="dj-rail"
+        class="mt-2 flex max-h-[420px] flex-col gap-1 overflow-auto pr-1"
+      >
         <li
           :for={e <- @entries}
           data-dj-entry
@@ -1842,31 +2122,102 @@ defmodule BeatgridWeb.DiscotecagemLive do
           >
             {t_label(e.transition["type"])}
           </span>
-          <div class="flex gap-1">
-            <button
-              type="button"
-              phx-click="load_deck"
-              phx-value-deck="a"
-              phx-value-track_id={e.track.id}
-              title="Carregar no deck A"
-              class="flex size-6 items-center justify-center rounded-md border border-white/10 text-[10px] font-bold text-[#8b7bf0] transition-colors hover:border-[#8b7bf0] hover:bg-[#8b7bf0]/15"
-            >
-              A
-            </button>
-            <button
-              type="button"
-              phx-click="load_deck"
-              phx-value-deck="b"
-              phx-value-track_id={e.track.id}
-              title="Carregar no deck B"
-              class="flex size-6 items-center justify-center rounded-md border border-white/10 text-[10px] font-bold text-[#2d9cff] transition-colors hover:border-[#2d9cff] hover:bg-[#2d9cff]/15"
-            >
-              B
-            </button>
-          </div>
+          <.load_buttons track_id={e.track.id} />
         </li>
       </ol>
+
+      <div :if={@rail_tab == "biblioteca"}>
+        <form id="dj-lib-search" phx-change="search_library" class="mt-2">
+          <input
+            type="search"
+            name="q"
+            value={@lib_query}
+            placeholder="Buscar na biblioteca…"
+            aria-label="Buscar na biblioteca"
+            phx-debounce="250"
+            autocomplete="off"
+            class="w-full rounded-lg border border-white/10 bg-input px-3 py-1.5 text-[12px] text-ink placeholder:text-ink-faint focus:border-primary/60 focus:outline-none"
+          />
+        </form>
+        <p :if={@lib_tracks == []} class="mt-3 text-[12px] text-ink-faint">
+          Nenhuma faixa encontrada.
+        </p>
+        <ol class="mt-2 flex max-h-[380px] flex-col gap-1 overflow-auto pr-1">
+          <li
+            :for={t <- @lib_tracks}
+            data-dj-entry
+            data-track-id={t.id}
+            class="flex items-center gap-2.5 rounded-lg border border-transparent px-2 py-1.5 hover:bg-white/3"
+          >
+            <.cover src={cover_src(t)} artist={t.tag_artist} size={28} />
+            <div class="min-w-0 flex-1">
+              <.link
+                navigate={~p"/track/#{t.id}"}
+                class="block truncate text-[12px] font-medium text-ink hover:text-primary"
+              >
+                {t.tag_title || t.filename}
+              </.link>
+              <p class="truncate text-[10px] text-ink-muted">{t.tag_artist || "—"}</p>
+            </div>
+            <span class="font-mono text-[10px] text-ink-faint">
+              {bpm_text(Library.effective(t).bpm)}
+            </span>
+            <.camelot_seal value={Library.effective(t).camelot} />
+            <span
+              :if={t.rating}
+              class="font-mono text-[10px] font-bold"
+              style={"color:#{rating_color(t.rating)}"}
+            >
+              {t.rating}
+            </span>
+            <.load_buttons track_id={t.id} />
+          </li>
+        </ol>
+        <p :if={length(@lib_tracks) >= 50} class="mt-1.5 text-center text-[10px] text-ink-faint">
+          mostrando as primeiras 50 — refine a busca para achar o resto
+        </p>
+      </div>
     </section>
+    """
+  end
+
+  # Com o set tocando, a própria aba mostra o progresso (visível mesmo com a
+  # Biblioteca aberta): "Fila 7/20".
+  defp fila_tab_label(entries, pointer_id) do
+    with true <- is_binary(pointer_id),
+         idx when is_integer(idx) <- Enum.find_index(entries, &(&1.track.id == pointer_id)) do
+      "Fila #{idx + 1}/#{length(entries)}"
+    else
+      _ -> "Fila do set"
+    end
+  end
+
+  attr :track_id, :string, required: true
+
+  defp load_buttons(assigns) do
+    ~H"""
+    <div class="flex gap-1">
+      <button
+        type="button"
+        phx-click="load_deck"
+        phx-value-deck="a"
+        phx-value-track_id={@track_id}
+        title="Carregar no deck A"
+        class="flex size-6 items-center justify-center rounded-md border border-white/10 text-[10px] font-bold text-[#8b7bf0] transition-colors hover:border-[#8b7bf0] hover:bg-[#8b7bf0]/15"
+      >
+        A
+      </button>
+      <button
+        type="button"
+        phx-click="load_deck"
+        phx-value-deck="b"
+        phx-value-track_id={@track_id}
+        title="Carregar no deck B"
+        class="flex size-6 items-center justify-center rounded-md border border-white/10 text-[10px] font-bold text-[#2d9cff] transition-colors hover:border-[#2d9cff] hover:bg-[#2d9cff]/15"
+      >
+        B
+      </button>
+    </div>
     """
   end
 

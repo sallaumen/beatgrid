@@ -111,6 +111,7 @@ class Deck {
     this.bass.gain.value = 0
 
     this.baseRate = 1 // tempo alvo (pitch fader / SYNC); o bend do jog decai para cá
+    this.vinylMode = false // TOM: pitch muda a afinação; sobrevive a SYNC/brake
     this.loop = {on: false, startMs: null, endMs: null, beats: null}
     this.dry = ctx.createGain()
     this.echoSend = ctx.createGain()
@@ -155,6 +156,7 @@ class Deck {
     // The media load algorithm resets el.playbackRate to 1 — mirror it, or the
     // first nudge/TOM toggle after a manual preload would pitch-jump.
     this.baseRate = 1
+    this._cued = false
     this.el.src = track.src
     this.el.load()
     this._pendingSeekMs = atMs
@@ -204,14 +206,14 @@ class Deck {
     if (!this.bpm || !targetBpm) return false
     const rate = targetBpm / this.bpm
     this.baseRate = Math.min(1 + SYNC_RATE_CLAMP, Math.max(1 - SYNC_RATE_CLAMP, rate))
-    this.el.preservesPitch = true
+    this.el.preservesPitch = !this.vinylMode
     this.el.playbackRate = this.baseRate
     return true
   }
 
   resetRate() {
     this.baseRate = 1
-    this.el.preservesPitch = true
+    this.el.preservesPitch = !this.vinylMode
     this.el.playbackRate = 1
   }
 
@@ -431,7 +433,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       const hint = state.hint
       const other = decks[otherId(deck.id)]
 
-      if (state.autoOn && hint && decks[hint.deck].trackId != null) {
+      if (state.autoOn && hintFireable(hint)) {
         // The outgoing deck is ALREADY silent here — running the marked
         // transition (an 8s crossfade from a dead deck…) would be seconds of
         // near-silence. End of track always advances with a cut.
@@ -461,6 +463,14 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     })
   }
 
+  // A hint deck can only RECEIVE a transition when its media is actually
+  // playable — firing into a still-buffering or errored deck is dead air.
+  function hintFireable(hint) {
+    if (!hint) return false
+    const target = decks[hint.deck]
+    return target.trackId != null && target.ready() && !target.el.error
+  }
+
   function maybeFire(deck) {
     const hint = state.hint
     if (!state.autoOn || !hint || deck.id !== state.activeDeck) return
@@ -468,6 +478,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // silent) deck must never be the source of an automatic transition.
     if (!deck.audible() || jog[deck.id].held) return
     if (!hint.transition) return // sequential entries advance on `ended`
+    if (!hintFireable(hint)) return // waits; the ended fallback still covers it
 
     const fromMs = clampFromMs(hint.transition["from_ms"], deck)
     const pos = deck.positionMs()
@@ -559,10 +570,12 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   // Start the incoming deck — unless it is already in the mix (manual fire with
-  // both decks running): never seek or restart something audible.
+  // both decks running): never seek or restart something audible. A deck the
+  // DJ re-cued by hand keeps ITS position — the plan's to_ms is discarded.
   function startIncoming(to, toMs) {
     if (to.audible()) return
-    to.play(toMs)
+    to.play(to._cued ? null : toMs)
+    to._cued = false
   }
 
   // Incoming gain rise: from silence when the deck is idle; from its CURRENT
@@ -598,7 +611,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   function crossfade(from, to, toMs, token) {
-    if (from.bpm) to.syncTo(from.bpm * from.el.playbackRate)
+    // baseRate, not playbackRate: a transient jog bend (or mid-brake rate)
+    // must never become the incoming track's permanent tempo.
+    if (from.bpm) to.syncTo(from.bpm * from.baseRate)
     startIncoming(to, toMs)
     setXfadeTo(sideOf(to.id), RAMP.crossfadeS)
 
@@ -617,7 +632,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     const delayS = bpm ? (60 / bpm) * 0.75 : RAMP.echoFallbackDelayMs / 1000
     const tailS = bpm ? (60 / bpm) * RAMP.echoTailBeats : RAMP.echoFallbackTailS
 
-    from.delay.delayTime.setValueAtTime(Math.min(delayS, 2.0), now)
+    // Glide, don't step: an instant delayTime change while the feedback loop
+    // holds energy clicks/warbles on air.
+    from.delay.delayTime.setTargetAtTime(Math.min(delayS, 2.0), now, 0.03)
     from.echoSend.gain.linearRampToValueAtTime(RAMP.echoWetLevel, now + RAMP.echoWetUpS)
     from.dry.gain.linearRampToValueAtTime(0, now + RAMP.echoDryDownS)
 
@@ -687,7 +704,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // the low end changes hands in one fast move — the forró/house handover.
   function bassSwap(from, to, toMs, token) {
     const now = ctx.currentTime
-    if (from.bpm) to.syncTo(from.bpm * from.el.playbackRate)
+    if (from.bpm) to.syncTo(from.bpm * from.baseRate)
 
     // Bodiless entry: instant when the deck is idle, a fast dip when the DJ
     // already has it playing (never a hard jump on something audible).
@@ -780,6 +797,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     deck.settleParam(deck.bass.gain)
     deck.bass.gain.setValueAtTime(0, now)
     clearLoop(deck)
+    deck.vinylMode = false
     deck.resetRate()
     emit("fxReset", {deck: deck.id})
   }
@@ -824,31 +842,35 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     }, seconds * 1000 + 60)
   }
 
+  // Manual takeover of an automating param: cancelScheduledValues alone ROLLS
+  // BACK to the pre-ramp value (an audible snap mid-transition) — pin the
+  // currently-heard value first, then glide to the hand's target.
+  function takeOver(param, target, tau) {
+    const now = ctx.currentTime
+    const current = param.value
+    param.cancelScheduledValues(now)
+    param.setValueAtTime(current, now)
+    param.setTargetAtTime(target, now, tau)
+  }
+
   // Manual gesture (UI or MIDI): cancel any automated glide and take over.
   function setCrossfader(pos) {
     xfadeGlide++
     cancelAnimationFrame(xfadeAnim)
     xfade.pos = Math.min(Math.max(pos, 0), 1)
     const g2 = equalPower(xfade.pos)
-    const now = ctx.currentTime
     for (const side of ["a", "b"]) {
-      xfade[side].gain.cancelScheduledValues(now)
-      xfade[side].gain.setTargetAtTime(g2[side], now, RAMP.manualFaderTau)
+      takeOver(xfade[side].gain, g2[side], RAMP.manualFaderTau)
     }
     emit("xfadePos", {pos: xfade.pos, automated: false})
   }
 
   function setDeckLevel(deckId, value) {
-    const deck = decks[deckId]
-    const now = ctx.currentTime
-    deck.gain.gain.cancelScheduledValues(now)
-    deck.gain.gain.setTargetAtTime(Math.min(Math.max(value, 0), 1), now, RAMP.manualFaderTau)
+    takeOver(decks[deckId].gain.gain, Math.min(Math.max(value, 0), 1), RAMP.manualFaderTau)
   }
 
   function setMasterLevel(value) {
-    const now = ctx.currentTime
-    master.gain.cancelScheduledValues(now)
-    master.gain.setTargetAtTime(Math.min(Math.max(value, 0), 1.2), now, RAMP.manualFaderTau)
+    takeOver(master.gain, Math.min(Math.max(value, 0), 1.2), RAMP.manualFaderTau)
   }
 
   // ── jog wheel: top touch = vinyl hold/scratch; edge turn = pitch bend ───────
@@ -941,11 +963,17 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       const loop = deck.loop
       if (!loop.on || loop.endMs == null) return
       const pos = deck.positionMs()
-      if (pos >= loop.endMs && pos <= loop.endMs + 400) {
-        // Natural overrun of the loop edge: wrap.
+      const last = loop._lastPos
+      loop._lastPos = pos
+      if (pos < loop.endMs) return
+      // Natural overrun = we CROSSED the edge playing (small forward step —
+      // robust to interval throttling); anything else was a deliberate seek,
+      // and a loop must never fence the track.
+      const crossed = last != null && last < loop.endMs && pos - last < 1500
+      if (crossed || pos <= loop.endMs + 400) {
         deck.el.currentTime = loop.startMs / 1000
-      } else if (pos > loop.endMs + 400) {
-        // The DJ deliberately seeked past the loop — it must not fence the track.
+        loop._lastPos = loop.startMs
+      } else {
         clearLoop(deck)
       }
     }, 20)
@@ -1082,6 +1110,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       if (!fromId) return {ok: false, reason: "no_audible"}
       const to = decks[otherId(fromId)]
       if (to.trackId == null) return {ok: false, reason: "empty_target"}
+      if (to.el.error) return {ok: false, reason: "target_error"}
       if (!to.audible() && !to.ready()) return {ok: false, reason: "target_loading"}
       this.resume()
       fireTransition(decks[fromId], to, {type: type, to_ms: null}, "manual")
@@ -1090,15 +1119,22 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
     playPause(deckId) {
       const deck = decks[deckId]
+      if (jog[deckId].held) return // nunca dar play embaixo da mão do DJ
       this.resume()
       if (deck.audible()) {
         deck.pause()
       } else if (deck.trackId) {
         // Manual restart takes ownership: cancel stale transition cleanups and
-        // rescue a gain an interrupted ramp may have stranded near zero.
+        // resume with a SANE chain — a stop mid-echo/filter may have frozen
+        // dry at zero or the filter swept; resuming must always sound clean.
         state.transitionToken++
-        deck.settleGain(deck.gain)
-        if (deck.gain.gain.value < 0.05) deck.gain.gain.setValueAtTime(1, ctx.currentTime)
+        settleTransitionParams(deck)
+        const now = ctx.currentTime
+        if (deck.gain.gain.value < 0.05) deck.gain.gain.setValueAtTime(1, now)
+        deck.dry.gain.linearRampToValueAtTime(1, now + 0.2)
+        deck.echoSend.gain.linearRampToValueAtTime(0, now + 0.2)
+        deck.hpf.frequency.linearRampToValueAtTime(10, now + 0.15)
+        deck.lpf.frequency.linearRampToValueAtTime(20_000, now + 0.15)
         deck.play()
         state.activeDeck = deckId
         state.firedForTrack = null
@@ -1114,9 +1150,10 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       if (deck.loop.on && deck.loop.endMs != null && ms >= deck.loop.endMs) {
         clearLoop(deck)
       }
-      // The cue OWNS the start position now — a stale armed to_ms must not
-      // yank the deck elsewhere on the next play.
+      // The cue OWNS the start position now — neither a stale armed to_ms nor
+      // an auto-fired transition may yank the deck elsewhere afterwards.
       deck._pendingSeekMs = null
+      deck._cued = true
       deck.whenReady(() => {
         // Never seek AT/past the end: the element would fire `ended` and the
         // boundary logic would advance the set off a mere waveform click.
@@ -1140,7 +1177,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
     sync(deckId) {
       const other = decks[otherId(deckId)]
-      return decks[deckId].syncTo(other.bpm ? other.bpm * other.el.playbackRate : null)
+      return decks[deckId].syncTo(other.bpm ? other.bpm * other.baseRate : null)
     },
 
     setRate(deckId, rate) {
@@ -1173,10 +1210,26 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     },
 
     // Modo TOM (vinil): o pitch passa a mudar a afinação junto com o tempo.
+    // O flag persiste por SYNC/freio — só o reset da cadeia (novo load) desliga.
     setVinylMode(deckId, on) {
       const deck = decks[deckId]
+      deck.vinylMode = on
       deck.el.preservesPitch = !on
       applyRate(deck)
+    },
+
+    // Ejeta um deck parado: solta a mídia e zera a cadeia. Recusado no ar.
+    eject(deckId) {
+      const deck = decks[deckId]
+      if (deck.audible() || jog[deckId].held) return false
+      deck.trackId = null
+      deck.bpm = null
+      deck.durationMs = null
+      deck.el.removeAttribute("src")
+      deck.el.load()
+      resetChain(deck)
+      if (state.hint && state.hint.deck === deckId) state.hint = null
+      return true
     },
 
     // PUNCH ("estourado"): abaixa o threshold e sobe o drive juntos — em 0 o
@@ -1238,22 +1291,35 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       state.transitionToken++ // no in-flight cleanup may outlive a stop
       decks.a.pause()
       decks.b.pause()
+      // Full clean stop: no frozen mid-transition FX, no ghost resume from a
+      // jog release, chips/sliders told via the resetChain events.
+      for (const d of ["a", "b"]) {
+        jog[d].wasPlaying = false
+        cancelBend(d)
+        resetChain(decks[d])
+      }
       state.activeDeck = null
       state.hint = null
     },
 
     // Pause without losing state — used when another audio source (o player
-    // global) takes over; loads and the armed hint survive.
+    // global) takes over; loads and the armed hint survive. Params settle at
+    // their CURRENT values; resuming via playPause re-sanitizes the chain.
     pauseAll() {
       state.transitionToken++
       decks.a.pause()
       decks.b.pause()
+      for (const d of ["a", "b"]) {
+        jog[d].wasPlaying = false
+        settleTransitionParams(decks[d])
+      }
     },
 
     snapshot() {
       return {
         activeDeck: state.activeDeck,
         audibleDeck: audibleDeckId(),
+        auto: state.autoOn,
         xfadePos: xfade.pos,
         a: {trackId: decks.a.trackId, posMs: decks.a.positionMs(), playing: decks.a.audible()},
         b: {trackId: decks.b.trackId, posMs: decks.b.positionMs(), playing: decks.b.audible()},
