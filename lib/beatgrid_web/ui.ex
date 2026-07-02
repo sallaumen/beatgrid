@@ -519,6 +519,13 @@ defmodule BeatgridWeb.UI do
             href: "/"
           },
           %{key: :sets, label: "Sets", short: "SET", icon: "hero-queue-list", href: "/set"},
+          %{
+            key: :discotecagem,
+            label: "Discotecagem",
+            short: "DJC",
+            icon: "hero-adjustments-vertical",
+            href: "/discotecagem"
+          },
           %{key: :painel, label: "Painel", short: "PNL", icon: "hero-chart-bar", href: "/painel"}
         ]
       },
