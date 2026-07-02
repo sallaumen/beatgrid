@@ -15,7 +15,7 @@ defmodule Beatgrid.Workers.GainApplyWorker do
   def perform(%Oban.Job{args: %{"track_id" => id} = args}) do
     case Tracks.get(id) do
       nil ->
-        :ok
+        {:cancel, :track_not_found}
 
       track ->
         with {:ok, _track} <- Loudness.apply_gain(track, gain_opts(args)) do

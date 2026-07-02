@@ -57,7 +57,7 @@ defmodule Beatgrid.Workers.MixRecognizeWorkerTest do
     assert seg.matched_track_id == track.id
   end
 
-  test "no token -> :ok without calling the recognizer" do
+  test "no token -> cancels without calling the recognizer" do
     Application.put_env(:beatgrid, Beatgrid.Recognition.Audd, api_token: nil)
     mix = insert(:mix, audio_path: "/tmp/_Mixes/x.mp3")
 
@@ -70,7 +70,7 @@ defmodule Beatgrid.Workers.MixRecognizeWorkerTest do
       title: nil
     )
 
-    assert :ok = perform_job(MixRecognizeWorker, %{mix_id: mix.id})
+    assert {:cancel, :no_credentials} = perform_job(MixRecognizeWorker, %{mix_id: mix.id})
   end
 
   test "segment_id job on an already-named segment is a no-op (never overwrites)" do

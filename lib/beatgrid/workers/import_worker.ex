@@ -23,9 +23,10 @@ defmodule Beatgrid.Workers.ImportWorker do
     summary = Library.import_files(items, bid)
 
     if args["resolve_soundcharts"] do
-      %{"scope" => "pending", "batch_id" => Uniq.UUID.uuid7()}
-      |> EnrichWorker.new()
-      |> Oban.insert()
+      {:ok, _job} =
+        %{"scope" => "pending", "batch_id" => Uniq.UUID.uuid7()}
+        |> EnrichWorker.new()
+        |> Oban.insert()
     end
 
     {:ok, summary}

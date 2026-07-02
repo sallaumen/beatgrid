@@ -23,7 +23,7 @@ defmodule Beatgrid.Workers.MixDownloadWorker do
   def perform(%Oban.Job{args: %{"mix_id" => mix_id} = args}) do
     case Mixes.get_mix(mix_id) do
       nil ->
-        :ok
+        {:cancel, :mix_not_found}
 
       mix ->
         dest = Path.join(Library.library_root(), "_Mixes")

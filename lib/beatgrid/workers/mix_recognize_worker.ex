@@ -29,7 +29,7 @@ defmodule Beatgrid.Workers.MixRecognizeWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
-    if Integrations.configured?(:audd), do: run(args), else: :ok
+    if Integrations.configured?(:audd), do: run(args), else: {:cancel, :no_credentials}
   end
 
   # Manual single segment: always (re-)attempt it, even if previously tried — the user asked.
@@ -42,7 +42,7 @@ defmodule Beatgrid.Workers.MixRecognizeWorker do
         :ok
 
       _ ->
-        :ok
+        {:cancel, :audio_unavailable}
     end
   end
 
@@ -77,7 +77,7 @@ defmodule Beatgrid.Workers.MixRecognizeWorker do
         :ok
 
       _ ->
-        :ok
+        {:cancel, :audio_unavailable}
     end
   end
 

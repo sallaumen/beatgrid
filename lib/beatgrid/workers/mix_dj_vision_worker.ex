@@ -23,8 +23,8 @@ defmodule Beatgrid.Workers.MixDjVisionWorker do
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"mix_id" => mix_id}} = job) do
     case Mixes.get_mix(mix_id) do
-      nil -> :ok
-      %{duration_ms: nil} -> :ok
+      nil -> {:cancel, :mix_not_found}
+      %{duration_ms: nil} -> {:cancel, :no_duration}
       mix -> run(mix, job)
     end
   end

@@ -20,8 +20,8 @@ defmodule Beatgrid.Workers.MixDjAudioWorker do
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"mix_id" => mix_id}}) do
     case Mixes.get_mix(mix_id) do
-      nil -> :ok
-      %{audio_path: nil} -> :ok
+      nil -> {:cancel, :mix_not_found}
+      %{audio_path: nil} -> {:cancel, :no_audio}
       mix -> run_detection(mix)
     end
   end
@@ -40,7 +40,7 @@ defmodule Beatgrid.Workers.MixDjAudioWorker do
         :ok
 
       {:error, :manual_present} ->
-        :ok
+        {:cancel, :manual_present}
     end
   end
 end

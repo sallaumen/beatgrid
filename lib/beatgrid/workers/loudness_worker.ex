@@ -17,7 +17,7 @@ defmodule Beatgrid.Workers.LoudnessWorker do
   def perform(%Oban.Job{args: %{"track_id" => id}}) do
     case Tracks.get(id) do
       nil ->
-        :ok
+        {:cancel, :track_not_found}
 
       track ->
         with {:ok, _track} <- Loudness.measure_track(track) do
