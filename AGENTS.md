@@ -51,6 +51,18 @@ for *what* we are building and *why*. This file is *how* to build it.
   Applied moves are reversible (undo) via the same table.
 - **Import copies, never moves.** Pulling tracks from the original SpotiDownloader
   folders into the library copies them; the originals stay as backup.
+- **AudD is paid per call.** Recognition (`Beatgrid.Recognition`) runs only from an
+  explicit button click, serially and throttled; a no-match stamps
+  `audd_attempted_at` so it is never re-paid for the same segment.
+- **Gain writes are backed up.** Applying loudness gain copies the original file to
+  `_Backups/Gain/<track>/<batch>/` first and records a reversible `:gain` operation —
+  the batch is undoable from the Painel.
+- **Quiet mode.** Active playback pauses Oban's background work
+  (`Beatgrid.Playback.QuietMode`) so ffmpeg/librosa never stutter a live set.
+- **Worker error semantics.** `{:cancel, reason}` for permanent failures (missing
+  entity, missing audio, no credentials); `{:error, reason}` for transient ones;
+  snooze on budget exhaustion. Every worker exposes its own `enqueue/…` wrapper —
+  callers never hand-build `Worker.new` args.
 
 ## Scope decisions (what we are and aren't building in v1)
 
@@ -73,28 +85,33 @@ wrapped `Beatgrid.Repo`, `Repo.transact/1`, `Ecto.Enum`, UUID v7 PKs, idempotent
 concurrent-index migrations, Oban worker conventions (args = IDs, `enqueue/1`,
 uniqueness), the testing matrix, and the code-style rules in playbook file `09`.
 
-## Integration ports (the two that matter)
+## Integration ports
 
-- **`Beatgrid.Soundcharts`** — behaviour + `Beatgrid.Soundcharts.Http` (Req) adapter
-  + `Beatgrid.Soundcharts.Mock`. Budget-guarded; caches into `soundcharts_songs` /
-  `soundcharts_artists`; logs every call to `api_calls`.
-- **`Beatgrid.AI`** — behaviour (`classify_track/1`, `suggest_gaps/1`) with three
-  adapters selected by config:
-  - `Beatgrid.AI.ClaudeCli` (**default**): shells out to the official `claude`
-    CLI in headless mode (`claude -p <prompt> --output-format json --json-schema
-    <schema> --model <model>`). Uses the user's existing Claude login (Max plan),
-    no API key. This is first-party Claude Code usage — ToS-compliant. We do
-    **not** extract or reuse OAuth tokens in a third-party client (that is banned).
-  - `Beatgrid.AI.AnthropicApi` (alternative): raw HTTP via Req to
-    `https://api.anthropic.com/v1/messages` with `x-api-key` (Elixir has no
-    official Anthropic SDK; raw HTTP is the supported path). Model + structured
-    output via `output_config.format`.
-  - `Beatgrid.AI.Mock` (test).
-  - Model is config (`:beatgrid, Beatgrid.AI, model: ...`); default a cheap/fast model
-    for bulk classification, switchable per the user's preference.
-- **`Beatgrid.Audio`** — behaviour + `Beatgrid.Audio.Ffprobe` adapter (reads tags,
-  bitrate, duration via `ffprobe`) + mock. ID3 *writes* (genre enrichment) go
-  through `ffmpeg -c copy`.
+Every external tool/service is a behaviour + a config-selected adapter + a Mox
+mock (see `config/config.exs` for the wiring and `test/support/mocks.ex` for the
+mocks — those two files are the ground truth). The current ports:
+
+| Port | Real adapter | Talks to |
+| --- | --- | --- |
+| `Beatgrid.Audio` | `Audio.Ffprobe` | `ffprobe` (tags, bitrate, duration) |
+| `Beatgrid.Soundcharts.Client` | `Soundcharts.Http` (Req) | Soundcharts API (budget-guarded, cached, logged to `api_calls`) |
+| `Beatgrid.AI.Client` | `AI.ClaudeCli` | `claude` CLI headless (Max plan, ToS-compliant — never reuse OAuth tokens in a third-party client) |
+| `Beatgrid.Tagging.Writer` | `Tagging.Ffmpeg` | `ffmpeg -c copy` (ID3 genre write-back) |
+| `Beatgrid.Audio.Analyzer` | `Audio.LibrosaCli` | Python + librosa (offline BPM/key) |
+| `Beatgrid.Audio.MarkerDetector` | `Audio.MarkerDetectorCli` | Python + librosa (cue markers) |
+| `Beatgrid.Audio.Loudness` | `Audio.FfmpegLoudness` | `ffmpeg loudnorm` (LUFS/true peak) |
+| `Beatgrid.Audio.GainApplier` | `Audio.GainApplierCli` | `mp3gain` / `ffmpeg` (gain apply) |
+| `Beatgrid.Audio.SetSegmenter` | `Audio.SetSegmenter.LibrosaCli` | Python + librosa (mix segmentation + DJ candidates) |
+| `Beatgrid.YouTube.Downloader` | `YouTube.YtDlp` | `yt-dlp` (download + listing) |
+| `Beatgrid.Mixes.Source` | `Mixes.Source.YtDlp` | `yt-dlp` (online-set audio fetch) |
+| `Beatgrid.Video.FrameSampler` | `Video.FrameSampler.FfmpegCli` | `ffmpeg` (frames for DJ-name OCR) |
+| `Beatgrid.Recognition` | `Recognition.Audd` | AudD API (**paid per call** — see law below) |
+
+- AI model is config (`:beatgrid, Beatgrid.AI, model: ...`), default a cheap/fast
+  model for bulk classification.
+- **CLI hardening law:** every adapter that shells out wraps `System.cmd` in
+  `Beatgrid.Cli.run/2` (Task + timeout + brutal kill) with stdin from `/dev/null`
+  where the tool might block — a CLI can never hang an Oban slot or a LiveView.
 
 ## Commands (once scaffolded)
 
