@@ -26,6 +26,7 @@ defmodule Beatgrid.Workers.EnrichWorker do
       states: [:scheduled, :available, :executing, :retryable, :suspended]
     ]
 
+  alias Beatgrid.Library.Tracks
   alias Beatgrid.Review
   alias Beatgrid.YouTube
 
@@ -162,7 +163,7 @@ defmodule Beatgrid.Workers.EnrichWorker do
   end
 
   defp enrich_step(id, {done, res, _b, acc}, ctx) do
-    case YouTube.resolve_track_enrich(id) do
+    case id |> Tracks.get() |> YouTube.resolve_track_enrich() do
       :budget_exhausted ->
         {:halt, {done, res, true, acc}}
 

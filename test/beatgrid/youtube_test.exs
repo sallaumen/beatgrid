@@ -327,7 +327,7 @@ defmodule Beatgrid.YouTubeTest do
       {:ok, %Beatgrid.Soundcharts.Response{data: [], quota_remaining: 999, status: 200}}
     end)
 
-    assert :no_match = YouTube.resolve_track_enrich(track.id)
+    assert :no_match = YouTube.resolve_track_enrich(track)
     assert Tracks.get(track.id).sc_attempted_at
   end
 
@@ -339,7 +339,7 @@ defmodule Beatgrid.YouTubeTest do
       {:ok, %Response{data: [], quota_remaining: 999, status: 200}}
     end)
 
-    assert :no_match = YouTube.resolve_track_enrich(track.id)
+    assert :no_match = YouTube.resolve_track_enrich(track)
     assert Tracks.get(track.id).gold_status == :confirmed
   end
 
@@ -387,7 +387,7 @@ defmodule Beatgrid.YouTubeTest do
        }}
     end)
 
-    assert :resolved = YouTube.resolve_track_enrich(track.id)
+    assert :resolved = YouTube.resolve_track_enrich(track)
     assert is_nil(Tracks.get(track.id).gold_status)
   end
 

@@ -12,7 +12,7 @@ defmodule Beatgrid.YouTube do
   require Logger
 
   alias Beatgrid.{Gold, Library, Review, Soundcharts}
-  alias Beatgrid.Library.{FileInfo, NameSync, Tracks}
+  alias Beatgrid.Library.{FileInfo, NameSync, Track, Tracks}
   alias Beatgrid.Library.MetadataAI
   alias Beatgrid.Organization.ClassificationAI
   alias Beatgrid.Workers.{AnalyzeWorker, DownloadWorker, ExpandWorker}
@@ -74,7 +74,7 @@ defmodule Beatgrid.YouTube do
   defp enqueue_entries(_url, []), do: {:error, :no_entries}
 
   defp enqueue_entries(url, entries) do
-    playlist_url = if length(entries) > 1, do: url, else: nil
+    playlist_url = if length(entries) > 1, do: url
 
     Enum.each(entries, fn e ->
       {:ok, _job} =
@@ -111,40 +111,45 @@ defmodule Beatgrid.YouTube do
   # it's batched by the caller (the worker does `Review.reevaluate_tracks/1` once at
   # the end; `enrich_track/1` does it for its single track). Per-track AI calls in
   # the loop made large batches crawl.
-  @spec resolve_track_enrich(binary()) :: :resolved | :no_match | :budget_exhausted
-  def resolve_track_enrich(id) do
-    case id |> Tracks.get() |> Soundcharts.resolve_track() do
-      {:error, :budget_exhausted} ->
-        :budget_exhausted
-
-      result ->
-        # Surface real failures (HTTP/timeout) instead of silently calling them
-        # "no match" — :no_match is a legitimate outcome, other errors are not.
-        case result do
-          {:error, :no_credentials} ->
-            Logger.error(
-              "enrich: Soundcharts SEM CREDENCIAIS — carregue o .env " <>
-                "(SOUNDCHARTS_APP_ID/SOUNDCHARTS_API_KEY) e reinicie o servidor"
-            )
-
-          {:error, reason} when reason != :no_match ->
-            Logger.warning("enrich: Soundcharts falhou na faixa #{id}: #{inspect(reason)}")
-
-          _ ->
-            :ok
-        end
-
-        repropose_if_matched(id)
-        Gold.apply_resolve_result(Tracks.get(id), result)
-
-        if match?({:error, :no_match}, result) do
-          Tracks.update(Tracks.get(id), %{
-            sc_attempted_at: DateTime.truncate(DateTime.utc_now(), :second)
-          })
-        end
-
-        if match?({:ok, _}, result), do: :resolved, else: :no_match
+  @spec resolve_track_enrich(Track.t()) :: :resolved | :no_match | :budget_exhausted
+  def resolve_track_enrich(%Track{} = track) do
+    case Soundcharts.resolve_track(track) do
+      {:error, :budget_exhausted} -> :budget_exhausted
+      result -> apply_resolve_outcome(track, result)
     end
+  end
+
+  # Applies one resolve outcome: reload the (possibly re-linked) track once,
+  # propose a rename on a match, update the Gold axis, and stamp a definitive
+  # no-match so the batch flow never re-spends quota on it.
+  defp apply_resolve_outcome(track, result) do
+    # Surface real failures (HTTP/timeout) instead of silently calling them
+    # "no match" — :no_match is a legitimate outcome, other errors are not.
+    case result do
+      {:error, :no_credentials} ->
+        Logger.error(
+          "enrich: Soundcharts SEM CREDENCIAIS — carregue o .env " <>
+            "(SOUNDCHARTS_APP_ID/SOUNDCHARTS_API_KEY) e reinicie o servidor"
+        )
+
+      {:error, reason} when reason != :no_match ->
+        Logger.warning("enrich: Soundcharts falhou na faixa #{track.id}: #{inspect(reason)}")
+
+      _ ->
+        :ok
+    end
+
+    refreshed = Tracks.get_with_song(track.id)
+    repropose_if_matched(refreshed)
+    Gold.apply_resolve_result(refreshed, result)
+
+    if match?({:error, :no_match}, result) do
+      Tracks.update(refreshed, %{
+        sc_attempted_at: DateTime.truncate(DateTime.utc_now(), :second)
+      })
+    end
+
+    if match?({:ok, _}, result), do: :resolved, else: :no_match
   end
 
   @doc """
@@ -158,7 +163,7 @@ defmodule Beatgrid.YouTube do
   @spec enrich_track(binary()) ::
           {:ok, %{resolved: boolean()}} | {:error, :budget_exhausted}
   def enrich_track(id) do
-    case resolve_track_enrich(id) do
+    case id |> Tracks.get() |> resolve_track_enrich() do
       :budget_exhausted ->
         {:error, :budget_exhausted}
 
@@ -181,17 +186,21 @@ defmodule Beatgrid.YouTube do
 
     refine_titles(ids)
 
-    Enum.each(ids, fn id ->
-      track = Tracks.get(id)
+    ids
+    |> then(&Tracks.list_by(ids: &1))
+    |> Enum.each(fn track ->
       result = Soundcharts.resolve_track(track)
-      Gold.apply_resolve_result(track, result)
+      refreshed = Tracks.get_with_song(track.id)
+      repropose_if_matched(refreshed)
+      Gold.apply_resolve_result(refreshed, result)
     end)
 
-    Enum.each(ids, &repropose_if_matched/1)
     Review.reevaluate_tracks(ids)
-    ClassificationAI.reclassify(tracks: Enum.map(ids, &Tracks.get/1))
 
-    resolved = Enum.count(ids, &(Tracks.get(&1).soundcharts_song_id != nil))
+    refreshed = Tracks.list_by(ids: ids)
+    ClassificationAI.reclassify(tracks: refreshed)
+
+    resolved = Enum.count(refreshed, &(&1.soundcharts_song_id != nil))
     {:ok, %{enriched: length(ids), resolved: resolved}}
   end
 
@@ -223,7 +232,7 @@ defmodule Beatgrid.YouTube do
   """
   @spec enrich_fallback([binary()]) :: :ok
   def enrich_fallback(ids) do
-    tracks = Enum.map(ids, &Tracks.get/1) |> Enum.reject(&is_nil/1)
+    tracks = Tracks.list_by(ids: ids)
 
     Enum.each(tracks, fn t ->
       if is_nil(t.bpm_detected), do: AnalyzeWorker.enqueue(t.id)
@@ -240,60 +249,64 @@ defmodule Beatgrid.YouTube do
   """
   @spec refine_titles([binary()], (non_neg_integer(), non_neg_integer() -> any())) :: :ok
   def refine_titles(ids, on_progress \\ fn _done, _total -> :ok end) do
-    ambiguous = ids |> Enum.map(&Tracks.get/1) |> Enum.filter(&ambiguous?/1)
+    ambiguous = [ids: ids] |> Tracks.list_by() |> Enum.filter(&ambiguous?/1)
     Logger.info("YouTube.refine_titles: #{length(ambiguous)} ambíguos de #{length(ids)} faixas")
 
     with [_ | _] <- ambiguous,
          {:ok, parsed} <-
            MetadataAI.parse_titles(Enum.map(ambiguous, &raw_title/1), on_progress) do
-      refined =
-        ambiguous
-        |> Enum.zip(parsed)
-        # Skip placeholders (a failed AI batch yields nil fields) so we never wipe a
-        # title with nothing.
-        |> Enum.count(fn {t, p} ->
-          p.artist &&
-            match?({:ok, _}, Tracks.update(t, %{tag_artist: p.artist, tag_title: p.title}))
-        end)
-
+      refined = apply_refined_titles(ambiguous, parsed)
       Logger.info("YouTube.refine_titles: #{refined} título(s) refinado(s) pela IA")
     end
 
     :ok
   end
 
+  # Skip placeholders (a failed AI batch yields nil fields) so we never wipe a
+  # title with nothing. Returns how many titles were actually rewritten.
+  defp apply_refined_titles(tracks, parsed) do
+    tracks
+    |> Enum.zip(parsed)
+    |> Enum.count(fn {t, p} ->
+      p.artist &&
+        match?({:ok, _}, Tracks.update(t, %{tag_artist: p.artist, tag_title: p.title}))
+    end)
+  end
+
   defp ambiguous?(track), do: is_nil(track.tag_artist) and is_binary(raw_title(track))
   defp raw_title(track), do: (track.raw_tags || %{})["youtube_title"] || track.tag_title
 
-  defp repropose_if_matched(id) do
-    track = Tracks.get_with_song(id)
-    if track && track.soundcharts_song_id, do: NameSync.repropose(track)
+  defp repropose_if_matched(%Track{} = track) do
+    if track.soundcharts_song_id, do: NameSync.repropose(track)
   end
 
-  defp ingest(%{path: path, title: title, url: url} = item, playlist_url) do
+  defp ingest(%{path: path, title: title} = item, playlist_url) do
     parsed = TitleParser.parse(title)
     file = FileInfo.read(path)
 
-    yt = %{"youtube_title" => title, "youtube_url" => url}
-    yt = if playlist_url, do: Map.put(yt, "youtube_playlist_url", playlist_url), else: yt
-
-    attrs =
-      Map.merge(file, %{
-        rel_path: Path.relative_to(path, Library.library_root()),
-        source_playlist: "youtube",
-        status: :present,
-        last_scanned_at: DateTime.truncate(DateTime.utc_now(), :second),
-        tag_artist: parsed.artist,
-        tag_title: parsed.title,
-        youtube_views: Map.get(item, :views),
-        youtube_published_at: parse_upload_date(Map.get(item, :upload_date)),
-        raw_tags: Map.merge(file[:raw_tags] || %{}, yt)
-      })
-
-    case Tracks.upsert_by_path(attrs) do
+    case Tracks.upsert_by_path(ingest_attrs(file, parsed, item, playlist_url)) do
       {:ok, track} -> Gold.maybe_mark_candidate(track)
       error -> error
     end
+  end
+
+  # Pure: merges the file facts, the parsed artist/title and the YouTube
+  # provenance into the upsert attrs for one downloaded item.
+  defp ingest_attrs(file, parsed, %{path: path, title: title, url: url} = item, playlist_url) do
+    yt = %{"youtube_title" => title, "youtube_url" => url}
+    yt = if playlist_url, do: Map.put(yt, "youtube_playlist_url", playlist_url), else: yt
+
+    Map.merge(file, %{
+      rel_path: Path.relative_to(path, Library.library_root()),
+      source_playlist: "youtube",
+      status: :present,
+      last_scanned_at: DateTime.truncate(DateTime.utc_now(), :second),
+      tag_artist: parsed.artist,
+      tag_title: parsed.title,
+      youtube_views: Map.get(item, :views),
+      youtube_published_at: parse_upload_date(Map.get(item, :upload_date)),
+      raw_tags: Map.merge(file[:raw_tags] || %{}, yt)
+    })
   end
 
   defp parse_upload_date(<<y::binary-4, m::binary-2, d::binary-2>>) do
