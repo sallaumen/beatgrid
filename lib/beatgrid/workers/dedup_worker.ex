@@ -8,8 +8,8 @@ defmodule Beatgrid.Workers.DedupWorker do
   def perform(%Oban.Job{args: args}) do
     batch_id = args["batch_id"]
     Dedup.broadcast_progress(%{status: :running, batch_id: batch_id})
-    {:ok, %{exact: exact, fuzzy: fuzzy}} = Dedup.detect()
-    Dedup.broadcast_progress(%{status: :done, batch_id: batch_id, groups: exact + fuzzy})
+    {:ok, %{exact: exact, fuzzy: fuzzy, near: near}} = Dedup.detect()
+    Dedup.broadcast_progress(%{status: :done, batch_id: batch_id, groups: exact + fuzzy + near})
     :ok
   end
 

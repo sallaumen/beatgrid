@@ -9,7 +9,7 @@ defmodule Beatgrid.Dedup.DuplicateGroup do
 
   @type t :: %__MODULE__{}
 
-  @match_types ~w(exact_hash fuzzy_meta)a
+  @match_types ~w(exact_hash fuzzy_meta near_meta)a
   @statuses ~w(pending resolved)a
 
   @primary_key {:id, Uniq.UUID, autogenerate: true, version: 7, type: :uuid}

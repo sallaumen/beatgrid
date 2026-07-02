@@ -9,7 +9,7 @@ defmodule Beatgrid.DedupTest do
       _other = insert(:track, content_sha256: "abc", bitrate_kbps: 128, rel_path: "MPB/b.mp3")
       _unique = insert(:track, content_sha256: "xyz", rel_path: "MPB/c.mp3")
 
-      assert {:ok, %{exact: 1, fuzzy: 0}} = Dedup.detect()
+      assert {:ok, %{exact: 1, fuzzy: 0, near: 0}} = Dedup.detect()
 
       assert [group] = Dedup.list_groups()
       assert group.match_type == :exact_hash
@@ -34,7 +34,7 @@ defmodule Beatgrid.DedupTest do
         rel_path: "y/b.mp3"
       )
 
-      assert {:ok, %{exact: 0, fuzzy: 1}} = Dedup.detect()
+      assert {:ok, %{exact: 0, fuzzy: 1, near: 0}} = Dedup.detect()
       assert [%{match_type: :fuzzy_meta, members: [_, _]}] = Dedup.list_groups()
     end
 
@@ -42,8 +42,69 @@ defmodule Beatgrid.DedupTest do
       insert(:track, norm_artist: "", norm_title: "", content_sha256: "a")
       insert(:track, norm_artist: "", norm_title: "", content_sha256: "b")
 
-      assert {:ok, %{exact: 0, fuzzy: 0}} = Dedup.detect()
+      assert {:ok, %{exact: 0, fuzzy: 0, near: 0}} = Dedup.detect()
       assert Dedup.list_groups() == []
+    end
+
+    test "groups near-duplicates: same base title + duration within tolerance" do
+      insert(:track,
+        content_sha256: "n1",
+        norm_artist: "luiz gonzaga",
+        norm_title: "asa branca",
+        duration_ms: 182_000,
+        rel_path: "x/a.mp3"
+      )
+
+      insert(:track,
+        content_sha256: "n2",
+        norm_artist: "luiz gonzaga",
+        norm_title: "asa branca (audio oficial)",
+        duration_ms: 183_500,
+        rel_path: "y/b.mp3"
+      )
+
+      assert {:ok, %{exact: 0, fuzzy: 0, near: 1}} = Dedup.detect()
+      assert [%{match_type: :near_meta, members: [_, _]}] = Dedup.list_groups()
+    end
+
+    test "spares a live take: same base title but a different length stays out" do
+      insert(:track,
+        content_sha256: "l1",
+        norm_artist: "luiz gonzaga",
+        norm_title: "asa branca",
+        duration_ms: 182_000,
+        rel_path: "x/a.mp3"
+      )
+
+      insert(:track,
+        content_sha256: "l2",
+        norm_artist: "luiz gonzaga",
+        norm_title: "asa branca (ao vivo)",
+        duration_ms: 347_000,
+        rel_path: "y/b.mp3"
+      )
+
+      assert {:ok, %{exact: 0, fuzzy: 0, near: 0}} = Dedup.detect()
+    end
+
+    test "near-duplicates without a duration are never grouped" do
+      insert(:track,
+        content_sha256: "d1",
+        norm_artist: "luiz gonzaga",
+        norm_title: "asa branca",
+        duration_ms: nil,
+        rel_path: "x/a.mp3"
+      )
+
+      insert(:track,
+        content_sha256: "d2",
+        norm_artist: "luiz gonzaga",
+        norm_title: "asa branca (audio oficial)",
+        duration_ms: nil,
+        rel_path: "y/b.mp3"
+      )
+
+      assert {:ok, %{exact: 0, fuzzy: 0, near: 0}} = Dedup.detect()
     end
 
     test "pick_keeper prefers fewer quality issues, then classified placement, then resolved, then bitrate" do

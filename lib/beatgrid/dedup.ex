@@ -1,14 +1,16 @@
 defmodule Beatgrid.Dedup do
   @moduledoc """
-  Detects duplicate tracks — exact (identical file hash) and fuzzy (same
-  normalized artist + title) — and records them as reviewable groups, each with
-  a suggested keeper (highest bitrate, then longest, then first by path).
+  Detects duplicate tracks in three passes — exact (identical file hash), fuzzy
+  (same normalized artist + title) and near (same artist + same BASE title with
+  decorations stripped + duration within tolerance) — and records them as
+  reviewable groups, each with a suggested keeper (highest bitrate, then
+  longest, then first by path).
 
   `detect/0` is idempotent: it rebuilds all groups from the current tracks.
   """
   alias Beatgrid.Dedup.{DedupQuery, DuplicateGroup, DuplicateMember}
   alias Beatgrid.{Library, Operations, Repo}
-  alias Beatgrid.Library.Tracks
+  alias Beatgrid.Library.{Tracks, Version}
 
   @topic "dedup"
 
@@ -147,7 +149,8 @@ defmodule Beatgrid.Dedup do
     end
   end
 
-  @spec detect() :: {:ok, %{exact: non_neg_integer(), fuzzy: non_neg_integer()}}
+  @spec detect() ::
+          {:ok, %{exact: non_neg_integer(), fuzzy: non_neg_integer(), near: non_neg_integer()}}
   def detect do
     Repo.transact(fn ->
       Repo.delete_all(DuplicateMember)
@@ -156,8 +159,10 @@ defmodule Beatgrid.Dedup do
       tracks = Tracks.list_by(status: :present)
 
       exact = group_exact(tracks)
-      exact_ids = member_ids(exact)
-      fuzzy = tracks |> Enum.reject(&MapSet.member?(exact_ids, &1.id)) |> group_fuzzy()
+      taken = member_ids(exact)
+      fuzzy = tracks |> Enum.reject(&MapSet.member?(taken, &1.id)) |> group_fuzzy()
+      taken = MapSet.union(taken, member_ids(fuzzy))
+      near = tracks |> Enum.reject(&MapSet.member?(taken, &1.id)) |> group_near()
 
       Enum.each(exact, fn {signature, members} ->
         persist_group(:exact_hash, signature, members)
@@ -167,7 +172,11 @@ defmodule Beatgrid.Dedup do
         persist_group(:fuzzy_meta, signature, members)
       end)
 
-      {:ok, %{exact: length(exact), fuzzy: length(fuzzy)}}
+      Enum.each(near, fn {signature, members} ->
+        persist_group(:near_meta, signature, members)
+      end)
+
+      {:ok, %{exact: length(exact), fuzzy: length(fuzzy), near: length(near)}}
     end)
   end
 
@@ -188,6 +197,56 @@ defmodule Beatgrid.Dedup do
   defp fuzzy_key?(track), do: present?(track.norm_artist) and present?(track.norm_title)
   defp fuzzy_signature(track), do: "#{track.norm_artist} — #{track.norm_title}"
   defp present?(value), do: is_binary(value) and String.trim(value) != ""
+
+  # Near-duplicates: same artist + same BASE title (version markers and decorated
+  # parentheticals stripped) + durations agreeing within the tolerance. The
+  # duration guard is what keeps this honest — a live take or extended mix has a
+  # different length and stays out, while the same recording re-imported under a
+  # decorated name ("… (Áudio Oficial)") lands in a group.
+  @near_duration_tolerance_ms 3_000
+
+  defp group_near(tracks) do
+    tracks
+    |> Enum.filter(&near_key?/1)
+    |> Enum.group_by(&near_signature/1)
+    |> Enum.flat_map(fn {signature, members} -> duration_clusters(signature, members) end)
+  end
+
+  defp near_key?(track),
+    do: fuzzy_key?(track) and is_integer(track.duration_ms) and track.duration_ms > 0
+
+  defp near_signature(track),
+    do: "#{track.norm_artist} — #{near_base_title(track.norm_title)}"
+
+  # Parenthetical/bracketed groups are decoration for grouping purposes ("(audio
+  # oficial)", "(ao vivo)") — the duration guard is what separates real versions.
+  # Version.base_title then collapses bare markers ("… ao vivo") and qualifiers.
+  defp near_base_title(norm_title) do
+    norm_title
+    |> String.replace(~r/\s*[(\[][^)\]]*[)\]]/u, " ")
+    |> Version.base_title()
+  end
+
+  # Split a signature's members into duration clusters: sorted, a gap wider than
+  # the tolerance starts a new cluster. Only real clusters (2+) become groups; the
+  # rounded duration joins the signature so sibling clusters stay distinguishable.
+  defp duration_clusters(signature, members) do
+    members
+    |> Enum.sort_by(& &1.duration_ms)
+    |> Enum.chunk_while([], &duration_chunk(&1, &2), fn acc -> {:cont, Enum.reverse(acc), []} end)
+    |> Enum.filter(&(length(&1) > 1))
+    |> Enum.map(fn [first | _] = cluster ->
+      {"#{signature} ~#{div(first.duration_ms, 1000)}s", cluster}
+    end)
+  end
+
+  defp duration_chunk(track, []), do: {:cont, [track]}
+
+  defp duration_chunk(track, [prev | _] = acc) do
+    if track.duration_ms - prev.duration_ms <= @near_duration_tolerance_ms,
+      do: {:cont, [track | acc]},
+      else: {:cont, Enum.reverse(acc), [track]}
+  end
 
   defp member_ids(groups) do
     for {_signature, members} <- groups, track <- members, into: MapSet.new(), do: track.id

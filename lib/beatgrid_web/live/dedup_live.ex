@@ -138,10 +138,13 @@ defmodule BeatgridWeb.DedupLive do
 
   defp match_label(:exact_hash), do: "exata"
   defp match_label(:fuzzy_meta), do: "parecida"
+  defp match_label(:near_meta), do: "quase igual"
   defp match_label(_other), do: "duplicada"
 
-  # Exact-hash matches are certain (amber); fuzzy meta-matches are softer (violet).
+  # Exact-hash matches are certain (amber); fuzzy meta-matches are softer
+  # (violet); near matches (base title + duration) are the softest (teal).
   defp match_color(:exact_hash), do: "#ffb020"
+  defp match_color(:near_meta), do: "#5ad1a0"
   defp match_color(_fuzzy), do: "#8b7bf0"
 
   defp artist_title(track) do
