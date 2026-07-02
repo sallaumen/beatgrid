@@ -2629,17 +2629,18 @@ defmodule BeatgridWeb.DiscotecagemLive do
     >
       <div class="dj-knob-dial relative" style={"width:#{@size}px;height:#{@size}px"} title={@title}>
         <div class="dj-knob-face absolute inset-0 rounded-full"></div>
-        <div class="dj-knob-hub absolute rounded-full border border-white/12 bg-input" style="inset:5px">
+        <div
+          class="dj-knob-hub absolute rounded-full border border-white/12 bg-input"
+          style="inset:5px"
+        >
         </div>
         <div class="dj-knob-rotor pointer-events-none absolute inset-0">
           <span
             class="absolute left-1/2 top-[3px] h-[30%] w-[2px] -translate-x-1/2 rounded-full"
             style={"background:#{@accent}"}
-          >
-          </span>
+          ></span>
         </div>
-        <span class="dj-knob-num pointer-events-none absolute inset-0 flex items-center justify-center font-mono text-[8px] font-bold text-ink-secondary">
-        </span>
+        <span class="dj-knob-num pointer-events-none absolute inset-0 flex items-center justify-center font-mono text-[8px] font-bold text-ink-secondary"></span>
         <input
           id={@id}
           type="range"
