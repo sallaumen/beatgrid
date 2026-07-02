@@ -114,6 +114,31 @@ defmodule BeatgridWeb.ReviewLiveTest do
     assert html =~ "Aplicar 1 no disco"
   end
 
+  test "Marcar média confiança adds the mediums, composing with alta", %{conn: conn} do
+    pending_rename()
+    pending_low_rename()
+
+    song = insert(:soundcharts_song, credit_name: "Trio", name: "Xote")
+
+    insert(:track,
+      filename: "m.mp3",
+      rel_path: "MPB/m.mp3",
+      soundcharts_song_id: song.id,
+      sc_match_confidence: :medium
+    )
+
+    {:ok, _} = NameSync.propose()
+    {:ok, view, _html} = live(conn, ~p"/revisao")
+
+    # mediums only — the low card stays out
+    html = view |> element("button[phx-click=select_medium]") |> render_click()
+    assert html =~ "Aplicar 1 no disco"
+
+    # composing with alta selects medium-and-up
+    html = view |> element("button[phx-click=select_high]") |> render_click()
+    assert html =~ "Aplicar 2 no disco"
+  end
+
   test "Limpar clears the current selection", %{conn: conn} do
     pending_rename()
     pending_low_rename()

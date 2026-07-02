@@ -63,6 +63,13 @@ defmodule BeatgridWeb.ReviewLive do
     {:noreply, update(socket, :selected, &MapSet.union(&1, MapSet.new(ids)))}
   end
 
+  # Adds (unions) the medium-confidence cards — composable with "alta", so both
+  # clicks together select medium-and-up while lows stay for eyeball review.
+  def handle_event("select_medium", _params, socket) do
+    ids = socket.assigns |> tab_items() |> Enum.filter(&medium_confidence?/1) |> Enum.map(& &1.id)
+    {:noreply, update(socket, :selected, &MapSet.union(&1, MapSet.new(ids)))}
+  end
+
   def handle_event("clear_selection", _params, socket),
     do: {:noreply, assign(socket, selected: MapSet.new())}
 
@@ -219,6 +226,12 @@ defmodule BeatgridWeb.ReviewLive do
   defp high_confidence?(%{confidence: c}) when is_float(c), do: c >= 0.8
   defp high_confidence?(_), do: false
 
+  # medium-confidence = rename match :medium, or classification score in [0.5, 0.8)
+  # (the same band `move_level/1` labels medium).
+  defp medium_confidence?(%{confidence: :medium}), do: true
+  defp medium_confidence?(%{confidence: c}) when is_float(c), do: c >= 0.5 and c < 0.8
+  defp medium_confidence?(_), do: false
+
   defp audit_flag(reason) when is_binary(reason) do
     case Regex.run(~r/^\[audit:([^\]]+)\]/, reason) do
       [_, tag] -> tag
@@ -257,6 +270,14 @@ defmodule BeatgridWeb.ReviewLive do
                 class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm text-ink-secondary hover:text-ink"
               >
                 Marcar alta confiança
+              </button>
+              <button
+                :if={@tab != :auditoria}
+                phx-click="select_medium"
+                title="Soma à seleção atual — clique também em alta pra pegar as duas faixas de confiança"
+                class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm text-ink-secondary hover:text-ink"
+              >
+                Marcar média confiança
               </button>
               <button
                 :if={@tab != :auditoria}
