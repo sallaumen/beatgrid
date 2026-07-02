@@ -438,12 +438,15 @@ defmodule BeatgridWeb.DashboardLive do
               <p :if={@youtube_note} class="mt-1.5 text-caption text-ink-muted">{@youtube_note}</p>
               <p :if={@youtube_failed > 0} class="mt-1.5 text-caption text-coral">
                 {@youtube_failed} download(s) falharam de vez — <.link
-                  navigate={~p"/jobs"}
+                  navigate={~p"/jobs?state=failed&worker=DownloadWorker"}
                   class="underline"
-                >re-tentar ou limpar em Jobs</.link>.
+                >ver quais foram (música e motivo) e re-tentar ou limpar</.link>.
               </p>
               <p class="mt-1 text-caption text-ink-faint">
                 Baixar é offline (não gasta cota). Enriquecer chama o Soundcharts (cota) e gera sugestões na Central de Revisão.
+              </p>
+              <p class="text-caption text-ink-faint">
+                Os botões de IA/análise são seguros de re-rodar: faixas já resolvidas, classificadas ou analisadas são puladas.
               </p>
               <.link
                 navigate={~p"/jobs"}

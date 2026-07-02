@@ -24,7 +24,11 @@ defmodule Beatgrid.Events do
   @typedoc "Pointer to what is playing — never the track itself."
   @type now_playing :: %{track_id: Ecto.UUID.t() | nil, set_id: Ecto.UUID.t() | nil}
 
-  @typedoc "Per-item progress of an enrich batch (scope: track | pending | rare)."
+  @typedoc """
+  Per-item progress of an enrich batch (scope: track | pending | rare). The rare
+  scope's final tick also carries the classification counts
+  (classified/suggested/auto_filed/agreed/errors) for the Painel summary.
+  """
   @type enrich_progress :: %{
           :batch_id => Ecto.UUID.t(),
           :scope => String.t(),
@@ -33,7 +37,12 @@ defmodule Beatgrid.Events do
           :done => non_neg_integer(),
           :total => non_neg_integer(),
           optional(:resolved) => non_neg_integer(),
-          optional(:budget_exhausted) => boolean()
+          optional(:budget_exhausted) => boolean(),
+          optional(:classified) => non_neg_integer(),
+          optional(:suggested) => non_neg_integer(),
+          optional(:auto_filed) => non_neg_integer(),
+          optional(:agreed) => non_neg_integer(),
+          optional(:errors) => non_neg_integer()
         }
 
   @typedoc "Chunked progress of an AI re-evaluation run (`updated` only on the final tick)."

@@ -91,7 +91,8 @@ defmodule Beatgrid.Dashboard.ReadModel do
      %{
        enrich_rare: payload,
        rare_pending: YouTube.rare_unfiled_count(),
-       youtube_pending: YouTube.pending_count()
+       youtube_pending: YouTube.pending_count(),
+       youtube_note: rare_summary(payload)
      }}
   end
 
@@ -111,6 +112,22 @@ defmodule Beatgrid.Dashboard.ReadModel do
     do: {:ok, %{enrich: payload}}
 
   def refresh({:enrich_progress, _payload}), do: :ignore
+
+  @doc "Text shown after a rare-enrichment run finishes — what the AI actually did."
+  @spec rare_summary(map()) :: String.t() | nil
+  def rare_summary(%{classified: c} = payload) when is_integer(c) do
+    base =
+      "Raras: #{c} classificada(s) — #{payload[:auto_filed] || 0} auto-arquivada(s), " <>
+        "#{(payload[:suggested] || 0) - (payload[:auto_filed] || 0)} na Revisão, " <>
+        "#{payload[:agreed] || 0} já estavam certas."
+
+    case payload[:errors] || 0 do
+      0 -> base
+      n -> base <> " #{n} falharam na IA — rode de novo (as prontas são puladas)."
+    end
+  end
+
+  def rare_summary(_payload), do: nil
 
   @doc "Text shown after a pending enrichment batch finishes."
   @spec enrich_summary(map()) :: String.t()

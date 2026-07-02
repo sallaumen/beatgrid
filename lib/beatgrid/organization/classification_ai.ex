@@ -46,28 +46,41 @@ defmodule Beatgrid.Organization.ClassificationAI do
 
   @doc """
   Classifies every present track (in batches) and proposes a `:claude` move where the AI
-  disagrees with the current folder. `opts`: `:limit`, `:batch_size`, `:tracks`.
+  disagrees with the current folder. `opts`: `:limit`, `:batch_size`, `:tracks`, and
+  `:on_progress` (`fn done, total -> ... end`, fired after each batch so long runs
+  show live movement instead of a stalled bar).
   """
   @spec reclassify(keyword()) :: %{
           classified: non_neg_integer(),
           suggested: non_neg_integer(),
+          auto_filed: non_neg_integer(),
           agreed: non_neg_integer(),
           errors: non_neg_integer()
         }
   def reclassify(opts \\ []) do
     batch_size = Keyword.get(opts, :batch_size, AI.batch_size())
+    on_progress = Keyword.get(opts, :on_progress, fn _done, _total -> :ok end)
     batch_id = Uniq.UUID.uuid7()
     pending = pending_claude_track_ids()
-    acc0 = %{classified: 0, suggested: 0, agreed: 0, errors: 0}
+    acc0 = %{classified: 0, suggested: 0, auto_filed: 0, agreed: 0, errors: 0, done: 0}
 
-    (opts[:tracks] || present_tracks(opts))
+    tracks = opts[:tracks] || present_tracks(opts)
+    total = length(tracks)
+
+    tracks
     |> Enum.chunk_every(batch_size)
     |> Enum.reduce(acc0, fn batch, acc ->
-      case classify_tracks(batch) do
-        {:ok, results} -> Enum.reduce(results, acc, &apply_result(&1, &2, pending, batch_id))
-        {:error, _reason} -> %{acc | errors: acc.errors + length(batch)}
-      end
+      acc =
+        case classify_tracks(batch) do
+          {:ok, results} -> Enum.reduce(results, acc, &apply_result(&1, &2, pending, batch_id))
+          {:error, _reason} -> %{acc | errors: acc.errors + length(batch)}
+        end
+
+      acc = %{acc | done: acc.done + length(batch)}
+      on_progress.(acc.done, total)
+      acc
     end)
+    |> Map.delete(:done)
   end
 
   # --- internals (moved verbatim from Beatgrid.AI) ---
@@ -94,12 +107,17 @@ defmodule Beatgrid.Organization.ClassificationAI do
             batch_id: batch_id
           })
 
-        maybe_auto_file(suggestion, result.confidence, track, folder)
+        auto_filed? = maybe_auto_file(suggestion, result.confidence, track, folder)
 
-        %{acc | suggested: acc.suggested + 1}
+        %{
+          acc
+          | suggested: acc.suggested + 1,
+            auto_filed: acc.auto_filed + if(auto_filed?, do: 1, else: 0)
+        }
     end
   end
 
+  # True only when the suggestion was auto-applied (moved on disk) successfully.
   defp maybe_auto_file(suggestion, confidence, track, folder) do
     if is_number(confidence) and confidence >= auto_file_confidence() do
       case Organization.apply_batch([suggestion]) do
@@ -108,9 +126,13 @@ defmodule Beatgrid.Organization.ClassificationAI do
             track_id: track.id
           )
 
+          false
+
         _ ->
-          :ok
+          true
       end
+    else
+      false
     end
   end
 

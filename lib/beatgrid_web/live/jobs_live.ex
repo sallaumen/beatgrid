@@ -18,32 +18,54 @@ defmodule BeatgridWeb.JobsLive do
   def mount(_params, _session, socket) do
     if connected?(socket), do: Process.send_after(self(), :refresh, @refresh_ms)
 
-    {:ok,
-     socket
-     |> assign(filter: nil, states: @states, expanded: MapSet.new())
-     |> assign_jobs(nil)}
+    {:ok, assign(socket, states: @states, expanded: MapSet.new())}
   end
+
+  # URL-driven filters (`?state=failed&worker=DownloadWorker`) so the Painel can
+  # deep-link straight to "the downloads that gave up" and the view survives
+  # refresh/back. "failed" is a pseudo-state covering discarded + cancelled.
+  @impl true
+  def handle_params(params, _uri, socket) do
+    filter = valid_state(params["state"])
+    worker = valid_worker(params["worker"])
+
+    {:noreply, socket |> assign(filter: filter, worker: worker) |> assign_jobs()}
+  end
+
+  defp valid_state(state) when state in @states or state == "failed", do: state
+  defp valid_state(_state), do: nil
+
+  defp valid_worker(worker) when is_binary(worker) do
+    if Regex.match?(~r/^[A-Za-z]+$/, worker), do: worker
+  end
+
+  defp valid_worker(_worker), do: nil
 
   @impl true
   def handle_info(:refresh, socket) do
     Process.send_after(self(), :refresh, @refresh_ms)
-    {:noreply, assign_jobs(socket, socket.assigns.filter)}
+    {:noreply, assign_jobs(socket)}
   end
 
   @impl true
-  def handle_event("filter", %{"state" => state}, socket) do
-    filter = if state == "", do: nil, else: state
-    {:noreply, socket |> assign(filter: filter) |> assign_jobs(filter)}
-  end
-
   def handle_event("retry", %{"id" => id}, socket) do
     Jobs.retry(String.to_integer(id))
-    {:noreply, assign_jobs(socket, socket.assigns.filter)}
+    {:noreply, assign_jobs(socket)}
   end
 
   def handle_event("cancel", %{"id" => id}, socket) do
     Jobs.cancel(String.to_integer(id))
-    {:noreply, assign_jobs(socket, socket.assigns.filter)}
+    {:noreply, assign_jobs(socket)}
+  end
+
+  def handle_event("retry_all_failed", _params, socket) do
+    count = Jobs.retry_failed(socket.assigns.worker)
+    {:noreply, socket |> put_flash(:info, "#{count} job(s) re-enfileirado(s).") |> assign_jobs()}
+  end
+
+  def handle_event("clear_all_failed", _params, socket) do
+    count = Jobs.clear_failed(socket.assigns.worker)
+    {:noreply, socket |> put_flash(:info, "#{count} falha(s) limpa(s).") |> assign_jobs()}
   end
 
   def handle_event("toggle_details", %{"id" => id}, socket) do
@@ -58,13 +80,17 @@ defmodule BeatgridWeb.JobsLive do
     {:noreply, assign(socket, expanded: expanded)}
   end
 
-  defp assign_jobs(socket, filter) do
-    jobs = load(filter)
+  defp assign_jobs(socket) do
+    jobs = load(socket.assigns.filter, socket.assigns.worker)
     assign(socket, jobs: jobs, titles: track_titles(jobs))
   end
 
-  defp load(nil), do: Jobs.list_recent(limit: 100)
-  defp load(state), do: Jobs.list_recent(limit: 100, states: [state])
+  defp load(filter, worker),
+    do: Jobs.list_recent(limit: 100, states: filter_states(filter), worker: worker)
+
+  defp filter_states(nil), do: nil
+  defp filter_states("failed"), do: ["discarded", "cancelled"]
+  defp filter_states(state), do: [state]
 
   # Resolve the track titles referenced by the visible jobs in one batched query,
   # so the summary reads "Asa Branca" instead of a bare UUID.
@@ -102,22 +128,56 @@ defmodule BeatgridWeb.JobsLive do
 
       <div class="mx-auto max-w-[1600px] px-6 py-6">
         <div class="flex flex-wrap items-center gap-1.5">
-          <button
-            phx-click="filter"
-            phx-value-state=""
+          <.link
+            patch={jobs_path(nil, @worker)}
             class={["rounded-sm border px-2.5 py-1 text-[12px]", chip_class(@filter == nil)]}
           >
             Todas
-          </button>
-          <button
+          </.link>
+          <.link
+            patch={jobs_path("failed", @worker)}
+            class={["rounded-sm border px-2.5 py-1 text-[12px]", chip_class(@filter == "failed")]}
+          >
+            Falhas
+          </.link>
+          <.link
             :for={s <- @states}
-            phx-click="filter"
-            phx-value-state={s}
+            patch={jobs_path(s, @worker)}
             class={["rounded-sm border px-2.5 py-1 text-[12px]", chip_class(@filter == s)]}
           >
             {state_label(s)}
-          </button>
+          </.link>
+          <.link
+            :if={@worker}
+            patch={jobs_path(@filter, nil)}
+            class="rounded-sm border border-primary/40 bg-primary/10 px-2.5 py-1 text-[12px] text-primary"
+            title="Remover o filtro de tarefa"
+          >
+            {worker_label("." <> @worker)} ✕
+          </.link>
           <span class="text-ink-faint ml-auto font-mono text-caption">{length(@jobs)} tarefa(s)</span>
+        </div>
+
+        <div
+          :if={@filter == "failed" and @jobs != []}
+          class="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-coral/25 bg-coral/5 px-3 py-2"
+        >
+          <span class="text-body-sm text-ink-secondary">
+            {length(@jobs)} falha(s) nesta lista — cada linha diz qual música/URL falhou e por quê.
+          </span>
+          <button
+            phx-click="retry_all_failed"
+            class="rounded-md bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary hover:bg-primary/25"
+          >
+            Re-tentar todas
+          </button>
+          <button
+            phx-click="clear_all_failed"
+            data-confirm="Limpar todas as falhas listadas? Elas somem do histórico (nenhum arquivo é tocado)."
+            class="rounded-md bg-white/6 px-2.5 py-1 text-[11px] font-semibold text-ink-muted hover:bg-white/10"
+          >
+            Limpar todas
+          </button>
         </div>
 
         <div class="mt-4 overflow-x-auto rounded-xl border border-white/6 bg-surface">
@@ -224,6 +284,13 @@ defmodule BeatgridWeb.JobsLive do
   # ── Worker name + label ────────────────────────────────────────────────────
 
   defp worker_name(worker), do: worker |> String.split(".") |> List.last()
+
+  defp jobs_path(state, worker) do
+    case Enum.reject([state: state, worker: worker], fn {_key, value} -> is_nil(value) end) do
+      [] -> ~p"/jobs"
+      params -> ~p"/jobs?#{params}"
+    end
+  end
 
   # Friendly PT-BR action labels per worker; falls back to the bare module segment
   # so a newly-added worker still renders something readable. The real module name

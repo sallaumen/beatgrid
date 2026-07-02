@@ -268,18 +268,34 @@ defmodule Beatgrid.YouTube do
   Fallback de enriquecimento (sem Soundcharts): enfileira análise local pras faixas
   sem `bpm_detected` (BPM/tom reais) e roda a classificação de gênero por IA, que
   auto-arquiva as de alta confiança. Idempotente (AnalyzeWorker é unique por faixa;
-  reclassify pula quem já tem pasta ou proposta pendente).
+  reclassify pula quem já tem pasta ou proposta pendente) — seguro re-rodar.
+  `on_progress` recebe `(done, total)` por lote de IA. Retorna as contagens da
+  classificação pra UI resumir o que aconteceu.
   """
-  @spec enrich_fallback([binary()]) :: :ok
-  def enrich_fallback(ids) do
+  @spec enrich_fallback([binary()], (non_neg_integer(), non_neg_integer() -> any())) ::
+          {:ok,
+           %{
+             classified: non_neg_integer(),
+             suggested: non_neg_integer(),
+             auto_filed: non_neg_integer(),
+             agreed: non_neg_integer(),
+             errors: non_neg_integer()
+           }}
+  def enrich_fallback(ids, on_progress \\ fn _done, _total -> :ok end) do
     tracks = Tracks.list_by(ids: ids)
 
     Enum.each(tracks, fn t ->
       if is_nil(t.bpm_detected), do: AnalyzeWorker.enqueue(t.id)
     end)
 
-    if tracks != [], do: ClassificationAI.reclassify(tracks: tracks)
-    :ok
+    counts =
+      if tracks == [] do
+        %{classified: 0, suggested: 0, auto_filed: 0, agreed: 0, errors: 0}
+      else
+        ClassificationAI.reclassify(tracks: tracks, on_progress: on_progress)
+      end
+
+    {:ok, counts}
   end
 
   @doc """

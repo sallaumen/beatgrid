@@ -82,18 +82,32 @@ defmodule Beatgrid.Workers.EnrichWorker do
       total: total
     })
 
-    YouTube.enrich_fallback(ids)
+    # Per-AI-batch ticks — a 98-track run takes minutes and a bar stuck at 0%
+    # reads as broken.
+    {:ok, counts} =
+      YouTube.enrich_fallback(ids, fn done, _total ->
+        YouTube.broadcast_enrich(%{
+          batch_id: bid,
+          scope: "rare",
+          id: nil,
+          status: :running,
+          done: done,
+          total: total
+        })
+      end)
 
-    YouTube.broadcast_enrich(%{
-      batch_id: bid,
-      scope: "rare",
-      id: nil,
-      status: :done,
-      done: total,
-      total: total,
-      resolved: 0,
-      budget_exhausted: false
-    })
+    YouTube.broadcast_enrich(
+      Map.merge(counts, %{
+        batch_id: bid,
+        scope: "rare",
+        id: nil,
+        status: :done,
+        done: total,
+        total: total,
+        resolved: 0,
+        budget_exhausted: false
+      })
+    )
 
     :ok
   end

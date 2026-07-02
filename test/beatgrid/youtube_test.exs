@@ -461,7 +461,8 @@ defmodule Beatgrid.YouTubeTest do
        }}
     end)
 
-    assert :ok = YouTube.enrich_fallback([sem.id, com.id])
+    assert {:ok, %{classified: 2, suggested: 2, auto_filed: 0, errors: 0}} =
+             YouTube.enrich_fallback([sem.id, com.id])
 
     assert_enqueued(worker: Beatgrid.Workers.AnalyzeWorker, args: %{track_id: sem.id})
     refute_enqueued(worker: Beatgrid.Workers.AnalyzeWorker, args: %{track_id: com.id})

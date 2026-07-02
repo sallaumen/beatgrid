@@ -4,7 +4,8 @@ defmodule BeatgridWeb.JobsLiveTest do
   import Phoenix.LiveViewTest
   import Beatgrid.Factory
 
-  alias Beatgrid.Workers.{AnalyzeWorker, DownloadWorker, EnrichWorker, RecommendWorker}
+  alias Beatgrid.Workers.{AnalyzeWorker, DedupWorker, DownloadWorker, EnrichWorker}
+  alias Beatgrid.Workers.RecommendWorker
 
   defp insert_job(args, state) do
     args
@@ -27,6 +28,46 @@ defmodule BeatgridWeb.JobsLiveTest do
     assert html =~ "https://y/bad"
     assert html =~ "Descartada"
     assert html =~ ~s(phx-click="retry")
+  end
+
+  test "the Painel deep-link shows only that worker's failures, with bulk actions", %{
+    conn: conn
+  } do
+    insert_job(
+      %{"url" => "https://y/dead", "title" => "Trio Nordestino - Forró Pesado"},
+      "discarded"
+    )
+
+    insert_job(%{"url" => "https://y/alive"}, "available")
+
+    %{} |> DedupWorker.new() |> Oban.insert!()
+
+    {:ok, view, html} = live(conn, ~p"/jobs?state=failed&worker=DownloadWorker")
+
+    # only the failed download shows — with its song title, so no more blind counts
+    assert html =~ "Trio Nordestino - Forró Pesado"
+    refute html =~ "https://y/alive"
+    refute html =~ "biblioteca inteira"
+    assert html =~ "Re-tentar todas"
+
+    view |> element("button[phx-click=retry_all_failed]") |> render_click()
+
+    urls =
+      Beatgrid.Jobs.list_recent(worker: "DownloadWorker", states: ["available"])
+      |> Enum.map(& &1.args["url"])
+      |> Enum.sort()
+
+    assert urls == ["https://y/alive", "https://y/dead"]
+  end
+
+  test "clear_all_failed wipes the failure list", %{conn: conn} do
+    insert_job(%{"url" => "https://y/dead"}, "cancelled")
+
+    {:ok, view, _html} = live(conn, ~p"/jobs?state=failed&worker=DownloadWorker")
+    view |> element("button[phx-click=clear_all_failed]") |> render_click()
+
+    assert Beatgrid.Jobs.list_recent(worker: "DownloadWorker") == []
+    refute render(view) =~ "https://y/dead"
   end
 
   test "retry transitions a discarded job back to available", %{conn: conn} do
