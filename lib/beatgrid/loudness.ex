@@ -39,6 +39,17 @@ defmodule Beatgrid.Loudness do
   @spec gain_tolerance_db() :: float()
   def gain_tolerance_db, do: @gain_tolerance_db
 
+  # Cap on the per-track history under `_Backups/Gain` (read at runtime so tests
+  # and future Settings overrides apply without a recompile).
+  @default_backup_keep_batches 2
+
+  @doc "How many gain-backup batches to keep per track (config-driven; default 2)."
+  @spec backup_keep_batches() :: pos_integer()
+  def backup_keep_batches do
+    Application.get_env(:beatgrid, __MODULE__, [])[:backup_keep_batches] ||
+      @default_backup_keep_batches
+  end
+
   @doc """
   Headroom-safe suggested gain (dB) to reach the target. A cut (negative) is always
   safe; a boost is capped so the resulting true peak stays under the ceiling. `nil`
@@ -192,6 +203,7 @@ defmodule Beatgrid.Loudness do
                  })
                ),
              {:ok, _operation} <- record_gain_operation(updated, gain, backup_rel_path, batch_id) do
+          prune_backups(track)
           {:ok, updated}
         end
     end
@@ -227,6 +239,22 @@ defmodule Beatgrid.Loudness do
          :ok <- File.cp(abs_path(track), backup_path) do
       {:ok, backup_rel_path}
     end
+  end
+
+  # Retention: keep only the newest N backup batches per track so `_Backups/Gain`
+  # never grows unbounded. batch_id is a UUIDv7, so lexicographic order IS
+  # chronological. A pruned batch can no longer be restored — safe, because the
+  # UI only ever offers the LATEST batch for undo.
+  defp prune_backups(track) do
+    with {:ok, dir} <- safe_library_path(Path.join(["_Backups", "Gain", track.id])),
+         {:ok, batches} <- File.ls(dir) do
+      batches
+      |> Enum.sort(:desc)
+      |> Enum.drop(backup_keep_batches())
+      |> Enum.each(fn batch -> File.rm_rf(Path.join(dir, batch)) end)
+    end
+
+    :ok
   end
 
   defp restore_backup_file(backup_path, target_path) do

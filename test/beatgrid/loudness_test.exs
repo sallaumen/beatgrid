@@ -368,6 +368,44 @@ defmodule Beatgrid.LoudnessTest do
     end
   end
 
+  describe "backup retention" do
+    @tag :tmp_dir
+    test "prunes old backup batches beyond the retention cap", %{tmp_dir: root} do
+      prev = Application.get_env(:beatgrid, Beatgrid.Loudness)
+
+      Application.put_env(
+        :beatgrid,
+        Beatgrid.Loudness,
+        Keyword.put(prev || [], :backup_keep_batches, 1)
+      )
+
+      on_exit(fn -> Application.put_env(:beatgrid, Beatgrid.Loudness, prev) end)
+
+      rel_path = "_Inbox/retained.mp3"
+      write_library_file(root, rel_path, "original-audio")
+
+      track =
+        insert(:track,
+          status: :present,
+          rel_path: rel_path,
+          loudness_lufs: -20.0,
+          true_peak_dbtp: -8.0,
+          loudness_attempted_at: ~U[2026-01-01 00:00:00Z]
+        )
+
+      expect(GainApplierMock, :apply, 2, fn _path, _gain -> :ok end)
+
+      expect(LoudnessMock, :measure, 2, fn _path ->
+        {:ok, %{lufs: -20.0, true_peak: -8.0, lra: 4.0}}
+      end)
+
+      assert {:ok, updated} = Loudness.apply_gain(track)
+      assert {:ok, _} = Loudness.apply_gain(updated)
+
+      assert [_only_newest_batch] = File.ls!(Path.join([root, "_Backups", "Gain", track.id]))
+    end
+  end
+
   defp write_library_file(root, rel_path, contents) do
     path = Path.join(root, rel_path)
     File.mkdir_p!(Path.dirname(path))
