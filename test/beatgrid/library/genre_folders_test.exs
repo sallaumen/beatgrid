@@ -29,7 +29,7 @@ defmodule Beatgrid.Library.GenreFoldersTest do
       assert {:ok, updated} = GenreFolders.upsert(%{attrs | display_name: "Forró (edited)"})
 
       assert updated.display_name == "Forró (edited)"
-      assert length(GenreFolders.list()) == 1
+      assert [_] = GenreFolders.list()
     end
 
     test "requires key, display_name and dir_name" do

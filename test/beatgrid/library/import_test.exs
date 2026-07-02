@@ -41,10 +41,10 @@ defmodule Beatgrid.Library.ImportTest do
 
     # originals untouched
     assert File.exists?(Path.join(source, "MPBzera/Disritmia.mp3"))
-    assert length(File.ls!(Path.join(root, "_Inbox"))) == 2
+    assert [_, _] = File.ls!(Path.join(root, "_Inbox"))
 
     tracks = Tracks.list_by(status: :present)
-    assert length(tracks) == 2
+    assert [_, _] = tracks
 
     disritmia = Enum.find(tracks, &(&1.filename == "Disritmia.mp3"))
     assert disritmia.source_playlist in ["MPBzera", "Escrito"]

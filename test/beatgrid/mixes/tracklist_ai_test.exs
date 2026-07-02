@@ -23,10 +23,10 @@ defmodule Beatgrid.Mixes.TracklistAITest do
        }}
     end)
 
-    assert [%{position: 0, start_seconds: 0, artist: "A", title: "One"}, t2] =
+    assert [%{position: 0, start_seconds: 0, artist: "A", title: "One"}, t_2] =
              TracklistAI.parse("00:00 A - One\n04:30 B - Two")
 
-    assert t2.start_seconds == 270 and t2.artist == "B"
+    assert t_2.start_seconds == 270 and t_2.artist == "B"
   end
 
   test "returns [] when the AI finds no tracklist" do

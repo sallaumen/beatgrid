@@ -44,7 +44,6 @@ defmodule Beatgrid.OrganizationTest do
       assert moved.genre_folder == "mpb"
       assert Organization.get(suggestion.id).status == :applied
 
-      # undo
       assert {:ok, _} = Organization.undo(Organization.get(suggestion.id))
       assert File.exists?(Path.join(root, "_Inbox/song.mp3"))
       refute File.exists?(Path.join(root, "MPB/song.mp3"))

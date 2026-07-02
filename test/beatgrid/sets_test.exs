@@ -72,7 +72,7 @@ defmodule Beatgrid.SetsTest do
 
     # same tracks, now arc-shaped + connected
     assert MapSet.new(entries, & &1.track.id) == MapSet.new([lo.id, mid.id, hi.id, gold.id])
-    assert hd(entries).role == "abertura"
+    assert [%{role: "abertura"} | _] = entries
     assert List.last(entries).role == "queda"
     assert Enum.all?(tl(entries), &(&1.transition && &1.transition["enabled"]))
   end
@@ -228,9 +228,9 @@ defmodule Beatgrid.SetsTest do
     {:ok, _} = Sets.fill_section(set, "pico", 2)
 
     entries = Sets.entries(set)
-    assert length(entries) == 3
+    assert [_, _, _] = entries
     appended = Enum.filter(entries, &(&1.track.id != seed.id))
-    assert length(appended) == 2
+    assert [_, _] = appended
     assert Enum.all?(appended, &(&1.role == "pico"))
   end
 
@@ -242,7 +242,7 @@ defmodule Beatgrid.SetsTest do
     {:ok, _} = Sets.append(set, seed)
 
     {:ok, _} = Sets.auto_fill(set, count: 2)
-    assert length(Sets.tracks(set)) == 3
+    assert [_, _, _] = Sets.tracks(set)
   end
 
   test "plan_presets exposes configurable long-set directions" do
@@ -319,7 +319,7 @@ defmodule Beatgrid.SetsTest do
 
     entries = Sets.entries(set)
     assert length(entries) == 12
-    assert hd(entries).role == "abertura"
+    assert [%{role: "abertura"} | _] = entries
     assert List.last(entries).role == "queda"
     assert Enum.all?(entries, &(&1.role in ~w(abertura pico respiro queda)))
     # Every consecutive pair is connected.
@@ -328,20 +328,20 @@ defmodule Beatgrid.SetsTest do
 
   test "arc_series returns energy + bpm + role per entry, in order" do
     {:ok, set} = Sets.create("Arc")
-    s1 = insert(:soundcharts_song, camelot: "8A", tempo_bpm: 120.0, energy: 0.9)
-    s2 = insert(:soundcharts_song, camelot: "8A", tempo_bpm: 100.0, energy: 0.3)
-    t1 = insert(:track, soundcharts_song_id: s1.id, status: :present)
-    t2 = insert(:track, soundcharts_song_id: s2.id, status: :present)
-    {:ok, _} = Sets.append(set, t1, "pico")
-    {:ok, _} = Sets.append(set, t2, "respiro")
+    s_1 = insert(:soundcharts_song, camelot: "8A", tempo_bpm: 120.0, energy: 0.9)
+    s_2 = insert(:soundcharts_song, camelot: "8A", tempo_bpm: 100.0, energy: 0.3)
+    t_1 = insert(:track, soundcharts_song_id: s_1.id, status: :present)
+    t_2 = insert(:track, soundcharts_song_id: s_2.id, status: :present)
+    {:ok, _} = Sets.append(set, t_1, "pico")
+    {:ok, _} = Sets.append(set, t_2, "respiro")
 
     assert [
-             %{role: "pico", energy: e1, bpm: 120.0},
-             %{role: "respiro", energy: e2, bpm: 100.0}
+             %{role: "pico", energy: e_1, bpm: 120.0},
+             %{role: "respiro", energy: e_2, bpm: 100.0}
            ] = Sets.arc_series(set)
 
-    assert_in_delta e1, 0.9, 0.001
-    assert_in_delta e2, 0.3, 0.001
+    assert_in_delta e_1, 0.9, 0.001
+    assert_in_delta e_2, 0.3, 0.001
   end
 
   @tag :tmp_dir

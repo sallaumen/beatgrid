@@ -49,7 +49,6 @@ defmodule BeatgridWeb.LibraryLiveMoveTest do
 
       {:ok, view, _html} = live(conn, ~p"/")
 
-      # open the row ⋯ menu, then move to Forró
       view
       |> element("button[phx-value-id='#{track.id}'][phx-click='row_menu_toggle']")
       |> render_click()
@@ -103,7 +102,6 @@ defmodule BeatgridWeb.LibraryLiveMoveTest do
 
       {:ok, view, _html} = live(conn, ~p"/")
 
-      # open the reference row's ⋯ menu, then "Parecidas"
       view
       |> element("button[phx-value-id='#{ref.id}'][phx-click='row_menu_toggle']")
       |> render_click()

@@ -205,7 +205,7 @@ defmodule Beatgrid.YouTubeTest do
     assert {:ok, 2} = YouTube.expand_and_enqueue("https://y/playlist")
 
     jobs = all_enqueued(worker: DownloadWorker)
-    assert length(jobs) == 2
+    assert [_, _] = jobs
     a = Enum.find(jobs, &(&1.args["url"] == "https://y/a"))
     assert a.args["playlist_url"] == "https://y/playlist"
     assert a.args["video_id"] == "a"

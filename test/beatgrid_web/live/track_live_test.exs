@@ -82,7 +82,6 @@ defmodule BeatgridWeb.TrackLiveTest do
     {:ok, view, html} = live(conn, ~p"/track/#{track.id}")
     assert html =~ "Dados (editáveis)"
 
-    # Edit the title inline (pencil → form → submit).
     view |> element(~s|button[phx-click=edit_field][phx-value-field=title]|) |> render_click()
     view |> form("form[phx-submit=save_field]", %{value: "Novo Nome"}) |> render_submit()
     t = Tracks.get(track.id)
@@ -286,10 +285,9 @@ defmodule BeatgridWeb.TrackLiveTest do
 
     # Rename it inline (the marker_list form submits rename_marker).
     render_hook(view, "rename_marker", %{"ms" => "30000", "label" => "drop"})
-    assert Enum.find(Tracks.get(track.id).cue_points, &(&1["ms"] == 30_000))["label"] == "drop"
+    assert [%{"ms" => 30_000, "label" => "drop"}] = Tracks.get(track.id).cue_points
     assert render(view) =~ "drop"
 
-    # Remove it.
     view |> element("button[phx-click=remove_marker][phx-value-ms='30000']") |> render_click()
     assert Tracks.get(track.id).cue_points == []
   end
@@ -322,7 +320,8 @@ defmodule BeatgridWeb.TrackLiveTest do
     assert html =~ "#ffb020"
 
     render_hook(view, "set_marker_type", %{"ms" => "30000", "type" => "intro"})
-    assert Marker.type(hd(Tracks.get(track.id).cue_points)) == "intro"
+    assert [marker] = Tracks.get(track.id).cue_points
+    assert Marker.type(marker) == "intro"
     assert render(view) =~ "#5ad1a0"
   end
 

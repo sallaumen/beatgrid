@@ -16,10 +16,9 @@ defmodule Beatgrid.JobsTest do
     _old = insert_job(%{url: "https://y/1"})
     new = insert_job(%{url: "https://y/2"})
 
-    ids = Jobs.list_recent() |> Enum.map(& &1.id)
-    assert hd(ids) == new.id
-    assert length(ids) == 2
-    assert Beatgrid.Jobs.list_recent() |> hd() |> Map.fetch!(:args) == %{"url" => "https://y/2"}
+    assert [first, _] = Jobs.list_recent()
+    assert first.id == new.id
+    assert first.args == %{"url" => "https://y/2"}
   end
 
   test "list_recent filters by state" do

@@ -167,10 +167,10 @@ defmodule BeatgridWeb.LibraryLiveTest do
       refute html =~ "Drop"
 
       # Toggle "incluir compatíveis": 8B (neighbor of 8A) joins; 3B stays out.
-      html2 = view |> element("input[phx-click=toggle_camelot_compatible]") |> render_click()
-      assert html2 =~ "Keep"
-      assert html2 =~ "Neighbor"
-      refute html2 =~ "Drop"
+      html_2 = view |> element("input[phx-click=toggle_camelot_compatible]") |> render_click()
+      assert html_2 =~ "Keep"
+      assert html_2 =~ "Neighbor"
+      refute html_2 =~ "Drop"
     end
 
     test "an energy minimum narrows to high-energy tracks", %{conn: conn} do
@@ -360,14 +360,14 @@ defmodule BeatgridWeb.LibraryLiveTest do
     refute html =~ "A101"
     assert html =~ "carregando mais…"
 
-    html2 = render_hook(view, "load_more", %{})
-    assert html2 =~ "A101"
-    refute html2 =~ "carregando mais…"
+    html_2 = render_hook(view, "load_more", %{})
+    assert html_2 =~ "A101"
+    refute html_2 =~ "carregando mais…"
 
     # "Marcar todas" selects every matching id (across pages), not just loaded rows.
     view |> element("button[phx-click=toggle_select_mode]") |> render_click()
-    html3 = view |> element("button[phx-click=select_all]") |> render_click()
-    assert html3 =~ "101 selecionadas"
+    html_3 = view |> element("button[phx-click=select_all]") |> render_click()
+    assert html_3 =~ "101 selecionadas"
   end
 
   # True if `a` appears before `b` in the rendered HTML.

@@ -209,7 +209,7 @@ defmodule BeatgridWeb.PlayerLiveTest do
       render_hook(view, "now_playing", %{"id" => track.id})
 
       render_hook(view, "rename_marker", %{"ms" => "7000", "label" => "build"})
-      assert Enum.find(Tracks.get(track.id).cue_points, &(&1["ms"] == 7000))["label"] == "build"
+      assert [%{"ms" => 7000, "label" => "build"}] = Tracks.get(track.id).cue_points
 
       render_hook(view, "remove_marker", %{"ms" => "7000"})
       assert Tracks.get(track.id).cue_points == []

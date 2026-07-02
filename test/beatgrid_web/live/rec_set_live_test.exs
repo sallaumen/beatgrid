@@ -35,6 +35,15 @@ defmodule BeatgridWeb.RecSetLiveTest do
   defp open_panel(view, id),
     do: view |> element("button[phx-value-panel='#{id}']") |> render_click()
 
+  defp append_from_search(view, query, track) do
+    open_panel(view, "search")
+    view |> form("#track-search", %{q: query}) |> render_change()
+
+    view
+    |> element("#search-results button[phx-click=append][phx-value-track='#{track.id}']")
+    |> render_click()
+  end
+
   @tag :tmp_dir
   test "build a set from search, append, play affordance, then export to M3U", %{
     conn: conn,
@@ -52,14 +61,7 @@ defmodule BeatgridWeb.RecSetLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/set")
     new_set(view)
-    open_panel(view, "search")
-
-    # find and append the seed from the search panel
-    view |> form("#track-search", %{q: "Seed"}) |> render_change()
-
-    view
-    |> element("#search-results button[phx-click=append][phx-value-track='#{seed.id}']")
-    |> render_click()
+    append_from_search(view, "Seed", seed)
 
     # search box is STILL present after the set has tracks (the old bug: it vanished)
     assert has_element?(view, "#track-search")
@@ -67,7 +69,7 @@ defmodule BeatgridWeb.RecSetLiveTest do
     assert render(view) =~ ~s(id="player-audio")
     refute render(view) =~ ~s(id="set-player")
 
-    # the harmonic candidate shows up in the candidates panel — append it
+    # the harmonic candidate must show up in the candidates panel
     open_panel(view, "candidates")
 
     html =
@@ -108,9 +110,7 @@ defmodule BeatgridWeb.RecSetLiveTest do
     view |> form("#section-fill") |> render_submit(%{role: "pico", count: "2"})
 
     [set] = Sets.list()
-    entries = Sets.entries(set)
-    assert length(entries) == 2
-    assert Enum.count(entries, &(&1.role == "pico")) == 2
+    assert [%{role: "pico"}, %{role: "pico"}] = Sets.entries(set)
     # the section label is shown in the list
     assert render(view) =~ "Pico"
   end
@@ -130,8 +130,8 @@ defmodule BeatgridWeb.RecSetLiveTest do
     [set] = Sets.list()
     entries = Sets.entries(set)
     assert length(entries) == 10
-    assert hd(entries).role == "abertura"
-    assert List.last(entries).role == "queda"
+    assert [%{role: "abertura"} | _] = entries
+    assert %{role: "queda"} = List.last(entries)
     assert Enum.all?(entries, &(&1.role in ~w(abertura pico respiro queda)))
     assert Enum.all?(tl(entries), &(&1.transition && &1.transition["enabled"]))
   end
@@ -196,10 +196,10 @@ defmodule BeatgridWeb.RecSetLiveTest do
   @tag :tmp_dir
   test "the set page renders the energy/BPM arc chart for a set with 2+ tracks", %{conn: conn} do
     {:ok, set} = Sets.create("Charted")
-    t1 = track_with("8A", 120.0, tag_title: "A")
-    t2 = track_with("9A", 124.0, tag_title: "B")
-    {:ok, _} = Sets.append(set, t1, "pico")
-    {:ok, _} = Sets.append(set, t2, "respiro")
+    t_1 = track_with("8A", 120.0, tag_title: "A")
+    t_2 = track_with("9A", 124.0, tag_title: "B")
+    {:ok, _} = Sets.append(set, t_1, "pico")
+    {:ok, _} = Sets.append(set, t_2, "respiro")
 
     {:ok, _view, html} = live(conn, ~p"/set/#{set.id}")
 
@@ -220,7 +220,7 @@ defmodule BeatgridWeb.RecSetLiveTest do
     view |> element("button[phx-click=remix]") |> render_click()
 
     entries = Sets.entries(set)
-    assert length(entries) == 3
+    assert [_, _, _] = entries
     # every track got an arc role and the pairs are connected
     assert Enum.all?(entries, &(&1.role in ~w(abertura pico respiro queda)))
     assert Enum.all?(tl(entries), &(&1.transition && &1.transition["enabled"]))
@@ -296,12 +296,7 @@ defmodule BeatgridWeb.RecSetLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/set")
     new_set(view)
-    open_panel(view, "search")
-    view |> form("#track-search", %{q: "Prev"}) |> render_change()
-
-    view
-    |> element("#search-results button[phx-click=append][phx-value-track='#{prev.id}']")
-    |> render_click()
+    append_from_search(view, "Prev", prev)
 
     open_panel(view, "candidates")
     before = render(view)
@@ -330,12 +325,7 @@ defmodule BeatgridWeb.RecSetLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/set")
     new_set(view)
-    open_panel(view, "search")
-    view |> form("#track-search", %{q: "P2"}) |> render_change()
-
-    view
-    |> element("#search-results button[phx-click=append][phx-value-track='#{prev.id}']")
-    |> render_click()
+    append_from_search(view, "P2", prev)
 
     open_panel(view, "console")
     open_panel(view, "candidates")
@@ -433,15 +423,10 @@ defmodule BeatgridWeb.RecSetLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/set")
     new_set(view)
-    open_panel(view, "search")
-    view |> form("#track-search", %{q: "Seed"}) |> render_change()
-
-    view
-    |> element("#search-results button[phx-click=append][phx-value-track='#{seed.id}']")
-    |> render_click()
+    append_from_search(view, "Seed", seed)
 
     html = render(view)
-    set = hd(Sets.list())
+    [set] = Sets.list()
     assert html =~ "Tocar set"
     # the set id flows into the play dispatch (so playback enters set-mode)
     assert html =~ ~s(&quot;set_id&quot;:&quot;#{set.id}&quot;)

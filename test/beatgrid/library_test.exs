@@ -60,11 +60,11 @@ defmodule Beatgrid.LibraryTest do
 
       assert %{bpm: 120.0, camelot: "8A", energy: 0.7} = Library.effective(t)
 
-      t2 =
+      t_2 =
         insert(:track, bpm_detected: 90.0, camelot_detected: "5A")
         |> Repo.preload(:soundcharts_song)
 
-      assert %{bpm: 90.0, camelot: "5A", energy: nil} = Library.effective(t2)
+      assert %{bpm: 90.0, camelot: "5A", energy: nil} = Library.effective(t_2)
     end
 
     test "a manual override wins over Soundcharts and detected" do

@@ -48,13 +48,13 @@ defmodule Beatgrid.GoldTest do
       assert {:ok, t} = Gold.apply_resolve_result(cand, {:ok, %Beatgrid.Soundcharts.Song{}})
       assert is_nil(Tracks.get(t.id).gold_status)
 
-      cand2 = insert(:track, gold_status: :candidate)
-      assert {:ok, t2} = Gold.apply_resolve_result(cand2, {:error, :no_match})
-      assert Tracks.get(t2.id).gold_status == :confirmed
+      cand_2 = insert(:track, gold_status: :candidate)
+      assert {:ok, t_2} = Gold.apply_resolve_result(cand_2, {:error, :no_match})
+      assert Tracks.get(t_2.id).gold_status == :confirmed
 
-      cand3 = insert(:track, gold_status: :candidate)
-      assert :ok = Gold.apply_resolve_result(cand3, {:error, :budget_exhausted})
-      assert Tracks.get(cand3.id).gold_status == :candidate
+      cand_3 = insert(:track, gold_status: :candidate)
+      assert :ok = Gold.apply_resolve_result(cand_3, {:error, :budget_exhausted})
+      assert Tracks.get(cand_3.id).gold_status == :candidate
     end
 
     test "already_linked é no-op" do

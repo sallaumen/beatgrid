@@ -13,7 +13,7 @@ defmodule Beatgrid.DedupTest do
 
       assert [group] = Dedup.list_groups()
       assert group.match_type == :exact_hash
-      assert length(group.members) == 2
+      assert [_, _] = group.members
 
       assert %{is_keeper: true} = kept = Enum.find(group.members, & &1.is_keeper)
       assert kept.track_id == keeper.id
@@ -35,8 +35,7 @@ defmodule Beatgrid.DedupTest do
       )
 
       assert {:ok, %{exact: 0, fuzzy: 1}} = Dedup.detect()
-      assert [%{match_type: :fuzzy_meta, members: members}] = Dedup.list_groups()
-      assert length(members) == 2
+      assert [%{match_type: :fuzzy_meta, members: [_, _]}] = Dedup.list_groups()
     end
 
     test "does not group tracks with blank normalized fields" do
@@ -81,7 +80,7 @@ defmodule Beatgrid.DedupTest do
       {:ok, _} = Dedup.detect()
       {:ok, _} = Dedup.detect()
 
-      assert length(Dedup.list_groups()) == 1
+      assert [_] = Dedup.list_groups()
     end
   end
 end

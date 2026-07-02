@@ -159,10 +159,10 @@ defmodule Beatgrid.SoundchartsTest do
     end
 
     test "caches: two tracks of the same song share one Song row" do
-      t1 =
+      t_1 =
         insert(:track, tag_title: "Disritmia", tag_artist: "Casuarina", norm_artist: "casuarina")
 
-      t2 =
+      t_2 =
         insert(:track, tag_title: "Disritmia", tag_artist: "Casuarina", norm_artist: "casuarina")
 
       item = %{uuid: "uuid-1", name: "Disritmia", credit_name: "Casuarina", release_date: nil}
@@ -172,9 +172,9 @@ defmodule Beatgrid.SoundchartsTest do
         {:ok, %Response{data: song_attrs(), quota_remaining: 997, status: 200}}
       end)
 
-      assert {:ok, song1} = Soundcharts.resolve_track(t1)
-      assert {:ok, song2} = Soundcharts.resolve_track(t2)
-      assert song1.id == song2.id
+      assert {:ok, song_1} = Soundcharts.resolve_track(t_1)
+      assert {:ok, song_2} = Soundcharts.resolve_track(t_2)
+      assert song_1.id == song_2.id
       assert Soundcharts.song_count() == 1
     end
   end

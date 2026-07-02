@@ -33,7 +33,7 @@ defmodule Beatgrid.Library.TrackQueryTest do
         })
 
       assert Enum.map(result, & &1.id) == [keep.id]
-      assert hd(result).soundcharts_song.camelot == "8A"
+      assert [%{soundcharts_song: %{camelot: "8A"}}] = result
     end
 
     test "search is accent-insensitive and accepts a UUID as fallback" do
@@ -59,7 +59,7 @@ defmodule Beatgrid.Library.TrackQueryTest do
       insert(:track, status: :present)
       insert(:track, status: :missing)
 
-      assert length(TrackQuery.library(%{})) == 2
+      assert [_, _] = TrackQuery.library(%{})
     end
 
     test "bpm range uses the effective value (detected when no Soundcharts)" do
@@ -71,14 +71,14 @@ defmodule Beatgrid.Library.TrackQueryTest do
       ids = TrackQuery.library(%{bpm_min: 120, bpm_max: 130}) |> Enum.map(& &1.id)
       assert sc.id in ids
       assert detected.id in ids
-      assert length(ids) == 2
+      assert [_, _] = ids
     end
 
     test "sorts by a chosen field + direction (nils last)" do
-      s1 = insert(:soundcharts_song, tempo_bpm: 150.0)
-      s2 = insert(:soundcharts_song, tempo_bpm: 100.0)
-      fast = insert(:track, status: :present, soundcharts_song_id: s1.id, norm_artist: "z")
-      slow = insert(:track, status: :present, soundcharts_song_id: s2.id, norm_artist: "a")
+      s_1 = insert(:soundcharts_song, tempo_bpm: 150.0)
+      s_2 = insert(:soundcharts_song, tempo_bpm: 100.0)
+      fast = insert(:track, status: :present, soundcharts_song_id: s_1.id, norm_artist: "z")
+      slow = insert(:track, status: :present, soundcharts_song_id: s_2.id, norm_artist: "a")
       nobpm = insert(:track, status: :present, norm_artist: "m")
 
       ids = TrackQuery.library(%{sort: {:bpm, :desc}}) |> Enum.map(& &1.id)
@@ -165,13 +165,13 @@ defmodule Beatgrid.Library.TrackQueryTest do
     end
 
     test "library/1 returns a limit+offset page in sort order", %{tracks: [a, b, c, d, e]} do
-      page1 = TrackQuery.library(%{limit: 2, offset: 0}) |> Enum.map(& &1.id)
-      page2 = TrackQuery.library(%{limit: 2, offset: 2}) |> Enum.map(& &1.id)
-      page3 = TrackQuery.library(%{limit: 2, offset: 4}) |> Enum.map(& &1.id)
+      page_1 = TrackQuery.library(%{limit: 2, offset: 0}) |> Enum.map(& &1.id)
+      page_2 = TrackQuery.library(%{limit: 2, offset: 2}) |> Enum.map(& &1.id)
+      page_3 = TrackQuery.library(%{limit: 2, offset: 4}) |> Enum.map(& &1.id)
 
-      assert page1 == [a.id, b.id]
-      assert page2 == [c.id, d.id]
-      assert page3 == [e.id]
+      assert page_1 == [a.id, b.id]
+      assert page_2 == [c.id, d.id]
+      assert page_3 == [e.id]
     end
 
     test "count_library/1 counts all matching rows, ignoring limit/offset" do
@@ -239,7 +239,7 @@ defmodule Beatgrid.Library.TrackQueryTest do
 
       ids = TrackQuery.youtube_imports(%{}) |> Enum.map(& &1.id)
       assert a.id in ids and b.id in ids
-      assert length(ids) == 2
+      assert [_, _] = ids
 
       [first | _] = TrackQuery.youtube_imports(%{sort: :views})
       assert first.id == b.id

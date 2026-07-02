@@ -50,7 +50,7 @@ defmodule Beatgrid.Library.ImportPreviewTest do
     inbox_before = File.ls!(Path.join(root, "_Inbox"))
 
     assert {:ok, rows} = Library.preview_import(src, ai: true)
-    assert length(rows) == 2
+    assert [_, _] = rows
 
     tagged = Enum.find(rows, &(&1.filename == "Djavan - Sina.mp3"))
     assert tagged.artist == "Djavan"

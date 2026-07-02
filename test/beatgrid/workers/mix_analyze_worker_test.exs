@@ -52,11 +52,11 @@ defmodule Beatgrid.Workers.MixAnalyzeWorkerTest do
 
     reloaded = Mixes.get_with_segments(mix.id)
     assert reloaded.status == :ready
-    assert [s1, s2] = reloaded.segments
-    assert s1.artist == "A" and s1.title == "One"
-    assert s1.bpm_detected == 124.0 and s1.camelot_detected != nil
-    assert s1.matched_track_id == track.id
-    assert s2.matched_track_id == nil
+    assert [s_1, s_2] = reloaded.segments
+    assert s_1.artist == "A" and s_1.title == "One"
+    assert s_1.bpm_detected == 124.0 and s_1.camelot_detected != nil
+    assert s_1.matched_track_id == track.id
+    assert s_2.matched_track_id == nil
     # no more 24h auto-delete: analysis must NOT schedule any audio cleanup
     assert Mixes.get_mix(mix.id).cleanup_job_id == nil
   end
@@ -137,22 +137,22 @@ defmodule Beatgrid.Workers.MixAnalyzeWorkerTest do
 
     reloaded = Mixes.get_with_segments(mix.id)
     assert reloaded.status == :ready
-    assert [intro, seg1, seg2] = reloaded.segments
+    assert [intro, seg_1, seg_2] = reloaded.segments
 
     assert intro.start_ms == 0
     assert intro.artist == nil
     assert intro.title == nil
     assert intro.name_source == :audio
 
-    assert seg1.start_ms == 30_000
-    assert seg1.artist == "A"
-    assert seg1.title == "One"
-    assert seg1.name_source == :description
+    assert seg_1.start_ms == 30_000
+    assert seg_1.artist == "A"
+    assert seg_1.title == "One"
+    assert seg_1.name_source == :description
 
-    assert seg2.start_ms == 300_000
-    assert seg2.artist == "B"
-    assert seg2.title == "Two"
-    assert seg2.name_source == :description
+    assert seg_2.start_ms == 300_000
+    assert seg_2.artist == "B"
+    assert seg_2.title == "Two"
+    assert seg_2.name_source == :description
   end
 
   test "free_djs: after analyzing, derives :audio dj parts from candidates" do

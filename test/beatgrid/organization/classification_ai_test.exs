@@ -26,9 +26,9 @@ defmodule Beatgrid.Organization.ClassificationAITest do
 
   describe "classify_tracks/1" do
     test "constrains folder to the genre keys and maps results back to tracks by index" do
-      t1 = insert(:track, tag_artist: "Djavan", tag_title: "Sina", genre_folder: "forro_roots")
+      t_1 = insert(:track, tag_artist: "Djavan", tag_title: "Sina", genre_folder: "forro_roots")
 
-      t2 =
+      t_2 =
         insert(:track, tag_artist: "Luiz Gonzaga", tag_title: "Asa Branca", genre_folder: "mpb")
 
       expect(Mock, :complete, fn prompt, schema, _opts ->
@@ -55,20 +55,22 @@ defmodule Beatgrid.Organization.ClassificationAITest do
          }}
       end)
 
-      assert {:ok, results} = ClassificationAI.classify_tracks([t1, t2])
+      assert {:ok, results} = ClassificationAI.classify_tracks([t_1, t_2])
 
-      assert [%{track: r1, folder: "mpb", confidence: 0.82}, %{track: r2, folder: "forro_roots"}] =
-               results
+      assert [
+               %{track: r_1, folder: "mpb", confidence: 0.82},
+               %{track: r_2, folder: "forro_roots"}
+             ] = results
 
-      assert r1.id == t1.id
-      assert r2.id == t2.id
+      assert r_1.id == t_1.id
+      assert r_2.id == t_2.id
     end
   end
 
   describe "reclassify/1" do
     test "creates a pending :claude move suggestion only where the AI disagrees with the folder" do
-      t1 = insert(:track, tag_artist: "Djavan", genre_folder: "forro_roots", rel_path: "a.mp3")
-      _t2 = insert(:track, tag_artist: "Luiz Gonzaga", genre_folder: "mpb", rel_path: "b.mp3")
+      t_1 = insert(:track, tag_artist: "Djavan", genre_folder: "forro_roots", rel_path: "a.mp3")
+      _t_2 = insert(:track, tag_artist: "Luiz Gonzaga", genre_folder: "mpb", rel_path: "b.mp3")
 
       expect(Mock, :complete, fn _prompt, _schema, _opts ->
         {:ok,
@@ -88,18 +90,18 @@ defmodule Beatgrid.Organization.ClassificationAITest do
       assert %{classified: 2, suggested: 1, agreed: 1} = ClassificationAI.reclassify()
 
       assert [suggestion] = Organization.list_by(status: :pending, source: :claude)
-      assert suggestion.track_id == t1.id
+      assert suggestion.track_id == t_1.id
       assert suggestion.to_genre_folder == "mpb"
       assert suggestion.source == :claude
       assert suggestion.confidence == 0.79
     end
 
     test "does not duplicate a suggestion already pending for a track" do
-      t1 = insert(:track, tag_artist: "Djavan", genre_folder: "forro_roots")
+      t_1 = insert(:track, tag_artist: "Djavan", genre_folder: "forro_roots")
 
       Organization.create_suggestion(%{
-        track_id: t1.id,
-        from_rel_path: t1.rel_path,
+        track_id: t_1.id,
+        from_rel_path: t_1.rel_path,
         to_genre_folder: "mpb",
         source: :claude
       })

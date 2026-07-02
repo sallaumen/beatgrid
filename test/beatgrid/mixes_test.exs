@@ -225,12 +225,12 @@ defmodule Beatgrid.MixesTest do
 
     test "group_by_dj groups segments by containment, leftovers under nil" do
       mix = insert(:mix, duration_ms: 600_000)
-      s0 = insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
-      s1 = insert(:mix_segment, mix: mix, position: 1, start_ms: 300_000)
+      s_0 = insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+      s_1 = insert(:mix_segment, mix: mix, position: 1, start_ms: 300_000)
       part = insert(:dj_part, mix: mix, start_ms: 0, end_ms: 250_000, dj_name: "A")
 
-      assert [{p, [g0]}, {nil, [g1]}] = Mixes.group_by_dj([s0, s1], [part])
-      assert p.dj_name == "A" and g0.id == s0.id and g1.id == s1.id
+      assert [{p, [g_0]}, {nil, [g_1]}] = Mixes.group_by_dj([s_0, s_1], [part])
+      assert p.dj_name == "A" and g_0.id == s_0.id and g_1.id == s_1.id
     end
 
     test "clear_dj_parts removes them" do
@@ -346,10 +346,9 @@ defmodule Beatgrid.MixesTest do
       # Both parts snap to the nearest segment start (0) and collapse into one;
       # the named entry survives. (The collapse is also logged at :info in dev/prod.)
       parts = [%{start_ms: 0, dj_name: "DJ A"}, %{start_ms: 1_000, dj_name: "DJ B"}]
-      {:ok, count} = Mixes.replace_dj_parts(mix, :image, parts)
+      assert {:ok, 1} = Mixes.replace_dj_parts(mix, :image, parts)
 
       persisted = Mixes.get_with_dj_parts(mix.id).dj_parts
-      assert count == 1
       assert Enum.map(persisted, & &1.start_ms) == [0]
       assert Enum.map(persisted, & &1.dj_name) == ["DJ A"]
     end

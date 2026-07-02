@@ -54,10 +54,10 @@ defmodule Beatgrid.RepertoireTest do
     end
 
     test "decade_distribution/0 buckets by release decade" do
-      s1 = insert(:soundcharts_song, release_date: ~D[1987-03-01])
-      s2 = insert(:soundcharts_song, release_date: ~D[2010-06-01])
-      insert(:track, soundcharts_song_id: s1.id)
-      insert(:track, soundcharts_song_id: s2.id)
+      s_1 = insert(:soundcharts_song, release_date: ~D[1987-03-01])
+      s_2 = insert(:soundcharts_song, release_date: ~D[2010-06-01])
+      insert(:track, soundcharts_song_id: s_1.id)
+      insert(:track, soundcharts_song_id: s_2.id)
 
       assert Repertoire.decade_distribution() == %{1980 => 1, 2010 => 1}
     end

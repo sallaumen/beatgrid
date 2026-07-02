@@ -83,7 +83,7 @@ defmodule Beatgrid.MixingTest do
       a = sc_track(energy: 0.7)
       result = Mixing.rank(prev: nil, target_intensity: 0.70, limit: 5)
       assert a.id in Enum.map(result, & &1.track.id)
-      assert %{breakdown: %{style: _, harmony: _, intensity: _, bpm: _}} = hd(result)
+      assert [%{breakdown: %{style: _, harmony: _, intensity: _, bpm: _}} | _] = result
     end
 
     test "harmony is soft: still returns candidates with no neighbor of the previous key" do
@@ -102,7 +102,7 @@ defmodule Beatgrid.MixingTest do
       ids = Mixing.rank(exclude: [skip.id], limit: 3) |> Enum.map(& &1.track.id)
       assert keep.id not in [skip.id]
       refute skip.id in ids
-      assert length(ids) == 3
+      assert [_, _, _] = ids
     end
 
     test "weights override re-orders candidates (bpm-heavy surfaces the bpm-closest track)" do
@@ -216,11 +216,11 @@ defmodule Beatgrid.MixingTest do
     test "opens on abertura, closes on queda, and alternates peaks/valleys in the middle" do
       for n <- [12, 16, 20, 24, 30, 40] do
         plan = Mixing.block_plan(n)
-        assert hd(plan).role == "abertura"
+        assert [%{role: "abertura"} | _] = plan
         assert List.last(plan).role == "queda"
 
         middle = plan |> runs() |> Enum.reject(fn {r, _} -> r in ~w(abertura queda) end)
-        assert {"pico", _} = hd(middle)
+        assert [{"pico", _} | _] = middle
         assert {"pico", _} = List.last(middle)
 
         respiros = Enum.filter(middle, fn {r, _} -> r == "respiro" end)

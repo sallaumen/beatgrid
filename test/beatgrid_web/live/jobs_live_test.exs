@@ -104,7 +104,6 @@ defmodule BeatgridWeb.JobsLiveTest do
     # Collapsed: long tail token must NOT be visible
     refute html =~ "ERRO_FIM_TOKEN"
 
-    # Click the toggle button for this job
     expanded_html =
       view
       |> element("button[phx-click='toggle_details'][phx-value-id='#{job.id}']")

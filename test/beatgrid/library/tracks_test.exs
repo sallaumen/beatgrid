@@ -178,7 +178,7 @@ defmodule Beatgrid.Library.TracksTest do
       refute studio.id in ids
       refute other.id in ids
       # the exact dup (same hash + same norm_title) is not a "version"
-      assert length(ids) == 1
+      assert [_] = ids
     end
 
     test "links versions even when the title lives only in the filename (tag_title nil)" do
@@ -218,58 +218,58 @@ defmodule Beatgrid.Library.TracksTest do
     test "add_marker appends a cue point (sorted by position); remove_marker drops it" do
       {:ok, track} = Tracks.upsert_by_path(attrs())
 
-      {:ok, t1} = Tracks.add_marker(track, 90_000, "refrão")
-      {:ok, t2} = Tracks.add_marker(t1, 20_000)
+      {:ok, t_1} = Tracks.add_marker(track, 90_000, "refrão")
+      {:ok, t_2} = Tracks.add_marker(t_1, 20_000)
 
-      assert Enum.map(t2.cue_points, & &1["ms"]) == [20_000, 90_000]
-      assert Enum.find(t2.cue_points, &(&1["ms"] == 90_000))["label"] == "refrão"
+      assert Enum.map(t_2.cue_points, & &1["ms"]) == [20_000, 90_000]
+      assert Enum.find(t_2.cue_points, &(&1["ms"] == 90_000))["label"] == "refrão"
 
-      {:ok, t3} = Tracks.remove_marker(t2, 20_000)
-      assert Enum.map(t3.cue_points, & &1["ms"]) == [90_000]
+      {:ok, t_3} = Tracks.remove_marker(t_2, 20_000)
+      assert Enum.map(t_3.cue_points, & &1["ms"]) == [90_000]
     end
 
     test "rename_marker sets the label of the marker at a position (blank clears it)" do
       {:ok, track} = Tracks.upsert_by_path(attrs())
-      {:ok, t1} = Tracks.add_marker(track, 30_000)
+      {:ok, t_1} = Tracks.add_marker(track, 30_000)
 
-      {:ok, t2} = Tracks.rename_marker(t1, 30_000, "  drop  ")
-      assert Enum.find(t2.cue_points, &(&1["ms"] == 30_000))["label"] == "drop"
+      {:ok, t_2} = Tracks.rename_marker(t_1, 30_000, "  drop  ")
+      assert [%{"ms" => 30_000, "label" => "drop"}] = t_2.cue_points
 
-      {:ok, t3} = Tracks.rename_marker(t2, 30_000, "   ")
-      assert Enum.find(t3.cue_points, &(&1["ms"] == 30_000))["label"] == nil
+      {:ok, t_3} = Tracks.rename_marker(t_2, 30_000, "   ")
+      assert [%{"ms" => 30_000, "label" => nil}] = t_3.cue_points
 
       # An unknown position is a no-op (no crash, list unchanged).
-      {:ok, t4} = Tracks.rename_marker(t3, 999_999, "x")
-      assert Enum.map(t4.cue_points, & &1["ms"]) == [30_000]
+      {:ok, t_4} = Tracks.rename_marker(t_3, 999_999, "x")
+      assert Enum.map(t_4.cue_points, & &1["ms"]) == [30_000]
     end
 
     test "set_marker_type sets the (coerced) type of the marker at a position" do
       {:ok, track} = Tracks.upsert_by_path(attrs())
-      {:ok, t1} = Tracks.add_marker(track, 30_000)
+      {:ok, t_1} = Tracks.add_marker(track, 30_000)
 
-      {:ok, t2} = Tracks.set_marker_type(t1, 30_000, "intro")
-      assert Enum.find(t2.cue_points, &(&1["ms"] == 30_000))["type"] == "intro"
+      {:ok, t_2} = Tracks.set_marker_type(t_1, 30_000, "intro")
+      assert [%{"ms" => 30_000, "type" => "intro"}] = t_2.cue_points
 
-      {:ok, t3} = Tracks.set_marker_type(t2, 30_000, "bogus")
-      assert Enum.find(t3.cue_points, &(&1["ms"] == 30_000))["type"] == "cue"
+      {:ok, t_3} = Tracks.set_marker_type(t_2, 30_000, "bogus")
+      assert [%{"ms" => 30_000, "type" => "cue"}] = t_3.cue_points
 
-      {:ok, t4} = Tracks.set_marker_type(t3, 999_999, "intro")
-      assert Enum.map(t4.cue_points, & &1["ms"]) == [30_000]
+      {:ok, t_4} = Tracks.set_marker_type(t_3, 999_999, "intro")
+      assert Enum.map(t_4.cue_points, & &1["ms"]) == [30_000]
     end
 
     test "replace_auto_markers swaps auto markers but keeps manual ones" do
       {:ok, track} = Tracks.upsert_by_path(attrs())
-      {:ok, t1} = Tracks.add_marker(track, 40_000, "manual")
+      {:ok, t_1} = Tracks.add_marker(track, 40_000, "manual")
 
       auto = fn ms -> %{"ms" => ms, "type" => "intro", "source" => "auto", "label" => nil} end
 
-      {:ok, t2} = Tracks.replace_auto_markers(t1, [auto.(5_000)])
-      assert Enum.map(t2.cue_points, & &1["ms"]) == [5_000, 40_000]
+      {:ok, t_2} = Tracks.replace_auto_markers(t_1, [auto.(5_000)])
+      assert Enum.map(t_2.cue_points, & &1["ms"]) == [5_000, 40_000]
 
       # Re-detecting drops the old auto (5_000) but keeps the manual cue (40_000).
-      {:ok, t3} = Tracks.replace_auto_markers(t2, [auto.(8_000)])
-      assert Enum.map(t3.cue_points, & &1["ms"]) == [8_000, 40_000]
-      assert Enum.find(t3.cue_points, &(&1["ms"] == 40_000))["label"] == "manual"
+      {:ok, t_3} = Tracks.replace_auto_markers(t_2, [auto.(8_000)])
+      assert Enum.map(t_3.cue_points, & &1["ms"]) == [8_000, 40_000]
+      assert Enum.find(t_3.cue_points, &(&1["ms"] == 40_000))["label"] == "manual"
     end
   end
 end

@@ -9,7 +9,7 @@ defmodule Beatgrid.Workers.DedupWorkerTest do
     insert(:track, content_sha256: "abc", rel_path: "b.mp3")
 
     assert :ok = perform_job(DedupWorker, %{})
-    assert length(Dedup.list_groups()) == 1
+    assert [_] = Dedup.list_groups()
   end
 
   test "enqueue/0 inserts a dedup job" do

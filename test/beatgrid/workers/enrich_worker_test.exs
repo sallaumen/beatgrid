@@ -117,8 +117,8 @@ defmodule Beatgrid.Workers.EnrichWorkerTest do
   end
 
   test "scope pending enriches all pending tracks and reports total" do
-    t1 = matching_track(filename: "a.mp3", rel_path: "_Inbox/a.mp3")
-    t2 = matching_track(filename: "b.mp3", rel_path: "_Inbox/b.mp3")
+    t_1 = matching_track(filename: "a.mp3", rel_path: "_Inbox/a.mp3")
+    t_2 = matching_track(filename: "b.mp3", rel_path: "_Inbox/b.mp3")
 
     # Two resolutions (one per track) for the two-track batch.
     stub_resolve_match()
@@ -136,8 +136,8 @@ defmodule Beatgrid.Workers.EnrichWorkerTest do
 
     assert done.budget_exhausted == false
 
-    assert Tracks.get(t1.id).soundcharts_song_id
-    assert Tracks.get(t2.id).soundcharts_song_id
+    assert Tracks.get(t_1.id).soundcharts_song_id
+    assert Tracks.get(t_2.id).soundcharts_song_id
   end
 
   test "budget exhausted returns :ok, halts further calls, and flags the final broadcast" do
@@ -206,11 +206,11 @@ defmodule Beatgrid.Workers.EnrichWorkerTest do
     test "não empilha um segundo job 'pending' enquanto um está em voo" do
       assert {:ok, _} = Oban.insert(EnrichWorker.new(%{"scope" => "pending", "batch_id" => "a"}))
 
-      assert {:ok, job2} =
+      assert {:ok, job_2} =
                Oban.insert(EnrichWorker.new(%{"scope" => "pending", "batch_id" => "b"}))
 
-      assert job2.conflict?
-      assert length(all_enqueued(worker: EnrichWorker)) == 1
+      assert job_2.conflict?
+      assert [_] = all_enqueued(worker: EnrichWorker)
     end
 
     test "jobs 'track' de faixas diferentes coexistem" do
@@ -219,13 +219,13 @@ defmodule Beatgrid.Workers.EnrichWorkerTest do
                  EnrichWorker.new(%{"scope" => "track", "id" => "t1", "batch_id" => "a"})
                )
 
-      assert {:ok, j2} =
+      assert {:ok, j_2} =
                Oban.insert(
                  EnrichWorker.new(%{"scope" => "track", "id" => "t2", "batch_id" => "b"})
                )
 
-      refute j2.conflict?
-      assert length(all_enqueued(worker: EnrichWorker)) == 2
+      refute j_2.conflict?
+      assert [_, _] = all_enqueued(worker: EnrichWorker)
     end
   end
 end

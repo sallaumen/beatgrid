@@ -63,14 +63,14 @@ defmodule Beatgrid.MarkersTest do
     end
 
     test "enqueue_unmapped enqueues one MarkerAnalyzeWorker per unmapped track" do
-      t1 = insert(:track, status: :present, rel_path: "a.mp3", cue_points: [])
-      t2 = insert(:track, status: :present, rel_path: "b.mp3", cue_points: [manual(1000)])
+      t_1 = insert(:track, status: :present, rel_path: "a.mp3", cue_points: [])
+      t_2 = insert(:track, status: :present, rel_path: "b.mp3", cue_points: [manual(1000)])
       _mapped = insert(:track, status: :present, rel_path: "c.mp3", cue_points: [auto(500)])
 
       assert {:ok, 2} = Markers.enqueue_unmapped()
 
-      assert_enqueued(worker: MarkerAnalyzeWorker, args: %{track_id: t1.id})
-      assert_enqueued(worker: MarkerAnalyzeWorker, args: %{track_id: t2.id})
+      assert_enqueued(worker: MarkerAnalyzeWorker, args: %{track_id: t_1.id})
+      assert_enqueued(worker: MarkerAnalyzeWorker, args: %{track_id: t_2.id})
     end
   end
 end

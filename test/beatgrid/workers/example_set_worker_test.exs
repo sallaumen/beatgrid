@@ -28,7 +28,8 @@ defmodule Beatgrid.Workers.ExampleSetWorkerTest do
     assert length(entries) >= 2
 
     # Auto markers were written on the tracks…
-    assert Enum.any?(hd(entries).track.cue_points, &(&1["type"] == "intro"))
+    [first_entry | _] = entries
+    assert Enum.any?(first_entry.track.cue_points, &(&1["type"] == "intro"))
     # …and the consecutive pairs got connected.
     assert Enum.any?(tl(entries), &(&1.transition && &1.transition["enabled"]))
   end

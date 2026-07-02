@@ -70,12 +70,12 @@ defmodule Beatgrid.ReviewTest do
 
     test "approve_high_confidence approves only high-confidence pending items per tab" do
       insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB")
-      t1 = insert(:track, rel_path: "_Inbox/a.mp3", filename: "a.mp3")
-      t2 = insert(:track, rel_path: "_Inbox/b.mp3", filename: "b.mp3")
+      t_1 = insert(:track, rel_path: "_Inbox/a.mp3", filename: "a.mp3")
+      t_2 = insert(:track, rel_path: "_Inbox/b.mp3", filename: "b.mp3")
 
       {:ok, high} =
         Organization.create_suggestion(%{
-          track_id: t1.id,
+          track_id: t_1.id,
           from_rel_path: "_Inbox/a.mp3",
           to_genre_folder: "mpb",
           source: :claude,
@@ -84,7 +84,7 @@ defmodule Beatgrid.ReviewTest do
 
       {:ok, low} =
         Organization.create_suggestion(%{
-          track_id: t2.id,
+          track_id: t_2.id,
           from_rel_path: "_Inbox/b.mp3",
           to_genre_folder: "mpb",
           source: :claude,
@@ -218,14 +218,14 @@ defmodule Beatgrid.ReviewTest do
       File.write!(Path.join(root, "MPB/A.mp3"), "a")
       File.write!(Path.join(root, "MPB/B.mp3"), "b")
 
-      s1 = insert(:soundcharts_song, credit_name: "Art", name: "One")
-      s2 = insert(:soundcharts_song, credit_name: "Art", name: "Two")
+      s_1 = insert(:soundcharts_song, credit_name: "Art", name: "One")
+      s_2 = insert(:soundcharts_song, credit_name: "Art", name: "Two")
 
       insert(:track,
         rel_path: "MPB/A.mp3",
         filename: "A.mp3",
         genre_folder: "mpb",
-        soundcharts_song_id: s1.id,
+        soundcharts_song_id: s_1.id,
         sc_match_confidence: :high
       )
 
@@ -233,7 +233,7 @@ defmodule Beatgrid.ReviewTest do
         rel_path: "MPB/B.mp3",
         filename: "B.mp3",
         genre_folder: "mpb",
-        soundcharts_song_id: s2.id,
+        soundcharts_song_id: s_2.id,
         sc_match_confidence: :high
       )
 
@@ -294,24 +294,24 @@ defmodule Beatgrid.ReviewTest do
     end
 
     test "unevaluated scope returns only pending suggestions without a rationale" do
-      {_t1, s1} = pending_rename(sug: %{rationale: nil})
-      {_t2, _s2} = pending_rename(sug: %{rationale: "already evaluated"})
+      {_t_1, s_1} = pending_rename(sug: %{rationale: nil})
+      {_t_2, _s_2} = pending_rename(sug: %{rationale: "already evaluated"})
 
       ids =
         Review.suggestions_for_scope(%{"scope" => "unevaluated"}) |> Enum.map(& &1.id)
 
-      assert ids == [s1.id]
+      assert ids == [s_1.id]
     end
 
     test "folder scope filters by the track's genre_folder" do
-      {_t1, s1} = pending_rename(track: [genre_folder: "forro_roots"])
-      {_t2, _s2} = pending_rename(track: [genre_folder: "mpb"])
+      {_t_1, s_1} = pending_rename(track: [genre_folder: "forro_roots"])
+      {_t_2, _s_2} = pending_rename(track: [genre_folder: "mpb"])
 
       ids =
         Review.suggestions_for_scope(%{"scope" => "folder", "folder" => "forro_roots"})
         |> Enum.map(& &1.id)
 
-      assert ids == [s1.id]
+      assert ids == [s_1.id]
     end
 
     test "reevaluate_chunk re-evaluates a rejected suggestion and resets it to pending" do
