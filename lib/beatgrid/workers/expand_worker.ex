@@ -3,7 +3,16 @@ defmodule Beatgrid.Workers.ExpandWorker do
   Expands a submitted YouTube URL (single video or playlist) into one
   `DownloadWorker` job per video, carrying the source playlist URL for provenance.
   """
-  use Oban.Worker, queue: :youtube, max_attempts: 3
+  # Unique per URL while in flight, so pasting the same playlist twice (or a
+  # double-click) doesn't fan out duplicate downloads.
+  use Oban.Worker,
+    queue: :youtube,
+    max_attempts: 3,
+    unique: [
+      period: 3600,
+      keys: [:url],
+      states: [:available, :scheduled, :executing, :retryable, :suspended]
+    ]
 
   alias Beatgrid.YouTube
 

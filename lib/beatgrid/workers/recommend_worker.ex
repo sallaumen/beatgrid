@@ -4,7 +4,16 @@ defmodule Beatgrid.Workers.RecommendWorker do
   folder gaps (`scope: "folder"`) or per-track matches (`scope: "track"`). Quota-free (claude
   only). Broadcasts `{:recommend_progress, …}` so the LiveView reloads. Queue `:ai`.
   """
-  use Oban.Worker, queue: :ai, max_attempts: 2
+  # Unique per scope target while in flight (batch_id excluded from the keys —
+  # each click stamps a fresh one), so a double-click doesn't run the AI twice.
+  use Oban.Worker,
+    queue: :ai,
+    max_attempts: 2,
+    unique: [
+      period: 3600,
+      keys: [:scope, :folder, :track_id],
+      states: [:available, :scheduled, :executing, :retryable, :suspended]
+    ]
 
   alias Beatgrid.Library.{GenreFolders, Tracks}
   alias Beatgrid.Repertoire

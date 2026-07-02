@@ -9,7 +9,16 @@ defmodule Beatgrid.Workers.ReResolveWorker do
 
   Triggered only by an explicit user click — never auto-enqueued.
   """
-  use Oban.Worker, queue: :soundcharts, max_attempts: 3
+  # Unique per suggestion while in flight — a double-click must not spend
+  # Soundcharts quota twice for the same suggestion.
+  use Oban.Worker,
+    queue: :soundcharts,
+    max_attempts: 3,
+    unique: [
+      period: 3600,
+      keys: [:suggestion_id],
+      states: [:available, :scheduled, :executing, :retryable, :suspended]
+    ]
 
   alias Beatgrid.Library.NameSync
   alias Beatgrid.Review

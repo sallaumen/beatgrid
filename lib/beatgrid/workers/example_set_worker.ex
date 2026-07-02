@@ -6,7 +6,11 @@ defmodule Beatgrid.Workers.ExampleSetWorker do
   detection is best-effort per track (a failure on one doesn't abort the rest).
   Queued on `:analysis` (librosa is CPU-heavy).
   """
-  use Oban.Worker, queue: :analysis, max_attempts: 1
+  # No args → unique dedupes rapid double-clicks into a single build.
+  use Oban.Worker,
+    queue: :analysis,
+    max_attempts: 1,
+    unique: [period: 300, states: [:available, :scheduled, :executing, :retryable, :suspended]]
 
   alias Beatgrid.Markers
   alias Beatgrid.Sets

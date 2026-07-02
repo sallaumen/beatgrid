@@ -4,7 +4,16 @@ defmodule Beatgrid.Workers.ReevaluateWorker do
   broadcasting `{:reevaluate_progress, …}` after each chunk so the LiveView can show
   live progress. Survives navigation (runs in Oban, not the LiveView). Quota-free.
   """
-  use Oban.Worker, queue: :ai, max_attempts: 1
+  # Unique per scope while in flight (batch_id excluded from the keys — each
+  # click stamps a fresh one), so a double-click doesn't re-run the verifier.
+  use Oban.Worker,
+    queue: :ai,
+    max_attempts: 1,
+    unique: [
+      period: 3600,
+      keys: [:scope, :folder, :id],
+      states: [:available, :scheduled, :executing, :retryable, :suspended]
+    ]
 
   alias Beatgrid.Review
 

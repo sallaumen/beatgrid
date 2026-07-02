@@ -13,7 +13,8 @@ defmodule Beatgrid.Workers.ImportWorker do
   (`scope: "pending"`) — the only quota-spending step, and only ever on this
   explicit opt-in.
   """
-  use Oban.Worker, queue: :scan, max_attempts: 1
+  # Unique per batch so a retried enqueue can't commit the same batch twice.
+  use Oban.Worker, queue: :scan, max_attempts: 1, unique: [period: 60, keys: [:batch_id]]
 
   alias Beatgrid.Library
   alias Beatgrid.Workers.EnrichWorker
