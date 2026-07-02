@@ -23,6 +23,15 @@ defmodule Beatgrid.Operations do
   @spec count(keyword()) :: non_neg_integer()
   def count(opts \\ []), do: OperationQuery.count(opts)
 
+  @doc "Batch id of the most recent applied gain operation, if any backup can be restored."
+  @spec latest_gain_batch_id() :: Ecto.UUID.t() | nil
+  def latest_gain_batch_id do
+    case list_by(kind: :gain, status: :applied, limit: 1) do
+      [%Operation{batch_id: batch_id} | _] -> batch_id
+      [] -> nil
+    end
+  end
+
   @doc "Latest applied gain operation for a track, if one can be previewed/restored."
   @spec latest_gain_operation(Ecto.UUID.t()) :: Operation.t() | nil
   def latest_gain_operation(track_id) do

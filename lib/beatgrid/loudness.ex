@@ -128,12 +128,7 @@ defmodule Beatgrid.Loudness do
 
   @doc "Most recent applied gain batch, if any backup can be restored."
   @spec latest_gain_batch() :: Ecto.UUID.t() | nil
-  def latest_gain_batch do
-    case Operations.list_by(kind: :gain, status: :applied, limit: 1) do
-      [%{batch_id: batch_id} | _] -> batch_id
-      [] -> nil
-    end
-  end
+  defdelegate latest_gain_batch, to: Operations, as: :latest_gain_batch_id
 
   @doc """
   Measures a track and stores its LUFS + true peak. Always stamps `loudness_attempted_at`
