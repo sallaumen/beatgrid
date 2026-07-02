@@ -820,7 +820,6 @@ defmodule BeatgridWeb.DiscotecagemLive do
         }
         // Ordem da paleta: pads SAMPLER da controladora disparam estas — lado
         // esquerdo as 4 primeiras, lado direito as 4 últimas.
-        const PAD_TRANSITIONS = ["cut", "fade", "crossfade", "echo", "filter", "lowpass", "bass_swap", "brake"]
         // Anel de foco dos Efeitos: o browse anda por aqui e o cue level ajusta
         // o item focado (sliders absolutos; TOM alterna).
         const FX_RING = [
@@ -1568,15 +1567,6 @@ defmodule BeatgridWeb.DiscotecagemLive do
               case "sync":
                 if (a.pressed && this.engine.sync(a.deck)) this.log(`SYNC deck ${a.deck.toUpperCase()} (MIDI)`)
                 break
-              case "sampler": {
-                // Pads em modo SAMPLER = a paleta de transições: lado esquerdo
-                // as 4 primeiras, lado direito as 4 últimas.
-                if (!a.pressed) break
-                const idx = (a.deck === "a" ? 0 : 4) + a.index - 1
-                const res = this.engine.fireManual(PAD_TRANSITIONS[idx])
-                if (!res.ok) this.log(FIRE_ERRORS[res.reason] || "transição indisponível")
-                break
-              }
               case "pitch": {
                 this.applyPitch(a.deck, a.value)
                 const el = byId(`dj-pitch-${a.deck}`)
@@ -1611,13 +1601,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 if (a.pressed) this.engine.beatLoop(a.deck, [1, 2, 4, 8][a.index - 1])
                 break
               case "focus":
-                // Pads MANUAL: 1 Biblioteca · 2 Efeitos · 3 Transições · 4 Fila.
+                // Pads SAMPLER: 1 Biblioteca · 2 Fila · 3 Efeitos · 4 Transições.
                 if (a.pressed) {
                   const target = [
                     ["lista", "biblioteca"],
+                    ["lista", "fila"],
                     ["efeitos", null],
                     ["transicoes", null],
-                    ["lista", "fila"],
                   ][a.index - 1]
                   if (target) this.setFocusSection(target[0], target[1])
                 }
@@ -2513,8 +2503,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
         Numark DJ2GO2 Touch via USB — plugue e os controles físicos passam a mexer na mesa:
         play, cue, sync, pitch, volumes, crossfader, o prato (segurar o topo = vinil na mão,
         girar pela borda = ajuste fino), fone e o load pelo browse. Pads: CUES = hot cues ·
-        AUTO = loops · MANUAL = seções (1 Biblioteca, 2 Efeitos, 3 Transições, 4 Fila — o
-        browse navega a seção e o cue level vira o knob de valor) · SAMPLER = as 8 transições.
+        AUTO = loops · MANUAL = reservado (loops criativos, em breve) · SAMPLER = seções
+        (1 Biblioteca, 2 Fila, 3 Efeitos, 4 Transições — o browse navega a seção focada e o
+        cue level vira o knob de valor dela).
       </p>
       <div
         id="dj-midi-log"
