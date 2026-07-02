@@ -227,18 +227,19 @@ defmodule Beatgrid.Library.TrackQuery do
     )
   end
 
-  @gold_view_threshold Beatgrid.Gold.view_threshold()
-
   # Selo Ouro = manual true OU (sem override manual E (eixo raro setado OU views >= limiar)),
-  # sempre excluindo manual=false. Espelha Beatgrid.Gold.effective/1.
+  # sempre excluindo manual=false. Espelha Beatgrid.Gold.effective/1 — inclusive lendo o
+  # limiar em RUNTIME, para que os dois nunca divirjam se a config mudar sem recompilar.
   defp gold_filter(q, filters) do
     if truthy(filters[:gold] || filters["gold"]) do
+      threshold = Beatgrid.Gold.view_threshold()
+
       where(
         q,
         [t],
         t.gold_manual == true or
           (is_nil(t.gold_manual) and
-             (not is_nil(t.gold_status) or t.youtube_views >= ^@gold_view_threshold))
+             (not is_nil(t.gold_status) or t.youtube_views >= ^threshold))
       )
     else
       q
