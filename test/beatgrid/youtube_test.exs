@@ -192,6 +192,29 @@ defmodule Beatgrid.YouTubeTest do
     assert {:ok, %{enriched: 0, resolved: 0}} = YouTube.enrich_pending()
   end
 
+  test "reparse_polluted_titles strips the channel tail using the stored raw title" do
+    polluted =
+      insert(:track,
+        status: :present,
+        tag_artist: "Jota lima",
+        tag_title: "Morena linda | Vitrola Forrozeira - Forró pé de serra",
+        raw_tags: %{
+          "youtube_title" => "Jota lima - Morena linda | Vitrola Forrozeira - Forró pé de serra"
+        }
+      )
+
+    clean = insert(:track, status: :present, tag_title: "Asa Branca", raw_tags: %{})
+
+    assert {:ok, 1} = YouTube.reparse_polluted_titles()
+
+    reparsed = Tracks.get(polluted.id)
+    assert reparsed.tag_artist == "Jota lima"
+    assert reparsed.tag_title == "Morena linda"
+    assert Tracks.get(clean.id).tag_title == "Asa Branca"
+
+    assert {:ok, 0} = YouTube.reparse_polluted_titles()
+  end
+
   test "expand_and_enqueue lists videos and enqueues one DownloadWorker each (playlist)" do
     expect(Beatgrid.YouTube.DownloaderMock, :list_entries, fn "https://y/playlist" ->
       {:ok,

@@ -35,4 +35,16 @@ defmodule Beatgrid.YouTube.TitleParserTest do
   test "is defensive about non-strings" do
     assert %{artist: nil, title: ""} = TitleParser.parse(nil)
   end
+
+  test "drops the channel branding after a spaced pipe" do
+    assert %{artist: "Jota lima", title: "Morena linda"} =
+             TitleParser.parse(
+               "Jota lima - Morena linda | Vitrola Forrozeira - Forró pé de serra"
+             )
+  end
+
+  test "drops the pipe tail even without an artist separator" do
+    assert %{artist: nil, title: "Vapor do Una"} =
+             TitleParser.parse("Vapor do Una | Forró Stream")
+  end
 end

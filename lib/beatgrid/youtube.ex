@@ -228,6 +228,39 @@ defmodule Beatgrid.YouTube do
   end
 
   @doc """
+  Re-derives tag artist/title from the stored raw YouTube title for present
+  tracks whose title still carries channel branding (a " | " tail) — a backfill
+  for imports made before the parser stripped it. The raw title stays in
+  `raw_tags`, so this is idempotent and re-runnable. Returns the cleaned count.
+  """
+  @spec reparse_polluted_titles() :: {:ok, non_neg_integer()}
+  def reparse_polluted_titles do
+    cleaned =
+      [status: :present]
+      |> Tracks.list_by()
+      |> Enum.filter(&polluted_title?/1)
+      |> Enum.count(&reparse_title/1)
+
+    {:ok, cleaned}
+  end
+
+  defp polluted_title?(%{tag_title: title, raw_tags: raw}) do
+    is_binary(title) and String.contains?(title, " | ") and
+      is_binary((raw || %{})["youtube_title"])
+  end
+
+  defp reparse_title(track) do
+    parsed = TitleParser.parse(track.raw_tags["youtube_title"])
+
+    attrs = %{
+      tag_title: parsed.title,
+      tag_artist: parsed.artist || track.tag_artist
+    }
+
+    parsed.title != track.tag_title and match?({:ok, _}, Tracks.update(track, attrs))
+  end
+
+  @doc """
   Fallback de enriquecimento (sem Soundcharts): enfileira análise local pras faixas
   sem `bpm_detected` (BPM/tom reais) e roda a classificação de gênero por IA, que
   auto-arquiva as de alta confiança. Idempotente (AnalyzeWorker é unique por faixa;

@@ -10,11 +10,15 @@ defmodule Beatgrid.YouTube.TitleParser do
   # so meaningful ones (e.g. "Trevo (Tu)") survive.
   @noise ~r/[\(\[][^\)\]]*\b(?:official|oficial|video|v[íi]deo|[áa]udio|lyrics?|letra|hd|4k|mv|visualizer|clipe|remaster(?:ed)?|explicit)\b[^\)\]]*[\)\]]/iu
 
+  # Everything after a spaced pipe is channel/promo branding ("Morena linda |
+  # Vitrola Forrozeira - Forró pé de serra"), never part of the song name.
+  @pipe_tail ~r/\s+\|.*$/u
+
   @separator ~r/\s+[-–—]\s+/u
 
   @spec parse(String.t() | nil) :: %{artist: String.t() | nil, title: String.t()}
   def parse(raw) when is_binary(raw) do
-    cleaned = raw |> strip_noise() |> collapse()
+    cleaned = raw |> strip_pipe_tail() |> strip_noise() |> collapse()
 
     case String.split(cleaned, @separator, parts: 2) do
       [artist, title] when artist != "" and title != "" ->
@@ -27,6 +31,7 @@ defmodule Beatgrid.YouTube.TitleParser do
 
   def parse(_other), do: %{artist: nil, title: ""}
 
+  defp strip_pipe_tail(s), do: Regex.replace(@pipe_tail, s, "")
   defp strip_noise(s), do: Regex.replace(@noise, s, "")
   defp collapse(s), do: s |> String.replace(~r/\s+/u, " ") |> String.trim()
 end
