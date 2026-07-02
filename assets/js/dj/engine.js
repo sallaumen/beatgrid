@@ -15,26 +15,33 @@
 //   - Audio-critical continuations are event/timeout-driven, never rAF-driven:
 //     rAF freezes in background tabs.
 //
-// Graph per deck:
-//   <audio> → Source → deckGain → HPF → bass shelf ─┬─ dry ────────────┐
-//                                                   └─ echoSend → Delay┤→ channel → xfadeGain → master → out
-//                                                          ↺ feedback  │   (analyser taps: channel + master)
+// Graph per deck (mixer-standard: the fader sits AFTER the metered/PFL point,
+// so headphone cue and meters are pre-fader — o fone não depende do volume):
+//   <audio> → Source → HPF → bass shelf ─┬─ dry ────────────┐
+//                                        └─ echoSend → Delay┤→ channel → deckGain → xfadeGain → master
+//                                               ↺ feedback  │      │ (analyser + cue tap)
+//                                                           │      └→ cueGain → cueBus → phones
 //
 // The HPF (transparent at 10 Hz) drives the "filtro" sweep; the low shelf
-// (flat at 0 dB) drives the "troca de grave" bass swap.
+// (flat at 0 dB) drives the "troca de grave" bass swap. The cue bus reaches
+// the headphones either as channels 3/4 of a 4-channel interface (DJ2GO2
+// Touch main = 1/2, phones = 3/4) or via a routable MediaStream element.
 
 const RAMP = Object.freeze({
   manualFaderTau: 0.01, // s — smoothing for hand moves (kills zipper noise)
   fadeOutS: 2.2,
   fadeInS: 2.2,
   crossfadeS: 8.0,
-  echoWetUpS: 1.2,
-  echoDryDownS: 1.2,
-  echoInS: 0.5,
-  echoTailBeats: 4,
-  echoFeedback: 0.55,
+  // Echo-out envelope: the tail must RING while the next track settles in —
+  // the first cut of this felt like a fast fade (real-hardware feedback).
+  echoWetUpS: 1.8,
+  echoDryDownS: 2.4,
+  echoInS: 2.0,
+  echoTailBeats: 8,
+  echoFeedback: 0.6,
   echoWetLevel: 0.85,
   echoFallbackDelayMs: 375,
+  echoFallbackTailS: 5.0,
   filterS: 4.0, // full high-pass sweep on the outgoing deck
   filterTopHz: 1600,
   bassOverlapS: 4.0, // both tracks run together before the bass swap
@@ -104,8 +111,7 @@ class Deck {
     this.feedback.gain.value = RAMP.echoFeedback
 
     sourceFor(el).disconnect()
-    sourceFor(el).connect(this.gain)
-    this.gain.connect(this.hpf)
+    sourceFor(el).connect(this.hpf)
     this.hpf.connect(this.bass)
     this.bass.connect(this.dry)
     this.bass.connect(this.echoSend)
@@ -115,6 +121,7 @@ class Deck {
     this.dry.connect(this.channel)
     this.delay.connect(this.channel)
     this.channel.connect(this.analyser)
+    this.channel.connect(this.gain) // fader AFTER the cue/meter tap (pre-fader listen)
   }
 
   // Loading is REFUSED while audible — the incoming track belongs on the idle deck.
@@ -246,16 +253,96 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
   const xfade = {a: ctx.createGain(), b: ctx.createGain(), pos: 0.5}
 
-  decks.a.channel.connect(xfade.a)
-  decks.b.channel.connect(xfade.b)
+  decks.a.gain.connect(xfade.a)
+  decks.b.gain.connect(xfade.b)
   xfade.a.connect(master)
   xfade.b.connect(master)
-  master.connect(masterAnalyser)
-  masterAnalyser.connect(ctx.destination)
 
   const g = equalPower(xfade.pos)
   xfade.a.gain.value = g.a
   xfade.b.gain.value = g.b
+
+  // ── headphone cue (PFL): pre-fader taps → per-deck switch → cue bus ─────────
+  const cue = {
+    a: ctx.createGain(),
+    b: ctx.createGain(),
+    bus: ctx.createGain(),
+    on: {a: false, b: false},
+    mode: "stereo", // "quad" when the output device exposes 4+ channels
+  }
+  cue.a.gain.value = 0
+  cue.b.gain.value = 0
+  decks.a.channel.connect(cue.a)
+  decks.b.channel.connect(cue.b)
+  cue.a.connect(cue.bus)
+  cue.b.connect(cue.bus)
+  // Force the two buses stereo at the tap points: mono tracks would otherwise
+  // reach the quad splitters as 1 channel and zero-pad the right side dead.
+  master.channelCount = 2
+  master.channelCountMode = "explicit"
+  cue.bus.channelCount = 2
+  cue.bus.channelCountMode = "explicit"
+  // Stereo-mode fallback: a routable stream the hook can point at any output
+  // device (<audio srcObject + setSinkId>). NOT fed in quad mode — the cue
+  // must never reach a device's main channels by accident.
+  const cueStreamDest = ctx.createMediaStreamDestination()
+
+  let outputNodes = []
+
+  // Wire master (and, on 4-channel interfaces, the cue bus) to the device.
+  // DJ2GO2 Touch is a 4-out card: main = channels 1/2, phones = 3/4 — with it
+  // as the output device, the browser can feed the room AND the headphones.
+  function wireOutputs() {
+    try {
+      master.disconnect()
+    } catch (_e) {
+      // not connected yet
+    }
+    try {
+      cue.bus.disconnect()
+    } catch (_e) {
+      // idem
+    }
+    for (const node of outputNodes) {
+      try {
+        node.disconnect()
+      } catch (_e) {
+        // idem
+      }
+    }
+    outputNodes = []
+    master.connect(masterAnalyser)
+
+    const maxCh = ctx.destination.maxChannelCount || 2
+    if (maxCh >= 4) {
+      ctx.destination.channelCount = 4
+      ctx.destination.channelCountMode = "explicit"
+      ctx.destination.channelInterpretation = "discrete"
+      const merger = ctx.createChannelMerger(4)
+      const masterSplit = ctx.createChannelSplitter(2)
+      const cueSplit = ctx.createChannelSplitter(2)
+      master.connect(masterSplit)
+      cue.bus.connect(cueSplit)
+      masterSplit.connect(merger, 0, 0)
+      masterSplit.connect(merger, 1, 1)
+      cueSplit.connect(merger, 0, 2)
+      cueSplit.connect(merger, 1, 3)
+      merger.connect(ctx.destination)
+      outputNodes = [merger, masterSplit, cueSplit]
+      cue.mode = "quad"
+    } else {
+      // Undo any leftover quad destination config from a device switch.
+      ctx.destination.channelCountMode = "explicit"
+      ctx.destination.channelCount = Math.min(2, Math.max(maxCh, 1))
+      ctx.destination.channelInterpretation = "speakers"
+      master.connect(ctx.destination)
+      // The routable fallback only exists in stereo mode — in quad the cue
+      // rides channels 3/4 and must not double anywhere else.
+      cue.bus.connect(cueStreamDest)
+      cue.mode = "stereo"
+    }
+    emit("cueMode", {mode: cue.mode, maxChannels: maxCh})
+  }
 
   const state = {
     activeDeck: null, // "a" | "b" | null — who owns the set boundary
@@ -423,6 +510,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // Incoming gain rise: from silence when the deck is idle; from its CURRENT
   // level when the DJ already has it in the mix (a hard drop to zero on the
   // deck the room is about to rely on is an audible hole).
+  // MUST be scheduled BEFORE startIncoming: play() flips the element to
+  // "audible" synchronously, which would make this skip the silent start.
   function riseIncoming(to, riseEndS) {
     const now = ctx.currentTime
     if (!to.audible()) to.gain.gain.setValueAtTime(0, now)
@@ -439,8 +528,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     const now = ctx.currentTime
     from.gain.gain.linearRampToValueAtTime(0, now + RAMP.fadeOutS)
 
-    startIncoming(to, toMs)
     riseIncoming(to, RAMP.fadeOutS + RAMP.fadeInS)
+    startIncoming(to, toMs)
     setXfadeTo(sideOf(to.id), RAMP.fadeOutS)
 
     after(RAMP.fadeOutS + 0.1, () => {
@@ -468,15 +557,17 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     const now = ctx.currentTime
     const bpm = from.bpm ? from.bpm * from.el.playbackRate : null
     const delayS = bpm ? (60 / bpm) * 0.75 : RAMP.echoFallbackDelayMs / 1000
-    const tailS = bpm ? (60 / bpm) * RAMP.echoTailBeats : 2.5
+    const tailS = bpm ? (60 / bpm) * RAMP.echoTailBeats : RAMP.echoFallbackTailS
 
     from.delay.delayTime.setValueAtTime(Math.min(delayS, 2.0), now)
     from.echoSend.gain.linearRampToValueAtTime(RAMP.echoWetLevel, now + RAMP.echoWetUpS)
     from.dry.gain.linearRampToValueAtTime(0, now + RAMP.echoDryDownS)
 
-    startIncoming(to, toMs)
     riseIncoming(to, RAMP.echoInS)
-    setXfadeTo(sideOf(to.id), RAMP.echoWetUpS + tailS * 0.5)
+    startIncoming(to, toMs)
+    // The crossfader walks over the WHOLE tail — gliding away early was what
+    // made the echo feel like a quick fade.
+    setXfadeTo(sideOf(to.id), RAMP.echoDryDownS + tailS * 0.8)
 
     after(RAMP.echoDryDownS + tailS, () => {
       if (token !== state.transitionToken) return
@@ -503,8 +594,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     from.gain.gain.setValueAtTime(from.gain.gain.value, now + RAMP.filterS - 0.6)
     from.gain.gain.linearRampToValueAtTime(0, now + RAMP.filterS)
 
-    startIncoming(to, toMs)
     riseIncoming(to, RAMP.filterS * 0.5)
+    startIncoming(to, toMs)
     setXfadeTo(sideOf(to.id), RAMP.filterS * 0.8)
 
     after(RAMP.filterS + 0.2, () => {
@@ -524,8 +615,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // already has it playing (never a hard jump on something audible).
     if (to.audible()) to.bass.gain.linearRampToValueAtTime(RAMP.bassCutDb, now + 0.25)
     else to.bass.gain.setValueAtTime(RAMP.bassCutDb, now)
-    startIncoming(to, toMs)
     riseIncoming(to, 1.0)
+    startIncoming(to, toMs)
     setXfadeTo(0.5, 1.0)
 
     const swapAt = now + RAMP.bassOverlapS
@@ -676,6 +767,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
   watchOutgoing(decks.a)
   watchOutgoing(decks.b)
+  wireOutputs()
 
   return {
     ctx,
@@ -805,6 +897,47 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     setDeckLevel,
     setMasterLevel,
 
+    // ── headphone cue (PFL) ────────────────────────────────────────────────────
+
+    togglePfl(deckId) {
+      cue.on[deckId] = !cue.on[deckId]
+      const now = ctx.currentTime
+      const g = cue[deckId].gain
+      g.cancelScheduledValues(now)
+      g.setTargetAtTime(cue.on[deckId] ? 1 : 0, now, 0.01)
+      emit("pflState", {...cue.on})
+      return cue.on[deckId]
+    },
+
+    pflState() {
+      return {...cue.on}
+    },
+
+    setCueLevel(value) {
+      const now = ctx.currentTime
+      cue.bus.gain.cancelScheduledValues(now)
+      cue.bus.gain.setTargetAtTime(Math.min(Math.max(value, 0), 1.2), now, RAMP.manualFaderTau)
+    },
+
+    // The routable phones stream (fallback when the output device is stereo).
+    cueStream() {
+      return cueStreamDest.stream
+    },
+
+    cueMode() {
+      return {mode: cue.mode, maxChannels: ctx.destination.maxChannelCount || 2}
+    },
+
+    // Point the WHOLE context at another output device (e.g. the controller's
+    // 4-channel interface) and rewire main/phones for what it offers.
+    async setOutputDevice(deviceId) {
+      if (typeof ctx.setSinkId === "function") {
+        await ctx.setSinkId(deviceId)
+        wireOutputs()
+      }
+      return this.cueMode()
+    },
+
     stopAll() {
       state.transitionToken++ // no in-flight cleanup may outlive a stop
       decks.a.pause()
@@ -847,7 +980,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       decks.b.pause()
       decks.a.destroyGraph()
       decks.b.destroyGraph()
-      for (const node of [xfade.a, xfade.b, master, masterAnalyser]) {
+      const nodes = [xfade.a, xfade.b, master, masterAnalyser, cue.a, cue.b, cue.bus, ...outputNodes]
+      for (const node of nodes) {
         try {
           node.disconnect()
         } catch (_e) {

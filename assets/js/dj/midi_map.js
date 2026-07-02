@@ -20,6 +20,7 @@ const DECK_NOTES = {
   0x01: "cue",
   0x02: "sync",
   0x06: "jog_touch",
+  0x1b: "pfl", // headphone/cue button (capturado ao vivo na DJ2GO2 Touch)
 }
 
 const PAD_NOTES = {

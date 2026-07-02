@@ -43,6 +43,12 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert html =~ "Crossfader"
     assert html =~ "Controladora MIDI"
     assert html =~ "Escolher set…"
+
+    # headphone cue: per-deck PFL buttons + the routable phones output block
+    assert html =~ "dj-pfl-a"
+    assert html =~ "dj-pfl-b"
+    assert html =~ "Fone (cue)"
+    assert html =~ "dj-cue-device"
   end
 
   test "the transitions palette lists the classics and follows the AUTO switch", %{conn: conn} do

@@ -529,6 +529,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
           background: color-mix(in srgb, var(--tc) 10%, #101218);
           box-shadow: 0 0 14px color-mix(in srgb, var(--tc) 25%, transparent);
         }
+        #dj-pfl-a[data-on="true"],
+        #dj-pfl-b[data-on="true"] {
+          border-color: #ffb020;
+          color: #ffb020;
+          background: rgba(255, 176, 32, 0.12);
+          box-shadow: 0 0 10px rgba(255, 176, 32, 0.35);
+        }
       </style>
 
       <script :type={Phoenix.LiveView.ColocatedHook} name=".DjConsole">
@@ -589,6 +596,45 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 deckFreed: () => {
                   if (this.pendingHint) this.armHint(this.pendingHint)
                 },
+                pflState: ({a, b}) => {
+                  const btnA = byId("dj-pfl-a")
+                  const btnB = byId("dj-pfl-b")
+                  if (btnA) btnA.dataset.on = a ? "true" : "false"
+                  if (btnB) btnB.dataset.on = b ? "true" : "false"
+                  window.dispatchEvent(new CustomEvent("dj:pfl-led", {detail: {a, b}}))
+                  this.log(`fone: deck A ${a ? "ligado" : "desligado"} · deck B ${b ? "ligado" : "desligado"}`)
+                },
+                cueMode: ({mode, maxChannels}) => {
+                  this.cueModeNow = mode
+                  const el = byId("dj-cue-mode")
+                  if (el) {
+                    el.textContent =
+                      mode === "quad"
+                        ? `saída com ${maxChannels} canais — som na 1/2, fone na 3/4 (a saída de fone da controladora)`
+                        : `saída estéreo — em “Listar saídas”, mova a mesa para a controladora ou ligue um fone avulso`
+                  }
+                  // Em quad o cue JÁ sai nos canais 3/4 — o fone avulso é
+                  // desligado e escondido para nunca dobrar (nem vazar o cue
+                  // nos canais principais de algum dispositivo).
+                  const quad = mode === "quad"
+                  const cueSel = byId("dj-cue-device")
+                  const cueLab = byId("dj-cue-device-label")
+                  if (cueSel) {
+                    if (quad) {
+                      cueSel.classList.add("hidden")
+                      if (cueLab) cueLab.classList.add("hidden")
+                      const cueAudio = byId("dj-cue-audio")
+                      if (cueAudio && !cueAudio.paused) {
+                        cueAudio.pause()
+                        cueAudio.srcObject = null
+                        this.log("fone avulso desligado — o cue agora vai pelos canais 3/4")
+                      }
+                    } else if (cueSel.options.length) {
+                      cueSel.classList.remove("hidden")
+                      if (cueLab) cueLab.classList.remove("hidden")
+                    }
+                  }
+                },
               },
             })
 
@@ -626,6 +672,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
             for (const d of ["a", "b"]) {
               byId(`dj-play-${d}`).addEventListener("click", () => this.engine.playPause(d))
+              byId(`dj-pfl-${d}`).addEventListener("click", () => this.engine.togglePfl(d))
               byId(`dj-cue-${d}`).addEventListener("click", () => this.cue(d))
               byId(`dj-sync-${d}`).addEventListener("click", () => {
                 if (this.engine.sync(d)) this.log(`SYNC no deck ${d.toUpperCase()}`)
@@ -671,8 +718,104 @@ defmodule BeatgridWeb.DiscotecagemLive do
               })
             }
 
+            // Saídas de áudio: "principal" move a mesa inteira (ctx.setSinkId —
+            // na controladora de 4 canais o fone passa a sair na 3/4); o "fone
+            // avulso" toca o stream do cue em outro dispositivo (só em estéreo).
+            const fillDevices = (sel, devs, placeholder) => {
+              sel.innerHTML = ""
+              const none = document.createElement("option")
+              none.value = ""
+              none.textContent = placeholder
+              sel.appendChild(none)
+              for (const d of devs) {
+                const o = document.createElement("option")
+                o.value = d.deviceId
+                o.textContent = d.label || `Saída ${sel.children.length}`
+                sel.appendChild(o)
+              }
+            }
+            byId("dj-cue-pick").addEventListener("click", async () => {
+              if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+                this.log("este navegador não expõe as saídas de áudio")
+                return
+              }
+              try {
+                // Corrida com timeout: o prompt de permissão pode ficar aberto
+                // para sempre — seguimos em frente e listamos o que der.
+                const tmp = await Promise.race([
+                  navigator.mediaDevices.getUserMedia({audio: true}),
+                  new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 3000)),
+                ])
+                tmp.getTracks().forEach((t) => t.stop())
+              } catch (_e) {
+                // sem a permissão os dispositivos podem vir sem id/nome
+              }
+              let devs = []
+              try {
+                devs = (await navigator.mediaDevices.enumerateDevices()).filter(
+                  (d) => d.kind === "audiooutput" && d.deviceId
+                )
+              } catch (_e) {
+                // fica vazio e avisamos abaixo
+              }
+              if (!devs.length) {
+                this.log("nenhuma saída listável — permita o microfone para liberar a lista")
+                return
+              }
+              fillDevices(byId("dj-out-device"), devs, "— saída principal —")
+              fillDevices(byId("dj-cue-device"), devs, "— saída do fone —")
+              byId("dj-out-device").classList.remove("hidden")
+              byId("dj-out-device-label").classList.remove("hidden")
+              if (this.cueModeNow !== "quad") {
+                byId("dj-cue-device").classList.remove("hidden")
+                byId("dj-cue-device-label").classList.remove("hidden")
+              }
+              this.log(
+                devs.length === 1
+                  ? "1 saída de áudio encontrada"
+                  : `${devs.length} saídas de áudio encontradas`
+              )
+            })
+            byId("dj-out-device").addEventListener("change", async (e) => {
+              if (!e.target.value) return
+              try {
+                const {mode} = await this.engine.setOutputDevice(e.target.value)
+                this.log(
+                  mode === "quad"
+                    ? "mesa na nova saída — fone pelos canais 3/4"
+                    : "mesa na nova saída (estéreo)"
+                )
+              } catch (_err) {
+                this.log("não consegui mover a mesa para essa saída")
+              }
+            })
+            byId("dj-cue-device").addEventListener("change", async (e) => {
+              if (!e.target.value) return
+              if (this.cueModeNow === "quad") {
+                this.log("já em 4 canais — o fone sai pelos canais 3/4 da controladora")
+                return
+              }
+              try {
+                const cueAudio = byId("dj-cue-audio")
+                cueAudio.srcObject = this.engine.cueStream()
+                await cueAudio.setSinkId(e.target.value)
+                await cueAudio.play()
+                this.log("fone ativo na saída escolhida")
+              } catch (_err) {
+                this.log("não consegui ativar o fone nessa saída")
+              }
+            })
+
             this.onMidi = (e) => this.applyMidi(e.detail)
             window.addEventListener("dj:midi", this.onMidi)
+
+            // A controladora conectou (talvez no meio da sessão): manda o
+            // estado real do PFL para os LEDs não mentirem.
+            this.onPflSync = () =>
+              window.dispatchEvent(
+                new CustomEvent("dj:pfl-led", {detail: this.engine.pflState()})
+              )
+            window.addEventListener("dj:pfl-sync", this.onPflSync)
 
             // Exclusão mútua com o player global: uma única fonte audível.
             this.onForeignPlay = (e) => {
@@ -708,6 +851,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           destroyed() {
             cancelAnimationFrame(this.raf)
             window.removeEventListener("dj:midi", this.onMidi)
+            window.removeEventListener("dj:pfl-sync", this.onPflSync)
             window.removeEventListener("beatgrid:playing", this.onForeignPlay)
             if (window.__djEngine === this.engine) window.__djEngine = null
             this.engine.destroy()
@@ -893,6 +1037,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
               case "master_gain":
                 this.engine.setMasterLevel(a.value * 1.2)
                 break
+              case "pfl":
+                if (a.pressed) this.engine.togglePfl(a.deck)
+                break
+              case "cue_gain":
+                this.engine.setCueLevel(a.value * 1.2)
+                break
               case "hotcue": {
                 if (!a.pressed) break
                 const pad = byId(`dj-pad-${a.deck}-${a.index}`)
@@ -950,6 +1100,23 @@ defmodule BeatgridWeb.DiscotecagemLive do
           mounted() {
             this._ccAt = {}
 
+            // O console avisa quando o PFL muda — acendemos o LED do botão de
+            // fone SÓ na controladora (nota em outros aparelhos MIDI tocaria
+            // um som de verdade neles).
+            this.controllerOuts = () => {
+              if (!this.access) return []
+              return Array.from(this.access.outputs.values()).filter((o) =>
+                /dj2go|numark/i.test(o.name || "")
+              )
+            }
+            this.onPflLed = (e) => {
+              for (const out of this.controllerOuts()) {
+                out.send([0x90, 0x1b, e.detail.a ? 127 : 0])
+                out.send([0x91, 0x1b, e.detail.b ? 127 : 0])
+              }
+            }
+            window.addEventListener("dj:pfl-led", this.onPflLed)
+
             if (!navigator.requestMIDIAccess) {
               this.pushEvent("midi_status", {connected: false, name: null})
               this.monitor("Web MIDI indisponível neste navegador")
@@ -971,7 +1138,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
           },
 
           destroyed() {
+            window.removeEventListener("dj:pfl-led", this.onPflLed)
             if (!this.access) return
+            // Apaga os LEDs de fone — o engine morre junto com a página.
+            for (const out of this.controllerOuts()) {
+              out.send([0x90, 0x1b, 0])
+              out.send([0x91, 0x1b, 0])
+            }
             this.access.removeEventListener("statechange", this._refresh)
             for (const input of this.access.inputs.values()) {
               input.onmidimessage = null
@@ -988,7 +1161,11 @@ defmodule BeatgridWeb.DiscotecagemLive do
             }
             const active = inputs.find((i) => i.state === "connected")
             this.pushEvent("midi_status", {connected: !!active, name: active ? active.name : null})
-            if (active) this.monitor(`conectada: ${active.name}`, "#5ad1a0")
+            if (active) {
+              this.monitor(`conectada: ${active.name}`, "#5ad1a0")
+              // Sincroniza os LEDs de fone com o estado real do console.
+              window.dispatchEvent(new CustomEvent("dj:pfl-sync"))
+            }
           },
 
           handle(data) {
@@ -1152,6 +1329,15 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 class="h-9 w-14 rounded-lg border border-white/10 bg-input text-[10px] font-bold uppercase tracking-wider text-ink-muted transition-colors hover:border-green/50 hover:text-green"
               >
                 Sync
+              </button>
+              <button
+                id={"dj-pfl-#{@d}"}
+                type="button"
+                data-on="false"
+                title="Escutar este deck no fone (pré-fader) — botão de fone na controladora"
+                class="h-9 w-11 rounded-lg border border-white/10 bg-input text-[13px] text-ink-muted transition-colors hover:border-amber/50 hover:text-amber"
+              >
+                🎧
               </button>
             </div>
 
@@ -1418,6 +1604,47 @@ defmodule BeatgridWeb.DiscotecagemLive do
         phx-update="ignore"
         class="mt-2 flex max-h-28 flex-col gap-0.5 overflow-auto font-mono text-[10px] text-ink-faint"
       >
+      </div>
+
+      <div id="dj-cue-panel" phx-update="ignore" class="mt-3 border-t border-white/6 pt-3">
+        <div class="flex items-center justify-between gap-2">
+          <h3 class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
+            Fone (cue)
+          </h3>
+          <button
+            id="dj-cue-pick"
+            type="button"
+            class="rounded-md border border-white/10 bg-input px-2 py-0.5 text-[10px] font-semibold text-ink-muted transition-colors hover:border-primary/50 hover:text-primary"
+          >
+            Listar saídas
+          </button>
+        </div>
+        <p id="dj-cue-mode" class="mt-1 text-[10px] leading-relaxed text-ink-faint">
+          verificando a saída de áudio…
+        </p>
+        <label
+          id="dj-out-device-label"
+          for="dj-out-device"
+          class="mt-1.5 hidden text-[9px] font-bold uppercase tracking-wider text-ink-faint"
+        >
+          Saída principal (a mesa toda)
+        </label>
+        <select
+          id="dj-out-device"
+          class="mt-0.5 hidden w-full rounded-md border border-white/10 bg-input px-2 py-1 text-[10px] text-ink"
+        ></select>
+        <label
+          id="dj-cue-device-label"
+          for="dj-cue-device"
+          class="mt-1.5 hidden text-[9px] font-bold uppercase tracking-wider text-ink-faint"
+        >
+          Fone avulso (quando a principal é estéreo)
+        </label>
+        <select
+          id="dj-cue-device"
+          class="mt-0.5 hidden w-full rounded-md border border-white/10 bg-input px-2 py-1 text-[10px] text-ink"
+        ></select>
+        <audio id="dj-cue-audio" class="hidden"></audio>
       </div>
     </section>
     """
