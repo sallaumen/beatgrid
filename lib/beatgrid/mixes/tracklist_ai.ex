@@ -8,6 +8,7 @@ defmodule Beatgrid.Mixes.TracklistAI do
   require Logger
 
   alias Beatgrid.AI
+  alias Beatgrid.AI.Schema
 
   @type entry :: %{
           position: integer(),
@@ -69,26 +70,15 @@ defmodule Beatgrid.Mixes.TracklistAI do
   end
 
   defp schema do
-    %{
-      "type" => "object",
-      "additionalProperties" => false,
-      "properties" => %{
-        "tracklist" => %{
-          "type" => "array",
-          "items" => %{
-            "type" => "object",
-            "additionalProperties" => false,
-            "properties" => %{
-              "position" => %{"type" => "integer"},
-              "start_seconds" => %{"type" => ["integer", "null"]},
-              "artist" => %{"type" => ["string", "null"]},
-              "title" => %{"type" => ["string", "null"]}
-            },
-            "required" => ["position", "artist", "title"]
-          }
-        }
+    Schema.list_of(
+      "tracklist",
+      %{
+        "position" => Schema.integer(),
+        "start_seconds" => Schema.nullable(Schema.integer()),
+        "artist" => Schema.nullable(Schema.string()),
+        "title" => Schema.nullable(Schema.string())
       },
-      "required" => ["tracklist"]
-    }
+      ["position", "artist", "title"]
+    )
   end
 end

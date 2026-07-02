@@ -7,6 +7,7 @@ defmodule Beatgrid.Library.MetadataAI do
   require Logger
 
   alias Beatgrid.AI
+  alias Beatgrid.AI.Schema
   alias Beatgrid.Library.{GenreFolders, Track}
   alias Beatgrid.Repo
 
@@ -150,36 +151,14 @@ defmodule Beatgrid.Library.MetadataAI do
   defp match_signals(_song), do: " | soundcharts_match: none"
 
   defp resolve_schema do
-    %{
-      "type" => "object",
-      "additionalProperties" => false,
-      "properties" => %{
-        "resolutions" => %{
-          "type" => "array",
-          "items" => %{
-            "type" => "object",
-            "additionalProperties" => false,
-            "properties" => %{
-              "index" => %{"type" => "integer"},
-              "same_recording" => %{"type" => "boolean"},
-              "artist" => %{"type" => "string"},
-              "title" => %{"type" => "string"},
-              "confidence" => %{"type" => "number"},
-              "rationale" => %{"type" => "string"}
-            },
-            "required" => [
-              "index",
-              "same_recording",
-              "artist",
-              "title",
-              "confidence",
-              "rationale"
-            ]
-          }
-        }
-      },
-      "required" => ["resolutions"]
-    }
+    Schema.list_of("resolutions", %{
+      "index" => Schema.integer(),
+      "same_recording" => Schema.boolean(),
+      "artist" => Schema.string(),
+      "title" => Schema.string(),
+      "confidence" => Schema.number(),
+      "rationale" => Schema.string()
+    })
   end
 
   defp to_resolutions(list, tracks) do
@@ -227,24 +206,6 @@ defmodule Beatgrid.Library.MetadataAI do
   end
 
   defp titles_schema do
-    %{
-      "type" => "object",
-      "additionalProperties" => false,
-      "properties" => %{
-        "titles" => %{
-          "type" => "array",
-          "items" => %{
-            "type" => "object",
-            "additionalProperties" => false,
-            "properties" => %{
-              "artist" => %{"type" => "string"},
-              "title" => %{"type" => "string"}
-            },
-            "required" => ["artist", "title"]
-          }
-        }
-      },
-      "required" => ["titles"]
-    }
+    Schema.list_of("titles", %{"artist" => Schema.string(), "title" => Schema.string()})
   end
 end

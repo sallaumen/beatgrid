@@ -9,6 +9,7 @@ defmodule Beatgrid.Organization.ClassificationAI do
   import Ecto.Query
 
   alias Beatgrid.AI
+  alias Beatgrid.AI.Schema
   alias Beatgrid.Library.{GenreFolders, Track}
   alias Beatgrid.Organization
   alias Beatgrid.Repo
@@ -190,26 +191,11 @@ defmodule Beatgrid.Organization.ClassificationAI do
   defp song_signals(_song), do: ""
 
   defp classification_schema(keys) do
-    %{
-      "type" => "object",
-      "additionalProperties" => false,
-      "properties" => %{
-        "classifications" => %{
-          "type" => "array",
-          "items" => %{
-            "type" => "object",
-            "additionalProperties" => false,
-            "properties" => %{
-              "index" => %{"type" => "integer"},
-              "folder" => %{"type" => "string", "enum" => keys},
-              "confidence" => %{"type" => "number"},
-              "rationale" => %{"type" => "string"}
-            },
-            "required" => ["index", "folder", "confidence", "rationale"]
-          }
-        }
-      },
-      "required" => ["classifications"]
-    }
+    Schema.list_of("classifications", %{
+      "index" => Schema.integer(),
+      "folder" => Schema.string(enum: keys),
+      "confidence" => Schema.number(),
+      "rationale" => Schema.string()
+    })
   end
 end

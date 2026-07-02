@@ -5,6 +5,7 @@ defmodule Beatgrid.Mixes.DjVisionAI do
   align the returned names to `tiles_ms` by position.
   """
   alias Beatgrid.AI
+  alias Beatgrid.AI.Schema
 
   @type read :: %{ts_ms: integer(), dj_name: String.t() | nil}
 
@@ -69,14 +70,7 @@ defmodule Beatgrid.Mixes.DjVisionAI do
   end
 
   defp schema do
-    %{
-      "type" => "object",
-      "additionalProperties" => false,
-      "properties" => %{
-        "names" => %{"type" => "array", "items" => %{"type" => ["string", "null"]}}
-      },
-      "required" => ["names"]
-    }
+    Schema.object(%{"names" => Schema.array(Schema.nullable(Schema.string()))})
   end
 
   # The vision model sometimes transcribes "no name visible" as the literal string

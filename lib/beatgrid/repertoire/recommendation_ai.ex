@@ -8,6 +8,7 @@ defmodule Beatgrid.Repertoire.RecommendationAI do
   import Ecto.Query
 
   alias Beatgrid.AI
+  alias Beatgrid.AI.Schema
   alias Beatgrid.Library.{GenreFolders, Track}
   alias Beatgrid.Repo
 
@@ -161,60 +162,13 @@ defmodule Beatgrid.Repertoire.RecommendationAI do
   end
 
   defp description_schema do
-    %{
-      "type" => "object",
-      "additionalProperties" => false,
-      "properties" => %{
-        "description" => %{"type" => "string"},
-        "rationale" => %{"type" => "string"}
-      },
-      "required" => ["description", "rationale"]
-    }
+    Schema.object(%{"description" => Schema.string(), "rationale" => Schema.string()})
   end
 
-  defp matches_schema do
-    %{
-      "type" => "object",
-      "additionalProperties" => false,
-      "properties" => %{
-        "matches" => %{
-          "type" => "array",
-          "items" => %{
-            "type" => "object",
-            "additionalProperties" => false,
-            "properties" => %{
-              "artist" => %{"type" => "string"},
-              "song" => %{"type" => "string"},
-              "reason" => %{"type" => "string"}
-            },
-            "required" => ["artist", "song", "reason"]
-          }
-        }
-      },
-      "required" => ["matches"]
-    }
-  end
+  defp matches_schema, do: Schema.list_of("matches", recommendation_item())
+  defp gaps_schema, do: Schema.list_of("gaps", recommendation_item())
 
-  defp gaps_schema do
-    %{
-      "type" => "object",
-      "additionalProperties" => false,
-      "properties" => %{
-        "gaps" => %{
-          "type" => "array",
-          "items" => %{
-            "type" => "object",
-            "additionalProperties" => false,
-            "properties" => %{
-              "artist" => %{"type" => "string"},
-              "song" => %{"type" => "string"},
-              "reason" => %{"type" => "string"}
-            },
-            "required" => ["artist", "song", "reason"]
-          }
-        }
-      },
-      "required" => ["gaps"]
-    }
+  defp recommendation_item do
+    %{"artist" => Schema.string(), "song" => Schema.string(), "reason" => Schema.string()}
   end
 end
