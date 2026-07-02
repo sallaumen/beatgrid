@@ -38,8 +38,8 @@ defmodule Beatgrid.Dedup do
   @spec subscribe() :: :ok | {:error, term()}
   def subscribe, do: Phoenix.PubSub.subscribe(Beatgrid.PubSub, @topic)
 
-  @doc "Broadcast a dedup-progress event."
-  @spec broadcast_progress(map()) :: :ok
+  @doc "Broadcast a dedup-progress event (contract: `Beatgrid.Events`)."
+  @spec broadcast_progress(Beatgrid.Events.dedup_progress()) :: :ok
   def broadcast_progress(payload),
     do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @topic, {:dedup_progress, payload})
 

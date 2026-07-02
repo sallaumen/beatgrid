@@ -39,8 +39,8 @@ defmodule Beatgrid.YouTube do
   @spec subscribe_enrich() :: :ok | {:error, term()}
   def subscribe_enrich, do: Phoenix.PubSub.subscribe(Beatgrid.PubSub, @enrich_topic)
 
-  @doc "Broadcast an enrich-progress event (separate from the download topic)."
-  @spec broadcast_enrich(map()) :: :ok
+  @doc "Broadcast an enrich-progress event (contract: `Beatgrid.Events`)."
+  @spec broadcast_enrich(Beatgrid.Events.enrich_progress()) :: :ok
   def broadcast_enrich(payload),
     do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @enrich_topic, {:enrich_progress, payload})
 

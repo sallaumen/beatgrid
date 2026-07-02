@@ -18,8 +18,8 @@ defmodule Beatgrid.Library do
   @spec subscribe_import() :: :ok | {:error, term()}
   def subscribe_import, do: Phoenix.PubSub.subscribe(Beatgrid.PubSub, @import_topic)
 
-  @doc "Broadcast an import-progress event."
-  @spec broadcast_import(map()) :: :ok
+  @doc "Broadcast an import-progress event (contract: `Beatgrid.Events`)."
+  @spec broadcast_import(Beatgrid.Events.import_progress()) :: :ok
   def broadcast_import(payload),
     do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @import_topic, {:import_progress, payload})
 

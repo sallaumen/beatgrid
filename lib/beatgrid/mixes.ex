@@ -33,7 +33,8 @@ defmodule Beatgrid.Mixes do
   @spec subscribe() :: :ok | {:error, term()}
   def subscribe, do: Phoenix.PubSub.subscribe(Beatgrid.PubSub, @topic)
 
-  @spec broadcast(map()) :: :ok
+  @doc "Broadcast a mix-progress event (contract: `Beatgrid.Events`)."
+  @spec broadcast(Beatgrid.Events.mix_progress()) :: :ok
   def broadcast(payload),
     do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @topic, {:mix_progress, payload})
 

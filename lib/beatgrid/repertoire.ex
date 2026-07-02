@@ -120,7 +120,8 @@ defmodule Beatgrid.Repertoire do
   @doc "Subscribes the caller to the recommendations PubSub topic."
   def subscribe, do: Phoenix.PubSub.subscribe(Beatgrid.PubSub, @rec_topic)
 
-  @doc "Broadcasts recommendation progress to subscribers."
+  @doc "Broadcasts recommendation progress to subscribers (contract: `Beatgrid.Events`)."
+  @spec broadcast_recommend(Beatgrid.Events.recommend_progress()) :: :ok
   def broadcast_recommend(payload),
     do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @rec_topic, {:recommend_progress, payload})
 

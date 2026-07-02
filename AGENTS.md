@@ -63,6 +63,9 @@ for *what* we are building and *why*. This file is *how* to build it.
   entity, missing audio, no credentials); `{:error, reason}` for transient ones;
   snooze on budget exhaustion. Every worker exposes its own `enqueue/…` wrapper —
   callers never hand-build `Worker.new` args.
+- **PubSub contract.** Every topic + message shape is documented and typed in
+  `Beatgrid.Events`; contexts own their `subscribe`/`broadcast_*` helpers and
+  their specs reference those types. Changing a payload starts there.
 
 ## Scope decisions (what we are and aren't building in v1)
 

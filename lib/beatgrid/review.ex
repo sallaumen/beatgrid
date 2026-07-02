@@ -141,26 +141,23 @@ defmodule Beatgrid.Review do
   @spec subscribe() :: :ok | {:error, term()}
   def subscribe, do: Phoenix.PubSub.subscribe(Beatgrid.PubSub, @reeval_topic)
 
-  @doc "Broadcast a re-evaluation progress tick."
-  @spec broadcast_progress(map()) :: :ok
+  @doc "Broadcast a re-evaluation progress tick (contract: `Beatgrid.Events`)."
+  @spec broadcast_progress(Beatgrid.Events.reevaluate_progress()) :: :ok
   def broadcast_progress(payload),
     do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @reeval_topic, {:reevaluate_progress, payload})
 
   @doc "Broadcast a re-resolve completion tick (re-uses the re-evaluation topic)."
-  @spec broadcast_re_resolve(%{
-          suggestion_id: Ecto.UUID.t(),
-          outcome: :resolved | :no_match | :budget_exhausted | :error
-        }) :: :ok
+  @spec broadcast_re_resolve(Beatgrid.Events.re_resolve_done()) :: :ok
   def broadcast_re_resolve(payload),
     do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @reeval_topic, {:re_resolve_done, payload})
 
   @doc "Broadcast the apply-batch result from the background worker."
-  @spec broadcast_applied(map()) :: :ok
+  @spec broadcast_applied(Beatgrid.Events.batch_result()) :: :ok
   def broadcast_applied(result),
     do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @reeval_topic, {:review_applied, result})
 
   @doc "Broadcast an undo-batch result from the background worker."
-  @spec broadcast_undone(map()) :: :ok
+  @spec broadcast_undone(Beatgrid.Events.undo_result()) :: :ok
   def broadcast_undone(result),
     do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @reeval_topic, {:batch_undone, result})
 
