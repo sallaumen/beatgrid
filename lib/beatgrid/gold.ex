@@ -14,12 +14,13 @@ defmodule Beatgrid.Gold do
   Não conhece UI nem HTTP: recebe dados/structs e devolve estado.
   """
   alias Beatgrid.Library.{Track, Tracks}
+  alias Beatgrid.Settings
 
   @view_threshold Application.compile_env(:beatgrid, [__MODULE__, :view_threshold], 1_000_000)
 
-  @doc "Limiar de views pra contar como popular (config-driven; default 1.000.000)."
+  @doc "Limiar de views pra contar como popular (Settings em runtime; default da config)."
   @spec view_threshold() :: integer()
-  def view_threshold, do: @view_threshold
+  def view_threshold, do: Settings.get(:gold_view_threshold, @view_threshold)
 
   @doc "Heurística offline do import: gema rara candidata? (youtube + sem ISRC)."
   @spec candidate?(map() | Track.t()) :: boolean()

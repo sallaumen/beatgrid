@@ -8,6 +8,7 @@ defmodule Beatgrid.Loudness do
   alias Beatgrid.Library
   alias Beatgrid.Library.{Track, Tracks}
   alias Beatgrid.Operations
+  alias Beatgrid.Settings
   alias Beatgrid.Workers.{GainApplyWorker, LoudnessWorker}
 
   @adapter Application.compile_env(
@@ -31,13 +32,13 @@ defmodule Beatgrid.Loudness do
 
   @topic "loudness"
 
-  @doc "The normalization target in LUFS (config-driven; default -14)."
+  @doc "The normalization target in LUFS (Settings at runtime; config default -14)."
   @spec target_lufs() :: float()
-  def target_lufs, do: @target_lufs
+  def target_lufs, do: Settings.get(:target_lufs, @target_lufs)
 
-  @doc "The minimum absolute gain worth applying to a file."
+  @doc "The minimum absolute gain worth applying to a file (Settings at runtime)."
   @spec gain_tolerance_db() :: float()
-  def gain_tolerance_db, do: @gain_tolerance_db
+  def gain_tolerance_db, do: Settings.get(:gain_tolerance_db, @gain_tolerance_db)
 
   # Cap on the per-track history under `_Backups/Gain` (read at runtime so tests
   # and future Settings overrides apply without a recompile).
@@ -57,17 +58,17 @@ defmodule Beatgrid.Loudness do
   """
   @spec gain_db(float() | nil, float() | nil) :: float() | nil
   def gain_db(nil, _true_peak), do: nil
-  def gain_db(lufs, nil), do: Float.round(@target_lufs - lufs, 1)
+  def gain_db(lufs, nil), do: Float.round(target_lufs() - lufs, 1)
 
   def gain_db(lufs, true_peak),
-    do: Float.round(min(@target_lufs - lufs, @ceiling_dbtp - true_peak), 1)
+    do: Float.round(min(target_lufs() - lufs, @ceiling_dbtp - true_peak), 1)
 
   @doc "Returns true when a measured track is outside the gain tolerance band."
   @spec needs_gain?(Track.t()) :: boolean()
   def needs_gain?(%Track{} = track) do
     case gain_db(track.loudness_lufs, track.true_peak_dbtp) do
       nil -> false
-      gain -> abs(gain) >= @gain_tolerance_db
+      gain -> abs(gain) >= gain_tolerance_db()
     end
   end
 
@@ -185,27 +186,30 @@ defmodule Beatgrid.Loudness do
       nil ->
         {:error, :loudness_not_measured}
 
-      gain when abs(gain) < @gain_tolerance_db ->
-        Tracks.update(track, %{gain_applied_db: 0.0, gain_applied_at: now})
-
       gain ->
-        batch_id = Keyword.get_lazy(opts, :batch_id, &Uniq.UUID.uuid7/0)
+        if abs(gain) < gain_tolerance_db(),
+          do: Tracks.update(track, %{gain_applied_db: 0.0, gain_applied_at: now}),
+          else: apply_measured_gain(track, gain, now, opts)
+    end
+  end
 
-        with {:ok, backup_rel_path} <- backup_original(track, batch_id),
-             :ok <- @gain_adapter.apply(abs_path(track), gain),
-             {:ok, measured} <- measure_track(track, origin: :post_gain),
-             {:ok, updated} <-
-               Tracks.update(
-                 measured,
-                 Map.merge(original_snapshot_attrs(track, now), %{
-                   gain_applied_db: gain,
-                   gain_applied_at: now
-                 })
-               ),
-             {:ok, _operation} <- record_gain_operation(updated, gain, backup_rel_path, batch_id) do
-          prune_backups(track)
-          {:ok, updated}
-        end
+  defp apply_measured_gain(track, gain, now, opts) do
+    batch_id = Keyword.get_lazy(opts, :batch_id, &Uniq.UUID.uuid7/0)
+
+    with {:ok, backup_rel_path} <- backup_original(track, batch_id),
+         :ok <- @gain_adapter.apply(abs_path(track), gain),
+         {:ok, measured} <- measure_track(track, origin: :post_gain),
+         {:ok, updated} <-
+           Tracks.update(
+             measured,
+             Map.merge(original_snapshot_attrs(track, now), %{
+               gain_applied_db: gain,
+               gain_applied_at: now
+             })
+           ),
+         {:ok, _operation} <- record_gain_operation(updated, gain, backup_rel_path, batch_id) do
+      prune_backups(track)
+      {:ok, updated}
     end
   end
 

@@ -16,8 +16,8 @@ config :beatgrid, Beatgrid.Repo,
   migration_timestamps: [type: :utc_datetime],
   migration_lock: :pg_advisory_lock
 
-# Default library root — the on-disk source of truth. Overridable at runtime via
-# the settings table (see Beatgrid.Settings).
+# Default library root — the on-disk source of truth. Overridden by LIBRARY_ROOT
+# in runtime.exs (and per-test via `setup :isolate_library_root`).
 config :beatgrid, :library_root, Path.expand("~/Music/DJ")
 
 # Background jobs (Oban). Concurrency is per-queue; parallelize the local/IO work
@@ -84,14 +84,15 @@ config :beatgrid, Beatgrid.Soundcharts, request_cap: 1000, budget_floor: 50
 
 # Loudness normalization settings. The target is in LUFS; the gain tolerance avoids
 # rewriting files for tiny volume changes that are not worth touching on disk.
+# These are the DEFAULTS — Beatgrid.Settings overrides them at runtime, no restart.
 config :beatgrid, Beatgrid.Loudness, gain_tolerance_db: 1.0
 
 # Limiar de visualizações no YouTube pra contar uma faixa como "popular" (Ouro).
-# Backend-driven, consultável na UI; ajustar aqui + restart (como target_lufs).
+# Default — Beatgrid.Settings sobrepõe em runtime, sem restart.
 config :beatgrid, Beatgrid.Gold, view_threshold: 1_000_000
 
 # Confiança mínima da IA pra ARQUIVAR sozinho (mover o arquivo, reversível). Abaixo
-# disso vira proposta na Revisão. Backend-driven, consultável na UI; ajustar + restart.
+# disso vira proposta na Revisão. Default — Beatgrid.Settings sobrepõe em runtime.
 config :beatgrid, Beatgrid.Organization, auto_file_confidence: 0.80
 
 # Rule-based organization: source playlist (folder name) => genre folder key.

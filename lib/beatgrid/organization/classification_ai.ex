@@ -13,6 +13,7 @@ defmodule Beatgrid.Organization.ClassificationAI do
   alias Beatgrid.Library.{GenreFolders, Track}
   alias Beatgrid.Organization
   alias Beatgrid.Repo
+  alias Beatgrid.Settings
 
   defmodule Verdict do
     @moduledoc "Per-track classification verdict."
@@ -25,6 +26,10 @@ defmodule Beatgrid.Organization.ClassificationAI do
                           [Beatgrid.Organization, :auto_file_confidence],
                           0.80
                         )
+
+  @doc "Confiança mínima pra ARQUIVAR sozinho (Settings em runtime; default da config)."
+  @spec auto_file_confidence() :: float()
+  def auto_file_confidence, do: Settings.get(:auto_file_confidence, @auto_file_confidence)
 
   @doc "Classifies a batch of tracks into genre folders via the AI client."
   @spec classify_tracks([Track.t()]) :: {:ok, [Verdict.t()]} | {:error, term()}
@@ -96,7 +101,7 @@ defmodule Beatgrid.Organization.ClassificationAI do
   end
 
   defp maybe_auto_file(suggestion, confidence, track, folder) do
-    if is_number(confidence) and confidence >= @auto_file_confidence do
+    if is_number(confidence) and confidence >= auto_file_confidence() do
       case Organization.apply_batch([suggestion]) do
         {:ok, %{failed: f}} when f > 0 ->
           Logger.warning("auto-arquivar falhou para track #{track.id} (#{folder})",
