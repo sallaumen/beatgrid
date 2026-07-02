@@ -240,7 +240,9 @@ defmodule BeatgridWeb.JobsLive do
     "ReevaluateWorker" => "Re-avaliar com IA",
     "RecommendWorker" => "Sugerir repertório",
     "DedupWorker" => "Procurar duplicatas",
-    "ScanWorker" => "Escanear biblioteca"
+    "ScanWorker" => "Escanear biblioteca",
+    "ReviewApplyWorker" => "Aplicar revisão no disco",
+    "UndoBatchWorker" => "Desfazer lote"
   }
 
   defp worker_label(worker) do
@@ -267,6 +269,13 @@ defmodule BeatgridWeb.JobsLive do
   defp summarize("ImportWorker", args, _titles), do: import_summary(args)
   defp summarize("DedupWorker", _args, _titles), do: "biblioteca inteira"
   defp summarize("ScanWorker", _args, _titles), do: "varredura da biblioteca"
+
+  defp summarize("ReviewApplyWorker", %{"ids" => ids}, _titles),
+    do: "#{length(ids)} sugestões selecionadas"
+
+  defp summarize("UndoBatchWorker", %{"batch_id" => bid}, _titles),
+    do: "lote ##{String.slice(to_string(bid), 0, 8)}"
+
   defp summarize(_worker, args, _titles), do: generic_summary(args)
 
   defp track_ref(nil, _titles), do: "—"

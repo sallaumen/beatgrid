@@ -1,5 +1,5 @@
 defmodule BeatgridWeb.ReviewLiveApplyTest do
-  # async: false — drives the async apply/undo, which touches disk, the shared
+  # async: false — drives the apply/undo jobs, which touch disk, the shared
   # sandbox, and the (globally stubbed) Tagging mock.
   use BeatgridWeb.ConnCase, async: false, oban: true
 
@@ -68,23 +68,25 @@ defmodule BeatgridWeb.ReviewLiveApplyTest do
     |> element("button[phx-click=toggle_select][phx-value-id='#{move.id}']")
     |> render_click()
 
-    # apply to disk (async)
-    apply_html =
-      view
-      |> element("button[phx-click=apply]")
-      |> render_click()
-      |> then(fn _ -> render_async(view) end)
+    # apply to disk: the click enqueues the durable job; run it and its completion
+    # broadcast pushes the toast into the LiveView
+    view |> element("button[phx-click=apply]") |> render_click()
 
-    assert apply_html =~ "aplicadas no disco"
+    assert [apply_job] = all_enqueued(worker: Beatgrid.Workers.ReviewApplyWorker)
+    assert :ok = perform_job(Beatgrid.Workers.ReviewApplyWorker, apply_job.args)
+    assert render(view) =~ "aplicadas no disco"
 
     assert File.exists?(Path.join(root, "MPB/Artist - New.mp3"))
     assert Tracks.get(track.id).filename == "Artist - New.mp3"
     assert Tracks.get(mtrack.id).rel_path == "MPB/song.mp3"
     assert Operations.count(status: :applied) == 3
 
-    # undo from the toast (async)
+    # undo from the toast: same enqueue → run → broadcast cycle
     view |> element("button[phx-click=undo]") |> render_click()
-    render_async(view)
+
+    assert [undo_job] = all_enqueued(worker: Beatgrid.Workers.UndoBatchWorker)
+    assert :ok = perform_job(Beatgrid.Workers.UndoBatchWorker, undo_job.args)
+    render(view)
 
     assert File.exists?(Path.join(root, "MPB/Old.mp3"))
     assert Tracks.get(track.id).filename == "Old.mp3"

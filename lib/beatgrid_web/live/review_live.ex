@@ -5,8 +5,8 @@ defmodule BeatgridWeb.ReviewLive do
   import BeatgridWeb.UI
 
   alias Beatgrid.Library.GenreFolders
-  alias Beatgrid.{Operations, Playback, Review}
-  alias Beatgrid.Workers.{ReevaluateWorker, ReResolveWorker}
+  alias Beatgrid.{Playback, Review}
+  alias Beatgrid.Workers.{ReevaluateWorker, ReResolveWorker, ReviewApplyWorker, UndoBatchWorker}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -122,22 +122,16 @@ defmodule BeatgridWeb.ReviewLive do
     end
   end
 
-  # --- apply to disk + undo (async so the UI stays responsive) ---
+  # --- apply to disk + undo (durable Oban jobs; the result arrives via PubSub) ---
 
   def handle_event("apply", _params, socket) do
-    ids = MapSet.to_list(socket.assigns.selected)
-
-    {:noreply,
-     socket
-     |> assign(applying?: true, toast: nil)
-     |> start_async(:apply, fn -> Review.apply_selected(ids) end)}
+    {:ok, _job} = ReviewApplyWorker.enqueue(MapSet.to_list(socket.assigns.selected))
+    {:noreply, assign(socket, applying?: true, toast: nil)}
   end
 
   def handle_event("undo", %{"batch" => batch}, socket) do
-    {:noreply,
-     socket
-     |> assign(applying?: true)
-     |> start_async(:undo, fn -> Operations.undo_batch(batch) end)}
+    {:ok, _job} = UndoBatchWorker.enqueue(batch)
+    {:noreply, assign(socket, applying?: true)}
   end
 
   def handle_event("dismiss_toast", _params, socket), do: {:noreply, assign(socket, toast: nil)}
@@ -169,22 +163,17 @@ defmodule BeatgridWeb.ReviewLive do
   end
 
   @impl true
-  def handle_async(:apply, {:ok, {:ok, result}}, socket) do
+  def handle_info({:review_applied, result}, socket) do
     {:noreply,
      socket
      |> assign(applying?: false, selected: MapSet.new(), toast: {:applied, result})
      |> load()}
   end
 
-  def handle_async(:undo, {:ok, {:ok, result}}, socket) do
+  def handle_info({:batch_undone, result}, socket) do
     {:noreply, socket |> assign(applying?: false, toast: {:undone, result}) |> load()}
   end
 
-  def handle_async(_name, {:exit, reason}, socket) do
-    {:noreply, assign(socket, applying?: false, toast: {:error, reason})}
-  end
-
-  @impl true
   def handle_info({:reevaluate_progress, %{status: :done} = p}, socket) do
     {:noreply, socket |> assign(reeval: p) |> load()}
   end

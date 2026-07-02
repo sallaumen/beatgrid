@@ -82,6 +82,8 @@ defmodule BeatgridWeb.GenresLive do
   end
 
   def handle_event("suggest_description", %{"key" => key}, socket) do
+    # Intentionally NOT an Oban job: the draft only feeds this form field — if the
+    # tab dies, nothing is lost and the user just clicks again.
     {:noreply,
      socket
      |> assign(suggesting: key, toast: nil)

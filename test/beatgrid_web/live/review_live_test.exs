@@ -182,6 +182,35 @@ defmodule BeatgridWeb.ReviewLiveTest do
     refute render(view) =~ "verify/title"
   end
 
+  test "apply enqueues a durable job and the broadcast delivers the undo toast", %{conn: conn} do
+    r = pending_rename()
+    {:ok, view, _html} = live(conn, ~p"/revisao")
+
+    view |> element(select_btn(r.id)) |> render_click()
+    view |> element("button[phx-click=apply]") |> render_click()
+
+    assert [job] = all_enqueued(worker: Beatgrid.Workers.ReviewApplyWorker)
+    assert job.args["ids"] == [r.id]
+    assert render(view) =~ "Aplicando"
+
+    send(view.pid, {:review_applied, %{batch_id: "b1", applied: 1, failed: 0}})
+    assert render(view) =~ "Desfazer"
+  end
+
+  test "undo enqueues a durable job and the broadcast reports the undone count", %{conn: conn} do
+    pending_rename()
+    {:ok, view, _html} = live(conn, ~p"/revisao")
+
+    send(view.pid, {:review_applied, %{batch_id: "b1", applied: 1, failed: 0}})
+    view |> element("button[phx-click=undo]") |> render_click()
+
+    assert [job] = all_enqueued(worker: Beatgrid.Workers.UndoBatchWorker)
+    assert job.args["batch_id"] == "b1"
+
+    send(view.pid, {:batch_undone, %{undone: 1, failed: 0}})
+    assert render(view) =~ "1 alterações desfeitas"
+  end
+
   test "a scope click enqueues a ReevaluateWorker", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/revisao")
 

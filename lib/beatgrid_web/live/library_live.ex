@@ -287,6 +287,8 @@ defmodule BeatgridWeb.LibraryLive do
     if source == "" do
       {:noreply, assign(socket, import: %{open: true, error: "Cole um caminho."})}
     else
+      # Intentionally NOT an Oban job: the preview is a read-only dry run feeding
+      # this modal — if the tab dies, nothing is lost and the user just re-opens it.
       {:noreply,
        socket
        |> assign(
