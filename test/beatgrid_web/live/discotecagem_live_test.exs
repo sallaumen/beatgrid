@@ -45,6 +45,29 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert html =~ "Escolher set…"
   end
 
+  test "the transitions palette lists the classics and follows the AUTO switch", %{conn: conn} do
+    {:ok, view, html} = live(conn, ~p"/discotecagem")
+
+    for {key, label} <- [
+          {"cut", "Corte"},
+          {"fade", "Fade"},
+          {"crossfade", "Xfade"},
+          {"echo", "Eco"},
+          {"filter", "Filtro"},
+          {"bass_swap", "Grave"},
+          {"brake", "Freio"}
+        ] do
+      assert html =~ ~s(data-dj-fire="#{key}")
+      assert html =~ label
+    end
+
+    # AUTO starts on; toggling flips the panel's guidance and tells the engine
+    assert html =~ "AUTO ligado"
+    html = render_click(view, "toggle_auto", %{})
+    assert html =~ "Modo manual"
+    assert_push_event(view, "dj_auto", %{on: false})
+  end
+
   test "playing a set loads deck A and shows the queue with the pointer", %{conn: conn} do
     {set, [_a, _b]} = set_with_tracks([{"Abertura", 100.0}, {"Segunda", 104.0}])
     view = open_console(conn, set)

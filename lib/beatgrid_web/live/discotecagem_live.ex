@@ -86,7 +86,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
            deck_a: first.track,
            active_deck: "a",
            playing?: true,
-           pointer_id: first.track.id
+           pointer_id: first.track.id,
+           # dj_stop wipes the client's armed hint — a restart must re-push the
+           # same hint, so the dedupe cannot compare against the stale assign
+           hint: nil
          )
          |> push_event("dj_stop", %{})
          |> push_event("dj_auto", %{on: socket.assigns.auto?})
@@ -224,12 +227,16 @@ defmodule BeatgridWeb.DiscotecagemLive do
     end
   end
 
-  # Reconexão de socket: adotamos o que o cliente ainda está tocando.
+  # Reconexão de socket: adotamos o que o cliente ainda está tocando e
+  # ressincronizamos o modo AUTO — o engine não guarda esse flag pelo socket.
   def handle_event("console_resync", %{"playing_track_id" => id, "deck" => deck}, socket)
-      when is_binary(id) and is_binary(deck),
-      do: handle_event("deck_started", %{"deck" => deck, "track_id" => id}, socket)
+      when is_binary(id) and is_binary(deck) do
+    socket = push_event(socket, "dj_auto", %{on: socket.assigns.auto?})
+    handle_event("deck_started", %{"deck" => deck, "track_id" => id}, socket)
+  end
 
-  def handle_event("console_resync", _params, socket), do: {:noreply, socket}
+  def handle_event("console_resync", _params, socket),
+    do: {:noreply, push_event(socket, "dj_auto", %{on: socket.assigns.auto?})}
 
   def handle_event("midi_status", params, socket) do
     {:noreply,
@@ -343,7 +350,23 @@ defmodule BeatgridWeb.DiscotecagemLive do
   defp t_label("fade"), do: "FADE"
   defp t_label("crossfade"), do: "XFADE"
   defp t_label("echo"), do: "ECO"
+  defp t_label("filter"), do: "FILTRO"
+  defp t_label("bass_swap"), do: "GRAVE"
+  defp t_label("brake"), do: "FREIO"
   defp t_label(_type), do: "SEQ"
+
+  # The manual-fire palette: {engine key, button label, one-line description, accent}.
+  defp transition_buttons do
+    [
+      {"cut", "Corte", "troca seca", "#e6e9f2"},
+      {"fade", "Fade", "desce um, sobe o outro", "#8b7bf0"},
+      {"crossfade", "Xfade", "deslize longo com sync", "#2d9cff"},
+      {"echo", "Eco", "cauda de delay no tempo", "#ffb020"},
+      {"filter", "Filtro", "varredura tira o corpo", "#5ad1a0"},
+      {"bass_swap", "Grave", "graves trocam de mão", "#ff5d6c"},
+      {"brake", "Freio", "o prato para, o outro entra", "#e08e00"}
+    ]
+  end
 
   defp bpm_text(bpm) when is_number(bpm), do: bpm |> round() |> Integer.to_string()
   defp bpm_text(_bpm), do: "—"
@@ -403,7 +426,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           </div>
         </div>
 
-        <div id="dj-console" phx-hook=".DjConsole" class="mt-5">
+        <div id="dj-console" phx-hook=".DjConsole" data-auto={to_string(@auto?)} class="mt-5">
           <div class="grid gap-4 lg:grid-cols-[1fr_236px_1fr]">
             <.deck_panel
               d="a"
@@ -419,6 +442,54 @@ defmodule BeatgridWeb.DiscotecagemLive do
               accent="#2d9cff"
             />
           </div>
+          <section
+            class="mt-4 rounded-2xl border border-white/8 p-4"
+            style="background:linear-gradient(180deg,#11131a,#0e0f15);box-shadow:0 10px 30px rgba(0,0,0,.35)"
+          >
+            <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+              <div class="flex items-center gap-3">
+                <h2 class="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
+                  Transições
+                </h2>
+                <span
+                  id="dj-tdir-wrap"
+                  phx-update="ignore"
+                  class="rounded-md bg-white/5 px-2 py-0.5 font-mono text-[11px]"
+                  title="Deck no ar (lado do crossfader) ▸ deck de destino"
+                >
+                  <span id="dj-tdir" class="text-ink-faint">—</span>
+                </span>
+              </div>
+              <p class="text-[10px] text-ink-faint">
+                {if @auto?,
+                  do:
+                    "AUTO ligado — o console dispara a transição marcada do set; um botão fura a fila na hora.",
+                  else:
+                    "Modo manual — você dispara: do deck no ar para o outro deck, na hora do clique."}
+              </p>
+            </div>
+            <div
+              id="dj-transitions"
+              phx-update="ignore"
+              class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7"
+            >
+              <button
+                :for={{key, label, desc, color} <- transition_buttons()}
+                type="button"
+                data-dj-fire={key}
+                title={desc}
+                disabled
+                class="flex flex-col items-center gap-0.5 rounded-xl border border-white/8 bg-[#101218] px-2 py-2.5 transition-all disabled:opacity-35"
+                style={"--tc:#{color}"}
+              >
+                <span class="text-[11px] font-bold uppercase tracking-wider" style={"color:#{color}"}>
+                  {label}
+                </span>
+                <span class="text-[9px] leading-tight text-ink-faint">{desc}</span>
+              </button>
+            </div>
+          </section>
+
           <div id="dj-audio-rack" phx-update="ignore">
             <audio id="dj-audio-a" preload="auto" class="hidden"></audio>
             <audio id="dj-audio-b" preload="auto" class="hidden"></audio>
@@ -450,6 +521,14 @@ defmodule BeatgridWeb.DiscotecagemLive do
           background: #ffb020;
           box-shadow: 0 0 12px #ffb020, 0 0 3px #ffb020;
         }
+        #dj-transitions button:not(:disabled) {
+          cursor: pointer;
+        }
+        #dj-transitions button:not(:disabled):hover {
+          border-color: var(--tc);
+          background: color-mix(in srgb, var(--tc) 10%, #101218);
+          box-shadow: 0 0 14px color-mix(in srgb, var(--tc) 25%, transparent);
+        }
       </style>
 
       <script :type={Phoenix.LiveView.ColocatedHook} name=".DjConsole">
@@ -478,12 +557,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
                   this.pushEvent("deck_started", {deck, track_id: trackId})
                   window.dispatchEvent(new CustomEvent("beatgrid:playing", {detail: {source: "dj-console"}}))
                 },
-                transitionStarted: ({fromTrackId, toTrackId, type, deck}) => {
+                transitionStarted: ({fromTrackId, toTrackId, type, deck, mode}) => {
                   this.hint = null
                   this.pushEvent("transition_started", {
                     from_track_id: fromTrackId, to_track_id: toTrackId, type, deck,
                   })
-                  this.log(`transição ${type.toUpperCase()} → deck ${deck.toUpperCase()}`)
+                  const tag = mode === "manual" ? " (manual)" : ""
+                  this.log(`transição ${type.toUpperCase()}${tag} → deck ${deck.toUpperCase()}`)
                   window.dispatchEvent(new CustomEvent("beatgrid:playing", {detail: {source: "dj-console"}}))
                 },
                 trackEnded: ({trackId}) => {
@@ -511,6 +591,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 },
               },
             })
+
+            // O engine nasce com AUTO desligado; o servidor renderizou a verdade
+            // no atributo — sem isso, montar com AUTO "ligado" seria mentira.
+            this.engine.setAuto(this.el.dataset.auto === "true")
+
+            // Depuração no console do navegador (e testes sem controladora).
+            window.__djEngine = this.engine
 
             this.handleEvent("dj_load", ({deck, track, autoplay, at_ms}) => {
               if (!this.engine.loadDeck(deck, track, {autoplay, atMs: at_ms || 0})) {
@@ -567,6 +654,23 @@ defmodule BeatgridWeb.DiscotecagemLive do
               this.engine.setCrossfader(Number(e.target.value) / 100)
             )
 
+            // The transitions palette: fire NOW, from the crossfader's deck
+            // into the other one. Same protocol as AUTO — the server just
+            // hears transition_started and advances the pointer.
+            this.fireBtns = Array.from(document.querySelectorAll("#dj-transitions [data-dj-fire]"))
+            const FIRE_ERRORS = {
+              no_audible: "nada no ar — dê play primeiro",
+              empty_target: "o outro deck está vazio",
+              target_loading: "o outro deck ainda está carregando",
+              too_fast: "calma — uma transição acabou de disparar",
+            }
+            for (const btn of this.fireBtns) {
+              btn.addEventListener("click", () => {
+                const res = this.engine.fireManual(btn.dataset.djFire)
+                if (!res.ok) this.log(FIRE_ERRORS[res.reason] || "transição indisponível")
+              })
+            }
+
             this.onMidi = (e) => this.applyMidi(e.detail)
             window.addEventListener("dj:midi", this.onMidi)
 
@@ -586,6 +690,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               this.paintDeck("a")
               this.paintDeck("b")
               this.paintCountdown()
+              this.paintTransitions()
               if (this.pendingHint) this.armHint(this.pendingHint)
             }
             this.raf = requestAnimationFrame(tick)
@@ -604,6 +709,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             cancelAnimationFrame(this.raf)
             window.removeEventListener("dj:midi", this.onMidi)
             window.removeEventListener("beatgrid:playing", this.onForeignPlay)
+            if (window.__djEngine === this.engine) window.__djEngine = null
             this.engine.destroy()
           },
 
@@ -725,6 +831,25 @@ defmodule BeatgridWeb.DiscotecagemLive do
             if (icon) icon.textContent = deck.audible() ? "⏸" : "▶"
           },
 
+          // UI mirror of the manual-fire palette: which direction a click would
+          // take (crossfader decides "no ar"), and whether firing makes sense.
+          paintTransitions() {
+            const from = this.engine.audibleDeck()
+            const to = from ? (from === "a" ? "b" : "a") : null
+            const ready = !!(from && this.tracks[to])
+            const chip = byId("dj-tdir")
+            if (chip) {
+              if (ready) {
+                chip.textContent = `${from.toUpperCase()} ▸ ${to.toUpperCase()}`
+                chip.style.color = ACCENTS[from]
+              } else {
+                chip.textContent = "—"
+                chip.style.color = ""
+              }
+            }
+            for (const btn of this.fireBtns || []) btn.disabled = !ready
+          },
+
           paintCountdown() {
             const el = byId("dj-countdown")
             if (!el) return
@@ -793,10 +918,21 @@ defmodule BeatgridWeb.DiscotecagemLive do
             const rows = Array.from(document.querySelectorAll("[data-dj-entry]"))
             if (!rows.length) return
             this.cursor = Math.min(Math.max(this.cursor + Math.sign(delta), 0), rows.length - 1)
+            this.applyCursorOutline(rows)
+            rows[this.cursor].scrollIntoView({block: "nearest"})
+          },
+
+          applyCursorOutline(rows) {
+            rows = rows || Array.from(document.querySelectorAll("[data-dj-entry]"))
             rows.forEach((r, i) => {
               r.style.outline = i === this.cursor ? "1px solid #ffb020" : ""
             })
-            rows[this.cursor].scrollIntoView({block: "nearest"})
+          },
+
+          // As linhas da fila são re-renderizadas pelo servidor — o contorno do
+          // cursor MIDI é reaplicado a cada patch para não sumir.
+          updated() {
+            if (this.cursor >= 0) this.applyCursorOutline()
           },
 
           loadCursor(deck) {
@@ -1118,7 +1254,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             data-on="false"
             class="size-2.5 rounded-full bg-white/10 transition-all"
           ></span>
-          <span class="text-[9px] font-bold uppercase tracking-[0.18em] text-ink-faint">Echo</span>
+          <span class="text-[9px] font-bold uppercase tracking-[0.18em] text-ink-faint">Eco</span>
         </div>
 
         <div class="w-full">

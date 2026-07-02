@@ -450,11 +450,20 @@ defmodule BeatgridWeb.RecSetLive do
   defp transition_abbrev("cut"), do: "corte"
   defp transition_abbrev("fade"), do: "fade"
   defp transition_abbrev("echo"), do: "eco"
+  defp transition_abbrev("filter"), do: "filtro"
+  defp transition_abbrev("bass_swap"), do: "grave"
+  defp transition_abbrev("brake"), do: "freio"
   defp transition_abbrev(_crossfade), do: "xfade"
 
   defp transition_title("cut"), do: "Corte seco no marcador"
   defp transition_title("fade"), do: "Fade (sai A / entra B, sem casar BPM)"
   defp transition_title("echo"), do: "Echo-out (cauda de delay em A enquanto B entra)"
+  defp transition_title("filter"), do: "Filtro (varredura high-pass tira o corpo de A)"
+
+  defp transition_title("bass_swap"),
+    do: "Troca de grave (B entra sem corpo e os graves trocam de mão)"
+
+  defp transition_title("brake"), do: "Freio de vinil (o prato de A para e B entra no impacto)"
   defp transition_title(_crossfade), do: "Crossfade beat-aware (casa BPM no overlap)"
 
   defp candidate_header(true, _section), do: "Sugestões de abertura"
