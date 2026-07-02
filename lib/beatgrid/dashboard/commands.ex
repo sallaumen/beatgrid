@@ -8,7 +8,7 @@ defmodule Beatgrid.Dashboard.Commands do
 
   alias Beatgrid.{Analysis, Integrations, Loudness, Markers, Operations, Repertoire, YouTube}
   alias Beatgrid.Dashboard.ReadModel
-  alias Beatgrid.Workers.{EnrichWorker, ExampleSetWorker, RecommendWorker}
+  alias Beatgrid.Workers.{EnrichWorker, RecommendWorker}
 
   @doc "Runs a dashboard command and returns either assign patches or a flash tuple."
   @spec run(term(), keyword()) :: {:ok, map()} | {:flash, atom(), String.t()}
@@ -34,13 +34,6 @@ defmodule Beatgrid.Dashboard.Commands do
         else: "Mapeando marcadores de #{count} faixa(s) em background — acompanhe em Jobs."
 
     {:ok, %{markers_unmapped: Markers.unmapped_count(), markers_note: note}}
-  end
-
-  def run(:build_example_set, _opts) do
-    {:ok, _job} = ExampleSetWorker.enqueue()
-
-    {:flash, :info,
-     "Montando set de exemplo (roots): detectando marcadores + conectando… abra REC SET em ~1 min."}
   end
 
   def run(:analyze_loudness, _opts) do

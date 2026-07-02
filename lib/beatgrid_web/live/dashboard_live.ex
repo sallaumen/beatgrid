@@ -30,10 +30,6 @@ defmodule BeatgridWeb.DashboardLive do
     {:noreply, apply_dashboard_result(socket, Dashboard.run(:map_markers))}
   end
 
-  def handle_event("build_example_set", _params, socket) do
-    {:noreply, apply_dashboard_result(socket, Dashboard.run(:build_example_set))}
-  end
-
   def handle_event("analyze_loudness", _params, socket) do
     {:noreply, apply_dashboard_result(socket, Dashboard.run(:analyze_loudness))}
   end
@@ -337,24 +333,6 @@ defmodule BeatgridWeb.DashboardLive do
                     class="w-full shrink-0 whitespace-normal break-words rounded-md bg-primary/15 px-2 py-1.5 text-center text-body-sm font-semibold text-primary disabled:opacity-40 sm:w-auto sm:px-3.5"
                   >
                     Mapear marcadores ({@markers_unmapped})
-                  </button>
-                </div>
-              </div>
-
-              <div class="mt-3 rounded-lg border border-white/6 bg-base/45 p-2 sm:p-3">
-                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-                  <div class="min-w-0 flex-1">
-                    <span class="text-body-sm text-ink-secondary">Set de exemplo (Roots)</span>
-                    <p class="mt-1 text-caption text-ink-muted">
-                      Monta um set do Forró Roots, detecta intro/saída por análise e conecta as
-                      faixas com transições — pronto pra tocar no autoplay (REC SET).
-                    </p>
-                  </div>
-                  <button
-                    phx-click="build_example_set"
-                    class="w-full shrink-0 whitespace-normal break-words rounded-md border border-primary/40 bg-primary/10 px-2 py-1.5 text-center text-body-sm font-semibold text-primary hover:bg-primary/20 sm:w-auto sm:px-3.5"
-                  >
-                    ⛓ Montar set de exemplo
                   </button>
                 </div>
               </div>

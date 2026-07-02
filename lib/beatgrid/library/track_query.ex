@@ -374,16 +374,6 @@ defmodule Beatgrid.Library.TrackQuery do
     |> Repo.one()
   end
 
-  @doc "Most recently analyzed present track of a genre folder — the example-set seed."
-  @spec latest_analyzed_present(String.t()) :: Track.t() | nil
-  def latest_analyzed_present(genre_folder) do
-    Track
-    |> where([t], t.status == :present and t.genre_folder == ^genre_folder)
-    |> order_by([t], desc_nulls_last: t.analyzed_at)
-    |> limit(1)
-    |> Repo.one()
-  end
-
   @doc "Average duration (ms) of present tracks outside `excluded_styles` — set-length planning."
   @spec avg_present_duration_ms([String.t()]) :: number() | Decimal.t() | nil
   def avg_present_duration_ms(excluded_styles) do
