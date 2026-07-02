@@ -67,6 +67,34 @@ defmodule Beatgrid.ReviewTest do
       assert edited.status == :approved
     end
 
+    test "queue_renames sinks rejected (ignored) cards to the bottom" do
+      song_1 = insert(:soundcharts_song, credit_name: "A", name: "One")
+      song_2 = insert(:soundcharts_song, credit_name: "B", name: "Two")
+
+      insert(:track,
+        filename: "a.mp3",
+        rel_path: "MPB/a.mp3",
+        soundcharts_song_id: song_1.id,
+        sc_match_confidence: :medium
+      )
+
+      insert(:track,
+        filename: "z.mp3",
+        rel_path: "MPB/z.mp3",
+        soundcharts_song_id: song_2.id,
+        sc_match_confidence: :medium
+      )
+
+      {:ok, _} = NameSync.propose()
+
+      # Reject the FIRST card (by path order) — it must fall below the pending one.
+      [first, _second] = Review.queue_renames()
+      {:ok, _} = Review.reject(first)
+
+      assert [%{status: :pending}, %{status: :rejected} = last] = Review.queue_renames()
+      assert last.id == first.id
+    end
+
     test "approve_high_confidence approves only high-confidence pending items per tab" do
       insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB")
       t_1 = insert(:track, rel_path: "_Inbox/a.mp3", filename: "a.mp3")

@@ -34,12 +34,24 @@ defmodule Beatgrid.Review do
   # ---- listing (track preloaded for the cards) ----
 
   @spec queue_renames() :: [RenameSuggestion.t()]
-  def queue_renames, do: NameSync.list_by(statuses: @open, preload: [track: :soundcharts_song])
+  def queue_renames do
+    [statuses: @open, preload: [track: :soundcharts_song]]
+    |> NameSync.list_by()
+    |> sink_rejected()
+  end
 
   @spec queue_classifications() :: [MoveSuggestion.t()]
-  def queue_classifications,
-    do:
-      Organization.list_by(statuses: @open, source: :claude, preload: [track: :soundcharts_song])
+  def queue_classifications do
+    [statuses: @open, source: :claude, preload: [track: :soundcharts_song]]
+    |> Organization.list_by()
+    |> sink_rejected()
+  end
+
+  # Rejected ("ignored") cards sink to the bottom so the queue reads top-down as
+  # real work; the stable sort keeps each band in its original path order.
+  defp sink_rejected(suggestions) do
+    Enum.sort_by(suggestions, &if(&1.status == :rejected, do: 1, else: 0))
+  end
 
   @doc "Pending counts per tab, for the live badges."
   @spec counts() :: %{renames: non_neg_integer(), classifications: non_neg_integer()}
