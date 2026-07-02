@@ -12,6 +12,8 @@ defmodule Beatgrid.AI.ClaudeCli do
   """
   @behaviour Beatgrid.AI.Client
 
+  alias Beatgrid.Cli
+
   @default_timeout_ms 120_000
 
   @impl Beatgrid.AI.Client
@@ -39,13 +41,11 @@ defmodule Beatgrid.AI.ClaudeCli do
   end
 
   defp run(fun) do
-    task = Task.async(fun)
-
-    case Task.yield(task, timeout()) || Task.shutdown(task, :brutal_kill) do
+    case Cli.run(fun, timeout()) do
       {:ok, {output, 0}} -> parse_output(output)
       {:ok, {output, code}} -> {:error, {:claude_cli_exit, code, String.slice(output, 0, 500)}}
-      {:exit, reason} -> {:error, {:claude_cli_exception, inspect(reason)}}
-      nil -> {:error, :timeout}
+      {:error, {:exit, reason}} -> {:error, {:claude_cli_exception, inspect(reason)}}
+      {:error, :timeout} -> {:error, :timeout}
     end
   end
 

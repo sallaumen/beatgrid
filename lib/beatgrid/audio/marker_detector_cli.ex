@@ -7,6 +7,11 @@ defmodule Beatgrid.Audio.MarkerDetectorCli do
   """
   @behaviour Beatgrid.Audio.MarkerDetector
 
+  alias Beatgrid.Cli
+
+  # Librosa loads + analyzes the whole file; a few minutes covers even long tracks.
+  @default_timeout_ms 300_000
+
   # One thread per process: numpy/numba/BLAS otherwise spawn a thread per core per
   # process, so concurrent analyses oversubscribe the CPU. Oban queue concurrency
   # then provides clean parallelism. VECLIB covers macOS Accelerate.
@@ -21,9 +26,15 @@ defmodule Beatgrid.Audio.MarkerDetectorCli do
 
   @impl Beatgrid.Audio.MarkerDetector
   def detect(path) do
-    case System.cmd(python(), [script(), path], stderr_to_stdout: false, env: @thread_env) do
-      {output, 0} -> parse(output)
-      {output, code} -> {:error, {:marker_detect_exit, code, String.slice(output, 0, 500)}}
+    cmd = fn ->
+      System.cmd(python(), [script(), path], stderr_to_stdout: false, env: @thread_env)
+    end
+
+    case Cli.run(cmd, timeout()) do
+      {:ok, {output, 0}} -> parse(output)
+      {:ok, {output, code}} -> {:error, {:marker_detect_exit, code, String.slice(output, 0, 500)}}
+      {:error, :timeout} -> {:error, :timeout}
+      {:error, {:exit, reason}} -> {:error, {:marker_detect_exception, inspect(reason)}}
     end
   rescue
     error -> {:error, {:marker_detect_exception, Exception.message(error)}}
@@ -53,6 +64,8 @@ defmodule Beatgrid.Audio.MarkerDetectorCli do
     }
   end
 
-  defp python, do: Application.get_env(:beatgrid, __MODULE__, [])[:python] || "python3"
+  defp python, do: config()[:python] || "python3"
+  defp timeout, do: config()[:timeout_ms] || @default_timeout_ms
+  defp config, do: Application.get_env(:beatgrid, __MODULE__, [])
   defp script, do: Application.app_dir(:beatgrid, "priv/scripts/marker_analyze.py")
 end

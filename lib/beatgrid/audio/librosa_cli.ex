@@ -7,6 +7,11 @@ defmodule Beatgrid.Audio.LibrosaCli do
   """
   @behaviour Beatgrid.Audio.Analyzer
 
+  alias Beatgrid.Cli
+
+  # Librosa loads + analyzes the whole file; a few minutes covers even long tracks.
+  @default_timeout_ms 300_000
+
   # Pin each librosa process to a single thread. numpy/numba/BLAS otherwise spawn a
   # thread per core PER process, so running several analyses at once oversubscribes
   # the CPU (12 cores × N processes) and throughput stutters. One thread per process
@@ -23,9 +28,15 @@ defmodule Beatgrid.Audio.LibrosaCli do
 
   @impl Beatgrid.Audio.Analyzer
   def analyze(path) do
-    case System.cmd(python(), [script(), path], stderr_to_stdout: false, env: @thread_env) do
-      {output, 0} -> parse(output)
-      {output, code} -> {:error, {:analyze_exit, code, String.slice(output, 0, 500)}}
+    cmd = fn ->
+      System.cmd(python(), [script(), path], stderr_to_stdout: false, env: @thread_env)
+    end
+
+    case Cli.run(cmd, timeout()) do
+      {:ok, {output, 0}} -> parse(output)
+      {:ok, {output, code}} -> {:error, {:analyze_exit, code, String.slice(output, 0, 500)}}
+      {:error, :timeout} -> {:error, :timeout}
+      {:error, {:exit, reason}} -> {:error, {:analyze_exception, inspect(reason)}}
     end
   rescue
     error -> {:error, {:analyze_exception, Exception.message(error)}}
@@ -48,6 +59,8 @@ defmodule Beatgrid.Audio.LibrosaCli do
     end
   end
 
-  defp python, do: Application.get_env(:beatgrid, __MODULE__, [])[:python] || "python3"
+  defp python, do: config()[:python] || "python3"
+  defp timeout, do: config()[:timeout_ms] || @default_timeout_ms
+  defp config, do: Application.get_env(:beatgrid, __MODULE__, [])
   defp script, do: Application.app_dir(:beatgrid, "priv/scripts/analyze.py")
 end

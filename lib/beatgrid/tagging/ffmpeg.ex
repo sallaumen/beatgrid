@@ -7,23 +7,34 @@ defmodule Beatgrid.Tagging.Ffmpeg do
   """
   @behaviour Beatgrid.Tagging.Writer
 
+  alias Beatgrid.Cli
+
+  # A stream copy is fast even for large files; a minute is generous headroom.
+  @default_timeout_ms 60_000
+
   @impl Beatgrid.Tagging.Writer
   def write_genre(path, genre) do
     tmp = Path.join(Path.dirname(path), ".tagging-" <> Path.basename(path))
 
     args = ["-y", "-i", path, "-map", "0", "-c", "copy", "-metadata", "genre=#{genre}", tmp]
 
-    case System.cmd(executable(), args, stderr_to_stdout: true) do
-      {_out, 0} ->
+    case Cli.run(fn -> System.cmd(executable(), args, stderr_to_stdout: true) end, timeout()) do
+      {:ok, {_out, 0}} ->
         File.rename(tmp, path)
 
-      {out, code} ->
+      {:ok, {out, code}} ->
         File.rm(tmp)
         {:error, {:ffmpeg_exit, code, String.slice(out, 0, 500)}}
+
+      {:error, reason} ->
+        File.rm(tmp)
+        {:error, reason}
     end
   rescue
     error -> {:error, {:ffmpeg_exception, Exception.message(error)}}
   end
 
-  defp executable, do: Application.get_env(:beatgrid, __MODULE__, [])[:executable] || "ffmpeg"
+  defp executable, do: config()[:executable] || "ffmpeg"
+  defp timeout, do: config()[:timeout_ms] || @default_timeout_ms
+  defp config, do: Application.get_env(:beatgrid, __MODULE__, [])
 end

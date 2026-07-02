@@ -6,6 +6,11 @@ defmodule Beatgrid.Audio.FfmpegLoudness do
   """
   @behaviour Beatgrid.Audio.Loudness
 
+  alias Beatgrid.Cli
+
+  # One single-threaded decode pass over a track; two minutes is generous headroom.
+  @default_timeout_ms 120_000
+
   # `-threads 1` pins each ffmpeg to one core, so several loudness jobs run as clean
   # parallel single-core processes (via the Oban queue) instead of each grabbing all
   # cores and thrashing.
@@ -22,8 +27,17 @@ defmodule Beatgrid.Audio.FfmpegLoudness do
         {:error, :enoent}
 
       true ->
-        {output, _exit} = System.cmd("ffmpeg", @args ++ [path | @tail], stderr_to_stdout: true)
-        parse(output)
+        run_measure(path)
+    end
+  end
+
+  defp run_measure(path) do
+    cmd = fn -> System.cmd("ffmpeg", @args ++ [path | @tail], stderr_to_stdout: true) end
+
+    case Cli.run(cmd, timeout()) do
+      {:ok, {output, 0}} -> parse(output)
+      {:ok, {output, code}} -> {:error, {:ffmpeg_exit, code, String.slice(output, -300..-1//1)}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -51,6 +65,10 @@ defmodule Beatgrid.Audio.FfmpegLoudness do
     else
       _ -> {:error, :no_loudness_data}
     end
+  end
+
+  defp timeout do
+    Application.get_env(:beatgrid, __MODULE__, [])[:timeout_ms] || @default_timeout_ms
   end
 
   defp to_float(nil), do: :error

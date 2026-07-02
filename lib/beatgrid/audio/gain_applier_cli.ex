@@ -11,8 +11,11 @@ defmodule Beatgrid.Audio.GainApplierCli do
   require Logger
 
   alias Beatgrid.Audio.Ffprobe
+  alias Beatgrid.Cli
 
   @mp3gain_step_db 1.5
+  # A re-encode of one track runs well under a minute; two is generous headroom.
+  @default_timeout_ms 120_000
 
   @impl true
   def apply(path, gain_db) when is_binary(path) and is_number(gain_db) do
@@ -42,9 +45,12 @@ defmodule Beatgrid.Audio.GainApplierCli do
   end
 
   defp run_mp3gain(path, steps) do
-    case System.cmd("mp3gain", ["-q", "-p", "-g", to_string(steps), path], stderr_to_stdout: true) do
-      {_out, 0} -> :ok
-      {out, code} -> {:error, {:mp3gain_exit, code, String.slice(out, 0, 500)}}
+    args = ["-q", "-p", "-g", to_string(steps), path]
+
+    case Cli.run(fn -> System.cmd("mp3gain", args, stderr_to_stdout: true) end, timeout()) do
+      {:ok, {_out, 0}} -> :ok
+      {:ok, {out, code}} -> {:error, {:mp3gain_exit, code, String.slice(out, 0, 500)}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -54,7 +60,7 @@ defmodule Beatgrid.Audio.GainApplierCli do
     with :ok <- ensure_ffmpeg(),
          true <- File.regular?(path) || {:error, :enoent},
          {:ok, args} <- ffmpeg_args(path, tmp, gain_db, ext),
-         {_out, 0} <- System.cmd("ffmpeg", args, stderr_to_stdout: true),
+         {:ok, {_out, 0}} <- run_ffmpeg(args),
          :ok <- non_empty_file(tmp),
          :ok <- File.rename(tmp, path) do
       :ok
@@ -63,9 +69,9 @@ defmodule Beatgrid.Audio.GainApplierCli do
         File.rm(tmp)
         error
 
-      {_out, code} ->
+      {:ok, {out, code}} ->
         File.rm(tmp)
-        {:error, {:ffmpeg_exit, code}}
+        {:error, {:ffmpeg_exit, code, String.slice(out, 0, 500)}}
 
       false ->
         File.rm(tmp)
@@ -76,8 +82,16 @@ defmodule Beatgrid.Audio.GainApplierCli do
       {:error, {:ffmpeg_exception, Exception.message(error)}}
   end
 
+  defp run_ffmpeg(args) do
+    Cli.run(fn -> System.cmd("ffmpeg", args, stderr_to_stdout: true) end, timeout())
+  end
+
   defp ensure_ffmpeg do
     if System.find_executable("ffmpeg"), do: :ok, else: {:error, :ffmpeg_not_found}
+  end
+
+  defp timeout do
+    Application.get_env(:beatgrid, __MODULE__, [])[:timeout_ms] || @default_timeout_ms
   end
 
   defp ffmpeg_args(path, tmp, gain_db, ext) do
