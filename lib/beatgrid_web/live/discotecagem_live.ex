@@ -627,6 +627,35 @@ defmodule BeatgridWeb.DiscotecagemLive do
                     >
                       <span id="dj-tdir" class="text-ink-faint">—</span>
                     </span>
+                    <span
+                      id="dj-tlen-wrap"
+                      phx-update="ignore"
+                      class="flex items-center gap-1 opacity-40 transition-opacity hover:opacity-100"
+                      title="Comprimento das transições (segundos, aceita quebrado)"
+                    >
+                      <input
+                        id="dj-tlen"
+                        type="range"
+                        min="1.5"
+                        max="20"
+                        step="0.1"
+                        value="8"
+                        aria-label="Comprimento das transições"
+                        class="h-1 w-14 cursor-pointer"
+                        style="accent-color:#8b7bf0"
+                      />
+                      <input
+                        id="dj-tlen-num"
+                        type="number"
+                        min="1.5"
+                        max="20"
+                        step="0.1"
+                        value="8"
+                        aria-label="Comprimento em segundos"
+                        class="w-8 border-0 bg-transparent p-0 text-right font-mono text-[10px] text-ink-secondary focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                      <span class="text-[9px] text-ink-faint">s</span>
+                    </span>
                   </div>
                   <span class="text-[9px] text-ink-faint">
                     {if @auto?, do: "AUTO fura a fila", else: "clique dispara"}
@@ -956,6 +985,40 @@ defmodule BeatgridWeb.DiscotecagemLive do
             // O engine nasce com AUTO desligado; o servidor renderizou a verdade
             // no atributo — sem isso, montar com AUTO "ligado" seria mentira.
             this.engine.setAuto(this.el.dataset.auto === "true")
+
+            // Comprimento das transições: slider + número (segundos, quebrado ok),
+            // guardado no navegador. stopPropagation evita fechar o <details>.
+            const tlen = byId("dj-tlen")
+            const tnum = byId("dj-tlen-num")
+            if (tlen && tnum) {
+              const applyLen = (v) => {
+                const s = this.engine.setTransitionLength(Number(v))
+                if (isFinite(s)) {
+                  tlen.value = s
+                  tnum.value = s.toFixed(1)
+                  try {
+                    localStorage.setItem("dj-tlen", s)
+                  } catch (_e) {
+                    // modo privado / storage cheio — segue sem persistir
+                  }
+                }
+              }
+              let saved = 8
+              try {
+                const raw = parseFloat(localStorage.getItem("dj-tlen"))
+                if (isFinite(raw)) saved = raw
+              } catch (_e) {
+                // idem
+              }
+              applyLen(saved)
+              tlen.addEventListener("input", (e) => applyLen(e.target.value))
+              tnum.addEventListener("change", (e) => applyLen(e.target.value))
+              for (const el of [tlen, tnum]) {
+                el.addEventListener("click", (e) => e.stopPropagation())
+                el.addEventListener("pointerdown", (e) => e.stopPropagation())
+                el.addEventListener("keydown", (e) => e.stopPropagation())
+              }
+            }
 
             // Depuração no console do navegador (e testes sem controladora).
             window.__djEngine = this.engine

@@ -394,7 +394,16 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     firedForTrack: null, // dedupes transition vs ended for one boundary
     lastFireAt: null, // performance.now() of the last fired transition
     autoOn: false,
+    // User "comprimento" knob: scales every transition's timings around the
+    // reference length (REF_LEN_S = the default crossfade). 1.0 = as designed.
+    transitionScale: 1,
   }
+
+  const REF_LEN_S = RAMP.crossfadeS // 8s — the seconds shown on the length control
+
+  // Scale a base duration by the user's length knob (never below a tiny floor,
+  // so a "cut" stays a cut and no ramp collapses to an instant click).
+  const dur = (v) => Math.max(v * state.transitionScale, 0.05)
 
   const emit = (name, payload) => callbacks[name] && callbacks[name](payload)
 
@@ -551,6 +560,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     deck.settleParam(deck.hpf.frequency)
     deck.settleParam(deck.lpf.frequency)
     deck.settleParam(deck.bass.gain)
+    // The echo blooms the feedback — freeze it too, or an interrupted echo
+    // keeps ramping toward 0.82 and the next echo would start hot.
+    deck.settleParam(deck.feedback.gain)
   }
 
   // The deck going on air must not inherit FX from an interrupted transition
@@ -561,6 +573,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     const now = ctx.currentTime
     to.dry.gain.linearRampToValueAtTime(1, now + 0.3)
     to.echoSend.gain.linearRampToValueAtTime(0, now + 0.3)
+    to.feedback.gain.linearRampToValueAtTime(RAMP.echoFeedback, now + 0.3)
     to.hpf.frequency.linearRampToValueAtTime(10, now + 0.2)
     to.lpf.frequency.linearRampToValueAtTime(20_000, now + 0.2)
     if (type !== "bass_swap") to.bass.gain.linearRampToValueAtTime(0, now + 0.3)
@@ -597,13 +610,14 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
   function fade(from, to, toMs, token) {
     const now = ctx.currentTime
-    from.gain.gain.linearRampToValueAtTime(0, now + RAMP.fadeOutS)
+    const outS = dur(RAMP.fadeOutS)
+    from.gain.gain.linearRampToValueAtTime(0, now + outS)
 
-    riseIncoming(to, RAMP.fadeOutS + RAMP.fadeInS)
+    riseIncoming(to, outS + dur(RAMP.fadeInS))
     startIncoming(to, toMs)
-    setXfadeTo(sideOf(to.id), RAMP.fadeOutS)
+    setXfadeTo(sideOf(to.id), outS)
 
-    after(RAMP.fadeOutS + 0.1, () => {
+    after(outS + 0.1, () => {
       if (token !== state.transitionToken) return
       from.pause()
       resetChain(from)
@@ -615,41 +629,69 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // must never become the incoming track's permanent tempo.
     if (from.bpm) to.syncTo(from.bpm * from.baseRate)
     startIncoming(to, toMs)
-    setXfadeTo(sideOf(to.id), RAMP.crossfadeS)
+    const xfS = dur(RAMP.crossfadeS)
+    setXfadeTo(sideOf(to.id), xfS)
 
-    after(RAMP.crossfadeS + 0.2, () => {
+    after(xfS + 0.2, () => {
       if (token !== state.transitionToken) return
       from.pause()
     })
   }
 
-  // The requested classic: a strong beat-synced feedback delay swells on the
-  // outgoing deck while its dry signal drops; the tail rings as the next track
-  // enters. Delay = dotted eighth of the outgoing tempo.
+  // Echo-out, reworked to BREATHE. Timeline (all scaled by the length knob):
+  //   1. the delay opens on a QUARTER note — spacious/dub, not a fast ping;
+  //   2. the feedback BLOOMS (0.55→0.82) so the repeats sustain into a wash;
+  //   3. the outgoing dry holds a beat, then DISSOLVES into that wash;
+  //   4. the incoming stays silent, then EMERGES from under the tail (delayed
+  //      rise) — the space between old-gone and new-arriving is what makes it
+  //      feel fluid instead of a quick crossfade;
+  //   5. the tail rings out as the feedback eases back down.
   function echo(from, to, toMs, token) {
     const now = ctx.currentTime
     const bpm = from.bpm ? from.bpm * from.el.playbackRate : null
-    const delayS = bpm ? (60 / bpm) * 0.75 : RAMP.echoFallbackDelayMs / 1000
-    const tailS = bpm ? (60 / bpm) * RAMP.echoTailBeats : RAMP.echoFallbackTailS
+    const beatS = bpm ? 60 / bpm : 0.5
+    const delayS = Math.min(beatS, 1.2) // quarter note
+    const tailS = dur(bpm ? beatS * RAMP.echoTailBeats : RAMP.echoFallbackTailS)
+
+    const wetUp = dur(RAMP.echoWetUpS)
+    const dryStart = dur(0.6)
+    const dryDown = dur(RAMP.echoDryDownS)
+    const inStart = dur(RAMP.echoInS + 0.4) // the new track waits under the wash
+    const inRise = dur(3.0)
+    const total = Math.max(dryStart + dryDown, inStart + inRise, wetUp + tailS)
 
     // Glide, don't step: an instant delayTime change while the feedback loop
     // holds energy clicks/warbles on air.
-    from.delay.delayTime.setTargetAtTime(Math.min(delayS, 2.0), now, 0.03)
-    from.echoSend.gain.linearRampToValueAtTime(RAMP.echoWetLevel, now + RAMP.echoWetUpS)
-    from.dry.gain.linearRampToValueAtTime(0, now + RAMP.echoDryDownS)
+    from.delay.delayTime.setTargetAtTime(delayS, now, 0.03)
 
-    riseIncoming(to, RAMP.echoInS)
+    // Wet swells; feedback blooms then eases back so the tail rings out.
+    from.echoSend.gain.linearRampToValueAtTime(RAMP.echoWetLevel, now + wetUp)
+    from.settleParam(from.feedback.gain)
+    from.feedback.gain.linearRampToValueAtTime(0.82, now + wetUp + dur(0.8))
+    from.feedback.gain.linearRampToValueAtTime(0.35, now + total)
+
+    // Dry holds a beat (last phrase gets thrown), then dissolves.
+    from.dry.gain.setValueAtTime(from.dry.gain.value, now + dryStart)
+    from.dry.gain.linearRampToValueAtTime(0, now + dryStart + dryDown)
+
+    // Incoming: silent until inStart, then rises out of the tail.
+    if (!to.audible()) {
+      to.gain.gain.setValueAtTime(0, now)
+      to.gain.gain.setValueAtTime(0, now + inStart)
+    }
+    to.gain.gain.linearRampToValueAtTime(1, now + inStart + inRise)
     startIncoming(to, toMs)
-    // The crossfader walks over the WHOLE tail — gliding away early was what
-    // made the echo feel like a quick fade.
-    setXfadeTo(sideOf(to.id), RAMP.echoDryDownS + tailS * 0.8)
 
-    after(RAMP.echoDryDownS + tailS, () => {
+    // The crossfader follows the emergence — the wash stays on the outgoing
+    // side until the new track has surfaced.
+    setXfadeTo(sideOf(to.id), inStart + inRise * 0.8)
+
+    after(total, () => {
       if (token !== state.transitionToken) return
       const end = ctx.currentTime
       from.settleGain(from.echoSend)
-      from.echoSend.gain.linearRampToValueAtTime(0, end + 0.4)
-      after(0.5, () => {
+      from.echoSend.gain.linearRampToValueAtTime(0, end + dur(0.6))
+      after(dur(0.7), () => {
         if (token !== state.transitionToken) return
         from.pause()
         resetChain(from)
@@ -657,23 +699,24 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     })
 
     emit("echoState", {deck: from.id, on: true, delayMs: Math.round(delayS * 1000)})
-    after(RAMP.echoDryDownS + tailS + 0.6, () => emit("echoState", {deck: from.id, on: false}))
+    after(total + dur(0.7), () => emit("echoState", {deck: from.id, on: false}))
   }
 
   // High-pass sweep: the outgoing track loses its body, thins into air while the
   // next one comes up underneath — the "filtro" every controller has.
   function filter(from, to, toMs, token) {
     const now = ctx.currentTime
+    const s = dur(RAMP.filterS)
     from.hpf.frequency.setValueAtTime(Math.max(from.hpf.frequency.value, 20), now)
-    from.hpf.frequency.exponentialRampToValueAtTime(RAMP.filterTopHz, now + RAMP.filterS)
-    from.gain.gain.setValueAtTime(from.gain.gain.value, now + RAMP.filterS - 0.6)
-    from.gain.gain.linearRampToValueAtTime(0, now + RAMP.filterS)
+    from.hpf.frequency.exponentialRampToValueAtTime(RAMP.filterTopHz, now + s)
+    from.gain.gain.setValueAtTime(from.gain.gain.value, now + s - dur(0.6))
+    from.gain.gain.linearRampToValueAtTime(0, now + s)
 
-    riseIncoming(to, RAMP.filterS * 0.5)
+    riseIncoming(to, s * 0.5)
     startIncoming(to, toMs)
-    setXfadeTo(sideOf(to.id), RAMP.filterS * 0.8)
+    setXfadeTo(sideOf(to.id), s * 0.8)
 
-    after(RAMP.filterS + 0.2, () => {
+    after(s + 0.2, () => {
       if (token !== state.transitionToken) return
       from.pause()
       resetChain(from)
@@ -684,16 +727,17 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // highs and sinks underwater while the next one surfaces on top.
   function lowpass(from, to, toMs, token) {
     const now = ctx.currentTime
+    const s = dur(RAMP.lowpassS)
     from.lpf.frequency.setValueAtTime(Math.min(from.lpf.frequency.value, 20_000), now)
-    from.lpf.frequency.exponentialRampToValueAtTime(RAMP.lowpassFloorHz, now + RAMP.lowpassS)
-    from.gain.gain.setValueAtTime(from.gain.gain.value, now + RAMP.lowpassS - 0.6)
-    from.gain.gain.linearRampToValueAtTime(0, now + RAMP.lowpassS)
+    from.lpf.frequency.exponentialRampToValueAtTime(RAMP.lowpassFloorHz, now + s)
+    from.gain.gain.setValueAtTime(from.gain.gain.value, now + s - dur(0.6))
+    from.gain.gain.linearRampToValueAtTime(0, now + s)
 
-    riseIncoming(to, RAMP.lowpassS * 0.5)
+    riseIncoming(to, s * 0.5)
     startIncoming(to, toMs)
-    setXfadeTo(sideOf(to.id), RAMP.lowpassS * 0.8)
+    setXfadeTo(sideOf(to.id), s * 0.8)
 
-    after(RAMP.lowpassS + 0.2, () => {
+    after(s + 0.2, () => {
       if (token !== state.transitionToken) return
       from.pause()
       resetChain(from)
@@ -708,23 +752,25 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
     // Bodiless entry: instant when the deck is idle, a fast dip when the DJ
     // already has it playing (never a hard jump on something audible).
+    const overlapS = dur(RAMP.bassOverlapS)
+    const moveS = dur(RAMP.bassSwapMoveS)
     if (to.audible()) to.bass.gain.linearRampToValueAtTime(RAMP.bassCutDb, now + 0.25)
     else to.bass.gain.setValueAtTime(RAMP.bassCutDb, now)
-    riseIncoming(to, 1.0)
+    riseIncoming(to, dur(1.0))
     startIncoming(to, toMs)
-    setXfadeTo(0.5, 1.0)
+    setXfadeTo(0.5, dur(1.0))
 
-    const swapAt = now + RAMP.bassOverlapS
+    const swapAt = now + overlapS
     from.bass.gain.setValueAtTime(0, swapAt)
-    from.bass.gain.linearRampToValueAtTime(RAMP.bassCutDb, swapAt + RAMP.bassSwapMoveS)
+    from.bass.gain.linearRampToValueAtTime(RAMP.bassCutDb, swapAt + moveS)
     to.bass.gain.setValueAtTime(RAMP.bassCutDb, swapAt)
-    to.bass.gain.linearRampToValueAtTime(0, swapAt + RAMP.bassSwapMoveS)
+    to.bass.gain.linearRampToValueAtTime(0, swapAt + moveS)
 
-    after(RAMP.bassOverlapS, () => {
+    after(overlapS, () => {
       if (token !== state.transitionToken) return
-      setXfadeTo(sideOf(to.id), 2.0)
+      setXfadeTo(sideOf(to.id), dur(2.0))
     })
-    after(RAMP.bassOverlapS + 2.4, () => {
+    after(overlapS + dur(2.4), () => {
       if (token !== state.transitionToken) return
       from.pause()
       resetChain(from)
@@ -740,6 +786,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // JS interval — the final pause is timeout-guarded and lands regardless.
   function brake(from, to, toMs, token) {
     const el = from.el
+    const brakeS = dur(RAMP.brakeS)
     cancelBend(from.id) // the wind-down owns playbackRate — no bend ping-pong
     from._braking = true
     el.preservesPitch = false
@@ -757,17 +804,17 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         restoreRate()
         return
       }
-      const p = Math.min((performance.now() - t0) / (RAMP.brakeS * 1000), 1)
+      const p = Math.min((performance.now() - t0) / (brakeS * 1000), 1)
       el.playbackRate = Math.max(startRate * (1 - p) * (1 - p), 0.07)
       if (p >= 1) clearInterval(iv)
     }, 40)
 
-    after(RAMP.brakeS * 0.65, () => {
+    after(brakeS * 0.65, () => {
       if (token !== state.transitionToken) return
       startIncoming(to, toMs)
       setXfadeTo(sideOf(to.id), 0.3)
     })
-    after(RAMP.brakeS + 0.05, () => {
+    after(brakeS + 0.05, () => {
       clearInterval(iv)
       from._braking = false
       if (token !== state.transitionToken) {
@@ -796,6 +843,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     deck.lpf.frequency.setValueAtTime(20_000, now)
     deck.settleParam(deck.bass.gain)
     deck.bass.gain.setValueAtTime(0, now)
+    // The echo blooms the feedback — bring it back to its resting value.
+    deck.settleParam(deck.feedback.gain)
+    deck.feedback.gain.setValueAtTime(RAMP.echoFeedback, now)
     clearLoop(deck)
     deck.vinylMode = false
     deck.resetRate()
@@ -1245,6 +1295,18 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     setCrossfader,
     setDeckLevel,
     setMasterLevel,
+
+    // "Comprimento" das transições, em segundos de referência (o crossfade base).
+    // Escala TODAS as transições em volta desse número; aceita valor quebrado.
+    setTransitionLength(seconds) {
+      const s = Math.min(Math.max(seconds, 1.5), 20)
+      state.transitionScale = s / REF_LEN_S
+      return s
+    },
+
+    transitionLengthS() {
+      return REF_LEN_S * state.transitionScale
+    },
 
     // ── headphone cue (PFL) ────────────────────────────────────────────────────
 
