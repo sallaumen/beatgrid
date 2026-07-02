@@ -144,10 +144,11 @@ config :tailwind,
     env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
   ]
 
-# Configure Elixir's Logger
+# Configure Elixir's Logger. The entity ids double as searchable metadata (the
+# messages still carry them for readability — redundancy on purpose).
 config :logger, :default_formatter,
   format: "$time $metadata[$level] $message\n",
-  metadata: [:request_id]
+  metadata: [:request_id, :track_id, :mix_id, :segment_id]
 
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason

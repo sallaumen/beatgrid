@@ -206,7 +206,8 @@ defmodule Beatgrid.Mixes do
 
     if length(deduped) < length(snapped) do
       Logger.info(
-        "dj_parts: snapping collapsed #{length(snapped) - length(deduped)} overlapping part(s) for mix #{id}"
+        "dj_parts: snapping collapsed #{length(snapped) - length(deduped)} overlapping part(s) for mix #{id}",
+        mix_id: id
       )
     end
 

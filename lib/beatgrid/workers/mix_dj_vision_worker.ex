@@ -117,7 +117,8 @@ defmodule Beatgrid.Workers.MixDjVisionWorker do
       else
         err ->
           Logger.warning(
-            "dj_vision mix #{mix.id} grid #{gi + 1}/#{total} failed: #{inspect(err)}"
+            "dj_vision mix #{mix.id} grid #{gi + 1}/#{total} failed: #{inspect(err)}",
+            mix_id: mix.id
           )
 
           %{acc | fail: acc.fail + 1}
@@ -137,7 +138,8 @@ defmodule Beatgrid.Workers.MixDjVisionWorker do
   defp finish(%{ok: ok, fail: fail, total: total} = summary, mix, threshold) do
     if fail / total > threshold do
       Logger.warning(
-        "dj_vision mix #{mix.id}: only #{ok}/#{total} grids covered (>#{threshold} failed) — retrying instead of recording a truncated set"
+        "dj_vision mix #{mix.id}: only #{ok}/#{total} grids covered (>#{threshold} failed) — retrying instead of recording a truncated set",
+        mix_id: mix.id
       )
 
       {:error, {:partial_coverage, ok, total}}
@@ -155,7 +157,8 @@ defmodule Beatgrid.Workers.MixDjVisionWorker do
     opts = if fail == 0, do: [], else: [coverage_until_ms: cov]
 
     Logger.info(
-      "dj_vision mix #{mix.id}: #{ok}/#{total} grids ok, #{length(parts)} parts, coverage=#{if fail == 0, do: "full", else: cov}"
+      "dj_vision mix #{mix.id}: #{ok}/#{total} grids ok, #{length(parts)} parts, coverage=#{if fail == 0, do: "full", else: cov}",
+      mix_id: mix.id
     )
 
     case Mixes.replace_dj_parts(mix, :image, parts, opts) do

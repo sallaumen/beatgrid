@@ -129,11 +129,14 @@ defmodule Beatgrid.YouTube do
       {:error, :no_credentials} ->
         Logger.error(
           "enrich: Soundcharts SEM CREDENCIAIS — carregue o .env " <>
-            "(SOUNDCHARTS_APP_ID/SOUNDCHARTS_API_KEY) e reinicie o servidor"
+            "(SOUNDCHARTS_APP_ID/SOUNDCHARTS_API_KEY) e reinicie o servidor",
+          track_id: track.id
         )
 
       {:error, reason} when reason != :no_match ->
-        Logger.warning("enrich: Soundcharts falhou na faixa #{track.id}: #{inspect(reason)}")
+        Logger.warning("enrich: Soundcharts falhou na faixa #{track.id}: #{inspect(reason)}",
+          track_id: track.id
+        )
 
       _ ->
         :ok

@@ -73,7 +73,8 @@ defmodule Beatgrid.Workers.MixRecognizeWorker do
           )
 
         Logger.info(
-          "recognize mix #{mix_id}: matched=#{tally.matched} no_match=#{tally.no_match} error=#{tally.error} of #{total}"
+          "recognize mix #{mix_id}: matched=#{tally.matched} no_match=#{tally.no_match} error=#{tally.error} of #{total}",
+          mix_id: mix_id
         )
 
         Mixes.broadcast(%{
@@ -132,7 +133,9 @@ defmodule Beatgrid.Workers.MixRecognizeWorker do
       {:error, reason} ->
         # Persistent failure: surface it (no more silent ":ok") and leave the segment
         # un-stamped so a later run can try again.
-        Logger.warning("recognize segment #{seg.id} failed (giving up): #{inspect(reason)}")
+        Logger.warning("recognize segment #{seg.id} failed (giving up): #{inspect(reason)}",
+          segment_id: seg.id
+        )
         :error
     end
   end

@@ -98,7 +98,9 @@ defmodule Beatgrid.Organization.ClassificationAI do
     if is_number(confidence) and confidence >= @auto_file_confidence do
       case Organization.apply_batch([suggestion]) do
         {:ok, %{failed: f}} when f > 0 ->
-          Logger.warning("auto-arquivar falhou para track #{track.id} (#{folder})")
+          Logger.warning("auto-arquivar falhou para track #{track.id} (#{folder})",
+            track_id: track.id
+          )
 
         _ ->
           :ok
