@@ -108,8 +108,14 @@ defmodule BeatgridWeb.DashboardLive do
   # Folder recommendation finished generating. Reload the persisted gaps and clear
   # the "Gerando…" state — but only for the folder currently on screen. Other
   # folders' ticks just clear the spinner.
-  def handle_info({:recommend_progress, %{scope: "folder", key: key, status: status}}, socket)
-      when status in [:done, :error] do
+  def handle_info({:recommend_progress, %{scope: "folder", key: key, status: :error}}, socket) do
+    {:noreply,
+     socket
+     |> assign(recommending?: false)
+     |> put_flash(:error, "A IA não conseguiu gerar as lacunas de #{key} — tente de novo.")}
+  end
+
+  def handle_info({:recommend_progress, %{scope: "folder", key: key, status: :done}}, socket) do
     if key == socket.assigns.gaps_folder do
       {:noreply, socket |> assign(recommending?: false) |> assign_gaps(key)}
     else

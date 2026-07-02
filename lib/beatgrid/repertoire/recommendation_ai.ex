@@ -24,6 +24,10 @@ defmodule Beatgrid.Repertoire.RecommendationAI do
     defstruct [:artist, :song, :reason]
   end
 
+  # Repertoire generations legitimately think for minutes (curated lists over the
+  # whole library) — the default 120s CLI budget killed real runs with :timeout.
+  @timeout_ms 300_000
+
   @doc "Suggests important artists/songs the library is likely MISSING for a folder. `opts`: `:count` (default 10)."
   @spec suggest_gaps(String.t(), keyword()) :: {:ok, [Gap.t()]} | {:error, term()}
   def suggest_gaps(folder_key, opts \\ []) do
@@ -34,7 +38,8 @@ defmodule Beatgrid.Repertoire.RecommendationAI do
       folder ->
         prompt = build_gaps_prompt(folder, artists_in(folder_key), Keyword.get(opts, :count, 10))
 
-        with {:ok, %{"gaps" => gaps}} <- AI.complete(prompt, gaps_schema()) do
+        with {:ok, %{"gaps" => gaps}} <-
+               AI.complete(prompt, gaps_schema(), timeout_ms: @timeout_ms) do
           {:ok,
            Enum.map(gaps, &%Gap{artist: &1["artist"], song: &1["song"], reason: &1["reason"]})}
         end
@@ -47,7 +52,8 @@ defmodule Beatgrid.Repertoire.RecommendationAI do
     track = Repo.preload(track, :soundcharts_song)
     prompt = build_matches_prompt(track, Keyword.get(opts, :count, 8))
 
-    with {:ok, %{"matches" => list}} <- AI.complete(prompt, matches_schema()) do
+    with {:ok, %{"matches" => list}} <-
+           AI.complete(prompt, matches_schema(), timeout_ms: @timeout_ms) do
       {:ok, Enum.map(list, &%Gap{artist: &1["artist"], song: &1["song"], reason: &1["reason"]})}
     end
   end
@@ -68,7 +74,7 @@ defmodule Beatgrid.Repertoire.RecommendationAI do
         prompt = build_description_prompt(folder, siblings, artists_in(folder_key))
 
         with {:ok, %{"description" => d, "rationale" => r}} <-
-               AI.complete(prompt, description_schema()) do
+               AI.complete(prompt, description_schema(), timeout_ms: @timeout_ms) do
           {:ok, %Description{description: d, rationale: r}}
         end
     end

@@ -48,6 +48,11 @@ defmodule Beatgrid.AI.ClaudeCliTest do
       fake(dir, "sleep 5\n", timeout_ms: 200)
       assert {:error, :timeout} = ClaudeCli.complete("p", %{})
     end
+
+    test "a per-call :timeout_ms overrides the configured budget", %{dir: dir} do
+      fake(dir, "sleep 5\n", timeout_ms: 60_000)
+      assert {:error, :timeout} = ClaudeCli.complete("p", %{}, timeout_ms: 200)
+    end
   end
 
   describe "build_args/3" do

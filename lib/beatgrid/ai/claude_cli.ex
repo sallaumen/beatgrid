@@ -24,7 +24,7 @@ defmodule Beatgrid.AI.ClaudeCli do
     # so the prompt/schema need no shell quoting and the CLI gets immediate EOF.
     argv = ["-c", ~s|exec "$@" < /dev/null|, "sh", executable() | cli_args]
 
-    run(fn -> System.cmd("/bin/sh", argv, stderr_to_stdout: false) end)
+    run(fn -> System.cmd("/bin/sh", argv, stderr_to_stdout: false) end, opts)
   end
 
   @spec build_args(String.t(), map(), keyword()) :: [String.t()]
@@ -40,8 +40,8 @@ defmodule Beatgrid.AI.ClaudeCli do
     end
   end
 
-  defp run(fun) do
-    case Cli.run(fun, timeout()) do
+  defp run(fun, opts) do
+    case Cli.run(fun, timeout(opts)) do
       {:ok, {output, 0}} -> parse_output(output)
       {:ok, {output, code}} -> {:error, {:claude_cli_exit, code, String.slice(output, 0, 500)}}
       {:error, {:exit, reason}} -> {:error, {:claude_cli_exception, inspect(reason)}}
@@ -71,6 +71,10 @@ defmodule Beatgrid.AI.ClaudeCli do
   end
 
   defp executable, do: config()[:executable] || "claude"
-  defp timeout, do: config()[:timeout_ms] || @default_timeout_ms
+
+  # Callers with legitimately long generations (repertoire gaps) pass their own
+  # :timeout_ms; everything else uses the config/default budget.
+  defp timeout(opts), do: opts[:timeout_ms] || config()[:timeout_ms] || @default_timeout_ms
+
   defp config, do: Application.get_env(:beatgrid, __MODULE__, [])
 end
