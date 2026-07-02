@@ -7,6 +7,7 @@ defmodule Beatgrid.Recognition.Audd do
   @behaviour Beatgrid.Recognition
 
   alias Beatgrid.Cli
+  alias Beatgrid.Error
 
   @endpoint "https://api.audd.io/"
   @snippet_ms 20_000
@@ -57,9 +58,18 @@ defmodule Beatgrid.Recognition.Audd do
       cmd = fn -> System.cmd(ffmpeg(), args, stderr_to_stdout: true) end
 
       case Cli.run(cmd, @snippet_timeout_ms) do
-        {:ok, {_out, 0}} -> fun.(dest)
-        {:ok, {out, code}} -> {:error, {:ffmpeg_exit, code, String.slice(out, -300..-1//1)}}
-        {:error, reason} -> {:error, reason}
+        {:ok, {_out, 0}} ->
+          fun.(dest)
+
+        {:ok, {out, code}} ->
+          {:error,
+           Error.new(:ffmpeg_exit, "ffmpeg failed cutting the snippet", %{
+             exit: code,
+             output: String.slice(out, -300..-1//1)
+           })}
+
+        {:error, reason} ->
+          {:error, reason}
       end
     after
       File.rm(dest)
@@ -79,13 +89,19 @@ defmodule Beatgrid.Recognition.Audd do
                form_multipart: [api_token: tok, file: file_part],
                receive_timeout: @receive_timeout_ms
              ) do
-          {:ok, %Req.Response{status: 200, body: body}} -> parse_response(body)
-          {:ok, %Req.Response{status: status}} -> {:error, {:audd_http, status}}
-          {:error, reason} -> {:error, reason}
+          {:ok, %Req.Response{status: 200, body: body}} ->
+            parse_response(body)
+
+          {:ok, %Req.Response{status: status}} ->
+            {:error, Error.new(:audd_http, "AudD returned HTTP #{status}", %{status: status})}
+
+          {:error, reason} ->
+            {:error, reason}
         end
 
       {:error, reason} ->
-        {:error, {:read_snippet, reason}}
+        {:error,
+         Error.new(:read_snippet, "could not read the extracted snippet", %{reason: reason})}
     end
   end
 
@@ -97,8 +113,14 @@ defmodule Beatgrid.Recognition.Audd do
       do: {:ok, %{artist: a, title: t}}
 
   def parse_response(%{"status" => "success", "result" => nil}), do: {:ok, :no_match}
-  def parse_response(%{"status" => "error"} = body), do: {:error, {:audd_error, body["error"]}}
-  def parse_response(other), do: {:error, {:audd_unexpected, other}}
+
+  def parse_response(%{"status" => "error"} = body) do
+    {:error, Error.new(:audd_error, "AudD rejected the request", %{error: body["error"]})}
+  end
+
+  def parse_response(other) do
+    {:error, Error.new(:audd_unexpected, "unexpected AudD response shape", %{body: other})}
+  end
 
   defp token, do: Application.get_env(:beatgrid, __MODULE__, [])[:api_token]
   defp ffmpeg, do: Application.get_env(:beatgrid, __MODULE__, [])[:ffmpeg] || "ffmpeg"

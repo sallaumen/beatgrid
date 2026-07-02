@@ -24,7 +24,7 @@ defmodule Beatgrid.Events do
   @typedoc "Pointer to what is playing — never the track itself."
   @type now_playing :: %{track_id: Ecto.UUID.t() | nil, set_id: Ecto.UUID.t() | nil}
 
-  @typedoc "Per-item progress of an enrich batch (`scope`: \"track\" | \"pending\" | \"rare\")."
+  @typedoc "Per-item progress of an enrich batch (scope: track | pending | rare)."
   @type enrich_progress :: %{
           :batch_id => Ecto.UUID.t(),
           :scope => String.t(),
@@ -90,7 +90,7 @@ defmodule Beatgrid.Events do
           optional(:groups) => non_neg_integer()
         }
 
-  @typedoc "Progress of an AI recommendation run (`scope`: \"folder\" | \"track\")."
+  @typedoc "Progress of an AI recommendation run (scope: folder | track)."
   @type recommend_progress :: %{
           batch_id: Ecto.UUID.t(),
           scope: String.t(),

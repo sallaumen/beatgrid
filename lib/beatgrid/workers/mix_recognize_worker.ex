@@ -136,6 +136,7 @@ defmodule Beatgrid.Workers.MixRecognizeWorker do
         Logger.warning("recognize segment #{seg.id} failed (giving up): #{inspect(reason)}",
           segment_id: seg.id
         )
+
         :error
     end
   end
@@ -155,12 +156,18 @@ defmodule Beatgrid.Workers.MixRecognizeWorker do
     end
   end
 
-  # Worth retrying: HTTP 429 / 5xx, transport/timeout exceptions, and AudD rate-limit envelopes.
-  defp transient?({:audd_http, status}), do: status == 429 or status in 500..599
+  # Worth retrying: HTTP 429 / 5xx, transport/timeout exceptions, and AudD rate-limit
+  # envelopes. Domain errors (Beatgrid.Error) are matched by code BEFORE the generic
+  # is_exception clause — they are exceptions structurally, but only these codes are
+  # transient; the rest (unexpected shape, unreadable snippet…) must not burn retries.
+  defp transient?(%Beatgrid.Error{code: :audd_http, details: %{status: status}}),
+    do: status == 429 or status in 500..599
 
-  defp transient?({:audd_error, msg}) when is_binary(msg),
-    do: String.contains?(String.downcase(msg), ["limit", "rate", "too many"])
+  defp transient?(%Beatgrid.Error{code: :audd_error, details: %{error: msg}})
+       when is_binary(msg),
+       do: String.contains?(String.downcase(msg), ["limit", "rate", "too many"])
 
+  defp transient?(%Beatgrid.Error{}), do: false
   defp transient?(reason) when is_exception(reason), do: true
   defp transient?(_), do: false
 

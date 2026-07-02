@@ -182,7 +182,9 @@ defmodule Beatgrid.Workers.MixRecognizeWorkerTest do
       )
 
     Beatgrid.Recognition.Mock
-    |> expect(:identify, fn _p, _s, _e -> {:error, {:audd_http, 429}} end)
+    |> expect(:identify, fn _p, _s, _e ->
+      {:error, Beatgrid.Error.new(:audd_http, "AudD returned HTTP 429", %{status: 429})}
+    end)
     |> expect(:identify, fn _p, _s, _e -> {:ok, %{artist: "A", title: "B"}} end)
 
     assert :ok = perform_job(MixRecognizeWorker, %{mix_id: mix.id})
@@ -204,7 +206,7 @@ defmodule Beatgrid.Workers.MixRecognizeWorkerTest do
 
     # exactly ONE call — a non-transient error must not retry
     expect(Beatgrid.Recognition.Mock, :identify, fn _p, _s, _e ->
-      {:error, {:ffmpeg_exit, 1, "boom"}}
+      {:error, Beatgrid.Error.new(:ffmpeg_exit, "ffmpeg failed cutting the snippet", %{exit: 1})}
     end)
 
     assert :ok = perform_job(MixRecognizeWorker, %{mix_id: mix.id})

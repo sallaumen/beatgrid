@@ -11,11 +11,12 @@ defmodule Beatgrid.Recognition.AuddTest do
     assert Audd.parse_response(%{"status" => "success", "result" => nil}) == {:ok, :no_match}
   end
 
-  test "parse_response: error / unexpected -> error" do
-    assert {:error, _} =
+  test "parse_response: error / unexpected -> coded domain errors" do
+    assert {:error, %Beatgrid.Error{code: :audd_error}} =
              Audd.parse_response(%{"status" => "error", "error" => %{"error_message" => "bad"}})
 
-    assert {:error, _} = Audd.parse_response(%{"weird" => true})
+    assert {:error, %Beatgrid.Error{code: :audd_unexpected}} =
+             Audd.parse_response(%{"weird" => true})
   end
 
   describe "snippet_window/2" do

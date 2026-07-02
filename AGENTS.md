@@ -26,7 +26,9 @@ for *what* we are building and *why*. This file is *how* to build it.
    Ecto schema (structure + changesets), and a `*Query` module (all reads).
    Reads are `defdelegate`'d to the query module.
 3. **Errors are data.** Fallible ops return `{:ok, _}` / `{:error, _}`. Domain
-   errors are `defexception` structs with `:code`, `:message`, `:details`.
+   errors are `defexception` structs with `:code`, `:message`, `:details` —
+   that struct is `Beatgrid.Error` (Recognition is the first adopter; new ports
+   and reworked boundaries return it instead of ad-hoc reason tuples).
    Raise only for genuine contract violations (missing preload, impossible state).
 4. **Talk to the outside world through ports.** Each external service is a
    behaviour + a real adapter + an `Application.compile_env!` selector + a Mox
