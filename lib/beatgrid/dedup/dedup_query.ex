@@ -6,6 +6,7 @@ defmodule Beatgrid.Dedup.DedupQuery do
   alias Beatgrid.Dedup.DuplicateGroup
   alias Beatgrid.Repo
 
+  @doc "Every group with `members: :track` preloaded — the review cards need the full tree."
   @spec list_groups() :: [DuplicateGroup.t()]
   def list_groups do
     DuplicateGroup
@@ -14,6 +15,11 @@ defmodule Beatgrid.Dedup.DedupQuery do
     |> Repo.all()
   end
 
+  @doc """
+  Pending groups with the full review tree preloaded (members → track → song,
+  plus the keeper). Callers that only need counts should use `count_groups/0`
+  instead of paying for these preloads.
+  """
   @spec list_pending() :: [DuplicateGroup.t()]
   def list_pending do
     DuplicateGroup
@@ -23,6 +29,7 @@ defmodule Beatgrid.Dedup.DedupQuery do
     |> Repo.all()
   end
 
+  @doc "One group with the full review tree preloaded (same shape as `list_pending/0`)."
   @spec get(Ecto.UUID.t()) :: DuplicateGroup.t() | nil
   def get(id) do
     DuplicateGroup

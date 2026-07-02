@@ -63,6 +63,9 @@ defmodule Beatgrid.Soundcharts.Http do
     |> Req.new()
   end
 
+  # SECRETS: these custom headers carry the API credentials and are NOT covered
+  # by Req's authorization-header redaction — never log/inspect the built request
+  # (errors log status + body only; keep it that way).
   defp headers(account) do
     [{"x-app-id", account.app_id}, {"x-api-key", account.api_key}]
     |> Enum.reject(fn {_k, v} -> is_nil(v) end)
