@@ -11,12 +11,10 @@ defmodule BeatgridWeb.ReviewLiveApplyTest do
   alias Beatgrid.{Operations, Organization}
 
   setup :set_mox_global
+  setup :isolate_library_root
 
   setup %{tmp_dir: root} do
     File.mkdir_p!(Path.join(root, "_Inbox"))
-    prev = Application.get_env(:beatgrid, :library_root)
-    Application.put_env(:beatgrid, :library_root, root)
-    on_exit(fn -> Application.put_env(:beatgrid, :library_root, prev) end)
     :ok
   end
 

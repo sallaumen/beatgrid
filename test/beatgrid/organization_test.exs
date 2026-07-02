@@ -5,13 +5,12 @@ defmodule Beatgrid.OrganizationTest do
   alias Beatgrid.{Library, Organization}
   alias Beatgrid.Library.Tracks
 
+  setup :isolate_library_root
+
   setup tags do
     if root = tags[:tmp_dir] do
       File.mkdir_p!(Path.join(root, "_Inbox"))
       File.mkdir_p!(Path.join(root, "_Quarantine"))
-      prev = Application.get_env(:beatgrid, :library_root)
-      Application.put_env(:beatgrid, :library_root, root)
-      on_exit(fn -> Application.put_env(:beatgrid, :library_root, prev) end)
     end
 
     :ok

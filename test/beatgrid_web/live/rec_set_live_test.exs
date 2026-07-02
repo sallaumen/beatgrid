@@ -7,11 +7,9 @@ defmodule BeatgridWeb.RecSetLiveTest do
 
   alias Beatgrid.Sets
 
-  setup %{tmp_dir: root} do
-    prev = Application.get_env(:beatgrid, :library_root)
-    Application.put_env(:beatgrid, :library_root, root)
-    on_exit(fn -> Application.put_env(:beatgrid, :library_root, prev) end)
+  setup :isolate_library_root
 
+  setup do
     insert(:genre_folder,
       key: "forro_roots",
       display_name: "Forró Roots",

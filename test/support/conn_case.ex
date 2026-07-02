@@ -30,6 +30,7 @@ defmodule BeatgridWeb.ConnCase do
         import Plug.Conn
         import Phoenix.ConnTest
         import BeatgridWeb.ConnCase
+        import Beatgrid.DataCase, only: [isolate_library_root: 1]
       end
     ]
   end

@@ -21,6 +21,7 @@ defmodule BeatgridWeb.DashboardLiveTest do
   }
 
   setup :set_mox_global
+  setup :isolate_library_root
 
   test "renders stable control center regions", %{conn: conn} do
     {:ok, _view, html} = live(conn, ~p"/painel")
@@ -215,10 +216,6 @@ defmodule BeatgridWeb.DashboardLiveTest do
 
   @tag :tmp_dir
   test "the Operações panel restores the latest gain backup", %{conn: conn, tmp_dir: root} do
-    previous = Application.get_env(:beatgrid, :library_root)
-    Application.put_env(:beatgrid, :library_root, root)
-    on_exit(fn -> Application.put_env(:beatgrid, :library_root, previous) end)
-
     rel_path = "_Inbox/restorable.mp3"
     backup_rel = "_Backups/Gain/batch/_Inbox/restorable.mp3"
     write_file(root, rel_path, "gain-applied-audio")

@@ -11,6 +11,7 @@ defmodule BeatgridWeb.LibraryLiveMoveTest do
   alias Beatgrid.Library.Tracks
 
   setup :set_mox_global
+  setup :isolate_library_root
 
   setup tags do
     insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB")
@@ -18,9 +19,6 @@ defmodule BeatgridWeb.LibraryLiveMoveTest do
 
     if root = tags[:tmp_dir] do
       File.mkdir_p!(Path.join(root, "_Inbox"))
-      prev = Application.get_env(:beatgrid, :library_root)
-      Application.put_env(:beatgrid, :library_root, root)
-      on_exit(fn -> Application.put_env(:beatgrid, :library_root, prev) end)
     end
 
     # The genre tag write goes through the Tagging.Writer port (mocked, 2-arity).

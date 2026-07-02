@@ -11,16 +11,7 @@ defmodule Beatgrid.LoudnessTest do
   alias Beatgrid.Workers.{GainApplyWorker, LoudnessWorker}
 
   setup :verify_on_exit!
-
-  setup tags do
-    if root = tags[:tmp_dir] do
-      previous = Application.get_env(:beatgrid, :library_root)
-      Application.put_env(:beatgrid, :library_root, root)
-      on_exit(fn -> Application.put_env(:beatgrid, :library_root, previous) end)
-    end
-
-    :ok
-  end
+  setup :isolate_library_root
 
   describe "gain_db/2 (target -14 LUFS, ceiling -1 dBTP)" do
     test "nil loudness → nil", do: assert(Loudness.gain_db(nil, -1.0) == nil)

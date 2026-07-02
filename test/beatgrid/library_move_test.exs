@@ -8,13 +8,11 @@ defmodule Beatgrid.LibraryMoveTest do
   alias Beatgrid.Operations
 
   setup :set_mox_global
+  setup :isolate_library_root
 
   setup tags do
     if root = tags[:tmp_dir] do
       File.mkdir_p!(Path.join(root, "_Inbox"))
-      prev = Application.get_env(:beatgrid, :library_root)
-      Application.put_env(:beatgrid, :library_root, root)
-      on_exit(fn -> Application.put_env(:beatgrid, :library_root, prev) end)
     end
 
     # The genre tag write goes through the Tagging.Writer port (mocked).

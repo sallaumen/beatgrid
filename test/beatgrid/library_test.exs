@@ -5,6 +5,8 @@ defmodule Beatgrid.LibraryTest do
   alias Beatgrid.Library.Track
   alias Beatgrid.Library.Tracks
 
+  setup :isolate_library_root
+
   describe "init_library/1" do
     @tag :tmp_dir
     test "creates the library root with genre dirs + _Inbox + _Quarantine", %{tmp_dir: root} do
@@ -108,9 +110,6 @@ defmodule Beatgrid.LibraryTest do
       File.mkdir_p!(Path.join(root, "_Inbox"))
       path = Path.join(root, "_Inbox/x.mp3")
       File.write!(path, "audio")
-      prev = Application.get_env(:beatgrid, :library_root)
-      Application.put_env(:beatgrid, :library_root, root)
-      on_exit(fn -> Application.put_env(:beatgrid, :library_root, prev) end)
 
       t = insert(:track, rel_path: "_Inbox/x.mp3", filename: "x.mp3")
       assert {:ok, _} = Library.hard_delete(t)
@@ -119,11 +118,7 @@ defmodule Beatgrid.LibraryTest do
     end
 
     @tag :tmp_dir
-    test "arquivo já ausente ainda remove o registro", %{tmp_dir: root} do
-      prev = Application.get_env(:beatgrid, :library_root)
-      Application.put_env(:beatgrid, :library_root, root)
-      on_exit(fn -> Application.put_env(:beatgrid, :library_root, prev) end)
-
+    test "arquivo já ausente ainda remove o registro", %{tmp_dir: _root} do
       t = insert(:track, rel_path: "_Inbox/missing.mp3", filename: "missing.mp3")
       assert {:ok, _} = Library.hard_delete(t)
       assert is_nil(Tracks.get(t.id))

@@ -18,6 +18,8 @@ defmodule Beatgrid.DashboardTest do
     RecommendWorker
   }
 
+  setup :isolate_library_root
+
   test "snapshot returns the dashboard read model with selected gaps" do
     insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB")
     insert(:genre_folder, key: "roots", display_name: "Roots", dir_name: "Roots")
@@ -152,10 +154,6 @@ defmodule Beatgrid.DashboardTest do
 
   @tag :tmp_dir
   test "run({:restore_gain_backup, batch_id}) delegates to operations and refreshes loudness" do
-    previous = Application.get_env(:beatgrid, :library_root)
-    Application.put_env(:beatgrid, :library_root, tmp_dir())
-    on_exit(fn -> Application.put_env(:beatgrid, :library_root, previous) end)
-
     root = Application.fetch_env!(:beatgrid, :library_root)
     rel_path = "_Inbox/restorable.mp3"
     backup_rel = "_Backups/Gain/batch/_Inbox/restorable.mp3"
@@ -194,10 +192,6 @@ defmodule Beatgrid.DashboardTest do
     assert patch.loudness_note == "1 gain backup(s) restored."
     assert File.read!(Path.join(root, rel_path)) == "original-audio"
     assert Tracks.get(track.id).gain_applied_at == nil
-  end
-
-  defp tmp_dir do
-    Path.join(System.tmp_dir!(), "beatgrid-dashboard-test-#{System.unique_integer([:positive])}")
   end
 
   defp write_file(root, rel_path, contents) do

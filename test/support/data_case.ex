@@ -45,6 +45,22 @@ defmodule Beatgrid.DataCase do
   end
 
   @doc """
+  Points the global `:library_root` at the test's `@tag :tmp_dir` directory and
+  restores the previous value afterwards (restoring — never clearing — so a bad
+  teardown can't poison later tests). Use as `setup :isolate_library_root` in
+  any `async: false` case that touches disk under the library root; a no-op for
+  tests without the tag.
+  """
+  def isolate_library_root(%{tmp_dir: root}) when is_binary(root) do
+    previous = Application.get_env(:beatgrid, :library_root)
+    Application.put_env(:beatgrid, :library_root, root)
+    on_exit(fn -> Application.put_env(:beatgrid, :library_root, previous) end)
+    :ok
+  end
+
+  def isolate_library_root(_tags), do: :ok
+
+  @doc """
   Transforms changeset errors into a map of messages.
 
       assert {:error, changeset} = Accounts.create_user(%{password: "short"})

@@ -6,6 +6,8 @@ defmodule Beatgrid.Organization.ClassificationAITest do
   alias Beatgrid.Organization
   alias Beatgrid.Organization.ClassificationAI
 
+  setup :isolate_library_root
+
   setup do
     insert(:genre_folder,
       key: "mpb",
@@ -124,9 +126,6 @@ defmodule Beatgrid.Organization.ClassificationAITest do
     @tag :tmp_dir
     test "auto-arquiva (move) quando confidence >= limiar; senão propõe", %{tmp_dir: root} do
       File.mkdir_p!(Path.join(root, "_Inbox"))
-      prev = Application.get_env(:beatgrid, :library_root)
-      Application.put_env(:beatgrid, :library_root, root)
-      on_exit(fn -> Application.put_env(:beatgrid, :library_root, prev) end)
 
       File.write!(Path.join(root, "_Inbox/hi.mp3"), "x")
       File.write!(Path.join(root, "_Inbox/lo.mp3"), "x")

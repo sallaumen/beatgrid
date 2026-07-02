@@ -4,15 +4,7 @@ defmodule Beatgrid.Library.NameSyncTest do
 
   alias Beatgrid.Library.{NameSync, Tracks}
 
-  setup tags do
-    if root = tags[:tmp_dir] do
-      prev = Application.get_env(:beatgrid, :library_root)
-      Application.put_env(:beatgrid, :library_root, root)
-      on_exit(fn -> Application.put_env(:beatgrid, :library_root, prev) end)
-    end
-
-    :ok
-  end
+  setup :isolate_library_root
 
   describe "canonical_filename/3" do
     test "joins artist and title and keeps the extension" do

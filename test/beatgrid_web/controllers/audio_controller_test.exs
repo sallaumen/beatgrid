@@ -6,15 +6,7 @@ defmodule BeatgridWeb.AudioControllerTest do
 
   alias Beatgrid.Operations
 
-  setup tags do
-    if root = tags[:tmp_dir] do
-      prev = Application.get_env(:beatgrid, :library_root)
-      Application.put_env(:beatgrid, :library_root, root)
-      on_exit(fn -> Application.put_env(:beatgrid, :library_root, prev) end)
-    end
-
-    :ok
-  end
+  setup :isolate_library_root
 
   @tag :tmp_dir
   test "serves the track's audio file, full and by range", %{conn: conn, tmp_dir: root} do

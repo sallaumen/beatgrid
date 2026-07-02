@@ -12,12 +12,11 @@ defmodule Beatgrid.YouTubeTest do
   alias Beatgrid.Workers.DownloadWorker
   alias Beatgrid.YouTube
 
+  setup :isolate_library_root
+
   setup tags do
     if root = tags[:tmp_dir] do
       File.mkdir_p!(Path.join(root, "_Inbox"))
-      prev = Application.get_env(:beatgrid, :library_root)
-      Application.put_env(:beatgrid, :library_root, root)
-      on_exit(fn -> Application.put_env(:beatgrid, :library_root, prev) end)
     end
 
     :ok

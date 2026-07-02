@@ -9,11 +9,10 @@ defmodule BeatgridWeb.TrackLiveRenameTest do
 
   @moduletag :tmp_dir
 
+  setup :isolate_library_root
+
   setup %{tmp_dir: root} do
     File.mkdir_p!(Path.join(root, "MPB"))
-    prev = Application.get_env(:beatgrid, :library_root)
-    Application.put_env(:beatgrid, :library_root, root)
-    on_exit(fn -> Application.put_env(:beatgrid, :library_root, prev) end)
     %{root: root}
   end
 
