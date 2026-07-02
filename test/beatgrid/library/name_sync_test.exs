@@ -86,6 +86,46 @@ defmodule Beatgrid.Library.NameSyncTest do
 
       assert {:ok, %{created: 0}} = NameSync.propose()
     end
+
+    test "proposes from the tags when there is no Soundcharts match, capped at :medium" do
+      insert(:track,
+        rel_path: "_Inbox/ekPJXrNwsAc.mp3",
+        filename: "ekPJXrNwsAc.mp3",
+        soundcharts_song_id: nil,
+        tag_artist: "Luiz Gonzaga",
+        tag_title: "Penerando"
+      )
+
+      assert {:ok, %{created: 1}} = NameSync.propose()
+
+      assert [suggestion] = NameSync.list_by(status: :pending)
+      assert suggestion.to_filename == "Luiz Gonzaga - Penerando.mp3"
+      assert suggestion.confidence == :medium
+      assert suggestion.reason == "tags: Luiz Gonzaga - Penerando"
+
+      # never auto-applied: tag-backed proposals wait for review
+      assert {:ok, %{applied: 0, failed: 0}} = NameSync.apply_auto()
+    end
+
+    test "skips unmatched tracks without usable tags or already-canonical names" do
+      insert(:track,
+        rel_path: "_Inbox/mystery.mp3",
+        filename: "mystery.mp3",
+        soundcharts_song_id: nil,
+        tag_artist: nil,
+        tag_title: nil
+      )
+
+      insert(:track,
+        rel_path: "_Inbox/Luiz Gonzaga - Penerando.mp3",
+        filename: "Luiz Gonzaga - Penerando.mp3",
+        soundcharts_song_id: nil,
+        tag_artist: "Luiz Gonzaga",
+        tag_title: "Penerando"
+      )
+
+      assert {:ok, %{created: 0}} = NameSync.propose()
+    end
   end
 
   describe "undo/1" do

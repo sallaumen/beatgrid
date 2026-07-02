@@ -1,14 +1,15 @@
 defmodule Beatgrid.Library.NameSync do
   @moduledoc """
-  Syncs file names to the canonical `"Artist - Title"` derived from the linked
-  Soundcharts song. High-confidence matches are auto-renamed; the rest become
-  pending `RenameSuggestion`s for review. Every rename goes through
-  `Library.rename/2` (disk move + row update) and is reversible via `undo/1`.
+  Syncs file names to the canonical `"Artist - Title"` — derived from the linked
+  Soundcharts song when there is a match, and from the ID3/parsed tags when there
+  is none (so a YouTube download named `ekPJXrNwsAc.mp3` with good tags still
+  gets a proposal instead of staying invisible forever). Song-backed proposals
+  carry the match confidence; tag-backed ones are capped at `:medium`. Everything
+  lands as a pending `RenameSuggestion` for review, and every applied rename goes
+  through `Library.rename/2` (disk move + row update), reversible via `undo/1`.
   """
-  import Ecto.Query
-
   alias Beatgrid.Library
-  alias Beatgrid.Library.{RenameSuggestion, RenameSuggestionQuery, Track, Tracks}
+  alias Beatgrid.Library.{RenameSuggestion, RenameSuggestionQuery, Track, TrackQuery, Tracks}
   alias Beatgrid.Repo
 
   @unsafe ~r/[\/\\:*?"<>|]/u
@@ -36,9 +37,9 @@ defmodule Beatgrid.Library.NameSync do
   def count(opts \\ []), do: RenameSuggestionQuery.count(opts)
 
   @doc """
-  Creates a pending rename suggestion for each resolved present track whose file
-  name differs from its canonical name. Skips tracks already pending. Returns the
-  batch id and count.
+  Creates a pending rename suggestion for each present track whose file name
+  differs from its canonical name — from the Soundcharts match when linked, from
+  the tags otherwise. Skips tracks already pending. Returns the batch id + count.
   """
   @spec propose() :: {:ok, %{batch_id: Ecto.UUID.t(), created: non_neg_integer()}}
   def propose do
@@ -46,18 +47,25 @@ defmodule Beatgrid.Library.NameSync do
     pending = MapSet.new(RenameSuggestionQuery.list_by(status: :pending), & &1.track_id)
 
     created =
-      Enum.reduce(resolved_tracks(), 0, fn track, count ->
-        canonical = canonical_for(track)
+      Enum.reduce(TrackQuery.present_resolved_with_song(), 0, fn track, count ->
+        propose_one(track, canonical_for(track), pending, batch_id, count)
+      end)
 
-        cond do
-          is_nil(canonical) -> count
-          canonical == track.filename -> count
-          MapSet.member?(pending, track.id) -> count
-          true -> create_suggestion(track, canonical, batch_id) && count + 1
-        end
+    created =
+      Enum.reduce(TrackQuery.present_unmatched(), created, fn track, count ->
+        propose_one(track, tag_canonical_for(track), pending, batch_id, count)
       end)
 
     {:ok, %{batch_id: batch_id, created: created}}
+  end
+
+  defp propose_one(track, canonical, pending, batch_id, count) do
+    cond do
+      is_nil(canonical) -> count
+      canonical == track.filename -> count
+      MapSet.member?(pending, track.id) -> count
+      true -> create_suggestion(track, canonical, batch_id) && count + 1
+    end
   end
 
   @doc "Applies every pending high-confidence suggestion (auto-rename). Returns counts."
@@ -139,13 +147,6 @@ defmodule Beatgrid.Library.NameSync do
 
   # --- internals ---
 
-  defp resolved_tracks do
-    Track
-    |> where([t], not is_nil(t.soundcharts_song_id) and t.status == :present)
-    |> preload(:soundcharts_song)
-    |> Repo.all()
-  end
-
   defp canonical_for(%Track{soundcharts_song: %{credit_name: credit, name: name}} = track)
        when is_binary(credit) and is_binary(name) do
     canonical_filename(credit, name, Path.extname(track.filename))
@@ -153,21 +154,38 @@ defmodule Beatgrid.Library.NameSync do
 
   defp canonical_for(_track), do: nil
 
+  defp tag_canonical_for(%Track{tag_artist: artist, tag_title: title} = track)
+       when is_binary(artist) and artist != "" and is_binary(title) and title != "" do
+    canonical_filename(artist, title, Path.extname(track.filename))
+  end
+
+  defp tag_canonical_for(_track), do: nil
+
   defp create_suggestion(track, canonical, batch_id) do
-    song = track.soundcharts_song
+    attrs =
+      Map.merge(suggestion_source(track), %{
+        track_id: track.id,
+        from_rel_path: track.rel_path,
+        from_filename: track.filename,
+        to_filename: canonical,
+        status: :pending,
+        batch_id: batch_id
+      })
 
     %RenameSuggestion{}
-    |> RenameSuggestion.changeset(%{
-      track_id: track.id,
-      from_rel_path: track.rel_path,
-      from_filename: track.filename,
-      to_filename: canonical,
-      confidence: track.sc_match_confidence,
-      reason: "soundcharts: #{song.credit_name} - #{song.name}",
-      status: :pending,
-      batch_id: batch_id
-    })
+    |> RenameSuggestion.changeset(attrs)
     |> Repo.insert!()
+  end
+
+  # A Soundcharts-backed proposal carries the match confidence; a tag-backed one
+  # is capped at :medium — tags are self-reported, so it never auto-applies.
+  defp suggestion_source(%Track{soundcharts_song: %{credit_name: credit, name: name}} = track)
+       when is_binary(credit) and is_binary(name) do
+    %{confidence: track.sc_match_confidence, reason: "soundcharts: #{credit} - #{name}"}
+  end
+
+  defp suggestion_source(track) do
+    %{confidence: :medium, reason: "tags: #{track.tag_artist} - #{track.tag_title}"}
   end
 
   defp apply_one(suggestion) do

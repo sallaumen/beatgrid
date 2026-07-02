@@ -319,6 +319,23 @@ defmodule Beatgrid.Library.TrackQuery do
     |> Repo.all()
   end
 
+  @doc "Present tracks linked to a Soundcharts song, song preloaded — the rename-propose input."
+  @spec present_resolved_with_song() :: [Track.t()]
+  def present_resolved_with_song do
+    Track
+    |> where([t], t.status == :present and not is_nil(t.soundcharts_song_id))
+    |> preload(:soundcharts_song)
+    |> Repo.all()
+  end
+
+  @doc "Present tracks with no Soundcharts link — the tag-based rename-propose input."
+  @spec present_unmatched() :: [Track.t()]
+  def present_unmatched do
+    Track
+    |> where([t], t.status == :present and is_nil(t.soundcharts_song_id))
+    |> Repo.all()
+  end
+
   @doc """
   Candidates for the set scorer: present, not in `exclude`, carrying at least one
   mixing signal (Soundcharts match, detected key or detected BPM), optionally gated
