@@ -3,15 +3,21 @@
 // a record, not a seek. The node feeds the deck's own chain (filter → fader →
 // crossfader), so scratches respect the mix.
 //
-// The commanded position/velocity arrive in coarse, jittery steps (mouse moves,
-// ~16 ms ticks). Reading the buffer at that stepped velocity directly sounds
-// ROBOTIC — a stair-cased rate is basically a square-wave FM of the audio. So
-// the worklet models a platter with inertia: it SMOOTHS the commanded velocity
-// (one-pole) and integrates it, while gently tracking the commanded position so
-// it never drifts — the rate becomes continuous. Reads use CUBIC (Catmull-Rom)
-// interpolation, which is far cleaner than linear at the odd rates a scratch
-// sweeps through (this is the standard turntable-emulation approach, not a
-// home-grown one). Shipped as a string + Blob URL, so no extra esbuild entry.
+// The hand arrives as sparse position commands (~60 Hz pointermoves, with
+// jitter and coalesced bursts). Playing those raw is a staircase: velocity
+// steps at the command rate square-wave-FM the audio — the robotic buzz — and
+// burst-spiked velocity estimates fire like a machine gun. The fix, chosen by
+// offline simulation of both artifacts: reconstruct the velocity the way DVS
+// software filters timecode — take the MEAN velocity of each command interval
+// (from sender timestamps, so delivery jitter can't spike it) and smooth it
+// with a two-pole cascade. The head integrates that smooth velocity — position
+// is never JUMPED mid-stroke (jumps click) — but a gentle ~1 Hz error bleed
+// keeps steering it back to the commanded position, so hold-overshoot, clamped
+// flicks and even a protocol hiccup (a lost "stop") stay transient instead of
+// accumulating. Costs ~35 ms of hand-to-ear lag — less than a Bluetooth
+// controller. Reads use Catmull-Rom cubic interpolation, plus a velocity-
+// scaled one-pole that tames the aliasing hiss of fast passes. Shipped as a
+// string + Blob URL, so no extra esbuild entry.
 
 export const SCRATCH_WORKLET = `
 class ScratchProcessor extends AudioWorkletProcessor {
@@ -19,32 +25,48 @@ class ScratchProcessor extends AudioWorkletProcessor {
     super()
     this.pcm = null
     this.len = 0
-    this.readPos = 0    // the actual read head, in samples (glides smoothly)
-    this.vel = 0        // current samples/output-sample (can be negative)
-    this.targetVel = 0  // velocity that reaches the last command over its interval
-    this.sinceCmd = 1e9 // output samples since the last position command
+    this.x = 0        // read head, fractional samples (glides; never jumps mid-stroke)
+    this.v = 0        // heard velocity, samples/output-sample (negative = reverse)
+    this.v1 = 0       // first pole of the velocity smoother
+    this.targetV = 0  // mean hand velocity over the last command interval
+    this.lastPos = 0
+    this.lastT = 0    // sender clock (ms) of the last scrub
+    this.sinceCmd = 1e9
     this.active = false
-    this.g = 0          // smoothed gain — kills the click on start/stop
-    this.xp = 0         // DC-blocker state (silences a platter held still)
+    this.g = 0        // smoothed gain — kills the click on start/stop
+    this.lp = 0       // anti-alias pole
+    this.xp = 0       // DC-blocker state (a platter held still is silence)
     this.yp = 0
+    this.ref = 0      // smoothed hand position the bleed measures against
+    this.K = 1 - Math.exp((-2 * Math.PI * 22) / sampleRate) // smoother corner, per pole
+    this.K2 = 1 - Math.exp((-2 * Math.PI * 11) / sampleRate) // bleed-reference smoother
+    this.HOLD = Math.round(0.06 * sampleRate) // command silence -> the hand is holding still
+    this.MINDT = 0.004 * sampleRate // floor the interval: coalesced bursts can't spike
+    this.VMAX = 32 // a hard backspin flick; the anti-alias pole covers the sound up there
+    this.KP = 1.5e-4 // position-error bleed per sample (~150 ms) — closes the loop softly
     this.port.onmessage = (e) => {
       const d = e.data
       if (d.type === "load") {
         this.pcm = d.pcm || null
         this.len = this.pcm ? this.pcm.length : 0
       } else if (d.type === "scrub") {
-        // Derive velocity from the position delta over the ACTUAL elapsed output
-        // samples (our own audio clock) — the main thread's dt can be ~0 between
-        // two fast mouse moves and would spike the velocity into a click. Floor
-        // the interval so a burst of commands can't spike it either.
-        if (!this.active) {
-          this.readPos = d.position
-          this.vel = 0
-          this.active = true
+        if (this.active) {
+          // Cap the interval at the HOLD window: after a long still-hand pause
+          // the elapsed time says nothing about how fast the NEW stroke is.
+          const dtMs = Math.min(d.t - this.lastT, 60)
+          const dt = Math.max((dtMs / 1000) * sampleRate, this.MINDT)
+          const v = (d.position - this.lastPos) / dt
+          this.targetV = Math.max(-this.VMAX, Math.min(this.VMAX, v))
         } else {
-          const interval = Math.max(this.sinceCmd, 64)
-          this.targetVel = (d.position - this.readPos) / interval
+          this.x = d.position
+          this.ref = d.position
+          this.v = 0
+          this.v1 = 0
+          this.targetV = 0
+          this.active = true
         }
+        this.lastPos = d.position
+        this.lastT = d.t
         this.sinceCmd = 0
       } else if (d.type === "stop") {
         this.active = false
@@ -59,19 +81,27 @@ class ScratchProcessor extends AudioWorkletProcessor {
     const len = this.len
     const on = this.active && pcm && len > 4
     const gTarget = on ? 1 : 0
-    // Platter inertia: one-pole smooth the target velocity (~2 ms) so the rate is
-    // continuous, integrate it; wind down if the commands stop (hand lifted).
-    const VEL_SLEW = 0.012
     for (let i = 0; i < n; i++) {
       this.g += (gTarget - this.g) * 0.008
       if (on) {
-        if (this.sinceCmd > 1400) this.targetVel *= 0.99 // ~30 ms silent → coast to a stop
-        this.vel += (this.targetVel - this.vel) * VEL_SLEW
-        this.readPos += this.vel
+        if (this.sinceCmd > this.HOLD) this.targetV = 0
+        // Error bleed: whatever the smoothing/clamps cost in position (hold
+        // overshoot, a clamped flick's deficit), pay it back over ~150 ms so
+        // the head always converges to the hand. The reference is lastPos run
+        // through its own pole — raw lastPos steps at the command rate, and on
+        // sustained fast passes that sawtooth survived the main smoother as an
+        // audible ripple riding the velocity.
+        this.ref += (this.lastPos - this.ref) * this.K2
+        let errV = (this.ref - this.x) * this.KP
+        if (errV > 3) errV = 3
+        else if (errV < -3) errV = -3
+        this.v1 += (this.targetV + errV - this.v1) * this.K
+        this.v += (this.v1 - this.v) * this.K
+        this.x += this.v
         this.sinceCmd++
       }
       let raw = 0
-      const p = this.readPos
+      const p = this.x
       if (pcm && len > 4 && p >= 1 && p < len - 2) {
         const i0 = p | 0
         const f = p - i0
@@ -82,10 +112,12 @@ class ScratchProcessor extends AudioWorkletProcessor {
         // Catmull-Rom cubic
         raw = b + 0.5 * f * (c - a + f * (2 * a - 5 * b + 4 * c - dd + f * (3 * (b - c) + dd - a)))
       }
-      // DC blocker: a platter held still reads a constant sample — high-pass it
-      // so "stopped" is silence, not a DC thump.
-      const dc = raw - this.xp + 0.995 * this.yp
-      this.xp = raw
+      // Faster than 1x skips samples and aliases into a harsh hiss; narrow a
+      // one-pole with speed, like the blur of a real needle whipping past.
+      const speed = this.v < 0 ? -this.v : this.v
+      this.lp += (raw - this.lp) * (speed > 1 ? 1 / speed : 1)
+      const dc = this.lp - this.xp + 0.995 * this.yp
+      this.xp = this.lp
       this.yp = dc
       ch[i] = dc * this.g
     }
