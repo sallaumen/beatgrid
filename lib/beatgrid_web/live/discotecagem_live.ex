@@ -502,6 +502,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
   defp t_label("bass_swap"), do: "GRAVE"
   defp t_label("brake"), do: "FREIO"
   defp t_label("lowpass"), do: "AFUNDA"
+  defp t_label("scratch_cut"), do: "RASGO"
+  defp t_label("spinback"), do: "REBOBINA"
   defp t_label(_type), do: "SEQ"
 
   # The manual-fire palette: {engine key, button label, one-line description, accent}.
@@ -514,7 +516,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
       {"filter", "Filtro", "varredura tira o corpo", "#5ad1a0"},
       {"lowpass", "Afunda", "some embaixo d'água", "#6c5ce7"},
       {"bass_swap", "Grave", "graves trocam de mão", "#ff5d6c"},
-      {"brake", "Freio", "o prato para, o outro entra", "#e08e00"}
+      {"brake", "Freio", "o prato para, o outro entra", "#e08e00"},
+      {"scratch_cut", "Rasgo", "scratcheia e dropa", "#ff8c42"},
+      {"spinback", "Rebobina", "rebobina e cai no drop", "#e84dc4"}
     ]
   end
 

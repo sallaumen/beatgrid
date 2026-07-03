@@ -65,6 +65,14 @@ const RAMP = Object.freeze({
   // the auto-scratch patterns. Tuned by ear — Lucas can nudge these.
   jogScratchSamples: 2600,
   scratchDepthS: 0.16,
+  // Scratch DROP transitions — deliberately abrupt, NOT scaled by the length
+  // knob. "rasgo": a quick baby-scratch flourish then a hard drop. "rebobina":
+  // a reverse spin-back (rewind whoosh) then the drop.
+  rasgoS: 0.5,
+  rasgoDepthS: 0.1,
+  rasgoStrokes: 3,
+  spinbackS: 0.55,
+  spinbackBackS: 2.2,
 })
 
 const SYNC_RATE_CLAMP = 0.08 // ±8%, matching the set-builder's bpm_close? band
@@ -528,6 +536,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     bass_swap: bassSwap,
     brake,
     lowpass,
+    scratch_cut: (from, to, toMs, token) => scratchDrop(from, to, toMs, token, "rasgo"),
+    spinback: (from, to, toMs, token) => scratchDrop(from, to, toMs, token, "rebobina"),
   })
 
   function fireTransition(from, to, transition, mode) {
@@ -839,6 +849,57 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       from.pause()
       resetChain(from)
     })
+  }
+
+  // Scratch DROP transitions: scratch the OUTGOING track (real worklet audio)
+  // then slam the incoming in at its cued point. "rasgo" = a baby-scratch
+  // flourish; "rebobina" = a reverse spin-back rewind. Abrupt on purpose.
+  // Falls back to a plain cut when the outgoing has no decoded PCM/worklet.
+  function scratchDrop(from, to, toMs, token, kind) {
+    if (!scratchArm(from.id)) {
+      cut(from, to, toMs)
+      return
+    }
+    const s = scratch[from.id]
+    const center = from.el.currentTime * sr
+    from.el.pause()
+    s.active = true
+    s.token = from.loadToken
+    scratchScrub(from.id, center, 0)
+    setXfadeTo(sideOf(from.id), 0.04) // hear only the scratch of the outgoing
+
+    const runS = kind === "rebobina" ? RAMP.spinbackS : RAMP.rasgoS
+    const t0 = performance.now()
+    let prev = center
+
+    const drop = () => {
+      clearInterval(iv)
+      if (s.active) {
+        s.active = false
+        if (s.node) s.node.port.postMessage({type: "stop"})
+      }
+      if (token !== state.transitionToken) return // aborted — a new fire owns it
+      from.pause()
+      riseIncoming(to, 0.03) // hard drop — near-instant, just declicked
+      startIncoming(to, toMs)
+      setXfadeTo(sideOf(to.id), 0.06)
+      after(0.2, () => token === state.transitionToken && resetChain(from))
+    }
+
+    const iv = setInterval(() => {
+      if (token !== state.transitionToken) {
+        drop()
+        return
+      }
+      const p = Math.min((performance.now() - t0) / (runS * 1000), 1)
+      const pos =
+        kind === "rebobina"
+          ? center - RAMP.spinbackBackS * sr * p * p // accelerating backward
+          : center + RAMP.rasgoDepthS * sr * Math.sin(2 * Math.PI * RAMP.rasgoStrokes * p)
+      scratchScrub(from.id, pos, (pos - prev) / (0.016 * sr))
+      prev = pos
+      if (p >= 1) drop()
+    }, 16)
   }
 
   // Return a silenced deck to a neutral chain: unity gain, open filter, flat
