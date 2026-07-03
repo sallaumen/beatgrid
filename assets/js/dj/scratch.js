@@ -19,10 +19,10 @@ class ScratchProcessor extends AudioWorkletProcessor {
     super()
     this.pcm = null
     this.len = 0
-    this.readPos = 0    // the actual (smoothed) read head, in samples
-    this.vel = 0        // smoothed samples/output-sample (can be negative)
-    this.cmdPos = 0     // commanded position from the main thread
-    this.cmdVel = 0     // commanded velocity from the main thread
+    this.readPos = 0    // the actual read head, in samples (glides smoothly)
+    this.vel = 0        // current samples/output-sample (can be negative)
+    this.targetVel = 0  // velocity that reaches the last command over its interval
+    this.sinceCmd = 1e9 // output samples since the last position command
     this.active = false
     this.g = 0          // smoothed gain — kills the click on start/stop
     this.xp = 0         // DC-blocker state (silences a platter held still)
@@ -33,9 +33,19 @@ class ScratchProcessor extends AudioWorkletProcessor {
         this.pcm = d.pcm || null
         this.len = this.pcm ? this.pcm.length : 0
       } else if (d.type === "scrub") {
-        this.cmdPos = d.position
-        this.cmdVel = d.velocity
-        if (!this.active) { this.readPos = d.position; this.vel = d.velocity; this.active = true }
+        // Derive velocity from the position delta over the ACTUAL elapsed output
+        // samples (our own audio clock) — the main thread's dt can be ~0 between
+        // two fast mouse moves and would spike the velocity into a click. Floor
+        // the interval so a burst of commands can't spike it either.
+        if (!this.active) {
+          this.readPos = d.position
+          this.vel = 0
+          this.active = true
+        } else {
+          const interval = Math.max(this.sinceCmd, 64)
+          this.targetVel = (d.position - this.readPos) / interval
+        }
+        this.sinceCmd = 0
       } else if (d.type === "stop") {
         this.active = false
       }
@@ -49,15 +59,16 @@ class ScratchProcessor extends AudioWorkletProcessor {
     const len = this.len
     const on = this.active && pcm && len > 4
     const gTarget = on ? 1 : 0
-    // Platter inertia: velocity smoothing (~3–4 ms) blends the stair-steps into
-    // a continuous rate; a gentle position pull keeps it locked to the command.
-    const VEL_SLEW = 0.006
-    const POS_TRACK = 0.003
+    // Platter inertia: one-pole smooth the target velocity (~2 ms) so the rate is
+    // continuous, integrate it; wind down if the commands stop (hand lifted).
+    const VEL_SLEW = 0.012
     for (let i = 0; i < n; i++) {
       this.g += (gTarget - this.g) * 0.008
       if (on) {
-        this.vel += (this.cmdVel - this.vel) * VEL_SLEW
-        this.readPos += this.vel + (this.cmdPos - this.readPos) * POS_TRACK
+        if (this.sinceCmd > 1400) this.targetVel *= 0.99 // ~30 ms silent → coast to a stop
+        this.vel += (this.targetVel - this.vel) * VEL_SLEW
+        this.readPos += this.vel
+        this.sinceCmd++
       }
       let raw = 0
       const p = this.readPos

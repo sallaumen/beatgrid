@@ -1520,10 +1520,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
               const intro = markers.find((m) => m.type === "intro" || m.type === "cue")
               const wave = this.waves[d]
               const failed = wave && wave.failed
+              // Follow the scratch read-head so the wave scrolls WITH the scratch
+              // (the media clock is frozen while scratching — the wave looked stuck).
+              const scratchS = this.engine.scratchPosSec(d)
               drawWave(canvas, {
                 entry: failed ? null : wave,
-                posS: deck.el.currentTime || 0,
-                playing: deck.audible(),
+                posS: scratchS != null ? scratchS : deck.el.currentTime || 0,
+                playing: deck.audible() || scratchS != null,
                 accent: ACCENTS[d],
                 windowS: WAVE_WINDOW_S,
                 bpm: track && track.bpm ? track.bpm * deck.el.playbackRate : null,
@@ -1899,20 +1902,20 @@ defmodule BeatgridWeb.DiscotecagemLive do
           wireJogScratch(d) {
             const el = byId(`dj-jog-${d}`)
             if (!el) return
-            const angleOf = (e) => {
-              const r = el.getBoundingClientRect()
-              return Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2))
-            }
+            // HORIZONTAL drag = move the record: right → forward, left → back.
+            // (An angle around the center goes erratic when you drag left-right
+            // THROUGH the middle — the natural scratch gesture — which turned the
+            // velocity to noise. Horizontal is smooth and intuitive for a mouse.)
+            // 0.05 ≈ jog-units per pixel (× jogScratchSamples in the engine) — the
+            // mouse sensitivity; higher = more audio per drag.
+            const PX = 0.05
             let dragging = false
-            let last = 0
+            let lastX = 0
             const onMove = (e) => {
               if (!dragging) return
-              const a = angleOf(e)
-              let delta = a - last
-              if (delta > Math.PI) delta -= 2 * Math.PI
-              if (delta < -Math.PI) delta += 2 * Math.PI
-              last = a
-              this.engine.jogTurn(d, delta)
+              const dx = e.clientX - lastX
+              lastX = e.clientX
+              this.engine.jogTurn(d, dx * PX)
             }
             const onUp = () => {
               dragging = false
@@ -1925,7 +1928,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             el.addEventListener("mousedown", (e) => {
               if (this.engine.decks[d].trackId == null) return
               dragging = true
-              last = angleOf(e)
+              lastX = e.clientX
               this.engine.resume()
               this.engine.jogTouch(d, true)
               el.classList.add("dj-scratching")
