@@ -1,10 +1,17 @@
 // Real turntable scratch via an AudioWorklet. The deck's mono PCM is read back
-// and forth at the platter's velocity (negative = reverse), with linear
-// interpolation — so it SOUNDS like a record, not a seek. The node feeds the
-// deck's own chain (filter → fader → crossfader), so scratches respect the mix.
+// and forth at the platter's velocity (negative = reverse) — so it SOUNDS like
+// a record, not a seek. The node feeds the deck's own chain (filter → fader →
+// crossfader), so scratches respect the mix.
 //
-// The processor is shipped as a string and loaded from a Blob URL, so there's
-// no extra esbuild entry to wire up.
+// The commanded position/velocity arrive in coarse, jittery steps (mouse moves,
+// ~16 ms ticks). Reading the buffer at that stepped velocity directly sounds
+// ROBOTIC — a stair-cased rate is basically a square-wave FM of the audio. So
+// the worklet models a platter with inertia: it SMOOTHS the commanded velocity
+// (one-pole) and integrates it, while gently tracking the commanded position so
+// it never drifts — the rate becomes continuous. Reads use CUBIC (Catmull-Rom)
+// interpolation, which is far cleaner than linear at the odd rates a scratch
+// sweeps through (this is the standard turntable-emulation approach, not a
+// home-grown one). Shipped as a string + Blob URL, so no extra esbuild entry.
 
 export const SCRATCH_WORKLET = `
 class ScratchProcessor extends AudioWorkletProcessor {
@@ -12,8 +19,10 @@ class ScratchProcessor extends AudioWorkletProcessor {
     super()
     this.pcm = null
     this.len = 0
-    this.pos = 0        // read head, in samples (fractional)
-    this.vel = 0        // samples advanced per output sample (can be negative)
+    this.readPos = 0    // the actual (smoothed) read head, in samples
+    this.vel = 0        // smoothed samples/output-sample (can be negative)
+    this.cmdPos = 0     // commanded position from the main thread
+    this.cmdVel = 0     // commanded velocity from the main thread
     this.active = false
     this.g = 0          // smoothed gain — kills the click on start/stop
     this.xp = 0         // DC-blocker state (silences a platter held still)
@@ -24,9 +33,9 @@ class ScratchProcessor extends AudioWorkletProcessor {
         this.pcm = d.pcm || null
         this.len = this.pcm ? this.pcm.length : 0
       } else if (d.type === "scrub") {
-        this.pos = d.position
-        this.vel = d.velocity
-        this.active = true
+        this.cmdPos = d.position
+        this.cmdVel = d.velocity
+        if (!this.active) { this.readPos = d.position; this.vel = d.velocity; this.active = true }
       } else if (d.type === "stop") {
         this.active = false
       }
@@ -38,21 +47,32 @@ class ScratchProcessor extends AudioWorkletProcessor {
     const n = ch.length
     const pcm = this.pcm
     const len = this.len
-    const target = this.active && pcm && len > 1 ? 1 : 0
+    const on = this.active && pcm && len > 4
+    const gTarget = on ? 1 : 0
+    // Platter inertia: velocity smoothing (~3–4 ms) blends the stair-steps into
+    // a continuous rate; a gentle position pull keeps it locked to the command.
+    const VEL_SLEW = 0.006
+    const POS_TRACK = 0.003
     for (let i = 0; i < n; i++) {
-      this.g += (target - this.g) * 0.008
-      let raw = 0
-      if (pcm && len > 1) {
-        const p = this.pos
-        if (p >= 0 && p < len - 1) {
-          const i0 = p | 0
-          const frac = p - i0
-          raw = pcm[i0] * (1 - frac) + pcm[i0 + 1] * frac
-        }
-        if (this.active) this.pos += this.vel
+      this.g += (gTarget - this.g) * 0.008
+      if (on) {
+        this.vel += (this.cmdVel - this.vel) * VEL_SLEW
+        this.readPos += this.vel + (this.cmdPos - this.readPos) * POS_TRACK
       }
-      // DC blocker: a platter held still (velocity 0) reads a constant sample —
-      // high-pass it so "stopped" is silence, not a DC thump.
+      let raw = 0
+      const p = this.readPos
+      if (pcm && len > 4 && p >= 1 && p < len - 2) {
+        const i0 = p | 0
+        const f = p - i0
+        const a = pcm[i0 - 1]
+        const b = pcm[i0]
+        const c = pcm[i0 + 1]
+        const dd = pcm[i0 + 2]
+        // Catmull-Rom cubic
+        raw = b + 0.5 * f * (c - a + f * (2 * a - 5 * b + 4 * c - dd + f * (3 * (b - c) + dd - a)))
+      }
+      // DC blocker: a platter held still reads a constant sample — high-pass it
+      // so "stopped" is silence, not a DC thump.
       const dc = raw - this.xp + 0.995 * this.yp
       this.xp = raw
       this.yp = dc
