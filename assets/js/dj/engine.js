@@ -72,7 +72,7 @@ const RAMP = Object.freeze({
   rasgoDepthS: 0.1,
   rasgoStrokes: 3,
   spinbackS: 0.55,
-  spinbackBackS: 2.2,
+  spinbackBackS: 1.15, // rewinds ~2.1x the run in reverse — a clear "rewinnnd", not an aliased blur
 })
 
 const SYNC_RATE_CLAMP = 0.08 // ±8%, matching the set-builder's bpm_close? band
@@ -857,6 +857,10 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // Falls back to a plain cut when the outgoing has no decoded PCM/worklet.
   function scratchDrop(from, to, toMs, token, kind) {
     if (!scratchArm(from.id)) {
+      // No PCM/worklet → fall back to a plain cut, but raise the incoming gain
+      // first (neutralizeIncoming doesn't do it for the scratch types, so cut
+      // alone could drop a frozen-low deck in silent — dead air).
+      riseIncoming(to, 0.03)
       cut(from, to, toMs)
       return
     }
@@ -868,7 +872,14 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     scratchScrub(from.id, center, 0)
     setXfadeTo(sideOf(from.id), 0.04) // hear only the scratch of the outgoing
 
-    const runS = kind === "rebobina" ? RAMP.spinbackS : RAMP.rasgoS
+    // Respect the length knob: a longer setting = MORE scratch (more strokes / a
+    // longer, further rewind) at the SAME speed. The rasgo runs at a fixed rate
+    // (rasgoStrokes/rasgoS Hz) so the scratch pitch never changes with the knob;
+    // the rewind is capped at the headroom so it can't run off the track start.
+    const scale = state.transitionScale
+    const runS = dur(kind === "rebobina" ? RAMP.spinbackS : RAMP.rasgoS)
+    const rasgoCycles = RAMP.rasgoStrokes * (runS / RAMP.rasgoS) // constant Hz over the run
+    const backSamples = Math.min(RAMP.spinbackBackS * scale * sr, center)
     const t0 = performance.now()
     let prev = center
 
@@ -894,8 +905,11 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       const p = Math.min((performance.now() - t0) / (runS * 1000), 1)
       const pos =
         kind === "rebobina"
-          ? center - RAMP.spinbackBackS * sr * p * p // accelerating backward
-          : center + RAMP.rasgoDepthS * sr * Math.sin(2 * Math.PI * RAMP.rasgoStrokes * p)
+          ? // steady reverse at ~2x — audible the WHOLE rewind (no silent
+            // accelerate-from-zero start, no silent decelerate-to-zero tail, no
+            // aliased-to-nothing over-fast blur), then the drop cuts it.
+            center - backSamples * p
+          : center + RAMP.rasgoDepthS * sr * Math.sin(2 * Math.PI * rasgoCycles * p)
       scratchScrub(from.id, pos, (pos - prev) / (0.016 * sr))
       prev = pos
       if (p >= 1) drop()
@@ -1264,6 +1278,13 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     if (s.idle) {
       clearTimeout(s.idle)
       s.idle = null
+    }
+    // A jog-scratch may have slid the crossfader to center (s.xfadeSaved) for
+    // audibility; tearing it down here must put the fader back (on a load) and
+    // always clear it, or a later release would restore a stale value.
+    if (s.xfadeSaved != null) {
+      if (restoreXfade) setCrossfader(s.xfadeSaved)
+      s.xfadeSaved = null
     }
     if (s.active) {
       s.active = false
