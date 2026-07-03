@@ -1116,10 +1116,22 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         s.lastT = ctx.currentTime
         scratchScrub(deckId, deck.el.currentTime * sr, 0)
         scratchIdleArm(deckId)
+        // Make the scratch AUDIBLE: if the crossfader has THIS deck cut (you're
+        // scratching the idle deck), slide it to center so the scratch is heard
+        // over the mix. Scratching the deck already up leaves the fader alone.
+        s.xfadeSaved = null
+        if (equalPower(xfade.pos)[deckId] < 0.7) {
+          s.xfadeSaved = xfade.pos
+          scratchCrossfade(0.5)
+        }
       }
     } else {
       if (s.active) {
         scratchEnd(deckId, j.wasPlaying)
+        if (s.xfadeSaved != null) {
+          setCrossfader(s.xfadeSaved) // put the fader back where the DJ had it
+          s.xfadeSaved = null
+        }
       } else if (j.wasPlaying && j.heldToken === deck.loadToken && deck.trackId != null) {
         // Fallback path (no PCM): resume only what was actually held.
         deck.el.play().catch(() => {})
