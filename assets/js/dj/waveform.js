@@ -8,11 +8,16 @@
 const peaksCache = new Map() // trackId → Promise<{peaks, bps, durationS}>
 const MAX_CACHE = 12
 
+// Full mono PCM kept for scratching (AudioWorklet reads it sample-by-sample).
+// Heavy (~50 MB/track), so a tight cap: only the decks + a couple recent tracks.
+const monoCache = new Map() // trackId → Float32Array (ctx-rate mono samples)
+const MAX_MONO = 4
+
 // The cache holds PROMISES: loading the same track on both decks (treino de
 // beatmatching) reuses one fetch+decode; failures evict so a retry can work.
 export function loadPeaks(trackId, src, ctx) {
   if (peaksCache.has(trackId)) return peaksCache.get(trackId)
-  const promise = decode(src, ctx)
+  const promise = decode(trackId, src, ctx)
   peaksCache.set(trackId, promise)
   promise.catch(() => peaksCache.delete(trackId))
   if (peaksCache.size > MAX_CACHE) {
@@ -21,13 +26,25 @@ export function loadPeaks(trackId, src, ctx) {
   return promise
 }
 
-async function decode(src, ctx) {
+// Mono PCM for the scratch engine, cached by the same decode as the waveform.
+// Returns null until the track has been decoded (loadPeaks resolved).
+export function getScratchPcm(trackId) {
+  return monoCache.get(trackId) || null
+}
+
+async function decode(trackId, src, ctx) {
   const res = await fetch(src)
   if (!res.ok) throw new Error(`audio fetch failed: ${res.status}`)
   const buf = await res.arrayBuffer()
   const audio = await ctx.decodeAudioData(buf)
   const ch0 = audio.getChannelData(0)
   const ch1 = audio.numberOfChannels > 1 ? audio.getChannelData(1) : ch0
+
+  // Mono downmix at ctx rate — the scratch worklet reads this back and forth.
+  const mono = new Float32Array(ch0.length)
+  for (let i = 0; i < ch0.length; i++) mono[i] = (ch0[i] + ch1[i]) * 0.5
+  monoCache.set(trackId, mono)
+  if (monoCache.size > MAX_MONO) monoCache.delete(monoCache.keys().next().value)
 
   const bps = 50
   const total = Math.ceil(audio.duration * bps)
@@ -46,7 +63,7 @@ async function decode(src, ctx) {
     peaks[i] = max
   }
 
-  return {peaks, bps, durationS: audio.duration}
+  return {peaks, bps, durationS: audio.duration, sampleRate: audio.sampleRate}
 }
 
 const MARKER_COLORS = {cue: "#ffb020", intro: "#5ad1a0", outro: "#ff5d6c"}

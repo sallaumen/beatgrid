@@ -694,6 +694,83 @@ defmodule BeatgridWeb.DiscotecagemLive do
               </details>
 
               <details
+                id="dj-details-scratch"
+                open
+                class="rounded-xl border border-white/8"
+                style="background:linear-gradient(180deg,#11131a,#0e0f15)"
+              >
+                <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2">
+                  <span class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
+                    Scratch
+                  </span>
+                  <span
+                    id="dj-scratch-target"
+                    phx-update="ignore"
+                    class="rounded bg-white/5 px-1.5 py-0.5 font-mono text-[10px] text-ink-faint"
+                    title="Disco que vai ser arranhado (o que não está no ar)"
+                  >
+                    —
+                  </span>
+                </summary>
+                <div id="dj-scratch" phx-update="ignore" class="flex flex-col gap-2 px-3 pb-3">
+                  <div class="grid grid-cols-3 gap-1">
+                    <button
+                      :for={{k, lab} <- [{"baby", "Baby"}, {"transform", "Trans"}, {"chop", "Chop"}]}
+                      type="button"
+                      data-dj-scratch-pat={k}
+                      data-on={to_string(k == "baby")}
+                      title={"Padrão " <> lab}
+                      class="dj-scratch-pat rounded-md border border-white/8 bg-[#101218] px-1 py-1 text-[9px] font-bold uppercase tracking-wider text-ink-faint transition-colors"
+                    >
+                      {lab}
+                    </button>
+                  </div>
+                  <button
+                    id="dj-scratch-pad"
+                    type="button"
+                    data-on="false"
+                    title="Segure para arranhar o disco parado — solte para voltar"
+                    class="flex h-11 select-none items-center justify-center rounded-lg border border-[#8b7bf0]/40 bg-[#8b7bf0]/10 text-[10px] font-bold uppercase tracking-[0.14em] text-[#8b7bf0] transition-all"
+                  >
+                    Segurar p/ scratch
+                  </button>
+                  <div class="flex items-center gap-2">
+                    <span class="w-6 text-[8px] font-bold uppercase tracking-wider text-ink-faint">
+                      Vel
+                    </span>
+                    <input
+                      id="dj-scratch-rate"
+                      type="range"
+                      min="1"
+                      max="8"
+                      step="0.1"
+                      value="3"
+                      aria-label="Velocidade do scratch"
+                      class="h-1 flex-1 cursor-pointer"
+                      style="accent-color:#8b7bf0"
+                    />
+                  </div>
+                  <div>
+                    <div class="flex justify-between text-[8px] font-bold">
+                      <span style="color:#8b7bf0">A</span>
+                      <span class="uppercase tracking-[0.16em] text-ink-faint">Crossfader</span>
+                      <span style="color:#2d9cff">B</span>
+                    </div>
+                    <input
+                      id="dj-scratch-xfader"
+                      type="range"
+                      min="0"
+                      max="100"
+                      value="50"
+                      aria-label="Crossfader do scratch"
+                      class="mt-0.5 w-full cursor-pointer"
+                      style="accent-color:#e6e9f2"
+                    />
+                  </div>
+                </div>
+              </details>
+
+              <details
                 class="rounded-xl border border-white/8"
                 style="background:linear-gradient(180deg,#11131a,#0e0f15)"
               >
@@ -786,6 +863,21 @@ defmodule BeatgridWeb.DiscotecagemLive do
           color: #8b7bf0;
           background: rgba(139, 123, 240, 0.12);
         }
+        .dj-scratch-pat[data-on="true"] {
+          border-color: #8b7bf0;
+          color: #8b7bf0;
+          background: rgba(139, 123, 240, 0.16);
+        }
+        #dj-scratch-pad[data-on="true"] {
+          border-color: #8b7bf0;
+          background: rgba(139, 123, 240, 0.35);
+          color: #fff;
+          box-shadow: 0 0 18px rgba(139, 123, 240, 0.5);
+        }
+        [id^="dj-jog-"].dj-scratching {
+          box-shadow: 0 0 0 2px #8b7bf0, 0 0 20px rgba(139, 123, 240, 0.6);
+          border-radius: 9999px;
+        }
         .dj-knob-face {
           box-shadow:
             inset 0 0 0 1px rgba(255, 255, 255, 0.05),
@@ -853,6 +945,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
             // Foco de seção da controladora: pads MANUAL escolhem ONDE o browse
             // navega e o cue level ajusta. "lista" = comportamento clássico.
             this.focus = {section: "lista", index: 0}
+            // Scratch: padrão escolhido no painel + deck que está sendo arranhado.
+            this.scratchPattern = "baby"
+            this.scratchDeck = null
 
             // ── formas de onda (estilo Serato: playhead fixo, a onda corre) ──
             this.sizeWaves = () => {
@@ -903,8 +998,21 @@ defmodule BeatgridWeb.DiscotecagemLive do
                   this.log(`⚠ erro no deck ${deck.toUpperCase()} — pulando a faixa`)
                 },
                 xfadePos: ({pos}) => {
+                  const v = Math.round(pos * 100)
                   const x = byId("dj-xfader")
-                  if (x && document.activeElement !== x) x.value = Math.round(pos * 100)
+                  if (x && document.activeElement !== x) x.value = v
+                  // The scratch panel mirrors the same crossfader (patterns chop it).
+                  const sx = byId("dj-scratch-xfader")
+                  if (sx && document.activeElement !== sx) sx.value = v
+                },
+                scratchEnded: ({deck}) => {
+                  // The engine tore the scratch down (load/transition took over)
+                  // — un-light the pad so it never lies about being held.
+                  if (this.scratchDeck === deck) {
+                    const pad = byId("dj-scratch-pad")
+                    if (pad) pad.dataset.on = "false"
+                    this.scratchDeck = null
+                  }
                 },
                 echoState: ({on, delayMs}) => {
                   const light = byId("dj-echo-light")
@@ -1131,6 +1239,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 this.engine.setVinylMode(d, on)
                 this.log(on ? `TOM (vinil) ligado no deck ${d.toUpperCase()}` : `TOM desligado no deck ${d.toUpperCase()}`)
               })
+              this.wireJogScratch(d)
             }
             byId("dj-punch").addEventListener("input", (e) =>
               this.engine.setPunch(Number(e.target.value) / 100)
@@ -1156,6 +1265,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             // Filtro/eco/punch agora são knobs giratórios; o <input type=range>
             // por baixo continua o modelo (engine, foco, reset no load intactos).
             this.initKnobs()
+            this.wireScratchPanel()
 
             // Saídas de áudio: "principal" move a mesa inteira (ctx.setSinkId —
             // na controladora de 4 canais o fone passa a sair na 3/4); o "fone
@@ -1274,6 +1384,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               this.paintWaves()
               this.paintCountdown()
               this.paintTransitions()
+              this.paintScratchTarget()
               if (this.pendingHint) this.armHint(this.pendingHint)
             }
             this.raf = requestAnimationFrame(tick)
@@ -1298,6 +1409,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
             window.removeEventListener("dj:midi", this.onMidi)
             window.removeEventListener("dj:pfl-sync", this.onPflSync)
             window.removeEventListener("beatgrid:playing", this.onForeignPlay)
+            // End a scratch drag in flight and drop the pad's global listener so
+            // neither leaks across a LiveView reconnect.
+            if (this._jogCleanup) this._jogCleanup()
+            if (this._padWinUp) window.removeEventListener("mouseup", this._padWinUp)
             if (window.__djEngine === this.engine) window.__djEngine = null
             this.engine.destroy()
           },
@@ -1725,6 +1840,113 @@ defmodule BeatgridWeb.DiscotecagemLive do
             if (knob) this.renderKnob(knob, input)
           },
 
+          // ── scratch: drag the on-screen platter (mouse = touch), or hold the
+          // panel pad to auto-scratch the idle deck; speed bar + crossfader ride ──
+          scratchTarget() {
+            const air = this.engine.audibleDeck && this.engine.audibleDeck()
+            if (air) return air === "a" ? "b" : "a"
+            if (this.engine.decks.b.trackId != null) return "b"
+            if (this.engine.decks.a.trackId != null) return "a"
+            return "b"
+          },
+
+          wireJogScratch(d) {
+            const el = byId(`dj-jog-${d}`)
+            if (!el) return
+            const angleOf = (e) => {
+              const r = el.getBoundingClientRect()
+              return Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2))
+            }
+            let dragging = false
+            let last = 0
+            const onMove = (e) => {
+              if (!dragging) return
+              const a = angleOf(e)
+              let delta = a - last
+              if (delta > Math.PI) delta -= 2 * Math.PI
+              if (delta < -Math.PI) delta += 2 * Math.PI
+              last = a
+              this.engine.jogTurn(d, delta)
+            }
+            const onUp = () => {
+              dragging = false
+              el.classList.remove("dj-scratching")
+              this.engine.jogTouch(d, false)
+              window.removeEventListener("mousemove", onMove)
+              window.removeEventListener("mouseup", onUp)
+              this._jogCleanup = null
+            }
+            el.addEventListener("mousedown", (e) => {
+              if (this.engine.decks[d].trackId == null) return
+              dragging = true
+              last = angleOf(e)
+              this.engine.resume()
+              this.engine.jogTouch(d, true)
+              el.classList.add("dj-scratching")
+              window.addEventListener("mousemove", onMove)
+              window.addEventListener("mouseup", onUp)
+              this._jogCleanup = onUp // so destroyed() can end a drag mid-flight
+              e.preventDefault()
+            })
+          },
+
+          wireScratchPanel() {
+            for (const btn of document.querySelectorAll("[data-dj-scratch-pat]")) {
+              btn.addEventListener("click", () => {
+                this.scratchPattern = btn.dataset.djScratchPat
+                for (const b of document.querySelectorAll("[data-dj-scratch-pat]")) {
+                  b.dataset.on = b === btn ? "true" : "false"
+                }
+              })
+            }
+            const rate = byId("dj-scratch-rate")
+            if (rate) {
+              rate.addEventListener("input", (e) => {
+                const r = Number(e.target.value)
+                this.engine.setAutoScratchRate("a", r)
+                this.engine.setAutoScratchRate("b", r)
+              })
+            }
+            const pad = byId("dj-scratch-pad")
+            if (pad) {
+              const start = (e) => {
+                e.preventDefault()
+                if (pad.dataset.on === "true") return
+                this.engine.resume()
+                const d = this.scratchTarget()
+                const res = this.engine.startAutoScratch(d, this.scratchPattern)
+                if (!res.ok) {
+                  const why = {empty: "deck sem faixa", not_ready: "aguarde a faixa carregar", held: "solte o prato primeiro"}[res.reason]
+                  this.log(`scratch: ${why || "indisponível"}`)
+                  return
+                }
+                this.scratchDeck = d
+                pad.dataset.on = "true"
+              }
+              const end = () => {
+                if (pad.dataset.on !== "true") return
+                pad.dataset.on = "false"
+                if (this.scratchDeck) this.engine.stopAutoScratch(this.scratchDeck)
+                this.scratchDeck = null
+              }
+              pad.addEventListener("mousedown", start)
+              window.addEventListener("mouseup", end)
+              this._padWinUp = end // removed in destroyed() so it doesn't pile up
+            }
+            const sx = byId("dj-scratch-xfader")
+            if (sx) {
+              sx.addEventListener("input", (e) => this.engine.setCrossfader(Number(e.target.value) / 100))
+              sx.addEventListener("pointerup", (e) => e.target.blur())
+            }
+          },
+
+          paintScratchTarget() {
+            const el = byId("dj-scratch-target")
+            if (!el) return
+            const d = this.scratchTarget()
+            el.textContent = this.engine.decks[d].trackId != null ? `Deck ${d.toUpperCase()}` : "—"
+          },
+
           moveCursor(delta) {
             const rows = this.entryRows()
             if (!rows.length) return
@@ -2088,7 +2310,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
       <div id={"dj-client-#{@d}"} phx-update="ignore" class="mt-2">
         <div class="flex items-stretch gap-2.5">
           <div class="flex flex-1 flex-col items-center gap-2">
-            <div class="relative size-20 select-none">
+            <div
+              id={"dj-jog-#{@d}"}
+              class="relative size-20 cursor-grab select-none active:cursor-grabbing"
+            >
               <div
                 id={"dj-jogring-#{@d}"}
                 class="absolute inset-0 rounded-full"
