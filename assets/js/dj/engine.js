@@ -869,7 +869,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     from.el.pause()
     s.active = true
     s.token = from.loadToken
-    scratchScrub(from.id, center, 0)
+    scratchScrub(from.id, center)
     setXfadeTo(sideOf(from.id), 0.04) // hear only the scratch of the outgoing
 
     // Respect the length knob: a longer setting = MORE scratch (more strokes / a
@@ -881,7 +881,6 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     const rasgoCycles = RAMP.rasgoStrokes * (runS / RAMP.rasgoS) // constant Hz over the run
     const backSamples = Math.min(RAMP.spinbackBackS * scale * sr, center)
     const t0 = performance.now()
-    let prev = center
 
     const drop = () => {
       clearInterval(iv)
@@ -898,6 +897,13 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     }
 
     const iv = setInterval(() => {
+      if (s.token !== from.loadToken) {
+        // The DJ loaded a new track over the outgoing deck mid-run: the load's
+        // resetScratch already silenced the worklet — just die, don't re-scrub
+        // the OLD track's PCM under the new one, and don't fire the drop.
+        clearInterval(iv)
+        return
+      }
       if (token !== state.transitionToken) {
         drop()
         return
@@ -910,8 +916,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
             // aliased-to-nothing over-fast blur), then the drop cuts it.
             center - backSamples * p
           : center + RAMP.rasgoDepthS * sr * Math.sin(2 * Math.PI * rasgoCycles * p)
-      scratchScrub(from.id, pos, (pos - prev) / (0.016 * sr))
-      prev = pos
+      scratchScrub(from.id, pos)
       if (p >= 1) drop()
     }, 16)
   }
@@ -1023,8 +1028,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // at the platter's velocity (reverse included) into the deck's own chain ─────
   const sr = ctx.sampleRate
   const scratch = {
-    a: {node: null, loaded: null, active: false, pos: 0, lastT: 0, idle: null, wasPlaying: false, token: 0, rate: 3},
-    b: {node: null, loaded: null, active: false, pos: 0, lastT: 0, idle: null, wasPlaying: false, token: 0, rate: 3},
+    a: {node: null, loaded: null, active: false, pos: 0, wasPlaying: false, token: 0, rate: 3},
+    b: {node: null, loaded: null, active: false, pos: 0, wasPlaying: false, token: 0, rate: 3},
   }
   const autoScratch = {a: null, b: null}
 
@@ -1047,6 +1052,11 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     const s = scratch[deckId]
     const deck = decks[deckId]
     if (!s.node || deck.trackId == null) return false
+    // Every arm begins with a stop: if any race ever ate a session's "stop",
+    // the worklet would still hold its stale read head — this guarantees the
+    // arming scrub lands on an inactive worklet and resets the head. (Callers
+    // must only arm decks they own; a live session's audio dies here.)
+    s.node.port.postMessage({type: "stop"})
     if (s.loaded === deck.trackId) return true
     const pcm = getScratchPcm(deck.trackId)
     if (!pcm) return false // not decoded yet — the waveform load fills the cache
@@ -1056,22 +1066,15 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     return true
   }
 
-  function scratchScrub(deckId, posSamples, velocity) {
+  // Command the hand's position; the worklet reconstructs the velocity from the
+  // timestamps (and stops on its own when the commands go quiet — a held hand).
+  function scratchScrub(deckId, posSamples) {
     const s = scratch[deckId]
     // Clamp inside the track: scratching past the end must never let the release
     // seek fire `ended` and advance the set.
     const maxPos = (decks[deckId].el.duration || 0) * sr
     s.pos = Math.min(Math.max(posSamples, 0), maxPos > 0 ? maxPos : posSamples)
-    if (s.node) s.node.port.postMessage({type: "scrub", position: s.pos, velocity})
-  }
-
-  // Hand stopped moving → the record sits still → silence (velocity 0).
-  function scratchIdleArm(deckId) {
-    const s = scratch[deckId]
-    if (s.idle) clearTimeout(s.idle)
-    s.idle = setTimeout(() => {
-      if (s.active && s.node) s.node.port.postMessage({type: "scrub", position: s.pos, velocity: 0})
-    }, 45)
+    if (s.node) s.node.port.postMessage({type: "scrub", position: s.pos, t: performance.now()})
   }
 
   // Stop scratching: hand the position back to the media element and (maybe) run.
@@ -1080,10 +1083,6 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     const deck = decks[deckId]
     if (!s.active) return
     s.active = false
-    if (s.idle) {
-      clearTimeout(s.idle)
-      s.idle = null
-    }
     if (s.node) s.node.port.postMessage({type: "stop"})
     if (s.token === deck.loadToken && deck.trackId != null) {
       // Never hand back AT/past the end — that would fire `ended` and skip on.
@@ -1114,9 +1113,13 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     const deck = decks[deckId]
     const j = jog[deckId]
     if (held === j.held) return
+    const s = scratch[deckId]
+    // A scratch-drop transition owns the deck's worklet (active with no
+    // auto-scratch): refuse the grab — the jog would fight its command stream
+    // and its release would steal the transition's stop.
+    if (held && s.active && !autoScratch[deckId]) return
     j.held = held
     if (deck.trackId == null) return
-    const s = scratch[deckId]
     if (held) {
       cancelBend(deckId)
       stopAutoScratch(deckId)
@@ -1127,9 +1130,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         s.active = true
         s.wasPlaying = j.wasPlaying
         s.token = deck.loadToken
-        s.lastT = ctx.currentTime
-        scratchScrub(deckId, deck.el.currentTime * sr, 0)
-        scratchIdleArm(deckId)
+        scratchScrub(deckId, deck.el.currentTime * sr)
         // Make the scratch AUDIBLE: if the crossfader has THIS deck cut (you're
         // scratching the idle deck), slide it to center so the scratch is heard
         // over the mix. Scratching the deck already up leaves the fader alone.
@@ -1160,15 +1161,11 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     if (deck._braking) return // the brake owns playbackRate until it finishes
     const j = jog[deckId]
     const s = scratch[deckId]
-    if (s.active) {
-      // Real scratch: move the record; velocity = how fast the hand moved.
-      const now = ctx.currentTime
-      const dt = Math.max(now - s.lastT, 0.001)
-      const prev = s.pos
-      const pos = Math.max(prev + delta * RAMP.jogScratchSamples, 0)
-      scratchScrub(deckId, pos, (pos - prev) / (dt * sr))
-      s.lastT = now
-      scratchIdleArm(deckId)
+    if (s.active && j.held) {
+      // Real scratch (and only when the JOG owns the session — a scratch-drop
+      // transition or an auto-scratch must not be fought over the worklet):
+      // move the record; the worklet turns the position stream into velocity.
+      scratchScrub(deckId, Math.max(s.pos + delta * RAMP.jogScratchSamples, 0))
       return
     }
     if (j.held || !deck.audible()) {
@@ -1200,8 +1197,12 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     const deck = decks[deckId]
     if (deck.trackId == null) return {ok: false, reason: "empty"}
     if (jog[deckId].held) return {ok: false, reason: "held"}
-    if (!scratchArm(deckId)) return {ok: false, reason: "not_ready"}
     stopAutoScratch(deckId)
+    // Still active after the stop = a scratch-drop transition owns the deck
+    // (mid-run its outgoing deck is paused, so the pad's "idle deck" pick can
+    // land here). Refuse — arming would kill its audio and split its fader.
+    if (scratch[deckId].active) return {ok: false, reason: "busy"}
+    if (!scratchArm(deckId)) return {ok: false, reason: "not_ready"}
     const s = scratch[deckId]
     const center = deck.el.currentTime * sr
     const a = {
@@ -1209,7 +1210,6 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       rate: s.rate,
       phase: 0,
       center,
-      prevPos: center,
       lastT: ctx.currentTime,
       savedXfade: xfade.pos,
       wasPlaying: deck.audible(),
@@ -1219,7 +1219,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     s.active = true
     s.token = deck.loadToken
     if (a.wasPlaying) deck.el.pause()
-    scratchScrub(deckId, center, 0)
+    scratchScrub(deckId, center)
     a.timer = setInterval(() => tickAutoScratch(deckId), 16)
     return {ok: true}
   }
@@ -1232,13 +1232,16 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     a.phase = (a.phase + a.rate * dt) % 1
     const shape = scratchPattern(a.pattern, a.phase)
     const posSamples = Math.max(a.center + shape.pos * RAMP.scratchDepthS * sr, 0)
-    scratchScrub(deckId, posSamples, (posSamples - a.prevPos) / (dt * sr))
-    a.prevPos = posSamples
+    scratchScrub(deckId, posSamples)
     a.lastT = now
     // crossfader gate: 1 = full toward the scratch deck (heard), 0 = cut away.
+    // The heard audio lags the commanded phase (~20 ms of smoothing) MORE than
+    // the gate path does (~10-15 ms), so gate from a RETARDED phase to land the
+    // chops on the strokes the ear actually hears (+1 keeps JS % positive).
+    const gate = scratchPattern(a.pattern, (a.phase - a.rate * 0.02 + 1) % 1).gate
     const toScratch = deckId === "a" ? 0 : 1
     const away = deckId === "a" ? 1 : 0
-    scratchCrossfade(away + (toScratch - away) * shape.gate)
+    scratchCrossfade(away + (toScratch - away) * gate)
   }
 
   function scratchCrossfade(pos) {
@@ -1274,10 +1277,6 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       clearInterval(a.timer)
       autoScratch[deckId] = null
       if (restoreXfade) setCrossfader(a.savedXfade)
-    }
-    if (s.idle) {
-      clearTimeout(s.idle)
-      s.idle = null
     }
     // A jog-scratch may have slid the crossfader to center (s.xfadeSaved) for
     // audibility; tearing it down here must put the fader back (on a load) and
@@ -1725,10 +1724,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       for (const d of ["a", "b"]) {
         if (loopTimers[d]) clearInterval(loopTimers[d])
         if (jog[d].decay) clearInterval(jog[d].decay)
-        // Scratch timers outlive the hook otherwise (setInterval/​setTimeout
-        // keep posting to a torn-down worklet after unmount).
+        // Scratch timers outlive the hook otherwise (setInterval keeps posting
+        // to a torn-down worklet after unmount).
         if (autoScratch[d]) clearInterval(autoScratch[d].timer)
-        if (scratch[d].idle) clearTimeout(scratch[d].idle)
       }
       decks.a.pause()
       decks.b.pause()
