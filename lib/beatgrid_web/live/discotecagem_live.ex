@@ -444,6 +444,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
   defp transition_to_ms(_transition), do: 0
 
   defp track_payload(track) do
+    {art_a, art_b} = cover_gradient(track.tag_artist)
+
     %{
       id: track.id,
       src: ~p"/audio/#{track.id}",
@@ -451,7 +453,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
       artist: track.tag_artist,
       bpm: Library.effective(track).bpm,
       duration_ms: track.duration_ms,
-      markers: track.cue_points || []
+      markers: track.cue_points || [],
+      # The spinning vinyl label: album art if trusted, else initials on a stable
+      # gradient — matching the covers used everywhere else in the app.
+      cover: cover_src(track),
+      initials: initials(track.tag_artist),
+      art_a: art_a,
+      art_b: art_b
     }
   end
 
@@ -1461,6 +1469,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           },
 
           clearDeckStatics(d) {
+            this.setVinyl(d, null)
             const marks = byId(`dj-marks-${d}`)
             if (marks) marks.innerHTML = ""
             for (let n = 1; n <= 4; n++) {
@@ -1527,7 +1536,35 @@ defmodule BeatgridWeb.DiscotecagemLive do
             }
           },
 
+          // The spinning vinyl label: album art if present, else initials on the
+          // track's stable gradient (matching every other cover in the app).
+          setVinyl(d, track) {
+            const face = byId(`dj-vinyl-face-${d}`)
+            const img = byId(`dj-vinyl-img-${d}`)
+            if (!face || !img) return
+            if (!track) {
+              face.textContent = ""
+              face.style.background = "linear-gradient(135deg,#1a1c24,#0e0f15)"
+              img.removeAttribute("src")
+              img.style.display = "none"
+              return
+            }
+            face.textContent = track.initials || "♪"
+            if (track.art_a && track.art_b) {
+              face.style.background = `linear-gradient(135deg,${track.art_a},${track.art_b})`
+            }
+            if (track.cover) {
+              img.onerror = () => (img.style.display = "none") // fall back to initials
+              img.src = track.cover
+              img.style.display = "block"
+            } else {
+              img.removeAttribute("src")
+              img.style.display = "none"
+            }
+          },
+
           renderDeckStatics(d, track) {
+            this.setVinyl(d, track)
             const marks = byId(`dj-marks-${d}`)
             const dur = track.duration_ms || 0
             const COLORS = {cue: "#ffb020", intro: "#5ad1a0", outro: "#ff5d6c"}
@@ -1625,10 +1662,15 @@ defmodule BeatgridWeb.DiscotecagemLive do
               ring.style.background =
                 `conic-gradient(${ACCENTS[d]} ${deg}deg, rgba(255,255,255,.06) 0deg)`
             }
-            const needle = byId(`dj-needle-${d}`)
-            if (needle) {
-              const deg = (((deck.el.currentTime || 0) / 1.8) * 360) % 360
-              needle.style.transform = `translateX(-50%) rotate(${deg}deg)`
+            // The vinyl label spins with the audio: the media position when
+            // playing, the scratch read-head when scratching (so the disquinho
+            // turns back and forth WITH the scratch, as one thing). ~1.8 s/rev.
+            const vinyl = byId(`dj-vinyl-${d}`)
+            if (vinyl) {
+              const scratchS = this.engine.scratchPosSec(d)
+              const posS = scratchS != null ? scratchS : deck.el.currentTime || 0
+              const deg = ((posS / 1.8) * 360) % 360
+              vinyl.style.transform = `translate(-50%,-50%) rotate(${deg}deg)`
             }
             const icon = byId(`dj-playicon-${d}`)
             if (icon) icon.textContent = deck.audible() ? "⏸" : "▶"
@@ -2321,19 +2363,37 @@ defmodule BeatgridWeb.DiscotecagemLive do
               >
               </div>
               <div
-                class="absolute inset-[4px] rounded-full border border-white/10"
+                class="absolute inset-[4px] overflow-hidden rounded-full border border-white/10"
                 style="background:repeating-radial-gradient(circle at 50% 50%, #14161d 0px, #14161d 2px, #0e0f15 2px, #0e0f15 5px)"
               >
+                <%!-- o disquinho: capa (ou iniciais) girando junto com o áudio/scratch --%>
                 <div
-                  id={"dj-needle-#{@d}"}
-                  class="absolute left-1/2 top-1/2 h-[46%] w-[2px] origin-top -translate-x-1/2 rounded-full"
-                  style={"background:linear-gradient(180deg, transparent 30%, #{@accent})"}
+                  id={"dj-vinyl-#{@d}"}
+                  class="absolute left-1/2 top-1/2 size-12 overflow-hidden rounded-full border border-white/15"
+                  style="transform:translate(-50%,-50%);box-shadow:inset 0 0 6px rgba(0,0,0,.6);will-change:transform"
                 >
+                  <div
+                    id={"dj-vinyl-face-#{@d}"}
+                    class="flex size-full items-center justify-center text-[13px] font-bold text-white/90"
+                    style="background:linear-gradient(135deg,#1a1c24,#0e0f15)"
+                  >
+                  </div>
+                  <img
+                    id={"dj-vinyl-img-#{@d}"}
+                    alt=""
+                    class="absolute inset-0 size-full object-cover"
+                    style="display:none"
+                  />
+                  <span class="pointer-events-none absolute left-1/2 top-[3px] size-1 -translate-x-1/2 rounded-full bg-white/70"></span>
                 </div>
-                <div class="absolute left-1/2 top-1/2 flex size-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/12 bg-input">
-                  <span id={"dj-jogbpm-#{@d}"} class="font-mono text-[9px] text-ink-secondary"></span>
+                <%!-- furo central do vinil (estático) --%>
+                <div class="pointer-events-none absolute left-1/2 top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/80 ring-1 ring-white/25">
                 </div>
               </div>
+              <span
+                id={"dj-jogbpm-#{@d}"}
+                class="pointer-events-none absolute -bottom-1 left-1/2 -translate-x-1/2 rounded bg-black/60 px-1 font-mono text-[8px] text-ink-secondary"
+              ></span>
             </div>
 
             <div class="flex w-full items-center justify-between font-mono text-[10px] text-ink-faint">

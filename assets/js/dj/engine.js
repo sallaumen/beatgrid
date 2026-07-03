@@ -1208,6 +1208,13 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     return !!(scratch[deckId].node && decks[deckId].trackId != null && getScratchPcm(decks[deckId].trackId))
   }
 
+  // The live scratch read-head in seconds while a scratch is active (so the
+  // on-screen vinyl can spin WITH the scratch), else null.
+  function scratchPosSec(deckId) {
+    const s = scratch[deckId]
+    return s.active ? s.pos / sr : null
+  }
+
   // ── beat loops (pads AUTO/MANUAL da controladora + chips na tela) ───────────
 
   const loopTimers = {a: null, b: null}
@@ -1436,6 +1443,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     stopAutoScratch,
     setAutoScratchRate,
     scratchReady,
+    scratchPosSec,
 
     // Loops de batida (pads AUTO) e loop manual (in/out/liga/metade).
     beatLoop,

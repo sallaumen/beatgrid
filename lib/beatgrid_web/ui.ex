@@ -1073,10 +1073,11 @@ defmodule BeatgridWeb.UI do
   defp reject_btn_class(:rejected), do: "bg-coral text-white"
   defp reject_btn_class(_), do: "bg-coral/10 text-coral hover:bg-coral/20"
 
-  defp initials(nil), do: "♪"
-  defp initials(""), do: "♪"
+  @doc "1–2 uppercase initials from an artist name (♪ when blank) — the cover placeholder text."
+  def initials(nil), do: "♪"
+  def initials(""), do: "♪"
 
-  defp initials(artist) do
+  def initials(artist) do
     artist
     |> String.split(~r/\s+/, trim: true)
     |> Enum.take(2)
@@ -1084,7 +1085,8 @@ defmodule BeatgridWeb.UI do
     |> String.upcase()
   end
 
-  defp cover_gradient(seed) do
+  @doc "A stable two-color gradient `{a, b}` for a seed (artist) — the cover placeholder background."
+  def cover_gradient(seed) do
     hash = :erlang.phash2(seed || "♪", length(@cover_palette))
     a = Enum.at(@cover_palette, hash)
     b = Enum.at(@cover_palette, rem(hash + 3, length(@cover_palette)))
