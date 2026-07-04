@@ -38,7 +38,9 @@ defmodule BeatgridWeb.RecSetLive do
        open_panels: MapSet.new(),
        sets_open: true,
        plan_presets: Sets.plan_presets(),
-       max_plan_tracks: Sets.max_plan_tracks()
+       max_plan_tracks: Sets.max_plan_tracks(),
+       plan_preset: "custom",
+       plan_prefill: Sets.preset_fields("custom")
      )
      |> assign(sets: sets)
      |> load_set(List.first(sets))}
@@ -228,17 +230,22 @@ defmodule BeatgridWeb.RecSetLive do
     {:noreply, reload(socket)}
   end
 
+  # Picking a preset pre-fills the studio controls (its allowed/excluded styles +
+  # arc shape); the DJ then adjusts freely on top.
+  def handle_event("preset_changed", %{"preset" => key}, socket) do
+    {:noreply, assign(socket, plan_preset: key, plan_prefill: Sets.preset_fields(key))}
+  end
+
   def handle_event("plan_set", params, socket) do
-    preset = plan_preset_key(params["preset"], socket.assigns.plan_presets)
-    n = to_plan_count(params, preset)
-    {:ok, set} = Sets.plan_set(socket.assigns.set, n, preset: preset)
+    {:ok, set} = Sets.plan(socket.assigns.set, params)
+    verb = if params["fill_mode"] == "append", do: "estendido", else: "planejado"
 
     {:noreply,
      socket
      |> reload()
      |> put_flash(
        :info,
-       "Set planned: #{length(Sets.entries(set))} tracks with energy arc + transitions."
+       "Set #{verb}: #{length(Sets.entries(set))} faixas com arco + transições."
      )}
   end
 
@@ -363,33 +370,6 @@ defmodule BeatgridWeb.RecSetLive do
       {n, _} when n > 0 -> min(n, 20)
       _ -> 1
     end
-  end
-
-  defp to_plan_count(%{"count" => count}, _preset),
-    do: count |> parse_positive_int(16) |> clamp_plan_count()
-
-  defp to_plan_count(%{"mode" => "duration", "duration_minutes" => minutes}, preset) do
-    minutes
-    |> parse_positive_int(300)
-    |> Sets.estimate_count_for_duration(preset: preset)
-  end
-
-  defp to_plan_count(%{"track_count" => count}, _preset),
-    do: count |> parse_positive_int(16) |> clamp_plan_count()
-
-  defp to_plan_count(_params, _preset), do: 16
-
-  defp parse_positive_int(value, fallback) do
-    case Integer.parse(to_string(value)) do
-      {n, _} when n > 0 -> n
-      _ -> fallback
-    end
-  end
-
-  defp clamp_plan_count(n), do: n |> max(2) |> min(Sets.max_plan_tracks())
-
-  defp plan_preset_key(key, presets) do
-    if Enum.any?(presets, &(&1.key == key)), do: key, else: "custom"
   end
 
   defp total_time(entries) do
@@ -768,7 +748,14 @@ defmodule BeatgridWeb.RecSetLive do
           ]}>
             <div class="space-y-2 p-3">
               <.collapsible id="plan" title="Planejar set" open_panels={@open_panels}>
-                <.plan_form presets={@plan_presets} max_tracks={@max_plan_tracks} />
+                <.plan_form
+                  presets={@plan_presets}
+                  preset={@plan_preset}
+                  prefill={@plan_prefill}
+                  max_tracks={@max_plan_tracks}
+                  folders={@folders}
+                  other_sets={Enum.reject(@sets, &(@set && &1.id == @set.id))}
+                />
               </.collapsible>
 
               <.collapsible id="fill" title="Preencher seção" open_panels={@open_panels}>
@@ -892,100 +879,185 @@ defmodule BeatgridWeb.RecSetLive do
   end
 
   attr :presets, :list, required: true
+  attr :preset, :string, required: true
+  attr :prefill, :map, required: true
   attr :max_tracks, :integer, required: true
+  attr :folders, :list, required: true
+  attr :other_sets, :list, required: true
+
+  @arc_shapes [
+    {"wave", "Onda"},
+    {"rise", "Subindo"},
+    {"fall", "Descendo"},
+    {"peak", "Montanha"},
+    {"steady", "Constante"}
+  ]
 
   defp plan_form(assigns) do
+    assigns = assign(assigns, arc_shapes: @arc_shapes)
+
     ~H"""
-    <form id="plan-set-form" phx-submit="plan_set" class="space-y-4 p-4">
+    <form id="plan-set-form" phx-submit="plan_set" class="space-y-3 p-4">
       <div>
         <h3 class="text-body-sm font-semibold text-ink">Planning Studio</h3>
         <p class="mt-1 text-caption text-ink-muted">
-          Build long sets from a musical preset, duration or track count, energy arc, and automatic transitions.
+          Um preset é o ponto de partida — ele preenche os controles e você ajusta o que quiser.
         </p>
       </div>
 
-      <div class="grid gap-3 md:grid-cols-[1.35fr_.65fr]">
+      <label class="block space-y-1">
+        <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Preset</span>
+        <select name="preset" phx-change="preset_changed" class={plan_input()}>
+          <option :for={p <- @presets} value={p.key} selected={p.key == @preset}>{p.name}</option>
+        </select>
+      </label>
+
+      <div class="grid grid-cols-[.8fr_1fr_1fr] gap-2">
         <label class="space-y-1">
-          <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
-            Preset
-          </span>
-          <select
-            name="preset"
-            class="w-full rounded-md border border-white/8 bg-input px-2 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
-          >
-            <option :for={preset <- @presets} value={preset.key}>
-              {preset.name}
-            </option>
+          <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Medir por</span>
+          <select name="mode" class={plan_input()}>
+            <option value="duration" selected>Duração</option>
+            <option value="tracks">Faixas</option>
           </select>
         </label>
-
         <label class="space-y-1">
-          <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
-            Mode
-          </span>
-          <select
-            name="mode"
-            class="w-full rounded-md border border-white/8 bg-input px-2 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
-          >
-            <option value="duration" selected>Duration</option>
-            <option value="tracks">Tracks</option>
-          </select>
-        </label>
-      </div>
-
-      <div class="grid gap-3 md:grid-cols-2">
-        <label class="space-y-1">
-          <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
-            Duration
-          </span>
-          <div class="flex items-center gap-2">
-            <input
-              id="plan-duration"
-              type="number"
-              name="duration_minutes"
-              value="300"
-              min="15"
-              max="720"
-              class="w-full rounded-md border border-white/8 bg-input px-2 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
-            />
-            <span class="text-caption text-ink-faint">min</span>
-          </div>
-        </label>
-
-        <label class="space-y-1">
-          <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
-            Tracks
-          </span>
+          <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Minutos</span>
           <input
-            id="plan-count"
+            type="number"
+            name="duration_minutes"
+            value="300"
+            min="15"
+            max="720"
+            class={plan_input()}
+          />
+        </label>
+        <label class="space-y-1">
+          <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Faixas</span>
+          <input
             type="number"
             name="track_count"
             value="96"
             min="2"
             max={@max_tracks}
-            class="w-full rounded-md border border-white/8 bg-input px-2 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
+            class={plan_input()}
           />
         </label>
       </div>
 
-      <div class="rounded-lg border border-white/8 bg-surface-2 px-3 py-2">
-        <p class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
-          Included presets
-        </p>
-        <p class="mt-1 text-caption text-ink-muted">
-          Roots focus, Roots to Forro MPB, Roots to Classic Forro, Forro Orbit, MPB Set, or Custom.
-        </p>
+      <fieldset class="space-y-1">
+        <legend class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+          Estilos permitidos
+          <span class="text-ink-faint/60 normal-case">— nenhum marcado = todos</span>
+        </legend>
+        <div class="grid grid-cols-2 gap-x-3 gap-y-1">
+          <label
+            :for={f <- @folders}
+            class="flex items-center gap-1.5 text-caption text-ink-secondary"
+          >
+            <input
+              type="checkbox"
+              name="allow_styles[]"
+              value={f.key}
+              checked={f.key in @prefill.allow_styles}
+              class="accent-primary"
+            /> {f.display_name}
+          </label>
+        </div>
+      </fieldset>
+
+      <div class="grid grid-cols-3 gap-2">
+        <label class="space-y-1">
+          <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">BPM mín</span>
+          <input
+            type="number"
+            name="bpm_min"
+            min="0"
+            max="250"
+            placeholder="—"
+            class={plan_input()}
+          />
+        </label>
+        <label class="space-y-1">
+          <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">BPM máx</span>
+          <input
+            type="number"
+            name="bpm_max"
+            min="0"
+            max="250"
+            placeholder="—"
+            class={plan_input()}
+          />
+        </label>
+        <label class="space-y-1">
+          <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Rating mín</span>
+          <input
+            type="number"
+            name="min_rating"
+            min="0"
+            max="10"
+            placeholder="—"
+            class={plan_input()}
+          />
+        </label>
       </div>
 
-      <div class="flex items-center justify-between gap-3">
-        <span class="text-caption text-ink-faint">Up to {@max_tracks} tracks per run.</span>
-        <button class="rounded-md bg-primary px-3.5 py-1.5 text-body-sm font-semibold text-white">
-          Plan set
+      <div class="grid grid-cols-[1fr_1fr] items-end gap-2">
+        <label class="space-y-1">
+          <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Arco de energia</span>
+          <select name="arc_shape" class={plan_input()}>
+            <option
+              :for={{val, label} <- @arc_shapes}
+              value={val}
+              selected={val == to_string(@prefill.arc_shape)}
+            >
+              {label}
+            </option>
+          </select>
+        </label>
+        <label class="flex items-center gap-2 pb-1.5 text-caption text-ink-secondary">
+          <input type="checkbox" name="avoid_artist_repeat" value="true" class="accent-primary" />
+          Não repetir artista
+        </label>
+      </div>
+
+      <fieldset :if={@other_sets != []} class="space-y-1">
+        <legend class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+          Não repetir música com
+        </legend>
+        <div class="max-h-24 space-y-1 overflow-y-auto rounded-md border border-white/8 bg-input px-2 py-1.5">
+          <label
+            :for={s <- @other_sets}
+            class="flex items-center gap-1.5 truncate text-caption text-ink-secondary"
+          >
+            <input type="checkbox" name="exclude_set_ids[]" value={s.id} class="accent-primary" />
+            {s.name}
+          </label>
+        </div>
+      </fieldset>
+
+      <div class="flex items-center gap-2 pt-1">
+        <button
+          name="fill_mode"
+          value="replace"
+          class="flex-1 rounded-md bg-primary px-3 py-1.5 text-body-sm font-semibold text-white hover:bg-primary/90"
+        >
+          Refazer
+        </button>
+        <button
+          name="fill_mode"
+          value="append"
+          class="flex-1 rounded-md border border-white/12 bg-input px-3 py-1.5 text-body-sm font-semibold text-ink-secondary hover:border-primary/40 hover:text-ink"
+        >
+          Adicionar
         </button>
       </div>
     </form>
     """
   end
+
+  defp plan_input,
+    do:
+      "w-full rounded-md border border-white/8 bg-input px-2 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
 
   attr :series, :list, required: true
 

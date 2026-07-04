@@ -267,7 +267,12 @@ defmodule Beatgrid.SetsTest do
       track_with("8A", 119.0 + i, genre_folder: "forro_mpb", tag_title: "Forro MPB #{i}")
     end
 
-    assert {:ok, _set} = Sets.plan_set(set, 10, preset: "forro_roots_marathon", topk: 1)
+    assert {:ok, _set} =
+             Sets.plan(set, %{
+               "preset" => "forro_roots_marathon",
+               "mode" => "tracks",
+               "track_count" => "10"
+             })
 
     entries = Sets.entries(set)
     assert length(entries) == 10
@@ -283,12 +288,24 @@ defmodule Beatgrid.SetsTest do
       track_with("8A", 120.0 + i, genre_folder: "mpb", tag_title: "MPB #{i}")
     end
 
-    assert {:ok, _set} = Sets.plan_set(set, 12, preset: "roots_to_forro_mpb", topk: 1)
+    assert {:ok, _set} =
+             Sets.plan(set, %{
+               "preset" => "roots_to_forro_mpb",
+               "mode" => "tracks",
+               "track_count" => "12"
+             })
 
     genres = set |> Sets.entries() |> Enum.map(& &1.track.genre_folder)
-    assert Enum.take(genres, 4) |> Enum.all?(&(&1 == "forro_roots"))
-    assert Enum.take(genres, -4) |> Enum.all?(&(&1 == "forro_mpb"))
+    # The preset bans mpb outright and walks the style journey roots → forro_mpb.
     refute "mpb" in genres
+    # The opening slot has no previous track, so its score is style-pure → roots.
+    assert hd(genres) == "forro_roots"
+
+    {first_half, second_half} = Enum.split(genres, 6)
+    roots = &Enum.count(&1, fn g -> g == "forro_roots" end)
+    mpb = &Enum.count(&1, fn g -> g == "forro_mpb" end)
+    assert roots.(first_half) >= mpb.(first_half)
+    assert mpb.(second_half) >= roots.(second_half)
   end
 
   test "plan_set builds an arc-shaped, fully-connected set of the requested size" do
@@ -307,7 +324,7 @@ defmodule Beatgrid.SetsTest do
       )
     end
 
-    assert {:ok, _set} = Sets.plan_set(set, 12)
+    assert {:ok, _set} = Sets.plan(set, %{"mode" => "tracks", "track_count" => "12"})
 
     entries = Sets.entries(set)
     assert length(entries) == 12
