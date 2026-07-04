@@ -50,6 +50,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
        playing?: false,
        auto?: true,
        pointer_id: nil,
+       # Faixas que já foram ao ar nesta sessão do set (deck_started/transição).
+       # Efêmero e por-set: zera ao trocar de set. Marca a Fila e a Biblioteca.
+       played: MapSet.new(),
        hint: nil,
        hint_deck: nil,
        rail_tab: "fila",
@@ -68,7 +71,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
     # mas a sequência para na faixa atual.
     {:noreply,
      socket
-     |> assign(set: nil, entries: [])
+     |> assign(set: nil, entries: [], played: MapSet.new())
      |> push_event("dj_set", %{id: nil})
      |> push_hint(nil)}
   end
@@ -82,7 +85,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
         socket =
           socket
           |> subscribe_once(set.id)
-          |> assign(set: set, entries: Sets.entries(set))
+          # Trocar de set zera o rastro de "já tocada" — as regras recomeçam.
+          |> assign(set: set, entries: Sets.entries(set), played: MapSet.new())
           |> push_event("dj_set", %{id: set.id})
 
         # Trocar de set no meio da música: a dica armada do set antigo é
@@ -212,6 +216,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
       socket
       |> assign(active_deck: deck, playing?: true)
       |> assign_deck_by_id(deck, id)
+      |> mark_played(id)
 
     case in_set_entry(socket, id) do
       nil ->
@@ -235,6 +240,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
       socket
       |> assign(active_deck: deck, playing?: true)
       |> assign_deck_by_id(deck, to_id)
+      |> mark_played(to_id)
 
     # Só faixa que PERTENCE ao set vira ponteiro do set — transicionar para uma
     # faixa avulsa da Biblioteca não pode carimbar o set no now-playing.
@@ -423,6 +429,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
   defp in_set_entry(%{assigns: %{entries: entries}}, id),
     do: Enum.find(entries, &(&1.track.id == id))
+
+  # Records a track as "played this set session" — a track goes here the moment
+  # it hits a deck (load or transition), marking it in the Fila and Biblioteca.
+  defp mark_played(socket, id) when is_binary(id),
+    do: assign(socket, played: MapSet.put(socket.assigns.played, id))
+
+  defp mark_played(socket, _id), do: socket
 
   defp assign_deck(socket, "a", track), do: assign(socket, deck_a: track)
   defp assign_deck(socket, "b", track), do: assign(socket, deck_b: track)
@@ -824,8 +837,15 @@ defmodule BeatgridWeb.DiscotecagemLive do
               pointer_id={@pointer_id}
               hint={@hint}
               rail_tab={@rail_tab}
+              played={@played}
             />
-            <.library_panel rail_tab={@rail_tab} lib_query={@lib_query} lib_tracks={@lib_tracks} />
+            <.library_panel
+              rail_tab={@rail_tab}
+              lib_query={@lib_query}
+              lib_tracks={@lib_tracks}
+              played={@played}
+              member_ids={@entries |> MapSet.new(& &1.track.id)}
+            />
           </div>
 
           <div id="dj-audio-rack" phx-update="ignore">
@@ -2730,11 +2750,25 @@ defmodule BeatgridWeb.DiscotecagemLive do
     """
   end
 
+  # Selo "já tocada nesta sessão do set" — carimba a mesma faixa na Fila e na
+  # Biblioteca, para o DJ rastrear o que já rodou.
+  defp played_seal(assigns) do
+    ~H"""
+    <span
+      class="shrink-0 rounded bg-green/15 px-1.5 py-px text-[9px] font-bold uppercase tracking-wider text-green"
+      title="Já tocada nesta sessão do set"
+    >
+      ✓ tocada
+    </span>
+    """
+  end
+
   attr :set, :map, default: nil
   attr :entries, :list, default: []
   attr :pointer_id, :string, default: nil
   attr :hint, :map, default: nil
   attr :rail_tab, :string, default: "fila"
+  attr :played, :any, default: %MapSet{}
 
   # Fila do set — sempre visível na coluna do meio. O botão do título marca esta
   # lista como a ativa do browse (a controladora anda por ela); as teclas de
@@ -2800,12 +2834,17 @@ defmodule BeatgridWeb.DiscotecagemLive do
           <div class="min-w-0 flex-1">
             <.link
               navigate={~p"/track/#{e.track.id}"}
-              class="block truncate text-[12px] font-medium text-ink hover:text-primary"
+              class={[
+                "block truncate text-[12px] font-medium hover:text-primary",
+                MapSet.member?(@played, e.track.id) && "text-ink-muted",
+                !MapSet.member?(@played, e.track.id) && "text-ink"
+              ]}
             >
               {e.track.tag_title || e.track.filename}
             </.link>
             <p class="truncate text-[10px] text-ink-muted">{e.track.tag_artist || "—"}</p>
           </div>
+          <.played_seal :if={MapSet.member?(@played, e.track.id)} />
           <span class="font-mono text-[10px] text-ink-faint">
             {bpm_text(Library.effective(e.track).bpm)}
           </span>
@@ -2830,6 +2869,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
   attr :rail_tab, :string, default: "fila"
   attr :lib_query, :string, default: ""
   attr :lib_tracks, :list, default: []
+  attr :played, :any, default: %MapSet{}
+  attr :member_ids, :any, default: %MapSet{}
 
   # Biblioteca — sempre visível na coluna da direita. Mesma mecânica de "lista
   # ativa" da fila: o browse navega a que estiver marcada.
@@ -2890,6 +2931,14 @@ defmodule BeatgridWeb.DiscotecagemLive do
             </.link>
             <p class="truncate text-[10px] text-ink-muted">{t.tag_artist || "—"}</p>
           </div>
+          <span
+            :if={MapSet.member?(@member_ids, t.id)}
+            class="rounded bg-primary/15 px-1.5 py-px text-[9px] font-bold uppercase tracking-wider text-primary"
+            title="Já está no set atual"
+          >
+            no set
+          </span>
+          <.played_seal :if={MapSet.member?(@played, t.id)} />
           <span class="font-mono text-[10px] text-ink-faint">
             {bpm_text(Library.effective(t).bpm)}
           </span>
