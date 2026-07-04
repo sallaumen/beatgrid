@@ -108,7 +108,7 @@ defmodule Beatgrid.Sets.Planner do
       target_intensity: slot.target_intensity,
       exclude: MapSet.to_list(exclude),
       limit: @topk,
-      weights: if(config.prioritize_rating, do: @rating_weights, else: @weights),
+      weights: weights_for(config),
       allow_styles: config.allow_styles,
       exclude_styles: Enum.uniq(preset.exclude_styles ++ config.exclude_styles),
       bpm_min: config.bpm_min,
@@ -116,6 +116,16 @@ defmodule Beatgrid.Sets.Planner do
       min_rating: config.min_rating,
       less_vocals: config.less_vocals
     ]
+  end
+
+  # Harmony chains each pick to the PREVIOUS track's key, and over a long plan
+  # that locks the whole playlist into one key neighborhood ("playlist só de
+  # 9A") — so planning zeroes it unless the DJ opts back in with match_keys.
+  # The live console keeps its harmony weight: there it scores one next track,
+  # not a 96-long chain.
+  defp weights_for(config) do
+    base = if config.prioritize_rating, do: @rating_weights, else: @weights
+    if config.match_keys, do: base, else: %{base | harmony: 0}
   end
 
   # Top-K random pick behind a preference ladder that never stalls: honor the

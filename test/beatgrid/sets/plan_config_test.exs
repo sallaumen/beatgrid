@@ -56,6 +56,8 @@ defmodule Beatgrid.Sets.PlanConfigTest do
     assert d.gold_every == nil
     assert d.prioritize_rating == false
     assert d.less_vocals == false
+    assert d.match_keys == false
+    assert PlanConfig.from_params(%{"match_keys" => "true"}).match_keys == true
 
     # "" (the — option) stays nil; out-of-range clamps into [2, 20]
     assert PlanConfig.from_params(%{"gold_every" => ""}).gold_every == nil

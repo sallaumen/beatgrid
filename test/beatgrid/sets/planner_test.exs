@@ -91,6 +91,51 @@ defmodule Beatgrid.Sets.PlannerTest do
     assert length(Enum.uniq(artists)) == length(artists)
   end
 
+  test "by default the key does NOT chain the plan (no 9A-only playlists)", %{set: set} do
+    # Seed the set on 9A, then offer 7 rated far-key (3B) tracks against the 30
+    # unrated 9A-compatible pool. With harmony OFF (default) the rating is the
+    # only tiebreak, so the picks must be the far-key rated ones.
+    {:ok, _} = Sets.append(set, track(tag_artist: "Seed", camelot: "9A"))
+
+    far =
+      for i <- 1..7, into: MapSet.new() do
+        t = track(tag_artist: "Far #{i}", camelot: "3B")
+        {:ok, r} = t |> Ecto.Changeset.change(%{rating: 10}) |> Beatgrid.Repo.update()
+        r.id
+      end
+
+    {:ok, _} =
+      plan(set, %{"mode" => "tracks", "track_count" => "2", "fill_mode" => "append"})
+
+    [_seed | planned] = Sets.tracks(set)
+    assert length(planned) == 2
+    assert Enum.all?(planned, &MapSet.member?(far, &1.id))
+  end
+
+  test "match_keys re-enables harmonic chaining", %{set: set} do
+    {:ok, _} = Sets.append(set, track(tag_artist: "Seed", camelot: "9A"))
+
+    far =
+      for i <- 1..7, into: MapSet.new() do
+        t = track(tag_artist: "Far #{i}", camelot: "3B")
+        {:ok, r} = t |> Ecto.Changeset.change(%{rating: 10}) |> Beatgrid.Repo.update()
+        r.id
+      end
+
+    {:ok, _} =
+      plan(set, %{
+        "mode" => "tracks",
+        "track_count" => "2",
+        "fill_mode" => "append",
+        "match_keys" => "true"
+      })
+
+    # Harmony (25) dwarfs the far tracks' rating edge (2 + 2.5 harmony), so the
+    # compatible pool wins every slot — none of the far-key tracks get in.
+    [_seed | planned] = Sets.tracks(set)
+    refute Enum.any?(planned, &MapSet.member?(far, &1.id))
+  end
+
   test "connects consecutive pairs with transitions", %{set: set} do
     {:ok, _} = plan(set, %{"mode" => "tracks", "track_count" => "5"})
     [_first | rest] = Sets.entries(set)
