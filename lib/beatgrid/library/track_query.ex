@@ -354,9 +354,24 @@ defmodule Beatgrid.Library.TrackQuery do
     |> min_rating(opts[:min_rating])
     |> allow_styles(opts[:allow_styles])
     |> exclude_styles(opts[:exclude_styles])
+    |> gold_filter(%{gold: opts[:gold_only]})
+    |> less_vocals(opts[:less_vocals])
     |> preload(:soundcharts_song)
     |> Repo.all()
   end
+
+  # "Menos vozes": only tracks whose song is instrumental enough. Calibrated on
+  # the real library (2026-07): forró is sung — the median instrumentalness is
+  # 0.0 and >= 0.1 captures the top ~10% "mais musicais" (mostly psicodélico +
+  # roots). Tracks without a Soundcharts match can't prove it, so they're out.
+  @instrumental_min 0.1
+  defp less_vocals(q, true) do
+    q
+    |> join(:inner, [t], s in assoc(t, :soundcharts_song))
+    |> where([t, ..., s], s.instrumentalness >= @instrumental_min)
+  end
+
+  defp less_vocals(q, _), do: q
 
   defp min_rating(q, n) when is_integer(n), do: where(q, [t], t.rating >= ^n)
   defp min_rating(q, _), do: q
