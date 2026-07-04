@@ -314,4 +314,53 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     # AUTO continues enabled for the next play
     assert html =~ "Auto"
   end
+
+  describe "played + set-membership tracking" do
+    test "the fila marks a track as tocada once it goes on air", %{conn: conn} do
+      {set, [a, _b]} = set_with_tracks([{"Track A", 120.0}, {"Track B", 122.0}])
+      view = open_console(conn, set)
+
+      refute render(view) =~ "tocada"
+
+      html = render_hook(view, "deck_started", %{"deck" => "a", "track_id" => a.id})
+      assert html =~ "tocada"
+    end
+
+    test "the biblioteca tags set members ('no set') and played tracks ('tocada')", %{conn: conn} do
+      {set, _tracks} = set_with_tracks([{"Membro do set", 120.0}, {"Outro membro", 122.0}])
+
+      lib =
+        insert(:track,
+          status: :present,
+          tag_title: "Só na biblioteca",
+          tag_artist: "Fulano",
+          norm_title: "so na biblioteca",
+          norm_artist: "fulano"
+        )
+
+      view = open_console(conn, set)
+      render_hook(view, "toggle_rail_tab", %{})
+      html = render_change(view, "search_library", %{"q" => ""})
+
+      # a set member shows the "no set" tag; nothing played yet
+      assert html =~ "no set"
+      refute html =~ "tocada"
+
+      # playing the library-only track tags it "tocada" in the library
+      html = render_hook(view, "deck_started", %{"deck" => "a", "track_id" => lib.id})
+      assert html =~ "tocada"
+    end
+
+    test "switching sets clears the tocada tracking", %{conn: conn} do
+      {set1, [a, _]} = set_with_tracks([{"S1 A", 120.0}, {"S1 B", 122.0}])
+      {set2, _} = set_with_tracks([{"S2 A", 121.0}, {"S2 B", 123.0}])
+
+      view = open_console(conn, set1)
+      assert render_hook(view, "deck_started", %{"deck" => "a", "track_id" => a.id}) =~ "tocada"
+
+      # a new set resets the played history — the rules start over for its tracks
+      html = render_change(view, "select_set", %{"set_id" => set2.id})
+      refute html =~ "tocada"
+    end
+  end
 end
