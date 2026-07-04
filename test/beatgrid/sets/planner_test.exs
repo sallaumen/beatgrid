@@ -98,21 +98,50 @@ defmodule Beatgrid.Sets.PlannerTest do
     assert Enum.all?(rest, & &1.transition)
   end
 
-  test "gold_only plans exclusively Selo Ouro tracks", %{set: set} do
+  test "gold_every guarantees at least one Selo Ouro in every window", %{set: set} do
     golden =
-      for i <- 1..6 do
+      for i <- 1..6, into: MapSet.new() do
         t = track(tag_artist: "Gold #{i}")
 
         {:ok, g} =
           t |> Ecto.Changeset.change(%{gold_status: :confirmed}) |> Beatgrid.Repo.update()
 
-        g
+        g.id
       end
 
-    {:ok, _} = plan(set, %{"mode" => "tracks", "track_count" => "6", "gold_only" => "true"})
+    {:ok, _} = plan(set, %{"mode" => "tracks", "track_count" => "15", "gold_every" => "5"})
+
+    flags = set |> Sets.tracks() |> Enum.map(&MapSet.member?(golden, &1.id))
+    assert length(flags) == 15
+
+    for window <- Enum.chunk_every(flags, 5, 1, :discard) do
+      assert true in window, "toda janela de 5 faixas deve ter pelo menos um ouro"
+    end
+  end
+
+  test "gold_every never stalls when the gold pool runs dry", %{set: set} do
+    # No gold tracks at all — the quota falls back to normal picks.
+    {:ok, _} = plan(set, %{"mode" => "tracks", "track_count" => "10", "gold_every" => "3"})
+    assert length(Sets.tracks(set)) == 10
+  end
+
+  test "prioritize_rating surfaces the rated tracks without excluding unrated", %{set: set} do
+    # 10 rated >= topk (5) + count (5): with identical camelot/bpm/energy only
+    # the rating differentiates the score, so EVERY slot's top-5 pool is made of
+    # rated tracks — deterministic even with the top-K random pick.
+    rated =
+      for i <- 1..10, into: MapSet.new() do
+        t = track(tag_artist: "Rated #{i}")
+        {:ok, r} = t |> Ecto.Changeset.change(%{rating: 10}) |> Beatgrid.Repo.update()
+        r.id
+      end
+
+    {:ok, _} =
+      plan(set, %{"mode" => "tracks", "track_count" => "5", "prioritize_rating" => "true"})
+
     planned = set |> Sets.tracks() |> MapSet.new(& &1.id)
-    assert MapSet.subset?(planned, MapSet.new(golden, & &1.id))
-    assert MapSet.size(planned) == 6
+    assert MapSet.size(planned) == 5
+    assert MapSet.subset?(planned, rated)
   end
 
   test "duration mode fills roughly the requested minutes", %{set: set} do

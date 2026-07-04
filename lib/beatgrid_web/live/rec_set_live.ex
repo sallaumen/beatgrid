@@ -988,8 +988,11 @@ defmodule BeatgridWeb.RecSetLive do
             class={plan_input()}
           />
         </label>
-        <label class="space-y-1">
-          <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Rating mín</span>
+        <label
+          class="space-y-1"
+          title="Corta só faixas que você avaliou ABAIXO disso — sem nota, passa"
+        >
+          <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Nota mín</span>
           <input
             type="number"
             name="min_rating"
@@ -1014,26 +1017,41 @@ defmodule BeatgridWeb.RecSetLive do
             </option>
           </select>
         </label>
-        <div class="flex flex-col gap-1 pb-0.5">
-          <label class="flex items-center gap-2 text-caption text-ink-secondary">
-            <input type="checkbox" name="avoid_artist_repeat" value="true" class="accent-primary" />
-            Não repetir artista
-          </label>
-          <label
-            class="flex items-center gap-2 text-caption text-ink-secondary"
-            title="Só faixas com Selo Ouro (manual, selo do acervo ou popularidade)"
-          >
-            <input type="checkbox" name="gold_only" value="true" class="accent-amber" />
-            Só músicas ouro ✨
-          </label>
-          <label
-            class="flex items-center gap-2 text-caption text-ink-secondary"
-            title="Só as mais instrumentais do acervo (menos vozes) — exige análise Soundcharts"
-          >
-            <input type="checkbox" name="less_vocals" value="true" class="accent-primary" />
-            Menos vozes (instrumental)
-          </label>
-        </div>
+        <label
+          class="space-y-1"
+          title="Garante pelo menos 1 música ouro a cada N faixas — tempera o set sem exigir ouro em tudo"
+        >
+          <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+            Ouro garantido ✨
+          </span>
+          <select name="gold_every" class={plan_input()}>
+            <option value="" selected>—</option>
+            <option value="8">≥1 a cada 8</option>
+            <option value="5">≥1 a cada 5</option>
+            <option value="3">≥1 a cada 3</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="flex flex-wrap gap-x-4 gap-y-1">
+        <label class="flex items-center gap-2 text-caption text-ink-secondary">
+          <input type="checkbox" name="avoid_artist_repeat" value="true" class="accent-primary" />
+          Não repetir artista
+        </label>
+        <label
+          class="flex items-center gap-2 text-caption text-ink-secondary"
+          title="As notas que você deu puxam a escolha — influencia, não exclui quem não tem nota"
+        >
+          <input type="checkbox" name="prioritize_rating" value="true" class="accent-primary" />
+          Priorizar bem avaliadas
+        </label>
+        <label
+          class="flex items-center gap-2 text-caption text-ink-secondary"
+          title="Só as mais instrumentais do acervo (menos vozes) — exige análise Soundcharts"
+        >
+          <input type="checkbox" name="less_vocals" value="true" class="accent-primary" />
+          Menos vozes (instrumental)
+        </label>
       </div>
 
       <fieldset :if={@other_sets != []} class="space-y-1">

@@ -373,7 +373,11 @@ defmodule Beatgrid.Library.TrackQuery do
 
   defp less_vocals(q, _), do: q
 
-  defp min_rating(q, n) when is_integer(n), do: where(q, [t], t.rating >= ^n)
+  # Nil-tolerant on purpose: the DJ's ratings are sparse, so the floor only cuts
+  # tracks he actively rated BELOW it — an unrated track still gets its chance.
+  defp min_rating(q, n) when is_integer(n),
+    do: where(q, [t], is_nil(t.rating) or t.rating >= ^n)
+
   defp min_rating(q, _), do: q
 
   # Whitelist: keep only these genre folders. Empty/nil = no restriction.

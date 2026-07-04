@@ -40,12 +40,27 @@ defmodule Beatgrid.Sets.PlanConfigTest do
     assert PlanConfig.from_params(%{"duration_minutes" => "1"}).duration_minutes == 15
   end
 
-  test "parses the quality booleans (gold_only, less_vocals)" do
-    c = PlanConfig.from_params(%{"gold_only" => "true", "less_vocals" => "true"})
-    assert c.gold_only == true
+  test "parses the quality knobs (gold_every, prioritize_rating, less_vocals)" do
+    c =
+      PlanConfig.from_params(%{
+        "gold_every" => "5",
+        "prioritize_rating" => "true",
+        "less_vocals" => "true"
+      })
+
+    assert c.gold_every == 5
+    assert c.prioritize_rating == true
     assert c.less_vocals == true
-    assert PlanConfig.from_params(%{}).gold_only == false
-    assert PlanConfig.from_params(%{}).less_vocals == false
+
+    d = PlanConfig.from_params(%{})
+    assert d.gold_every == nil
+    assert d.prioritize_rating == false
+    assert d.less_vocals == false
+
+    # "" (the — option) stays nil; out-of-range clamps into [2, 20]
+    assert PlanConfig.from_params(%{"gold_every" => ""}).gold_every == nil
+    assert PlanConfig.from_params(%{"gold_every" => "1"}).gold_every == 2
+    assert PlanConfig.from_params(%{"gold_every" => "99"}).gold_every == 20
   end
 
   test "reads the style/set-id arrays and the boolean" do

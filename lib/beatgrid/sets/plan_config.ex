@@ -12,8 +12,11 @@ defmodule Beatgrid.Sets.PlanConfig do
     * `allow_styles` — genre-folder whitelist (empty = all).
     * `exclude_styles` — genre folders to hard-exclude.
     * `bpm_min` / `bpm_max` — effective-BPM window (nil = open).
-    * `min_rating` — 0–10 floor (nil = any).
-    * `gold_only` — only Selo Ouro tracks (manual/status/views — `Beatgrid.Gold`).
+    * `min_rating` — cut only tracks RATED below this; unrated pass (nil = any).
+    * `gold_every` — guarantee ≥1 Selo Ouro track per window of N (nil = off).
+      A quota, not a filter — the DJ's gold mapping is sparse, so gold-only sets
+      aren't viable; this seasons the set instead.
+    * `prioritize_rating` — rating leads the scoring (influences, never excludes).
     * `less_vocals` — only instrumental-leaning tracks ("mais musicais").
     * `arc_shape` — `EnergyArc` shape.
     * `avoid_artist_repeat` — spread artists across the set when possible.
@@ -39,7 +42,8 @@ defmodule Beatgrid.Sets.PlanConfig do
     field :bpm_min, :float
     field :bpm_max, :float
     field :min_rating, :integer
-    field :gold_only, :boolean, default: false
+    field :gold_every, :integer
+    field :prioritize_rating, :boolean, default: false
     field :less_vocals, :boolean, default: false
     field :arc_shape, Ecto.Enum, values: EnergyArc.shapes(), default: :wave
     field :avoid_artist_repeat, :boolean, default: false
@@ -48,8 +52,8 @@ defmodule Beatgrid.Sets.PlanConfig do
   end
 
   @castable ~w(preset mode track_count duration_minutes allow_styles exclude_styles
-               bpm_min bpm_max min_rating gold_only less_vocals arc_shape
-               avoid_artist_repeat exclude_set_ids fill_mode)a
+               bpm_min bpm_max min_rating gold_every prioritize_rating less_vocals
+               arc_shape avoid_artist_repeat exclude_set_ids fill_mode)a
 
   @doc """
   Builds a `%PlanConfig{}` from raw form params. Always returns a valid struct:
@@ -64,6 +68,7 @@ defmodule Beatgrid.Sets.PlanConfig do
     |> clamp(:track_count, 2, @max_tracks)
     |> clamp(:duration_minutes, 15, 720)
     |> clamp(:min_rating, 0, 10)
+    |> clamp(:gold_every, 2, 20)
     |> nonneg(:bpm_min)
     |> nonneg(:bpm_max)
     |> apply_changes()
