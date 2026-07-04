@@ -356,9 +356,18 @@ defmodule Beatgrid.Library.TrackQuery do
     |> exclude_styles(opts[:exclude_styles])
     |> gold_filter(%{gold: opts[:gold_only]})
     |> less_vocals(opts[:less_vocals])
+    |> restrict_pool(opts[:restrict_ids], opts[:escape_styles] || [])
     |> preload(:soundcharts_song)
     |> Repo.all()
   end
+
+  # Reference-set pool: keep only tracks that are members of the reference set
+  # (`restrict_ids`) OR whose style "escapes" to the whole library. nil = no
+  # restriction (the whole library). An empty escape list makes it members-only.
+  defp restrict_pool(q, nil, _escape), do: q
+
+  defp restrict_pool(q, ids, escape),
+    do: where(q, [t], t.id in ^ids or t.genre_folder in ^escape)
 
   # "Menos vozes": only tracks whose song is instrumental enough. Calibrated on
   # the real library (2026-07): forró is sung — the median instrumentalness is

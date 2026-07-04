@@ -95,6 +95,14 @@ defmodule Beatgrid.Sets.PlanConfigTest do
     assert c.avoid_artist_repeat == true
   end
 
+  test "reference_set_id: an id passes through, blank becomes nil" do
+    assert PlanConfig.from_params(%{"reference_set_id" => "abc-123"}).reference_set_id ==
+             "abc-123"
+
+    assert PlanConfig.from_params(%{"reference_set_id" => ""}).reference_set_id == nil
+    assert PlanConfig.from_params(%{}).reference_set_id == nil
+  end
+
   test "invalid enum values fall back to the defaults instead of crashing" do
     c = PlanConfig.from_params(%{"mode" => "bogus", "arc_shape" => "nope", "fill_mode" => "x"})
     assert c.mode == :duration
