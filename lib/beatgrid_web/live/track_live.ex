@@ -6,7 +6,7 @@ defmodule BeatgridWeb.TrackLive do
 
   alias Beatgrid.Analysis
   alias Beatgrid.Library
-  alias Beatgrid.Library.Tracks
+  alias Beatgrid.Library.{GenreFolders, Tracks}
   alias Beatgrid.Loudness
   alias Beatgrid.Mixing
   alias Beatgrid.Operations
@@ -36,6 +36,7 @@ defmodule BeatgridWeb.TrackLive do
          socket
          |> assign(
            track: track,
+           folders: GenreFolders.list(),
            versions: Tracks.same_song_versions_of(track),
            gain_backup: Operations.latest_gain_backup(track.id),
            gain_operation: Operations.latest_gain_operation(track.id),
@@ -97,6 +98,38 @@ defmodule BeatgridWeb.TrackLive do
   def handle_event("toggle_gold", _params, socket) do
     {:ok, _} = Library.toggle_gold(socket.assigns.track)
     {:noreply, reload(socket)}
+  end
+
+  # Change the track's genre folder. This is a PHYSICAL move on disk (undoable via
+  # the operations log) + a genre-tag write, not just a DB field — so it reuses
+  # `Library.move_to_folder`. The empty placeholder and a no-op reselection are
+  # ignored; failures surface as a toast without leaving a half-moved file.
+  def handle_event("change_folder", %{"folder" => key}, socket)
+      when key in ["", nil] do
+    {:noreply, socket}
+  end
+
+  def handle_event("change_folder", %{"folder" => key}, socket) do
+    track = socket.assigns.track
+
+    if key == track.genre_folder do
+      {:noreply, socket}
+    else
+      case Library.move_to_folder(track, key) do
+        {:ok, _moved, _batch_id} ->
+          {:noreply,
+           socket |> reload() |> assign(toast: {:ok, "Movida para #{folder_label(key)}."})}
+
+        {:error, :already_there} ->
+          {:noreply, socket}
+
+        {:error, :unknown_folder} ->
+          {:noreply, assign(socket, toast: {:error, "Pasta desconhecida."})}
+
+        {:error, _reason} ->
+          {:noreply, assign(socket, toast: {:error, "Não foi possível mover o arquivo."})}
+      end
+    end
   end
 
   def handle_event("add_tag", %{"tag" => tag}, socket) do
@@ -513,7 +546,27 @@ defmodule BeatgridWeb.TrackLive do
                 </p>
 
                 <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-                  <.folder_badge :if={@track.genre_folder} folder={@track.genre_folder} />
+                  <form id="track-folder" phx-change="change_folder" class="flex items-center gap-1.5">
+                    <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+                      Pasta
+                    </span>
+                    <select
+                      name="folder"
+                      class="max-w-[180px] rounded-md border border-white/10 bg-input px-2 py-1 text-body-sm text-ink focus:border-primary/50 focus:outline-none"
+                      title="Mover a faixa para outra pasta (move o arquivo no disco)"
+                    >
+                      <option :if={is_nil(@track.genre_folder)} value="" selected>
+                        — sem pasta —
+                      </option>
+                      <option
+                        :for={f <- @folders}
+                        value={f.key}
+                        selected={f.key == @track.genre_folder}
+                      >
+                        {f.display_name}
+                      </option>
+                    </select>
+                  </form>
                   <.stat label="BPM" value={bpm(@track)} class="text-primary" />
                   <div class="flex items-center gap-1.5">
                     <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
