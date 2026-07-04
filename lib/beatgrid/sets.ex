@@ -14,7 +14,7 @@ defmodule Beatgrid.Sets do
   alias Beatgrid.Library.{Marker, TrackQuery}
   alias Beatgrid.Mixing
   alias Beatgrid.Repo
-  alias Beatgrid.Sets.{EnergyArc, RecSet, RecSetQuery, SetTrack}
+  alias Beatgrid.Sets.{EnergyArc, RecSet, RecSetQuery, SetTrack, TransitionChooser}
 
   @transition_types ~w(cut fade crossfade echo filter bass_swap brake lowpass scratch_cut spinback)
 
@@ -262,7 +262,7 @@ defmodule Beatgrid.Sets do
     a = Library.effective(prev)
     b = Library.effective(this)
 
-    {type, reason} = choose_transition(a, b, out, intro)
+    {type, reason} = TransitionChooser.choose(a, b, out, intro)
 
     %{
       "enabled" => true,
@@ -274,75 +274,6 @@ defmodule Beatgrid.Sets do
       "to_ms" => (intro && intro["ms"]) || 0
     }
   end
-
-  # A escolha usa três sinais — o salto de BPM (com direção), a compatibilidade
-  # de tom (Camelot) e a mudança de energia — para variar entre as sete
-  # transições em vez de cair sempre no eco. Ordem: casos dramáticos de tempo
-  # primeiro (o freio fica RARO, só em saltos grandes, como todo DJ recomenda),
-  # depois a família casada (BPM próximo) decidida por energia e harmonia.
-  defp choose_transition(a, b, out, intro) do
-    if is_nil(out) or is_nil(intro) do
-      {"cut", "Sem marcadores de saída/entrada — corte seco no tempo."}
-    else
-      choose_by_signal(a, b)
-    end
-  end
-
-  # Casos dramáticos de tempo primeiro (o freio fica RARO, só em saltos grandes);
-  # BPMs próximos caem na família casada, decidida por energia e harmonia.
-  defp choose_by_signal(a, b) do
-    delta = bpm_delta(a.bpm, b.bpm)
-
-    cond do
-      delta > 0.13 ->
-        {"brake", "Salto forte de BPM (#{pct(delta)}) — o freio de vinil marca a virada."}
-
-      delta < -0.13 ->
-        {"lowpass", "Queda forte de BPM (#{pct(delta)}) — afunda a faixa que sai."}
-
-      abs(delta) > 0.08 ->
-        {"echo", "BPMs diferentes (#{pct(delta)}) — a cauda de eco disfarça o salto."}
-
-      true ->
-        choose_close(a, b)
-    end
-  end
-
-  # BPMs próximos: energia (só quando ambas conhecidas) manda no filtro/fade,
-  # senão a harmonia decide entre mix casado e troca de grave.
-  defp choose_close(a, b) do
-    harm = Mixing.harmony(a.camelot, b.camelot)
-    d_energy = energy_delta(a.energy, b.energy)
-
-    cond do
-      is_number(d_energy) and d_energy > 0.12 ->
-        {"filter", "Subindo a energia com BPM próximo — o filtro abre a entrada."}
-
-      is_number(d_energy) and d_energy < -0.12 ->
-        {"fade", "Baixando a energia — fade suave entre as faixas."}
-
-      # Compatível OU desconhecido (0.5 neutro): o mix casado é seguro.
-      harm >= 0.5 ->
-        {"crossfade", "BPMs próximos e tons compatíveis — mix casado no overlap."}
-
-      # Choque de tom detectado (vizinhos distantes na roda Camelot).
-      true ->
-        {"bass_swap", "BPMs próximos, mas tons que brigam — troca de grave evita o choque."}
-    end
-  end
-
-  # Variação relativa de BPM com sinal: >0 acelera, <0 desacelera.
-  defp bpm_delta(a, b) when is_number(a) and is_number(b) and a > 0 and b > 0, do: (b - a) / a
-  defp bpm_delta(_a, _b), do: 0.0
-
-  # Só compara energia quando AMBAS as faixas têm o valor real do Soundcharts
-  # (mesma escala 0–1, clampeado contra imports fora do intervalo); nil = pular.
-  defp energy_delta(a, b) when is_number(a) and is_number(b), do: clamp01(b) - clamp01(a)
-  defp energy_delta(_a, _b), do: nil
-
-  defp clamp01(v), do: v |> max(0.0) |> min(1.0)
-
-  defp pct(delta), do: "#{if delta > 0, do: "+", else: ""}#{round(delta * 100)}%"
 
   @doc "Suggested transitions for every consecutive pair: `[{receiving_track_id, transition}]`."
   @spec suggest_all(RecSet.t()) :: [{Ecto.UUID.t(), map()}]
