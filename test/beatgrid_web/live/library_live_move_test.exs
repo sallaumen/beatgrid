@@ -116,6 +116,62 @@ defmodule BeatgridWeb.LibraryLiveMoveTest do
     end
   end
 
+  describe "Pasta column inline picker" do
+    @tag :tmp_dir
+    test "clicking the folder badge opens a picker that moves the track on disk", %{
+      conn: conn,
+      tmp_dir: root
+    } do
+      File.mkdir_p!(Path.join(root, "MPB"))
+      File.write!(Path.join(root, "MPB/x.mp3"), "bytes")
+
+      track =
+        insert(:track,
+          status: :present,
+          rel_path: "MPB/x.mp3",
+          filename: "x.mp3",
+          genre_folder: "mpb",
+          tag_title: "Pasta-inline",
+          tag_artist: "Art"
+        )
+
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      # the picker's move buttons stay hidden until the badge is clicked
+      refute has_element?(view, "button[phx-click='move_track'][phx-value-to='forro']")
+
+      view
+      |> element("button[phx-click='folder_menu_toggle'][phx-value-id='#{track.id}']")
+      |> render_click()
+
+      html =
+        view
+        |> element("button[phx-click='move_track'][phx-value-to='forro']")
+        |> render_click()
+
+      assert Tracks.get(track.id).genre_folder == "forro"
+      assert File.exists?(Path.join(root, "Forró/x.mp3"))
+      refute File.exists?(Path.join(root, "MPB/x.mp3"))
+      assert html =~ "Desfazer"
+    end
+
+    test "an unfiled track shows a 'sem pasta' affordance that still opens the picker", %{
+      conn: conn
+    } do
+      track =
+        insert(:track, status: :present, genre_folder: nil, tag_title: "Sem", tag_artist: "P")
+
+      {:ok, view, html} = live(conn, ~p"/")
+      assert html =~ "sem pasta"
+
+      view
+      |> element("button[phx-click='folder_menu_toggle'][phx-value-id='#{track.id}']")
+      |> render_click()
+
+      assert has_element?(view, "button[phx-click='move_track'][phx-value-to='mpb']")
+    end
+  end
+
   describe "batch select mode" do
     @tag :tmp_dir
     test "Mover N moves every selected track under one undoable batch", %{

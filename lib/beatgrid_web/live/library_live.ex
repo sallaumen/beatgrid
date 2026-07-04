@@ -45,6 +45,7 @@ defmodule BeatgridWeb.LibraryLive do
        selecting?: false,
        selected: MapSet.new(),
        row_menu: nil,
+       folder_menu: nil,
        tom_wheel_open: false,
        move_toast: nil,
        import: nil,
@@ -141,14 +142,23 @@ defmodule BeatgridWeb.LibraryLive do
   # --- per-row ⋯ menu ---
 
   def handle_event("row_menu_toggle", %{"id" => id}, socket) do
-    {:noreply, assign(socket, row_menu: toggle(socket.assigns.row_menu, id))}
+    {:noreply, assign(socket, row_menu: toggle(socket.assigns.row_menu, id), folder_menu: nil)}
   end
 
   def handle_event("close_row_menu", _params, socket),
     do: {:noreply, assign(socket, row_menu: nil)}
 
+  # The inline folder picker on the "Pasta" column — opening it closes the ⋯ menu
+  # so only one popover is ever open. It reuses `move_track` to do the move.
+  def handle_event("folder_menu_toggle", %{"id" => id}, socket) do
+    {:noreply, assign(socket, folder_menu: toggle(socket.assigns.folder_menu, id), row_menu: nil)}
+  end
+
+  def handle_event("close_folder_menu", _params, socket),
+    do: {:noreply, assign(socket, folder_menu: nil)}
+
   def handle_event("move_track", %{"track_id" => id, "to" => folder_key}, socket) do
-    socket = assign(socket, row_menu: nil)
+    socket = assign(socket, row_menu: nil, folder_menu: nil)
 
     case Tracks.get(id) do
       nil ->
@@ -520,6 +530,7 @@ defmodule BeatgridWeb.LibraryLive do
               selecting?={@selecting?}
               selected={@selected}
               row_menu={@row_menu}
+              folder_menu={@folder_menu}
               folders={@folders}
               playing_id={@playing_track_id}
             />
@@ -800,6 +811,7 @@ defmodule BeatgridWeb.LibraryLive do
   attr :selecting?, :boolean, required: true
   attr :selected, :any, required: true
   attr :row_menu, :string, required: true
+  attr :folder_menu, :string, required: true
   attr :folders, :list, required: true
   attr :playing_id, :string, default: nil
 
@@ -872,7 +884,7 @@ defmodule BeatgridWeb.LibraryLive do
           </div>
           <p class="truncate text-caption text-ink-muted">{track.tag_artist || "—"}</p>
         </div>
-        <div><.folder_badge :if={track.genre_folder} folder={track.genre_folder} /></div>
+        <.folder_cell track={track} open?={@folder_menu == track.id} folders={@folders} />
         <span class="text-right font-mono text-body text-primary">{bpm(track)}</span>
         <.camelot_seal value={camelot(track)} />
         <div class="h-[5px] w-full rounded-full bg-white/5">
@@ -892,6 +904,68 @@ defmodule BeatgridWeb.LibraryLive do
         <div class="text-right"><.confidence_chip level={track.sc_match_confidence} /></div>
         <.row_menu track={track} open?={@row_menu == track.id} folders={@folders} />
       </div>
+    </div>
+    """
+  end
+
+  # The "Pasta" column: the current folder (or a subtle placeholder when unfiled)
+  # as a button that opens a compact popover to move the track — right where the
+  # folder is shown, reusing the same `move_track` the ⋯ menu uses. A backdrop
+  # closes it on an outside click. Nothing extra shows until you click, so rows
+  # stay clean.
+  attr :track, :map, required: true
+  attr :open?, :boolean, required: true
+  attr :folders, :list, required: true
+
+  defp folder_cell(assigns) do
+    ~H"""
+    <div class="relative min-w-0">
+      <button
+        type="button"
+        phx-click="folder_menu_toggle"
+        phx-value-id={@track.id}
+        aria-haspopup="true"
+        aria-expanded={to_string(@open?)}
+        class="group/fld inline-flex max-w-full items-center gap-1 rounded-sm text-left"
+        title="Mudar a pasta"
+      >
+        <.folder_badge :if={@track.genre_folder} folder={@track.genre_folder} />
+        <span
+          :if={is_nil(@track.genre_folder)}
+          class="rounded-sm border border-dashed border-white/15 px-1.5 py-[2px] text-[10px] text-ink-faint group-hover/fld:border-white/30 group-hover/fld:text-ink-muted"
+        >
+          sem pasta
+        </span>
+        <span
+          class="text-[9px] text-ink-faint opacity-0 transition-opacity group-hover/fld:opacity-100"
+          aria-hidden="true"
+        >
+          ▾
+        </span>
+      </button>
+      <%= if @open? do %>
+        <div class="fixed inset-0 z-30" phx-click="close_folder_menu" aria-hidden="true"></div>
+        <div class="absolute left-0 top-7 z-40 max-h-64 w-48 overflow-auto rounded-lg border border-white/10 bg-surface py-1 shadow-xl shadow-black/40">
+          <p class="px-3 pt-1.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+            Mover para
+          </p>
+          <button
+            :for={folder <- @folders}
+            :if={folder.key != @track.genre_folder}
+            type="button"
+            phx-click="move_track"
+            phx-value-track_id={@track.id}
+            phx-value-to={folder.key}
+            class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-body-sm text-ink-secondary hover:bg-white/6 hover:text-ink"
+          >
+            <span
+              class="size-2 shrink-0 rounded-full"
+              style={"background:#{folder_color(folder.key)}"}
+            />
+            {folder.display_name}
+          </button>
+        </div>
+      <% end %>
     </div>
     """
   end
