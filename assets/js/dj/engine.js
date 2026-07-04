@@ -65,6 +65,8 @@ const RAMP = Object.freeze({
   // the auto-scratch patterns. Tuned by ear — Lucas can nudge these.
   jogScratchSamples: 2600,
   scratchDepthS: 0.16,
+  scratchGain: 1.5, // the scratched deck sits ~3.5 dB above its own music (Lucas mixes at max on the crossfader)
+  toneMaxDb: 9, // "Tom" tilt EQ: full turn tilts each shelf ±9 dB
   // Scratch DROP transitions — deliberately abrupt, NOT scaled by the length
   // knob. "rasgo": a quick baby-scratch flourish then a hard drop. "rebobina":
   // a reverse spin-back (rewind whoosh) then the drop.
@@ -126,6 +128,17 @@ class Deck {
     this.bass.type = "lowshelf"
     this.bass.frequency.value = 200
     this.bass.gain.value = 0
+    // "Tom": the DJ's tilt EQ (grave↔agudo). Its own shelf pair, separate from
+    // `bass` above (which the bass_swap transition automates) so the two never
+    // fight. v>0 = brighter (less low, more high), v<0 = warmer. 0 dB = flat.
+    this.toneBass = ctx.createBiquadFilter()
+    this.toneBass.type = "lowshelf"
+    this.toneBass.frequency.value = 250
+    this.toneBass.gain.value = 0
+    this.toneTreble = ctx.createBiquadFilter()
+    this.toneTreble.type = "highshelf"
+    this.toneTreble.frequency.value = 3_000
+    this.toneTreble.gain.value = 0
 
     this.baseRate = 1 // tempo alvo (pitch fader / SYNC); o bend do jog decai para cá
     this.vinylMode = false // TOM: pitch muda a afinação; sobrevive a SYNC/brake
@@ -146,8 +159,10 @@ class Deck {
     sourceFor(el).connect(this.hpf)
     this.hpf.connect(this.lpf)
     this.lpf.connect(this.bass)
-    this.bass.connect(this.dry)
-    this.bass.connect(this.echoSend)
+    this.bass.connect(this.toneBass)
+    this.toneBass.connect(this.toneTreble)
+    this.toneTreble.connect(this.dry)
+    this.toneTreble.connect(this.echoSend)
     this.echoSend.connect(this.delay)
     this.delay.connect(this.feedback)
     this.feedback.connect(this.delay) // the echo tail
@@ -263,6 +278,8 @@ class Deck {
       this.hpf,
       this.lpf,
       this.bass,
+      this.toneBass,
+      this.toneTreble,
       this.dry,
       this.echoSend,
       this.delay,
@@ -601,6 +618,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     to.hpf.frequency.linearRampToValueAtTime(10, now + 0.2)
     to.lpf.frequency.linearRampToValueAtTime(20_000, now + 0.2)
     if (type !== "bass_swap") to.bass.gain.linearRampToValueAtTime(0, now + 0.3)
+    to.toneBass.gain.linearRampToValueAtTime(0, now + 0.3)
+    to.toneTreble.gain.linearRampToValueAtTime(0, now + 0.3)
     if (type === "cut" || type === "crossfade" || type === "brake") {
       to.gain.gain.linearRampToValueAtTime(1, now + 0.2)
     }
@@ -937,6 +956,10 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     deck.lpf.frequency.setValueAtTime(20_000, now)
     deck.settleParam(deck.bass.gain)
     deck.bass.gain.setValueAtTime(0, now)
+    deck.settleParam(deck.toneBass.gain)
+    deck.toneBass.gain.setValueAtTime(0, now)
+    deck.settleParam(deck.toneTreble.gain)
+    deck.toneTreble.gain.setValueAtTime(0, now)
     // The echo blooms the feedback — bring it back to its resting value.
     deck.settleParam(deck.feedback.gain)
     deck.feedback.gain.setValueAtTime(RAMP.echoFeedback, now)
@@ -1041,7 +1064,13 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
           numberOfOutputs: 1,
           outputChannelCount: [2],
         })
-        node.connect(decks[id].hpf) // parallel with the media source; silent when idle
+        // A little louder than the deck's own music: Lucas keeps channel
+        // volume maxed and mixes on the crossfader, so a unity scratch sat at
+        // exactly the track's level and got buried.
+        const g = ctx.createGain()
+        g.gain.value = RAMP.scratchGain
+        node.connect(g)
+        g.connect(decks[id].hpf) // parallel with the media source; silent when idle
         scratch[id].node = node
       }
     })
@@ -1580,7 +1609,19 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       deck.echoSend.gain.setTargetAtTime(Math.min(Math.max(value, 0), 1) * 0.9, now, 0.02)
     },
 
-    // Modo TOM (vinil): o pitch passa a mudar a afinação junto com o tempo.
+    // "Tom": tilt EQ grave↔agudo. v<0 puxa grave e abafa agudo (quente),
+    // v>0 o contrário (brilhante). Nodes próprios — não encosta no bass_swap.
+    setTone(deckId, value) {
+      const deck = decks[deckId]
+      const v = Math.min(Math.max(value, -1), 1)
+      const now = ctx.currentTime
+      deck.settleParam(deck.toneBass.gain)
+      deck.settleParam(deck.toneTreble.gain)
+      deck.toneBass.gain.setTargetAtTime(-v * RAMP.toneMaxDb, now, 0.03)
+      deck.toneTreble.gain.setTargetAtTime(v * RAMP.toneMaxDb, now, 0.03)
+    },
+
+    // Modo VINIL: o pitch passa a mudar a afinação junto com o tempo.
     // O flag persiste por SYNC/freio — só o reset da cadeia (novo load) desliga.
     setVinylMode(deckId, on) {
       const deck = decks[deckId]

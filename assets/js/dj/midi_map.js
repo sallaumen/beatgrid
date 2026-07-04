@@ -36,8 +36,10 @@ const PAD_NOTES = {
   // manuais criativos no futuro; o monitor mostra o cru enquanto isso.
   // Modo SAMPLER repropositado como TECLAS DE SEÇÃO do console: 1 Biblioteca,
   // 2 Fila, 3 Efeitos, 4 Transições — o browse passa a navegar a seção focada
-  // e o cue level vira o knob de valor dela. (Notas no padrão 0x01/0x11/0x21/
-  // 0x31 dos quatro modos; o monitor mostra o cru se o hardware divergir.)
+  // e o cue level vira o knob de valor dela. No foco Efeitos o browse escolhe o
+  // DECK (esquerda A / direita B) e os três knobs de level viram FX desse deck:
+  // level A → Filtro, level B → Eco, cue level → Tom. (Notas no padrão 0x01/
+  // 0x11/0x21/0x31 dos quatro modos; o monitor mostra o cru se divergir.)
   0x31: {type: "focus", index: 1},
   0x32: {type: "focus", index: 2},
   0x33: {type: "focus", index: 3},
