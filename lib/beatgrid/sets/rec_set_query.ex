@@ -56,4 +56,23 @@ defmodule Beatgrid.Sets.RecSetQuery do
     |> order_by([st], asc: st.position)
     |> Repo.all()
   end
+
+  @doc "Distinct track ids that appear in ANY of the given sets (cross-set dedup)."
+  @spec track_ids_in([Ecto.UUID.t()]) :: [Ecto.UUID.t()]
+  def track_ids_in([]), do: []
+
+  def track_ids_in(set_ids) do
+    SetTrack
+    |> where([st], st.rec_set_id in ^set_ids)
+    |> distinct([st], st.track_id)
+    |> select([st], st.track_id)
+    |> Repo.all()
+  end
+
+  @doc "Removes all of a set's tracks. Returns the number deleted."
+  @spec delete_all(Ecto.UUID.t()) :: non_neg_integer()
+  def delete_all(set_id) do
+    {n, _} = SetTrack |> where([st], st.rec_set_id == ^set_id) |> Repo.delete_all()
+    n
+  end
 end

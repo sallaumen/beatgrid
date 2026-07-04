@@ -14,7 +14,17 @@ defmodule Beatgrid.Sets do
   alias Beatgrid.Library.{Marker, TrackQuery}
   alias Beatgrid.Mixing
   alias Beatgrid.Repo
-  alias Beatgrid.Sets.{EnergyArc, RecSet, RecSetQuery, SetTrack, TransitionChooser}
+
+  alias Beatgrid.Sets.{
+    EnergyArc,
+    PlanConfig,
+    Planner,
+    Presets,
+    RecSet,
+    RecSetQuery,
+    SetTrack,
+    TransitionChooser
+  }
 
   @transition_types ~w(cut fade crossfade echo filter bass_swap brake lowpass scratch_cut spinback)
 
@@ -188,6 +198,21 @@ defmodule Beatgrid.Sets do
     broadcast_set_changed(id)
     result
   end
+
+  @doc "Removes every track from the set (a `:replace` plan clears before filling). Returns the set."
+  @spec clear(RecSet.t()) :: RecSet.t()
+  def clear(%RecSet{id: id} = set) do
+    RecSetQuery.delete_all(id)
+    broadcast_set_changed(id)
+    set
+  end
+
+  @doc "Distinct track ids already in ANY of the given sets — the cross-playlist dedup pool."
+  @spec cross_set_track_ids([Ecto.UUID.t()]) :: [Ecto.UUID.t()]
+  def cross_set_track_ids(set_ids) when is_list(set_ids),
+    do: set_ids |> Enum.reject(&is_nil/1) |> RecSetQuery.track_ids_in()
+
+  def cross_set_track_ids(_), do: []
 
   @doc "Removes a track from the set and re-numbers the remaining positions."
   @spec remove(RecSet.t(), Library.Track.t()) :: :ok
@@ -383,110 +408,40 @@ defmodule Beatgrid.Sets do
   def fill_section(%RecSet{} = set, role, count) when is_integer(count) and count > 0,
     do: {:ok, greedy_fill(set, count, role, Mixing.target_intensity(role))}
 
-  @plan_topk 5
-  @max_plan_tracks 240
-
-  # Planning weights differ from the live console's: the energy arc (intensity) and
-  # tempo continuity (bpm) lead, so respiros actually calm down and the tempo doesn't
-  # jump — the user's "arco digno de DJ, reduzindo o tempo aos poucos". Style/harmony
-  # still keep the set coherent and the transitions mixable.
-  @plan_weights %{style: 20, harmony: 25, intensity: 35, bpm: 18, rating: 2}
-
-  @plan_presets [
-    %{
-      key: "forro_roots_marathon",
-      name: "Forro Roots Marathon",
-      target_style: "forro_roots",
-      max_tracks: @max_plan_tracks,
-      exclude_styles: ["mpb", "forro_mpb"],
-      description: "A long roots-first set with only close Forro material around it.",
-      phases: [
-        %{until: 1.0, target_style: "forro_roots"}
-      ]
-    },
-    %{
-      key: "roots_to_forro_mpb",
-      name: "Roots to Forro MPB",
-      target_style: "forro_roots",
-      max_tracks: @max_plan_tracks,
-      exclude_styles: ["mpb"],
-      description: "Starts in Forro Roots, passes through Forro, and lands in Forro MPB.",
-      phases: [
-        %{until: 0.35, target_style: "forro_roots"},
-        %{until: 0.65, target_style: "forro"},
-        %{until: 1.0, target_style: "forro_mpb"}
-      ]
-    },
-    %{
-      key: "roots_to_classic",
-      name: "Roots to Classic Forro",
-      target_style: "forro_roots",
-      max_tracks: @max_plan_tracks,
-      exclude_styles: ["mpb", "forro_mpb", "forro_psicodelico"],
-      description: "A roots opening that resolves into classic Forro.",
-      phases: [
-        %{until: 0.45, target_style: "forro_roots"},
-        %{until: 0.75, target_style: "forro"},
-        %{until: 1.0, target_style: "forro_classico"}
-      ]
-    },
-    %{
-      key: "forro_orbit",
-      name: "Forro Orbit",
-      target_style: "forro_roots",
-      max_tracks: @max_plan_tracks,
-      exclude_styles: ["mpb"],
-      description: "Mostly Forro, with controlled touches from nearby Forro folders.",
-      phases: [
-        %{until: 0.25, target_style: "forro_roots"},
-        %{until: 0.45, target_style: "forro_classico"},
-        %{until: 0.70, target_style: "forro"},
-        %{until: 0.85, target_style: "forro_in_the_light"},
-        %{until: 1.0, target_style: "forro_roots"}
-      ]
-    },
-    %{
-      key: "mpb_set",
-      name: "MPB Set",
-      target_style: "mpb",
-      max_tracks: @max_plan_tracks,
-      exclude_styles: ["forro_psicodelico"],
-      description: "A dedicated MPB set, used only when explicitly selected.",
-      phases: [
-        %{until: 1.0, target_style: "mpb"}
-      ]
-    },
-    %{
-      key: "custom",
-      name: "Custom",
-      target_style: nil,
-      max_tracks: @max_plan_tracks,
-      exclude_styles: [],
-      description: "Uses the set target style and manual constraints.",
-      phases: [
-        %{until: 1.0, target_style: nil}
-      ]
-    }
-  ]
-
   @doc "Configurable long-set planning presets read by the set-builder UI."
   @spec plan_presets() :: [map()]
-  def plan_presets, do: @plan_presets
+  defdelegate plan_presets, to: Presets, as: :all
 
   @doc "Maximum number of tracks the planner accepts in one long-set run."
   @spec max_plan_tracks() :: pos_integer()
-  def max_plan_tracks, do: @max_plan_tracks
+  defdelegate max_plan_tracks, to: Presets, as: :max_tracks
+
+  @doc "The studio control values a preset pre-fills (allowed/excluded styles, arc shape)."
+  @spec preset_fields(String.t()) :: %{
+          allow_styles: [String.t()],
+          exclude_styles: [String.t()],
+          arc_shape: atom()
+        }
+  defdelegate preset_fields(key), to: Presets, as: :to_config_fields
 
   @doc """
-  Estimates how many tracks are needed to fill `minutes`, using the average
-  duration of present library tracks that fit the selected preset.
+  Plans (or extends) `set` from raw Planning-Studio form params: validates them
+  into a `PlanConfig` and runs the `Planner` (energy arc → ranked, filtered,
+  deduped fill → automatic transitions). Returns `{:ok, set}`.
+  """
+  @spec plan(RecSet.t(), map()) :: {:ok, RecSet.t()}
+  def plan(%RecSet{} = set, params) when is_map(params),
+    do: Planner.run(set, PlanConfig.from_params(params))
+
+  @doc """
+  Estimates how many tracks fill `minutes`, from the average duration of present
+  library tracks that fit the preset (its excluded styles are left out of the mean).
   """
   @spec estimate_count_for_duration(pos_integer(), keyword()) :: pos_integer()
   def estimate_count_for_duration(minutes, opts \\ []) when is_integer(minutes) and minutes > 0 do
-    preset = plan_preset(Keyword.get(opts, :preset, "custom"))
-    exclude_styles = preset_exclude_styles(preset, opts)
+    preset = Presets.get(Keyword.get(opts, :preset, "custom"))
 
-    track_ms = exclude_styles |> TrackQuery.avg_present_duration_ms() |> duration_ms()
+    track_ms = preset.exclude_styles |> TrackQuery.avg_present_duration_ms() |> duration_ms()
 
     minutes
     |> Kernel.*(60_000)
@@ -499,64 +454,6 @@ defmodule Beatgrid.Sets do
   defp duration_ms(nil), do: 210_000
   defp duration_ms(%Decimal{} = value), do: Decimal.to_float(value)
   defp duration_ms(value), do: value
-
-  @doc """
-  Plans a full set of `count` faixas along an energy arc (`EnergyArc.plan/1`):
-  opener → peak↔respiro waves → fade-out. Each slot is filled by ranking candidates
-  for its target intensity (chained from the previous faixa, anchored on the set's
-  style, with the arc + tempo weighted to lead) and picking one at random among the
-  top few — so the plan varies per call. Tags each faixa with its arc role, then
-  connects every consecutive pair with a DJ transition. A slot with no remaining
-  candidate is skipped. Returns `{:ok, set}`.
-  """
-  @spec plan_set(RecSet.t(), pos_integer(), keyword()) :: {:ok, RecSet.t()}
-  def plan_set(%RecSet{} = set, count, opts \\ []) when is_integer(count) and count > 0 do
-    topk = Keyword.get(opts, :topk, @plan_topk)
-    preset = plan_preset(Keyword.get(opts, :preset, "custom"))
-    count = count |> min(preset.max_tracks) |> max(1)
-
-    count
-    |> EnergyArc.plan()
-    |> Enum.with_index()
-    |> Enum.each(fn {slot, index} ->
-      opts =
-        rank_opts(set,
-          target_style: phase_target_style(preset, index, count, set),
-          target_intensity: slot.target_intensity,
-          limit: topk,
-          weights: @plan_weights,
-          exclude_styles: preset_exclude_styles(preset, opts)
-        )
-
-      case Mixing.rank(opts) do
-        [] -> :ok
-        ranked -> append(set, Enum.random(ranked).track, slot.role)
-      end
-    end)
-
-    connect_all(set)
-    {:ok, set}
-  end
-
-  defp plan_preset(key) do
-    Enum.find(@plan_presets, &(&1.key == key)) || Enum.find(@plan_presets, &(&1.key == "custom"))
-  end
-
-  defp phase_target_style(%{phases: phases}, index, count, set) do
-    progress =
-      if count <= 1 do
-        1.0
-      else
-        index / (count - 1)
-      end
-
-    phase = Enum.find(phases, &(progress <= &1.until)) || List.last(phases)
-    phase.target_style || set.target_style
-  end
-
-  defp preset_exclude_styles(preset, opts) do
-    (preset.exclude_styles ++ Keyword.get(opts, :exclude_styles, [])) |> Enum.uniq()
-  end
 
   @doc """
   Remixes an EXISTING set: keeps the same tracks but reorders them along the energy
