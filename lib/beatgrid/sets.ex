@@ -14,7 +14,7 @@ defmodule Beatgrid.Sets do
   alias Beatgrid.Library.{Marker, TrackQuery}
   alias Beatgrid.Mixing
   alias Beatgrid.Repo
-  alias Beatgrid.Sets.{RecSet, RecSetQuery, SetTrack}
+  alias Beatgrid.Sets.{EnergyArc, RecSet, RecSetQuery, SetTrack}
 
   @transition_types ~w(cut fade crossfade echo filter bass_swap brake lowpass scratch_cut spinback)
 
@@ -570,7 +570,7 @@ defmodule Beatgrid.Sets do
   defp duration_ms(value), do: value
 
   @doc """
-  Plans a full set of `count` faixas along an energy arc (`Mixing.block_plan/1`):
+  Plans a full set of `count` faixas along an energy arc (`EnergyArc.plan/1`):
   opener → peak↔respiro waves → fade-out. Each slot is filled by ranking candidates
   for its target intensity (chained from the previous faixa, anchored on the set's
   style, with the arc + tempo weighted to lead) and picking one at random among the
@@ -585,7 +585,7 @@ defmodule Beatgrid.Sets do
     count = count |> min(preset.max_tracks) |> max(1)
 
     count
-    |> Mixing.block_plan()
+    |> EnergyArc.plan()
     |> Enum.with_index()
     |> Enum.each(fn {slot, index} ->
       opts =
@@ -629,7 +629,7 @@ defmodule Beatgrid.Sets do
 
   @doc """
   Remixes an EXISTING set: keeps the same tracks but reorders them along the energy
-  arc (`Mixing.block_plan/1`), giving each slot the remaining track whose intensity
+  arc (`EnergyArc.plan/1`), giving each slot the remaining track whose intensity
   best fits and nudging "ouro" (gold) tracks toward the peaks so they spread across
   the highlights. Re-tags the arc roles and re-connects every pair. `{:ok, set}`.
   """
@@ -642,7 +642,7 @@ defmodule Beatgrid.Sets do
 
     cards
     |> length()
-    |> Mixing.block_plan()
+    |> EnergyArc.plan()
     |> assign_arc(cards)
     |> Enum.with_index(1)
     |> Enum.each(fn {{track, role}, pos} ->
