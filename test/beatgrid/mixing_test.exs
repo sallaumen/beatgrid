@@ -183,6 +183,22 @@ defmodule Beatgrid.MixingTest do
       refute low.id in ids
       refute banned.id in ids
     end
+
+    test "allow_styles keeps only the whitelisted folders (empty = no restriction)" do
+      roots =
+        sc_track(camelot: "8A", tempo_bpm: 120.0, tag_title: "Roots") |> set_folder("forro_roots")
+
+      mpb = sc_track(camelot: "8A", tempo_bpm: 120.0, tag_title: "Mpb") |> set_folder("mpb")
+
+      only_roots =
+        Mixing.rank(allow_styles: ["forro_roots"], limit: 50) |> Enum.map(& &1.track.id)
+
+      assert roots.id in only_roots
+      refute mpb.id in only_roots
+
+      all = Mixing.rank(allow_styles: [], limit: 50) |> Enum.map(& &1.track.id)
+      assert roots.id in all and mpb.id in all
+    end
   end
 
   defp set_folder(track, folder) do

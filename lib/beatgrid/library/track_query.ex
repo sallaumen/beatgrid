@@ -352,6 +352,7 @@ defmodule Beatgrid.Library.TrackQuery do
         not is_nil(t.bpm_detected)
     )
     |> min_rating(opts[:min_rating])
+    |> allow_styles(opts[:allow_styles])
     |> exclude_styles(opts[:exclude_styles])
     |> preload(:soundcharts_song)
     |> Repo.all()
@@ -359,6 +360,10 @@ defmodule Beatgrid.Library.TrackQuery do
 
   defp min_rating(q, n) when is_integer(n), do: where(q, [t], t.rating >= ^n)
   defp min_rating(q, _), do: q
+
+  # Whitelist: keep only these genre folders. Empty/nil = no restriction.
+  defp allow_styles(q, [_ | _] = keys), do: where(q, [t], t.genre_folder in ^keys)
+  defp allow_styles(q, _), do: q
 
   defp exclude_styles(q, [_ | _] = keys), do: where(q, [t], t.genre_folder not in ^keys)
   defp exclude_styles(q, _), do: q
