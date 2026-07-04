@@ -48,7 +48,13 @@ defmodule Beatgrid.YouTube.YtDlp do
 
   @impl Beatgrid.YouTube.Downloader
   def list_entries(url) do
-    cli_args = ["--flat-playlist", "--print", "%(id)s#{@sep}%(title)s#{@sep}%(url)s", url]
+    cli_args = [
+      "--flat-playlist",
+      "--print",
+      "%(id)s#{@sep}%(title)s#{@sep}%(url)s#{@sep}%(playlist_title)s",
+      url
+    ]
+
     argv = ["-c", ~s|exec "$@" < /dev/null|, "sh", executable() | cli_args]
 
     case Cli.run(fn -> System.cmd("/bin/sh", argv, stderr_to_stdout: true) end, @list_timeout_ms) do
@@ -59,18 +65,31 @@ defmodule Beatgrid.YouTube.YtDlp do
     end
   end
 
-  @doc "Parses yt-dlp's `--flat-playlist` tab lines into entries (one per video)."
+  @doc """
+  Parses yt-dlp's `--flat-playlist` tab lines into entries (one per video). The
+  4th column is the playlist title (`"NA"` for a single video); legacy 3-column
+  lines degrade to a nil title.
+  """
   @spec parse_entries(String.t()) :: [Beatgrid.YouTube.Downloader.entry()]
   def parse_entries(output) do
     output
     |> String.split("\n", trim: true)
     |> Enum.flat_map(fn line ->
       case String.split(line, @sep) do
-        [id, title, url] -> [%{id: id, title: title, url: entry_url(id, url)}]
-        _ -> []
+        [id, title, url, playlist_title] ->
+          [entry(id, title, url, nil_if_na(playlist_title))]
+
+        [id, title, url] ->
+          [entry(id, title, url, nil)]
+
+        _ ->
+          []
       end
     end)
   end
+
+  defp entry(id, title, url, playlist_title),
+    do: %{id: id, title: title, url: entry_url(id, url), playlist_title: playlist_title}
 
   defp entry_url(id, url) do
     if String.starts_with?(url, "http"),

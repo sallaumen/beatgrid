@@ -44,21 +44,53 @@ defmodule Beatgrid.YouTube.YtDlpTest do
   end
 
   describe "parse_entries/1" do
-    test "parses flat-playlist tab lines into entries" do
+    test "parses flat-playlist tab lines into entries, carrying the playlist title" do
       out =
-        "abc\tFirst Song\thttps://youtu.be/abc\ndef\tSecond\thttps://www.youtube.com/watch?v=def\n"
+        "abc\tFirst Song\thttps://youtu.be/abc\tMinha Playlist\n" <>
+          "def\tSecond\thttps://www.youtube.com/watch?v=def\tMinha Playlist\n"
 
       assert YtDlp.parse_entries(out) == [
-               %{id: "abc", title: "First Song", url: "https://youtu.be/abc"},
-               %{id: "def", title: "Second", url: "https://www.youtube.com/watch?v=def"}
+               %{
+                 id: "abc",
+                 title: "First Song",
+                 url: "https://youtu.be/abc",
+                 playlist_title: "Minha Playlist"
+               },
+               %{
+                 id: "def",
+                 title: "Second",
+                 url: "https://www.youtube.com/watch?v=def",
+                 playlist_title: "Minha Playlist"
+               }
              ]
     end
 
-    test "falls back to a watch URL when yt-dlp gives no usable url" do
-      out = "abc\tOnly Song\tNA\n"
+    test "falls back to a watch URL and a nil playlist title (single video, NA fields)" do
+      out = "abc\tOnly Song\tNA\tNA\n"
 
       assert YtDlp.parse_entries(out) ==
-               [%{id: "abc", title: "Only Song", url: "https://www.youtube.com/watch?v=abc"}]
+               [
+                 %{
+                   id: "abc",
+                   title: "Only Song",
+                   url: "https://www.youtube.com/watch?v=abc",
+                   playlist_title: nil
+                 }
+               ]
+    end
+
+    test "tolerates legacy 3-field lines (no playlist column) as a nil title" do
+      out = "abc\tOnly Song\thttps://youtu.be/abc\n"
+
+      assert YtDlp.parse_entries(out) ==
+               [
+                 %{
+                   id: "abc",
+                   title: "Only Song",
+                   url: "https://youtu.be/abc",
+                   playlist_title: nil
+                 }
+               ]
     end
 
     test "skips malformed lines" do

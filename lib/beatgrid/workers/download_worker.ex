@@ -26,7 +26,9 @@ defmodule Beatgrid.Workers.DownloadWorker do
       url: url,
       video_id: opts[:video_id],
       title: opts[:title],
-      playlist_url: opts[:playlist_url]
+      playlist_url: opts[:playlist_url],
+      playlist_index: opts[:playlist_index],
+      playlist_title: opts[:playlist_title]
     }
     |> new()
     |> Oban.insert()
@@ -34,7 +36,7 @@ defmodule Beatgrid.Workers.DownloadWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"url" => url} = args}) do
-    case YouTube.download_and_ingest(url, args["playlist_url"]) do
+    case YouTube.download_and_ingest(url, playlist(args)) do
       {:ok, _count} ->
         YouTube.broadcast_tick()
         :ok
@@ -47,6 +49,13 @@ defmodule Beatgrid.Workers.DownloadWorker do
         end
     end
   end
+
+  # Rebuilds the playlist provenance from the job args (nil for a single video).
+  defp playlist(%{"playlist_url" => url} = args) when is_binary(url) do
+    %{url: url, index: args["playlist_index"], title: args["playlist_title"]}
+  end
+
+  defp playlist(_args), do: nil
 
   # YouTube rate-limits hard; after a 429 wait at least ~30s and back off further
   # on repeats. Anything else uses Oban's default exponential backoff.
