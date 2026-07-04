@@ -119,6 +119,37 @@ defmodule Beatgrid.Sets.PlannerTest do
     end
   end
 
+  test "gold gravitates to the pico slots and is saved elsewhere", %{set: set} do
+    # Top-5 pinned by rating (2 gold + 3 non-gold); everything else identical.
+    # A 3-slot :steady arc is [abertura, pico, abertura] — the single gold pick
+    # must land exactly on the pico, the openers must spend the non-golds.
+    golden =
+      for i <- 1..2, into: MapSet.new() do
+        t = track(tag_artist: "GoldTop #{i}")
+
+        {:ok, g} =
+          t
+          |> Ecto.Changeset.change(%{rating: 10, gold_status: :confirmed})
+          |> Beatgrid.Repo.update()
+
+        g.id
+      end
+
+    for i <- 1..3 do
+      t = track(tag_artist: "PlainTop #{i}")
+      {:ok, _} = t |> Ecto.Changeset.change(%{rating: 10}) |> Beatgrid.Repo.update()
+    end
+
+    {:ok, _} =
+      plan(set, %{"mode" => "tracks", "track_count" => "3", "arc_shape" => "steady"})
+
+    entries = Sets.entries(set)
+    assert [first, %{role: "pico"} = peak, last] = entries
+    assert MapSet.member?(golden, peak.track.id), "o pico deve receber uma música ouro"
+    refute MapSet.member?(golden, first.track.id), "a abertura deve poupar o ouro"
+    refute MapSet.member?(golden, last.track.id), "o fecho deve poupar o ouro"
+  end
+
   test "gold_every never stalls when the gold pool runs dry", %{set: set} do
     # No gold tracks at all — the quota falls back to normal picks.
     {:ok, _} = plan(set, %{"mode" => "tracks", "track_count" => "10", "gold_every" => "3"})

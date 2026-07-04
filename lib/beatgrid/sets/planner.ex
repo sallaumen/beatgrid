@@ -73,7 +73,7 @@ defmodule Beatgrid.Sets.Planner do
         {exclude, artists, prev, since_gold}
 
       ranked ->
-        chosen = pick(ranked, artists, config.avoid_artist_repeat)
+        chosen = pick(ranked, artists, config.avoid_artist_repeat, slot.role)
         {:ok, _} = Sets.append(set, chosen.track, slot.role)
 
         {MapSet.put(exclude, chosen.track.id), MapSet.put(artists, artist_key(chosen.track)),
@@ -118,16 +118,32 @@ defmodule Beatgrid.Sets.Planner do
     ]
   end
 
-  # Top-K random pick. When avoiding repeats, prefer candidates whose artist
-  # hasn't been placed yet, but never stall — fall back to the full top-K.
-  defp pick(ranked, _artists, false), do: Enum.random(ranked)
+  # Top-K random pick behind a preference ladder that never stalls: honor the
+  # artist spread first, then steer Selo Ouro toward the highlights — a pico
+  # slot takes a gold when one is in reach, any other slot saves the golds for
+  # the peaks (the same "distribute the good stuff" philosophy remix applies to
+  # manual sets). Each preference falls back to the full pool when it can't be
+  # satisfied, so shaping never beats filling.
+  defp pick(ranked, artists, avoid_artist?, role) do
+    ranked
+    |> prefer(avoid_artist?, &(not MapSet.member?(artists, artist_key(&1.track))))
+    |> prefer(true, gold_preference(role))
+    |> Enum.random()
+  end
 
-  defp pick(ranked, artists, true) do
-    case Enum.reject(ranked, &MapSet.member?(artists, artist_key(&1.track))) do
-      [] -> Enum.random(ranked)
-      fresh -> Enum.random(fresh)
+  defp prefer(pool, false, _keep?), do: pool
+
+  defp prefer(pool, true, keep?) do
+    case Enum.filter(pool, keep?) do
+      [] -> pool
+      kept -> kept
     end
   end
+
+  defp gold_preference("pico"), do: &gold?(&1.track)
+  defp gold_preference(_role), do: &(not gold?(&1.track))
+
+  defp gold?(track), do: track |> Beatgrid.Gold.effective() |> elem(0)
 
   defp artist_key(track), do: track.norm_artist || track.tag_artist
 end
