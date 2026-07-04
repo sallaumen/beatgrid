@@ -109,13 +109,28 @@ defmodule Beatgrid.Sets.Planner do
       exclude: MapSet.to_list(exclude),
       limit: @topk,
       weights: weights_for(config),
-      allow_styles: config.allow_styles,
       exclude_styles: Enum.uniq(preset.exclude_styles ++ config.exclude_styles),
       bpm_min: config.bpm_min,
       bpm_max: config.bpm_max,
       min_rating: config.min_rating,
       less_vocals: config.less_vocals
-    ]
+    ] ++ style_opts(config)
+  end
+
+  # The style scale: primaries score full, "se muito boa" folders join the pool
+  # at a reduced style weight — they only crack the top-K when rating/gold/arc
+  # fit make them stand out. Nothing marked = every style, plain affinity.
+  @secondary_tier 0.4
+
+  defp style_opts(%PlanConfig{allow_styles: [], secondary_styles: []}), do: []
+
+  defp style_opts(config) do
+    tiers =
+      config.secondary_styles
+      |> Map.new(&{&1, @secondary_tier})
+      |> Map.merge(Map.new(config.allow_styles, &{&1, 1.0}))
+
+    [allow_styles: Map.keys(tiers), style_tiers: tiers]
   end
 
   # Harmony chains each pick to the PREVIOUS track's key, and over a long plan

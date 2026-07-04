@@ -158,12 +158,13 @@ defmodule Beatgrid.Mixing do
     exclude = Keyword.get(opts, :exclude, [])
     limit = Keyword.get(opts, :limit, @default_limit)
     weights = opts |> Keyword.get(:weights) |> clamp_weights()
+    tiers = Keyword.get(opts, :style_tiers, %{})
 
     prev_eff = prev && effective(Repo.preload(prev, :soundcharts_song))
 
     exclude
     |> candidates(prev_eff, opts)
-    |> Enum.map(&score(&1, prev_eff, target_style, target_intensity, weights))
+    |> Enum.map(&score(&1, prev_eff, target_style, target_intensity, weights, tiers))
     |> Enum.sort_by(& &1.score, :desc)
     |> Enum.take(limit)
   end
@@ -200,11 +201,16 @@ defmodule Beatgrid.Mixing do
   defp harmonic_ok?(true, %{camelot: a}, b),
     do: a == b or Camelot.compatible?(a, b)
 
-  defp score(track, prev_eff, target_style, target_intensity, weights) do
+  defp score(track, prev_eff, target_style, target_intensity, weights, tiers) do
     e = effective(track)
 
     parts = %{
-      style: StyleAffinity.affinity(target_style, track.genre_folder),
+      # A style tier (planner's "se muito boa" scale) shrinks the style score
+      # of secondary folders, so they only surface when another dimension
+      # (rating, arc fit) makes them stand out. 1.0 (or no tiers) = unchanged.
+      style:
+        StyleAffinity.affinity(target_style, track.genre_folder) *
+          Map.get(tiers, track.genre_folder, 1.0),
       harmony: if(prev_eff, do: harmony(prev_eff.camelot, e.camelot), else: 0.0),
       intensity: intensity_fit(target_intensity, intensity_of(e)),
       bpm: if(prev_eff, do: bpm_smoothness(prev_eff.bpm, e.bpm), else: 0.0),

@@ -946,21 +946,23 @@ defmodule BeatgridWeb.RecSetLive do
 
       <fieldset class="space-y-1">
         <legend class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
-          Estilos permitidos
-          <span class="text-ink-faint/60 normal-case">— nenhum marcado = todos</span>
+          Estilos <span class="text-ink-faint/60 normal-case">— tudo em "—" = todos por igual</span>
         </legend>
         <div class="grid grid-cols-2 gap-x-3 gap-y-1">
           <label
             :for={f <- @folders}
-            class="flex items-center gap-1.5 text-caption text-ink-secondary"
+            class="flex items-center justify-between gap-1.5 text-caption text-ink-secondary"
+            title="Principal = peso cheio · Se muito boa = entra só quando se destaca (nota, ouro, encaixe no arco)"
           >
-            <input
-              type="checkbox"
-              name="allow_styles[]"
-              value={f.key}
-              checked={f.key in @prefill.allow_styles}
-              class="accent-primary"
-            /> {f.display_name}
+            <span class="truncate">{f.display_name}</span>
+            <select
+              name={"style_tier[#{f.key}]"}
+              class="rounded-md border border-white/8 bg-input px-1 py-0.5 text-[11px] focus:border-primary/50 focus:outline-none"
+            >
+              <option value="">—</option>
+              <option value="primary" selected={f.key in @prefill.allow_styles}>Principal</option>
+              <option value="secondary">Se muito boa</option>
+            </select>
           </label>
         </div>
       </fieldset>

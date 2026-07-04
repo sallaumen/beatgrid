@@ -65,6 +65,21 @@ defmodule Beatgrid.Sets.PlanConfigTest do
     assert PlanConfig.from_params(%{"gold_every" => "99"}).gold_every == 20
   end
 
+  test "style_tier map splits into primary allow_styles and secondary_styles" do
+    c =
+      PlanConfig.from_params(%{
+        "style_tier" => %{
+          "forro_roots" => "primary",
+          "forro" => "secondary",
+          "forro_classico" => "secondary",
+          "mpb" => ""
+        }
+      })
+
+    assert c.allow_styles == ["forro_roots"]
+    assert Enum.sort(c.secondary_styles) == ["forro", "forro_classico"]
+  end
+
   test "reads the style/set-id arrays and the boolean" do
     c =
       PlanConfig.from_params(%{
