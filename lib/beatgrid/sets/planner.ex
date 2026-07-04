@@ -46,12 +46,14 @@ defmodule Beatgrid.Sets.Planner do
     # The reduce threads the running exclude/used-artists/prev/gold-gap
     # accumulator; its final value is spent (the fill is via append side
     # effects), so discard it.
+    ctx = %{set: set, config: config, preset: preset, count: count, reference: reference}
+
     _ =
       count
       |> EnergyArc.plan(config.arc_shape)
       |> Enum.with_index()
       |> Enum.reduce({exclude0, MapSet.new(), List.last(members), 0}, fn {slot, index}, acc ->
-        fill_slot(set, config, preset, count, reference, slot, index, acc)
+        fill_slot(ctx, slot, index, acc)
       end)
 
     Sets.connect_all(set)
@@ -73,28 +75,19 @@ defmodule Beatgrid.Sets.Planner do
     |> max(1)
   end
 
-  defp fill_slot(
-         set,
-         config,
-         preset,
-         count,
-         reference,
-         slot,
-         index,
-         {exclude, artists, prev, since_gold}
-       ) do
-    opts = rank_opts(set, config, preset, count, reference, slot, index, exclude, prev)
+  defp fill_slot(ctx, slot, index, {exclude, artists, prev, since_gold}) do
+    opts = rank_opts(ctx, slot, index, exclude, prev)
 
-    case ranked_for(config, since_gold, opts) do
+    case ranked_for(ctx.config, since_gold, opts) do
       [] ->
         {exclude, artists, prev, since_gold}
 
       ranked ->
-        chosen = pick(ranked, artists, config.avoid_artist_repeat, slot.role)
-        {:ok, _} = Sets.append(set, chosen.track, slot.role)
+        chosen = pick(ranked, artists, ctx.config.avoid_artist_repeat, slot.role)
+        {:ok, _} = Sets.append(ctx.set, chosen.track, slot.role)
 
         {MapSet.put(exclude, chosen.track.id), MapSet.put(artists, artist_key(chosen.track)),
-         chosen.track, next_gold_gap(config, since_gold, chosen.track)}
+         chosen.track, next_gold_gap(ctx.config, since_gold, chosen.track)}
     end
   end
 
@@ -118,10 +111,12 @@ defmodule Beatgrid.Sets.Planner do
     if track |> Beatgrid.Gold.effective() |> elem(0), do: 0, else: since_gold + 1
   end
 
-  defp rank_opts(set, config, preset, count, reference, slot, index, exclude, prev) do
+  defp rank_opts(ctx, slot, index, exclude, prev) do
+    %{config: config, preset: preset} = ctx
+
     [
       prev: prev,
-      target_style: Presets.phase_target_style(preset, index, count, set.target_style),
+      target_style: Presets.phase_target_style(preset, index, ctx.count, ctx.set.target_style),
       target_intensity: slot.target_intensity,
       exclude: MapSet.to_list(exclude),
       limit: @topk,
@@ -130,7 +125,7 @@ defmodule Beatgrid.Sets.Planner do
       bpm_max: config.bpm_max,
       min_rating: config.min_rating,
       less_vocals: config.less_vocals
-    ] ++ pool_opts(config, preset, reference)
+    ] ++ pool_opts(config, preset, ctx.reference)
   end
 
   # Library mode: the whole library, gated by the style whitelist/exclusions.
