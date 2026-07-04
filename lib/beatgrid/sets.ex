@@ -177,6 +177,37 @@ defmodule Beatgrid.Sets do
   def delete(set), do: Repo.delete(set)
 
   @doc """
+  Duplicates a set into a fresh `"<name> (cópia)"` — same target style and every
+  entry copied verbatim (track, position, role, transition). A real backup: the
+  copy and the original share no rows, so editing one never touches the other.
+  """
+  @spec duplicate(RecSet.t()) :: {:ok, RecSet.t()} | {:error, Ecto.Changeset.t()}
+  def duplicate(%RecSet{id: id}) do
+    # Read the source fresh so a stale in-memory struct still copies the current
+    # name/target_style/rows.
+    %RecSet{name: name, target_style: style} = RecSetQuery.get(id)
+
+    with {:ok, copy} <-
+           %RecSet{}
+           |> RecSet.changeset(%{name: "#{name} (cópia)", target_style: style})
+           |> Repo.insert() do
+      for row <- RecSetQuery.rows(id) do
+        %SetTrack{}
+        |> SetTrack.changeset(%{
+          rec_set_id: copy.id,
+          track_id: row.track_id,
+          position: row.position,
+          role: row.role,
+          transition: row.transition
+        })
+        |> Repo.insert!()
+      end
+
+      {:ok, copy}
+    end
+  end
+
+  @doc """
   Appends a track to the end of the set (a no-op if it's already a member),
   optionally tagging it with a section `role` (e.g. `"pico"`).
   """

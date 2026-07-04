@@ -145,6 +145,18 @@ defmodule BeatgridWeb.RecSetLive do
     {:noreply, load_set(socket, set)}
   end
 
+  # Backup a good set before editing: copies it and loads the copy, so the DJ
+  # edits the backup and the original stays put.
+  def handle_event("duplicate_set", _params, socket) do
+    {:ok, copy} = Sets.duplicate(socket.assigns.set)
+
+    {:noreply,
+     socket
+     |> assign(sets: Sets.list())
+     |> load_set(copy)
+     |> put_flash(:info, "Cópia criada: “#{copy.name}”. Você está editando a cópia.")}
+  end
+
   def handle_event("delete_set", _params, socket) do
     {:ok, _} = Sets.delete(socket.assigns.set)
     sets = Sets.list()
@@ -575,6 +587,13 @@ defmodule BeatgridWeb.RecSetLive do
                   class="rounded-md bg-primary px-3 py-1.5 text-body-sm font-semibold text-white disabled:opacity-40"
                 >
                   Exportar M3U
+                </button>
+                <button
+                  phx-click="duplicate_set"
+                  class="rounded-md px-2 py-1.5 text-body-sm text-ink-muted hover:text-primary"
+                  title="Cria uma cópia deste set — faça backup antes de editar"
+                >
+                  ⧉ Duplicar
                 </button>
                 <button
                   phx-click="delete_set"

@@ -28,6 +28,35 @@ defmodule Beatgrid.SetsTest do
     assert [%{name: "Sunset"}] = Sets.list()
   end
 
+  test "duplicate copies the set with a fresh name and every entry preserved" do
+    {:ok, orig} = Sets.create("Meu set bom")
+    {:ok, _} = Sets.set_target_style(orig, "forro_roots")
+    a = track_with("8A", 120.0)
+    b = track_with("9A", 122.0)
+    {:ok, _} = Sets.append(orig, a, "abertura")
+    {:ok, _} = Sets.append(orig, b, "pico")
+    {:ok, _} = Sets.connect(orig, b, %{"type" => "echo", "from_ms" => 90_000})
+
+    {:ok, copy} = Sets.duplicate(orig)
+
+    assert copy.id != orig.id
+    assert copy.name == "Meu set bom (cópia)"
+    assert copy.target_style == "forro_roots"
+
+    orig_entries = Sets.entries(orig)
+    copy_entries = Sets.entries(copy)
+    assert Enum.map(copy_entries, & &1.track.id) == Enum.map(orig_entries, & &1.track.id)
+    assert Enum.map(copy_entries, & &1.position) == [1, 2]
+    assert Enum.map(copy_entries, & &1.role) == ["abertura", "pico"]
+    assert List.last(copy_entries).transition["type"] == "echo"
+    assert List.last(copy_entries).transition["from_ms"] == 90_000
+
+    # Editing the copy leaves the original untouched (it's a real backup).
+    :ok = Sets.remove(copy, a)
+    assert length(Sets.tracks(orig)) == 2
+    assert length(Sets.tracks(copy)) == 1
+  end
+
   test "move :top and :bottom jump a track to the ends" do
     {:ok, set} = Sets.create("Reorder")
     a = track_with("8A", 120.0)
