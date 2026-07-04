@@ -594,12 +594,14 @@ defmodule BeatgridWeb.DiscotecagemLive do
           </div>
         </div>
 
+        <%!-- -mb-20 cancels the app shell's pb-20 so the console fills to the very
+        bottom (no wasted 80px); the lists reclaim it and the page fits the fold. --%>
         <div
           id="dj-console"
           phx-hook=".DjConsole"
           data-auto={to_string(@auto?)}
           data-rail-tab={@rail_tab}
-          class="mt-3"
+          class="mt-3 -mb-20"
         >
           <div
             id="dj-waves"
@@ -717,118 +719,6 @@ defmodule BeatgridWeb.DiscotecagemLive do
                   </button>
                 </div>
               </details>
-
-              <details
-                id="dj-details-scratch"
-                open
-                class="rounded-xl border border-white/8"
-                style="background:linear-gradient(180deg,#11131a,#0e0f15)"
-              >
-                <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2">
-                  <span class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
-                    Scratch
-                  </span>
-                  <span
-                    id="dj-scratch-target"
-                    phx-update="ignore"
-                    class="rounded bg-white/5 px-1.5 py-0.5 font-mono text-[10px] text-ink-faint"
-                    title="Disco que vai ser arranhado (o que não está no ar)"
-                  >
-                    —
-                  </span>
-                </summary>
-                <div id="dj-scratch" phx-update="ignore" class="flex flex-col gap-2 px-3 pb-3">
-                  <div class="grid grid-cols-3 gap-1">
-                    <button
-                      :for={{k, lab} <- [{"baby", "Baby"}, {"transform", "Trans"}, {"chop", "Chop"}]}
-                      type="button"
-                      data-dj-scratch-pat={k}
-                      data-on={to_string(k == "baby")}
-                      title={"Padrão " <> lab}
-                      class="dj-scratch-pat rounded-md border border-white/8 bg-[#101218] px-1 py-1 text-[9px] font-bold uppercase tracking-wider text-ink-faint transition-colors"
-                    >
-                      {lab}
-                    </button>
-                  </div>
-                  <button
-                    id="dj-scratch-pad"
-                    type="button"
-                    data-on="false"
-                    title="Segure para arranhar o disco parado — solte para voltar"
-                    class="flex h-11 select-none items-center justify-center rounded-lg border border-[#8b7bf0]/40 bg-[#8b7bf0]/10 text-[10px] font-bold uppercase tracking-[0.14em] text-[#8b7bf0] transition-all"
-                  >
-                    Segurar p/ scratch
-                  </button>
-                  <div class="flex items-center gap-2">
-                    <span class="w-6 text-[8px] font-bold uppercase tracking-wider text-ink-faint">
-                      Vel
-                    </span>
-                    <input
-                      id="dj-scratch-rate"
-                      type="range"
-                      min="1"
-                      max="8"
-                      step="0.1"
-                      value="3"
-                      aria-label="Velocidade do scratch"
-                      class="h-1 flex-1 cursor-pointer"
-                      style="accent-color:#8b7bf0"
-                    />
-                  </div>
-                  <div>
-                    <div class="flex justify-between text-[8px] font-bold">
-                      <span style="color:#8b7bf0">A</span>
-                      <span class="uppercase tracking-[0.16em] text-ink-faint">Crossfader</span>
-                      <span style="color:#2d9cff">B</span>
-                    </div>
-                    <input
-                      id="dj-scratch-xfader"
-                      type="range"
-                      min="0"
-                      max="100"
-                      value="50"
-                      aria-label="Crossfader do scratch"
-                      class="mt-0.5 w-full cursor-pointer"
-                      style="accent-color:#e6e9f2"
-                    />
-                  </div>
-                </div>
-              </details>
-
-              <details
-                class="rounded-xl border border-white/8"
-                style="background:linear-gradient(180deg,#11131a,#0e0f15)"
-              >
-                <summary
-                  class="flex cursor-pointer list-none items-center gap-2 px-3 py-1.5"
-                  title="Controladora & fone · Eventos — clique para abrir"
-                >
-                  <span class="text-[12px] leading-none">🎛</span>
-                  <span class="flex-1 text-[9px] font-bold uppercase tracking-[0.14em] text-ink-faint">
-                    Controladora · Eventos
-                  </span>
-                  <span class={[
-                    "size-2 rounded-full",
-                    @midi.connected && "bg-green",
-                    !@midi.connected && "bg-white/20"
-                  ]}></span>
-                </summary>
-                <div class="max-h-[220px] overflow-auto border-t border-white/6">
-                  <.midi_panel midi={@midi} />
-                  <div class="px-3 pb-3 pt-1">
-                    <span class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
-                      Eventos
-                    </span>
-                    <div
-                      id="dj-log"
-                      phx-update="ignore"
-                      class="mt-1 flex max-h-24 flex-col gap-0.5 overflow-auto font-mono text-[10px] leading-relaxed text-ink-muted"
-                    >
-                      <p class="text-ink-faint">— mesa pronta —</p>
-                    </div>
-                  </div>
-                </div>
-              </details>
             </div>
 
             <.queue_panel
@@ -846,6 +736,119 @@ defmodule BeatgridWeb.DiscotecagemLive do
               played={@played}
               member_ids={@entries |> MapSet.new(& &1.track.id)}
             />
+          </div>
+
+          <div class="mt-2 grid items-start gap-3 lg:grid-cols-2">
+            <details
+              id="dj-details-scratch"
+              class="rounded-xl border border-white/8"
+              style="background:linear-gradient(180deg,#11131a,#0e0f15)"
+            >
+              <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-1.5">
+                <span class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
+                  Scratch
+                </span>
+                <span
+                  id="dj-scratch-target"
+                  phx-update="ignore"
+                  class="rounded bg-white/5 px-1.5 py-0.5 font-mono text-[10px] text-ink-faint"
+                  title="Disco que vai ser arranhado (o que não está no ar)"
+                >
+                  —
+                </span>
+              </summary>
+              <div id="dj-scratch" phx-update="ignore" class="flex flex-col gap-2 px-3 pb-3">
+                <div class="grid grid-cols-3 gap-1">
+                  <button
+                    :for={{k, lab} <- [{"baby", "Baby"}, {"transform", "Trans"}, {"chop", "Chop"}]}
+                    type="button"
+                    data-dj-scratch-pat={k}
+                    data-on={to_string(k == "baby")}
+                    title={"Padrão " <> lab}
+                    class="dj-scratch-pat rounded-md border border-white/8 bg-[#101218] px-1 py-1 text-[9px] font-bold uppercase tracking-wider text-ink-faint transition-colors"
+                  >
+                    {lab}
+                  </button>
+                </div>
+                <button
+                  id="dj-scratch-pad"
+                  type="button"
+                  data-on="false"
+                  title="Segure para arranhar o disco parado — solte para voltar"
+                  class="flex h-11 select-none items-center justify-center rounded-lg border border-[#8b7bf0]/40 bg-[#8b7bf0]/10 text-[10px] font-bold uppercase tracking-[0.14em] text-[#8b7bf0] transition-all"
+                >
+                  Segurar p/ scratch
+                </button>
+                <div class="flex items-center gap-2">
+                  <span class="w-6 text-[8px] font-bold uppercase tracking-wider text-ink-faint">
+                    Vel
+                  </span>
+                  <input
+                    id="dj-scratch-rate"
+                    type="range"
+                    min="1"
+                    max="8"
+                    step="0.1"
+                    value="3"
+                    aria-label="Velocidade do scratch"
+                    class="h-1 flex-1 cursor-pointer"
+                    style="accent-color:#8b7bf0"
+                  />
+                </div>
+                <div>
+                  <div class="flex justify-between text-[8px] font-bold">
+                    <span style="color:#8b7bf0">A</span>
+                    <span class="uppercase tracking-[0.16em] text-ink-faint">Crossfader</span>
+                    <span style="color:#2d9cff">B</span>
+                  </div>
+                  <input
+                    id="dj-scratch-xfader"
+                    type="range"
+                    min="0"
+                    max="100"
+                    value="50"
+                    aria-label="Crossfader do scratch"
+                    class="mt-0.5 w-full cursor-pointer"
+                    style="accent-color:#e6e9f2"
+                  />
+                </div>
+              </div>
+            </details>
+
+            <details
+              class="rounded-xl border border-white/8"
+              style="background:linear-gradient(180deg,#11131a,#0e0f15)"
+            >
+              <summary
+                class="flex cursor-pointer list-none items-center gap-2 px-3 py-1.5"
+                title="Controladora & fone · Eventos — clique para abrir"
+              >
+                <span class="text-[12px] leading-none">🎛</span>
+                <span class="flex-1 text-[9px] font-bold uppercase tracking-[0.14em] text-ink-faint">
+                  Controladora · Eventos
+                </span>
+                <span class={[
+                  "size-2 rounded-full",
+                  @midi.connected && "bg-green",
+                  !@midi.connected && "bg-white/20"
+                ]}></span>
+              </summary>
+              <div class="max-h-[220px] overflow-auto border-t border-white/6">
+                <.midi_panel midi={@midi} />
+                <div class="px-3 pb-3 pt-1">
+                  <span class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
+                    Eventos
+                  </span>
+                  <div
+                    id="dj-log"
+                    phx-update="ignore"
+                    class="mt-1 flex max-h-24 flex-col gap-0.5 overflow-auto font-mono text-[10px] leading-relaxed text-ink-muted"
+                  >
+                    <p class="text-ink-faint">— mesa pronta —</p>
+                  </div>
+                </div>
+              </div>
+            </details>
           </div>
 
           <div id="dj-audio-rack" phx-update="ignore">
@@ -2776,7 +2779,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
   defp queue_panel(assigns) do
     ~H"""
     <section class={[
-      "flex max-h-[calc(100vh-660px)] min-h-[200px] flex-col overflow-hidden rounded-2xl border bg-surface p-3 transition-colors",
+      "flex max-h-[calc(100vh-624px)] min-h-[200px] flex-col overflow-hidden rounded-2xl border bg-surface p-3 transition-colors",
       @rail_tab == "fila" && "border-primary/40",
       @rail_tab != "fila" && "border-white/8"
     ]}>
@@ -2877,7 +2880,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
   defp library_panel(assigns) do
     ~H"""
     <section class={[
-      "flex max-h-[calc(100vh-660px)] min-h-[200px] flex-col overflow-hidden rounded-2xl border bg-surface p-3 transition-colors",
+      "flex max-h-[calc(100vh-624px)] min-h-[200px] flex-col overflow-hidden rounded-2xl border bg-surface p-3 transition-colors",
       @rail_tab == "biblioteca" && "border-primary/40",
       @rail_tab != "biblioteca" && "border-white/8"
     ]}>
