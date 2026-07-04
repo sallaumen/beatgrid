@@ -128,6 +128,71 @@ defmodule Beatgrid.Sets.PlannerTest do
     assert folders == ["forro_roots"]
   end
 
+  describe "reference set as the pool" do
+    test "restricts the plan to the reference set's tracks", %{set: set} do
+      {:ok, ref} = Sets.create("Referência")
+
+      ref_ids =
+        for i <- 1..5, into: MapSet.new() do
+          t = track(tag_artist: "Ref #{i}")
+          {:ok, _} = Sets.append(ref, t)
+          t.id
+        end
+
+      # The setup's 30 other library tracks must be ignored — the pool is the set.
+      {:ok, _} =
+        plan(set, %{"mode" => "tracks", "track_count" => "5", "reference_set_id" => ref.id})
+
+      planned = set |> Sets.tracks() |> MapSet.new(& &1.id)
+      assert MapSet.size(planned) == 5
+      assert MapSet.subset?(planned, ref_ids)
+    end
+
+    test "marked styles escape to the whole library, layered on the reference", %{set: set} do
+      {:ok, ref} = Sets.create("Referência")
+      {:ok, _} = Sets.append(ref, track(tag_artist: "Ref only"))
+
+      psic =
+        for i <- 1..5, into: MapSet.new() do
+          track(tag_artist: "Psic #{i}", genre_folder: "forro_psicodelico").id
+        end
+
+      {:ok, _} =
+        plan(set, %{
+          "mode" => "tracks",
+          "track_count" => "6",
+          "reference_set_id" => ref.id,
+          "style_tier" => %{"forro_psicodelico" => "primary"}
+        })
+
+      planned = set |> Sets.tracks() |> MapSet.new(& &1.id)
+      # Pool = the 1 reference track ∪ the 5 psicodélico from the library; the
+      # setup's plain-forró tracks (not referenced, not psicodélico) stay out.
+      assert MapSet.size(MapSet.intersection(planned, psic)) >= 1
+      assert Enum.all?(planned, &(&1 in MapSet.put(psic, hd(Sets.tracks(ref)).id)))
+    end
+
+    test "referencing the set being replaced re-plans from its own tracks", %{set: set} do
+      seeds =
+        for i <- 1..4, into: MapSet.new() do
+          t = track(tag_artist: "Seed #{i}")
+          {:ok, _} = Sets.append(set, t)
+          t.id
+        end
+
+      {:ok, _} =
+        plan(set, %{
+          "mode" => "tracks",
+          "track_count" => "4",
+          "fill_mode" => "replace",
+          "reference_set_id" => set.id
+        })
+
+      planned = set |> Sets.tracks() |> MapSet.new(& &1.id)
+      assert MapSet.equal?(planned, seeds)
+    end
+  end
+
   test "bpm window bounds the pool", %{set: set} do
     track(tag_artist: "Fast", tempo_bpm: 165.0)
 

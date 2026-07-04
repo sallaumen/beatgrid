@@ -31,6 +31,9 @@ defmodule Beatgrid.Sets.Planner do
   @doc "Plans (or extends) `set` per `config`. Returns `{:ok, set}`."
   @spec run(RecSet.t(), PlanConfig.t()) :: {:ok, RecSet.t()}
   def run(%RecSet{} = set, %PlanConfig{} = config) do
+    # Read the reference pool BEFORE clearing, so referencing the very set being
+    # replaced re-plans from its own (pre-clear) tracks.
+    reference = reference_pool(config)
     set = maybe_clear(set, config.fill_mode)
     preset = Presets.get(config.preset)
     count = plan_count(config, preset)
@@ -48,12 +51,17 @@ defmodule Beatgrid.Sets.Planner do
       |> EnergyArc.plan(config.arc_shape)
       |> Enum.with_index()
       |> Enum.reduce({exclude0, MapSet.new(), List.last(members), 0}, fn {slot, index}, acc ->
-        fill_slot(set, config, preset, count, slot, index, acc)
+        fill_slot(set, config, preset, count, reference, slot, index, acc)
       end)
 
     Sets.connect_all(set)
     {:ok, set}
   end
+
+  # nil = plan from the whole library; a list = restrict the pool to these track
+  # ids (the reference set's members). Read once, up front.
+  defp reference_pool(%PlanConfig{reference_set_id: id}) when id in [nil, ""], do: nil
+  defp reference_pool(%PlanConfig{reference_set_id: id}), do: RecSetQuery.track_ids_in([id])
 
   defp maybe_clear(set, :replace), do: Sets.clear(set)
   defp maybe_clear(set, :append), do: set
@@ -65,8 +73,17 @@ defmodule Beatgrid.Sets.Planner do
     |> max(1)
   end
 
-  defp fill_slot(set, config, preset, count, slot, index, {exclude, artists, prev, since_gold}) do
-    opts = rank_opts(set, config, preset, count, slot, index, exclude, prev)
+  defp fill_slot(
+         set,
+         config,
+         preset,
+         count,
+         reference,
+         slot,
+         index,
+         {exclude, artists, prev, since_gold}
+       ) do
+    opts = rank_opts(set, config, preset, count, reference, slot, index, exclude, prev)
 
     case ranked_for(config, since_gold, opts) do
       [] ->
@@ -101,7 +118,7 @@ defmodule Beatgrid.Sets.Planner do
     if track |> Beatgrid.Gold.effective() |> elem(0), do: 0, else: since_gold + 1
   end
 
-  defp rank_opts(set, config, preset, count, slot, index, exclude, prev) do
+  defp rank_opts(set, config, preset, count, reference, slot, index, exclude, prev) do
     [
       prev: prev,
       target_style: Presets.phase_target_style(preset, index, count, set.target_style),
@@ -109,12 +126,25 @@ defmodule Beatgrid.Sets.Planner do
       exclude: MapSet.to_list(exclude),
       limit: @topk,
       weights: weights_for(config),
-      exclude_styles: Enum.uniq(preset.exclude_styles ++ config.exclude_styles),
       bpm_min: config.bpm_min,
       bpm_max: config.bpm_max,
       min_rating: config.min_rating,
       less_vocals: config.less_vocals
-    ] ++ style_opts(config)
+    ] ++ pool_opts(config, preset, reference)
+  end
+
+  # Library mode: the whole library, gated by the style whitelist/exclusions.
+  defp pool_opts(config, preset, nil) do
+    [exclude_styles: Enum.uniq(preset.exclude_styles ++ config.exclude_styles)] ++
+      style_opts(config)
+  end
+
+  # Reference mode: the pool IS the reference set, PLUS any marked style pulled
+  # from the full library (the "escape"). The style whitelist/exclusions don't
+  # filter the curated reference; tier WEIGHTS still score the escaped tracks.
+  defp pool_opts(config, _preset, reference_ids) do
+    escape = Enum.uniq(config.allow_styles ++ config.secondary_styles)
+    [restrict_ids: reference_ids, escape_styles: escape] ++ tier_opts(config)
   end
 
   # The style scale: primaries score full, "se muito boa" folders join the pool
@@ -122,15 +152,24 @@ defmodule Beatgrid.Sets.Planner do
   # fit make them stand out. Nothing marked = every style, plain affinity.
   @secondary_tier 0.4
 
-  defp style_opts(%PlanConfig{allow_styles: [], secondary_styles: []}), do: []
-
   defp style_opts(config) do
-    tiers =
-      config.secondary_styles
-      |> Map.new(&{&1, @secondary_tier})
-      |> Map.merge(Map.new(config.allow_styles, &{&1, 1.0}))
+    case tiers_map(config) do
+      tiers when map_size(tiers) == 0 -> []
+      tiers -> [allow_styles: Map.keys(tiers), style_tiers: tiers]
+    end
+  end
 
-    [allow_styles: Map.keys(tiers), style_tiers: tiers]
+  defp tier_opts(config) do
+    case tiers_map(config) do
+      tiers when map_size(tiers) == 0 -> []
+      tiers -> [style_tiers: tiers]
+    end
+  end
+
+  defp tiers_map(config) do
+    config.secondary_styles
+    |> Map.new(&{&1, @secondary_tier})
+    |> Map.merge(Map.new(config.allow_styles, &{&1, 1.0}))
   end
 
   # Harmony chains each pick to the PREVIOUS track's key, and over a long plan

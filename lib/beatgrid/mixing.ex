@@ -172,7 +172,15 @@ defmodule Beatgrid.Mixing do
   defp candidates(exclude, prev_eff, opts) do
     exclude
     |> TrackQuery.mixing_candidates(
-      Keyword.take(opts, [:min_rating, :allow_styles, :exclude_styles, :gold_only, :less_vocals])
+      Keyword.take(opts, [
+        :min_rating,
+        :allow_styles,
+        :exclude_styles,
+        :gold_only,
+        :less_vocals,
+        :restrict_ids,
+        :escape_styles
+      ])
     )
     |> filter_effective(prev_eff, opts)
   end

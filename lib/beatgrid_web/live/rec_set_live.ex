@@ -963,6 +963,20 @@ defmodule BeatgridWeb.RecSetLive do
         </label>
       </div>
 
+      <label :if={@other_sets != []} class="block space-y-1">
+        <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+          Set de referência
+        </span>
+        <select name="reference_set_id" class={plan_input()}>
+          <option value="">— biblioteca toda</option>
+          <option :for={s <- @other_sets} value={s.id}>{s.name}</option>
+        </select>
+        <span class="block text-[10px] text-ink-faint/70">
+          Usa só as músicas desse set como base — sets menores e refinados.
+          Com ele ligado, os estilos marcados abaixo entram <em>também</em> da biblioteca toda.
+        </span>
+      </label>
+
       <fieldset class="space-y-1">
         <legend class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
           Estilos <span class="text-ink-faint/60 normal-case">— tudo em "—" = todos por igual</span>

@@ -28,6 +28,11 @@ defmodule Beatgrid.Sets.PlanConfig do
     * `arc_shape` — `EnergyArc` shape.
     * `avoid_artist_repeat` — spread artists across the set when possible.
     * `exclude_set_ids` — other sets whose tracks must not repeat here.
+    * `reference_set_id` — plan from ONLY this set's tracks (a curated pool)
+      instead of the whole library, so smaller refined sets can be carved out of
+      a good one. When set, the marked styles (`allow_styles`/`secondary_styles`)
+      "escape" — those folders are ALSO pulled from the full library, layered on
+      top of the reference (e.g. my playlist + all forró psicodélico).
     * `fill_mode` — `:replace` (clear first) or `:append`.
   """
   use Ecto.Schema
@@ -57,13 +62,14 @@ defmodule Beatgrid.Sets.PlanConfig do
     field :arc_shape, Ecto.Enum, values: EnergyArc.shapes(), default: :wave
     field :avoid_artist_repeat, :boolean, default: false
     field :exclude_set_ids, {:array, :string}, default: []
+    field :reference_set_id, :string
     field :fill_mode, Ecto.Enum, values: [:replace, :append], default: :replace
   end
 
   @castable ~w(preset mode track_count duration_minutes allow_styles secondary_styles
                exclude_styles bpm_min bpm_max min_rating gold_every prioritize_rating
                less_vocals match_keys arc_shape avoid_artist_repeat exclude_set_ids
-               fill_mode)a
+               reference_set_id fill_mode)a
 
   @doc """
   Builds a `%PlanConfig{}` from raw form params. Always returns a valid struct:
@@ -81,6 +87,7 @@ defmodule Beatgrid.Sets.PlanConfig do
     |> clamp(:gold_every, 2, 20)
     |> nonneg(:bpm_min)
     |> nonneg(:bpm_max)
+    |> blank_to_nil(:reference_set_id)
     |> apply_changes()
   end
 
@@ -118,5 +125,11 @@ defmodule Beatgrid.Sets.PlanConfig do
       v when v < 0 -> put_change(changeset, field, 0.0)
       _ -> changeset
     end
+  end
+
+  defp blank_to_nil(changeset, field) do
+    if get_change(changeset, field) in ["", " "],
+      do: put_change(changeset, field, nil),
+      else: changeset
   end
 end
