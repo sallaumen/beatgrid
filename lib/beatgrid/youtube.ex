@@ -74,28 +74,47 @@ defmodule Beatgrid.YouTube do
   defp enqueue_entries(_url, []), do: {:error, :no_entries}
 
   defp enqueue_entries(url, entries) do
+    # A URL that expands to many videos is a playlist; carry its title and each
+    # video's 1-based position so the set builder can honor the playlist order.
     playlist_url = if length(entries) > 1, do: url
+    playlist_title = playlist_url && Enum.find_value(entries, & &1[:playlist_title])
 
-    Enum.each(entries, fn e ->
+    entries
+    |> Enum.with_index(1)
+    |> Enum.each(fn {e, index} ->
       {:ok, _job} =
-        DownloadWorker.enqueue(e.url, video_id: e.id, title: e.title, playlist_url: playlist_url)
+        DownloadWorker.enqueue(e.url,
+          video_id: e.id,
+          title: e.title,
+          playlist_url: playlist_url,
+          playlist_index: playlist_url && index,
+          playlist_title: playlist_title
+        )
     end)
 
     broadcast_tick()
     {:ok, length(entries)}
   end
 
+  @typedoc "Playlist provenance for an imported video (nil for a single video)."
+  @type playlist :: %{
+          url: String.t(),
+          index: pos_integer() | nil,
+          title: String.t() | nil
+        }
+
   @doc """
-  Downloads one video URL and ingests each resulting file into `_Inbox`.
-  Returns `{:ok, ingested_count}` or the downloader's `{:error, reason}`.
+  Downloads one video URL and ingests each resulting file into `_Inbox`. `playlist`
+  carries the source playlist's url/index/title when the video came from one (nil
+  for a single video). Returns `{:ok, ingested_count}` or `{:error, reason}`.
   """
-  @spec download_and_ingest(String.t(), String.t() | nil) ::
+  @spec download_and_ingest(String.t(), playlist() | nil) ::
           {:ok, non_neg_integer()} | {:error, term()}
-  def download_and_ingest(url, playlist_url \\ nil) do
+  def download_and_ingest(url, playlist \\ nil) do
     dest = Path.join(Library.library_root(), "_Inbox")
 
     with {:ok, items} <- @adapter.download(url, dest) do
-      ingested = items |> Enum.map(&ingest(&1, playlist_url)) |> Enum.count(&match?({:ok, _}, &1))
+      ingested = items |> Enum.map(&ingest(&1, playlist)) |> Enum.count(&match?({:ok, _}, &1))
       {:ok, ingested}
     end
   end
@@ -336,21 +355,21 @@ defmodule Beatgrid.YouTube do
     if track.soundcharts_song_id, do: NameSync.repropose(track)
   end
 
-  defp ingest(%{path: path, title: title} = item, playlist_url) do
+  defp ingest(%{path: path, title: title} = item, playlist) do
     parsed = TitleParser.parse(title)
     file = FileInfo.read(path)
 
-    case Tracks.upsert_by_path(ingest_attrs(file, parsed, item, playlist_url)) do
+    case Tracks.upsert_by_path(ingest_attrs(file, parsed, item, playlist)) do
       {:ok, track} -> Gold.maybe_mark_candidate(track)
       error -> error
     end
   end
 
   # Pure: merges the file facts, the parsed artist/title and the YouTube
-  # provenance into the upsert attrs for one downloaded item.
-  defp ingest_attrs(file, parsed, %{path: path, title: title, url: url} = item, playlist_url) do
-    yt = %{"youtube_title" => title, "youtube_url" => url}
-    yt = if playlist_url, do: Map.put(yt, "youtube_playlist_url", playlist_url), else: yt
+  # provenance (incl. playlist url/index/title when part of one) into the upsert
+  # attrs for one downloaded item.
+  defp ingest_attrs(file, parsed, %{path: path, title: title, url: url} = item, playlist) do
+    yt = put_playlist(%{"youtube_title" => title, "youtube_url" => url}, playlist)
 
     Map.merge(file, %{
       rel_path: Path.relative_to(path, Library.library_root()),
@@ -364,6 +383,21 @@ defmodule Beatgrid.YouTube do
       raw_tags: Map.merge(file[:raw_tags] || %{}, yt)
     })
   end
+
+  # Stamps the playlist provenance into the raw_tags map. A single video (nil)
+  # adds nothing; index/title are added only when captured (older imports have
+  # neither), so `Map.has_key?` stays a reliable "is it part of a playlist" test.
+  defp put_playlist(yt, nil), do: yt
+
+  defp put_playlist(yt, %{url: url} = playlist) do
+    yt
+    |> Map.put("youtube_playlist_url", url)
+    |> maybe_put("youtube_playlist_index", playlist[:index])
+    |> maybe_put("youtube_playlist_title", playlist[:title])
+  end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp parse_upload_date(<<y::binary-4, m::binary-2, d::binary-2>>) do
     case Date.from_iso8601("#{y}-#{m}-#{d}") do

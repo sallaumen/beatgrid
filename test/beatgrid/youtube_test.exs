@@ -83,15 +83,64 @@ defmodule Beatgrid.YouTubeTest do
   end
 
   @tag :tmp_dir
-  test "download_and_ingest records the source playlist URL when given one" do
+  test "download_and_ingest records the playlist provenance (url, index, title) when given one" do
     stub_metadata()
     expect_download("Djavan - Sina (Official Video)")
 
-    assert {:ok, 1} = YouTube.download_and_ingest("https://y/abc", "https://y/playlist")
+    playlist = %{url: "https://y/playlist", index: 3, title: "Meu Set"}
+    assert {:ok, 1} = YouTube.download_and_ingest("https://y/abc", playlist)
 
     t = Tracks.get_by_path("_Inbox/abc.mp3")
     assert t.raw_tags["youtube_playlist_url"] == "https://y/playlist"
+    assert t.raw_tags["youtube_playlist_index"] == 3
+    assert t.raw_tags["youtube_playlist_title"] == "Meu Set"
     assert t.raw_tags["youtube_url"] == "https://y/abc"
+  end
+
+  @tag :tmp_dir
+  test "a single video (no playlist) carries no playlist provenance" do
+    stub_metadata()
+    expect_download("Djavan - Sina (Official Video)")
+
+    assert {:ok, 1} = YouTube.download_and_ingest("https://y/abc")
+
+    raw = Tracks.get_by_path("_Inbox/abc.mp3").raw_tags
+    refute Map.has_key?(raw, "youtube_playlist_url")
+    refute Map.has_key?(raw, "youtube_playlist_index")
+    refute Map.has_key?(raw, "youtube_playlist_title")
+  end
+
+  test "expand_and_enqueue fans out one DownloadWorker per video, numbered in playlist order" do
+    expect(Beatgrid.YouTube.DownloaderMock, :list_entries, fn _url ->
+      {:ok,
+       [
+         %{id: "a", title: "One", url: "https://y/a", playlist_title: "Rolê"},
+         %{id: "b", title: "Two", url: "https://y/b", playlist_title: "Rolê"}
+       ]}
+    end)
+
+    assert {:ok, 2} = YouTube.expand_and_enqueue("https://y/playlist")
+
+    jobs =
+      all_enqueued(worker: DownloadWorker)
+      |> Enum.sort_by(& &1.args["playlist_index"])
+
+    assert Enum.map(jobs, & &1.args["playlist_index"]) == [1, 2]
+    assert Enum.all?(jobs, &(&1.args["playlist_url"] == "https://y/playlist"))
+    assert Enum.all?(jobs, &(&1.args["playlist_title"] == "Rolê"))
+  end
+
+  test "expand_and_enqueue of a single video tags no playlist" do
+    expect(Beatgrid.YouTube.DownloaderMock, :list_entries, fn _url ->
+      {:ok, [%{id: "a", title: "One", url: "https://y/a", playlist_title: nil}]}
+    end)
+
+    assert {:ok, 1} = YouTube.expand_and_enqueue("https://y/a")
+
+    [job] = all_enqueued(worker: DownloadWorker)
+    assert job.args["playlist_url"] == nil
+    assert job.args["playlist_index"] == nil
+    assert job.args["playlist_title"] == nil
   end
 
   test "pending_count counts only downloaded-but-unenriched tracks" do
