@@ -69,6 +69,65 @@ defmodule Beatgrid.Sets.PlannerTest do
     assert folders == ["forro"]
   end
 
+  test "secondary styles lose to primaries when nothing sets them apart", %{set: set} do
+    # 7 roots (primary) vs 7 forró (secondary), all otherwise identical: the
+    # tiered style score (20 vs 8) keeps every top-5 all-roots.
+    roots =
+      for i <- 1..7, into: MapSet.new() do
+        track(tag_artist: "Roots #{i}", genre_folder: "forro_roots").id
+      end
+
+    for i <- 1..7, do: track(tag_artist: "Sec #{i}", genre_folder: "forro_secundario")
+
+    {:ok, _} =
+      plan(set, %{
+        "mode" => "tracks",
+        "track_count" => "2",
+        "style_tier" => %{"forro_roots" => "primary", "forro_secundario" => "secondary"}
+      })
+
+    planned = set |> Sets.tracks() |> MapSet.new(& &1.id)
+    assert MapSet.subset?(planned, roots)
+  end
+
+  test "a standout secondary-style track DOES get in (rating pulls it past the tier)", %{
+    set: set
+  } do
+    for i <- 1..7, do: track(tag_artist: "Roots #{i}", genre_folder: "forro_roots")
+
+    standouts =
+      for i <- 1..7, into: MapSet.new() do
+        t = track(tag_artist: "Standout #{i}", genre_folder: "forro_secundario")
+        {:ok, r} = t |> Ecto.Changeset.change(%{rating: 10}) |> Beatgrid.Repo.update()
+        r.id
+      end
+
+    {:ok, _} =
+      plan(set, %{
+        "mode" => "tracks",
+        "track_count" => "2",
+        "prioritize_rating" => "true",
+        "style_tier" => %{"forro_roots" => "primary", "forro_secundario" => "secondary"}
+      })
+
+    planned = set |> Sets.tracks() |> MapSet.new(& &1.id)
+    assert MapSet.subset?(planned, standouts)
+  end
+
+  test "styles outside the tiers stay out of the pool", %{set: set} do
+    for i <- 1..7, do: track(tag_artist: "Roots #{i}", genre_folder: "forro_roots")
+
+    {:ok, _} =
+      plan(set, %{
+        "mode" => "tracks",
+        "track_count" => "10",
+        "style_tier" => %{"forro_roots" => "primary"}
+      })
+
+    folders = set |> Sets.tracks() |> Enum.map(& &1.genre_folder) |> Enum.uniq()
+    assert folders == ["forro_roots"]
+  end
+
   test "bpm window bounds the pool", %{set: set} do
     track(tag_artist: "Fast", tempo_bpm: 165.0)
 

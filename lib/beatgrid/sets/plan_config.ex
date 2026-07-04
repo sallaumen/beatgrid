@@ -9,7 +9,11 @@ defmodule Beatgrid.Sets.PlanConfig do
     * `preset` — the starting-point preset key (drives the style journey).
     * `mode` — `:tracks` or `:duration` (how the length is bounded).
     * `track_count` / `duration_minutes` — the length, per mode.
-    * `allow_styles` — genre-folder whitelist (empty = all).
+    * `allow_styles` — PRIMARY genre folders (full style weight; empty = all).
+    * `secondary_styles` — "se muito boa" folders: in the pool, but at a reduced
+      style weight, so they only crack the top-K when they stand out elsewhere
+      (rating, gold, arc fit). The form sends both via the `style_tier` map
+      (folder → "primary" | "secondary" | ""), normalized here.
     * `exclude_styles` — genre folders to hard-exclude.
     * `bpm_min` / `bpm_max` — effective-BPM window (nil = open).
     * `min_rating` — cut only tracks RATED below this; unrated pass (nil = any).
@@ -41,6 +45,7 @@ defmodule Beatgrid.Sets.PlanConfig do
     field :track_count, :integer, default: 16
     field :duration_minutes, :integer, default: 300
     field :allow_styles, {:array, :string}, default: []
+    field :secondary_styles, {:array, :string}, default: []
     field :exclude_styles, {:array, :string}, default: []
     field :bpm_min, :float
     field :bpm_max, :float
@@ -55,9 +60,10 @@ defmodule Beatgrid.Sets.PlanConfig do
     field :fill_mode, Ecto.Enum, values: [:replace, :append], default: :replace
   end
 
-  @castable ~w(preset mode track_count duration_minutes allow_styles exclude_styles
-               bpm_min bpm_max min_rating gold_every prioritize_rating less_vocals
-               match_keys arc_shape avoid_artist_repeat exclude_set_ids fill_mode)a
+  @castable ~w(preset mode track_count duration_minutes allow_styles secondary_styles
+               exclude_styles bpm_min bpm_max min_rating gold_every prioritize_rating
+               less_vocals match_keys arc_shape avoid_artist_repeat exclude_set_ids
+               fill_mode)a
 
   @doc """
   Builds a `%PlanConfig{}` from raw form params. Always returns a valid struct:
@@ -68,7 +74,7 @@ defmodule Beatgrid.Sets.PlanConfig do
   @spec from_params(map()) :: t()
   def from_params(params) when is_map(params) do
     %__MODULE__{}
-    |> cast(params, @castable)
+    |> cast(normalize_style_tiers(params), @castable)
     |> clamp(:track_count, 2, @max_tracks)
     |> clamp(:duration_minutes, 15, 720)
     |> clamp(:min_rating, 0, 10)
@@ -88,6 +94,16 @@ defmodule Beatgrid.Sets.PlanConfig do
   def count(%__MODULE__{mode: :duration, duration_minutes: m}, estimator), do: estimator.(m)
 
   @type t :: %__MODULE__{}
+
+  # The studio form submits one `style_tier[folder]` select per genre folder;
+  # split the map into the two lists the planner consumes.
+  defp normalize_style_tiers(%{"style_tier" => tiers} = params) when is_map(tiers) do
+    params
+    |> Map.put("allow_styles", for({k, "primary"} <- tiers, do: k))
+    |> Map.put("secondary_styles", for({k, "secondary"} <- tiers, do: k))
+  end
+
+  defp normalize_style_tiers(params), do: params
 
   defp clamp(changeset, field, lo, hi) do
     case get_change(changeset, field) do
