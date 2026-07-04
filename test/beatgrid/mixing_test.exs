@@ -179,9 +179,13 @@ defmodule Beatgrid.MixingTest do
       refute too_fast.id in ids
     end
 
-    test "min_rating and exclude_styles drop tracks" do
+    test "min_rating drops only LOW-rated tracks — unrated pass (sparse ratings)" do
       keep =
         sc_track(camelot: "8A", tempo_bpm: 120.0, tag_title: "Keep", rating: 9)
+        |> set_folder("forro")
+
+      unrated =
+        sc_track(camelot: "8A", tempo_bpm: 120.0, tag_title: "Unrated")
         |> set_folder("forro")
 
       low =
@@ -196,6 +200,7 @@ defmodule Beatgrid.MixingTest do
         Mixing.rank(min_rating: 7, exclude_styles: ["mpb"], limit: 50) |> Enum.map(& &1.track.id)
 
       assert keep.id in ids
+      assert unrated.id in ids
       refute low.id in ids
       refute banned.id in ids
     end

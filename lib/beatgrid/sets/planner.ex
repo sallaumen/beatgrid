@@ -23,6 +23,11 @@ defmodule Beatgrid.Sets.Planner do
   # doesn't jump — the user's "arco digno de DJ, reduzindo o tempo aos poucos".
   @weights %{style: 20, harmony: 25, intensity: 35, bpm: 18, rating: 2}
 
+  # "Priorizar bem avaliadas": rating takes the lead but the arc still breathes.
+  # An influence, never a filter — the DJ's ratings are sparse, so unrated tracks
+  # keep competing on the other dimensions.
+  @rating_weights %{style: 15, harmony: 20, intensity: 25, bpm: 12, rating: 28}
+
   @doc "Plans (or extends) `set` per `config`. Returns `{:ok, set}`."
   @spec run(RecSet.t(), PlanConfig.t()) :: {:ok, RecSet.t()}
   def run(%RecSet{} = set, %PlanConfig{} = config) do
@@ -35,13 +40,14 @@ defmodule Beatgrid.Sets.Planner do
     exclude0 =
       MapSet.new(Enum.map(members, & &1.id) ++ Sets.cross_set_track_ids(config.exclude_set_ids))
 
-    # The reduce threads the running exclude/used-artists/prev accumulator; its
-    # final value is spent (the fill is via append side effects), so discard it.
+    # The reduce threads the running exclude/used-artists/prev/gold-gap
+    # accumulator; its final value is spent (the fill is via append side
+    # effects), so discard it.
     _ =
       count
       |> EnergyArc.plan(config.arc_shape)
       |> Enum.with_index()
-      |> Enum.reduce({exclude0, MapSet.new(), List.last(members)}, fn {slot, index}, acc ->
+      |> Enum.reduce({exclude0, MapSet.new(), List.last(members), 0}, fn {slot, index}, acc ->
         fill_slot(set, config, preset, count, slot, index, acc)
       end)
 
@@ -59,20 +65,40 @@ defmodule Beatgrid.Sets.Planner do
     |> max(1)
   end
 
-  defp fill_slot(set, config, preset, count, slot, index, {exclude, artists, prev}) do
+  defp fill_slot(set, config, preset, count, slot, index, {exclude, artists, prev, since_gold}) do
     opts = rank_opts(set, config, preset, count, slot, index, exclude, prev)
 
-    case Mixing.rank(opts) do
+    case ranked_for(config, since_gold, opts) do
       [] ->
-        {exclude, artists, prev}
+        {exclude, artists, prev, since_gold}
 
       ranked ->
         chosen = pick(ranked, artists, config.avoid_artist_repeat)
         {:ok, _} = Sets.append(set, chosen.track, slot.role)
 
         {MapSet.put(exclude, chosen.track.id), MapSet.put(artists, artist_key(chosen.track)),
-         chosen.track}
+         chosen.track, next_gold_gap(config, since_gold, chosen.track)}
     end
+  end
+
+  # The gold quota ("garantir 1 ouro a cada N"): when the last N-1 picks had no
+  # Selo Ouro, this slot ranks gold candidates only — so no window of N goes
+  # gold-less. A dry gold pool falls back to the normal ranking (never stall);
+  # a naturally-picked gold resets the gap like a forced one.
+  defp ranked_for(%PlanConfig{gold_every: n}, since_gold, opts)
+       when is_integer(n) and since_gold >= n - 1 do
+    case Mixing.rank([{:gold_only, true} | opts]) do
+      [] -> Mixing.rank(opts)
+      golds -> golds
+    end
+  end
+
+  defp ranked_for(_config, _since_gold, opts), do: Mixing.rank(opts)
+
+  defp next_gold_gap(%PlanConfig{gold_every: nil}, since_gold, _track), do: since_gold
+
+  defp next_gold_gap(_config, since_gold, track) do
+    if track |> Beatgrid.Gold.effective() |> elem(0), do: 0, else: since_gold + 1
   end
 
   defp rank_opts(set, config, preset, count, slot, index, exclude, prev) do
@@ -82,13 +108,12 @@ defmodule Beatgrid.Sets.Planner do
       target_intensity: slot.target_intensity,
       exclude: MapSet.to_list(exclude),
       limit: @topk,
-      weights: @weights,
+      weights: if(config.prioritize_rating, do: @rating_weights, else: @weights),
       allow_styles: config.allow_styles,
       exclude_styles: Enum.uniq(preset.exclude_styles ++ config.exclude_styles),
       bpm_min: config.bpm_min,
       bpm_max: config.bpm_max,
       min_rating: config.min_rating,
-      gold_only: config.gold_only,
       less_vocals: config.less_vocals
     ]
   end
