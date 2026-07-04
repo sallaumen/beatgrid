@@ -870,7 +870,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           background: rgba(90, 209, 160, 0.12);
           box-shadow: 0 0 8px rgba(90, 209, 160, 0.3);
         }
-        [id^="dj-tom-"][data-on="true"] {
+        [id^="dj-vinil-"][data-on="true"] {
           border-color: #8b7bf0;
           color: #8b7bf0;
           background: rgba(139, 123, 240, 0.12);
@@ -928,18 +928,26 @@ defmodule BeatgridWeb.DiscotecagemLive do
           target_error: "a faixa do outro deck falhou — carregue outra",
           too_fast: "calma — uma transição acabou de disparar",
         }
-        // Anel de foco dos Efeitos (tecla de seção 3): o browse anda por aqui e o
-        // cue level ajusta o item focado (sliders absolutos; TOM alterna). Cada
-        // slider é o modelo por baixo de um knob giratório no deck (ver initKnobs).
-        const FX_RING = [
-          {id: "dj-filter-a", label: "Filtro A", kind: "slider", min: -100, max: 100, reset: 0, set: (h, v) => h.engine.setFilter("a", v / 100)},
-          {id: "dj-echofx-a", label: "Eco A", kind: "slider", min: 0, max: 100, reset: 0, set: (h, v) => h.engine.setEchoSend("a", v / 100)},
-          {id: "dj-tom-a", label: "Tom A", kind: "toggle"},
-          {id: "dj-filter-b", label: "Filtro B", kind: "slider", min: -100, max: 100, reset: 0, set: (h, v) => h.engine.setFilter("b", v / 100)},
-          {id: "dj-echofx-b", label: "Eco B", kind: "slider", min: 0, max: 100, reset: 0, set: (h, v) => h.engine.setEchoSend("b", v / 100)},
-          {id: "dj-tom-b", label: "Tom B", kind: "toggle"},
-          {id: "dj-punch", label: "Punch", kind: "slider", min: 0, max: 100, reset: 0, set: (h, v) => h.engine.setPunch(v / 100)},
-        ]
+        // Cada knob de FX é o modelo (range escondido) de um knob giratório no
+        // deck: set() aplica no engine, min/max/reset são o alcance. O painel de
+        // knobs físicos os dirige por baixo (ver applyFxKnob / initKnobs).
+        const FX_KNOBS = {
+          "dj-filter-a": {label: "Filtro A", min: -100, max: 100, reset: 0, set: (h, v) => h.engine.setFilter("a", v / 100)},
+          "dj-echofx-a": {label: "Eco A", min: 0, max: 100, reset: 0, set: (h, v) => h.engine.setEchoSend("a", v / 100)},
+          "dj-tom-a": {label: "Tom A", min: -100, max: 100, reset: 0, set: (h, v) => h.engine.setTone("a", v / 100)},
+          "dj-filter-b": {label: "Filtro B", min: -100, max: 100, reset: 0, set: (h, v) => h.engine.setFilter("b", v / 100)},
+          "dj-echofx-b": {label: "Eco B", min: 0, max: 100, reset: 0, set: (h, v) => h.engine.setEchoSend("b", v / 100)},
+          "dj-tom-b": {label: "Tom B", min: -100, max: 100, reset: 0, set: (h, v) => h.engine.setTone("b", v / 100)},
+          "dj-punch": {label: "Punch", min: 0, max: 100, reset: 0, set: (h, v) => h.engine.setPunch(v / 100)},
+        }
+        // Foco Efeitos (pad 3 do Sampler): o browse escolhe o DECK (esquerda A,
+        // direita B) e os três knobs FÍSICOS de level viram Filtro/Eco/Tom desse
+        // deck — level A → Filtro, level B → Eco, cue gain → Tom. O volume saiu
+        // dos knobs de level (fica no talo; a mixagem é no crossfader).
+        const FX_DECK = {
+          a: {filtro: "dj-filter-a", eco: "dj-echofx-a", tom: "dj-tom-a"},
+          b: {filtro: "dj-filter-b", eco: "dj-echofx-b", tom: "dj-tom-b"},
+        }
         const byId = (id) => document.getElementById(id)
         const fmt = (ms) => {
           if (ms == null || !isFinite(ms)) return "0:00"
@@ -955,8 +963,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
             this.pendingHint = null
             this.cursor = -1
             // Foco de seção da controladora: pads MANUAL escolhem ONDE o browse
-            // navega e o cue level ajusta. "lista" = comportamento clássico.
-            this.focus = {section: "lista", index: 0}
+            // navega e o cue level ajusta. "lista" = comportamento clássico;
+            // "efeitos" carrega o DECK focado (a/b) que o browse alterna.
+            this.focus = {section: "lista", index: 0, deck: "a"}
             // Scratch: padrão escolhido no painel + deck que está sendo arranhado.
             this.scratchPattern = "baby"
             this.scratchDeck = null
@@ -1069,14 +1078,14 @@ defmodule BeatgridWeb.DiscotecagemLive do
                   }
                 },
                 fxReset: ({deck}) => {
-                  const filter = byId(`dj-filter-${deck}`)
-                  if (filter) filter.value = 0
-                  const echofx = byId(`dj-echofx-${deck}`)
-                  if (echofx) echofx.value = 0
-                  this.renderKnobById(`dj-filter-${deck}`)
-                  this.renderKnobById(`dj-echofx-${deck}`)
-                  const tom = byId(`dj-tom-${deck}`)
-                  if (tom) tom.dataset.on = "false"
+                  // Filtro/Eco/Tom voltam ao centro (0) e redesenham.
+                  for (const id of [`dj-filter-${deck}`, `dj-echofx-${deck}`, `dj-tom-${deck}`]) {
+                    const el = byId(id)
+                    if (el) el.value = 0
+                    this.renderKnobById(id)
+                  }
+                  const vinil = byId(`dj-vinil-${deck}`)
+                  if (vinil) vinil.dataset.on = "false"
                   // resetChain devolve o fader do deck para 1 — o slider tem
                   // que acompanhar, senão o próximo play "estoura" sem aviso.
                   const level = byId(`dj-level-${deck}`)
@@ -1245,11 +1254,14 @@ defmodule BeatgridWeb.DiscotecagemLive do
               byId(`dj-echofx-${d}`).addEventListener("input", (e) =>
                 this.engine.setEchoSend(d, Number(e.target.value) / 100)
               )
-              byId(`dj-tom-${d}`).addEventListener("click", (e) => {
+              byId(`dj-tom-${d}`).addEventListener("input", (e) =>
+                this.engine.setTone(d, Number(e.target.value) / 100)
+              )
+              byId(`dj-vinil-${d}`).addEventListener("click", (e) => {
                 const on = e.currentTarget.dataset.on !== "true"
                 e.currentTarget.dataset.on = on ? "true" : "false"
                 this.engine.setVinylMode(d, on)
-                this.log(on ? `TOM (vinil) ligado no deck ${d.toUpperCase()}` : `TOM desligado no deck ${d.toUpperCase()}`)
+                this.log(on ? `vinil ligado no deck ${d.toUpperCase()}` : `vinil desligado no deck ${d.toUpperCase()}`)
               })
               this.wireJogScratch(d)
             }
@@ -1747,9 +1759,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 break
               }
               case "level": {
-                this.engine.setDeckLevel(a.deck, a.value)
-                const el = byId(`dj-level-${a.deck}`)
-                if (el) el.value = Math.round(a.value * 100)
+                // Volume saiu dos knobs de level (fica no talo; a mixagem é no
+                // crossfader). No foco Efeitos eles viram FX do deck focado:
+                // level A → Filtro, level B → Eco. Fora dele, inertes.
+                if (this.focus.section === "efeitos") {
+                  const map = FX_DECK[this.focus.deck]
+                  this.applyFxKnob(a.deck === "a" ? map.filtro : map.eco, a.value)
+                }
                 break
               }
               case "crossfader":
@@ -2051,9 +2067,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
           // ── foco de seção (controladora sem trackpad) ──────────────────────
 
+          // Os elementos destacados pelo foco atual: no Efeitos são os três
+          // knobs (Filtro/Eco/Tom) do deck focado; nas Transições, os botões.
           focusRing() {
             if (this.focus.section === "efeitos") {
-              return FX_RING.map((f) => byId(f.id)).filter(Boolean)
+              const map = FX_DECK[this.focus.deck]
+              return [map.filtro, map.eco, map.tom].map(byId).filter(Boolean)
             }
             if (this.focus.section === "transicoes") return this.fireBtns || []
             return []
@@ -2067,7 +2086,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               this.cursor = -1
               this.clearCursorOutlineAll()
             }
-            this.focus = {section: name, index: 0}
+            this.focus = {section: name, index: 0, deck: this.focus.deck || "a"}
             if (railTab) this.pushEvent("rail_tab", {tab: railTab})
             // Efeitos agora moram nos decks (knobs sempre visíveis); só as
             // transições ainda ficam num <details> que pode estar fechado.
@@ -2076,15 +2095,31 @@ defmodule BeatgridWeb.DiscotecagemLive do
               if (d) d.open = true
             }
             this.applyFocusOutline()
+            const how =
+              name === "efeitos"
+                ? `deck ${this.focus.deck.toUpperCase()} — browse troca A↔B, os knobs de level viram Filtro/Eco/Tom`
+                : "browse navega, cue level ajusta"
             const label = {
               lista: railTab === "biblioteca" ? "Biblioteca" : "Fila do set",
               efeitos: "Efeitos",
               transicoes: "Transições",
             }[name]
-            this.log(`foco: ${label} — browse navega, cue level ajusta`)
+            this.log(`foco: ${label} — ${how}`)
           },
 
           moveFocus(delta) {
+            // Efeitos: o browse escolhe o DECK (esquerda A, direita B) em vez de
+            // andar item a item.
+            if (this.focus.section === "efeitos") {
+              const deck = delta < 0 ? "a" : "b"
+              if (deck !== this.focus.deck) {
+                this.clearFocusOutline()
+                this.focus.deck = deck
+                this.applyFocusOutline()
+                this.log(`Efeitos → deck ${deck.toUpperCase()}`)
+              }
+              return
+            }
             const ring = this.focusRing()
             if (!ring.length) return
             this.focus.index = Math.min(
@@ -2102,13 +2137,16 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
           applyFocusOutline() {
             const ring = this.focusRing()
+            // Efeitos destaca o DECK inteiro (os três knobs); as Transições
+            // destacam só o botão no índice.
+            const all = this.focus.section === "efeitos"
             ring.forEach((el, i) => {
-              const on = i === this.focus.index
+              const on = all || i === this.focus.index
               const t = this.focusTarget(el)
               t.style.outline = on ? "2px solid #ffb020" : ""
               t.style.outlineOffset = on ? "2px" : ""
             })
-            const focused = this.focusTarget(ring[this.focus.index])
+            const focused = this.focusTarget(ring[all ? 0 : this.focus.index])
             if (focused) focused.scrollIntoView({block: "nearest"})
           },
 
@@ -2120,7 +2158,19 @@ defmodule BeatgridWeb.DiscotecagemLive do
             }
           },
 
-          // Apertar o knob do browse = "ação" do item focado.
+          // Aplica um valor 0..1 num knob de FX pelo id: mexe no range (modelo),
+          // chama o engine e redesenha o knob. Ponte comum de MIDI e cue.
+          applyFxKnob(knobId, v) {
+            const spec = FX_KNOBS[knobId]
+            const el = knobId && byId(knobId)
+            if (!spec || !el) return
+            const value = Math.round(spec.min + v * (spec.max - spec.min))
+            el.value = value
+            spec.set(this, value)
+            this.renderKnobById(knobId)
+          },
+
+          // Apertar o knob do browse = "ação" do foco.
           focusAction() {
             if (this.focus.section === "lista") {
               this.pushEvent("toggle_rail_tab", {})
@@ -2132,21 +2182,16 @@ defmodule BeatgridWeb.DiscotecagemLive do
               else this.log("transição indisponível — nada no ar ou deck vazio")
               return
             }
-            const spec = FX_RING[this.focus.index]
-            const el = spec && byId(spec.id)
-            if (!el) return
-            if (spec.kind === "toggle") {
-              el.click() // o listener do TOM alterna e loga sozinho
-            } else {
-              el.value = spec.reset
-              spec.set(this, spec.reset)
-              this.renderKnobById(spec.id)
-              this.log(`${spec.label} zerado`)
+            // Efeitos: zera Filtro/Eco/Tom do deck focado.
+            const map = FX_DECK[this.focus.deck]
+            for (const id of [map.filtro, map.eco, map.tom]) {
+              this.applyFxKnob(id, (0 - FX_KNOBS[id].min) / (FX_KNOBS[id].max - FX_KNOBS[id].min))
             }
+            this.log(`Efeitos do deck ${this.focus.deck.toUpperCase()} zerados`)
           },
 
-          // Cue level: volume do fone quando o foco está na lista; senão, o
-          // VALOR do item focado (efeito, ou o comprimento nas transições).
+          // Cue level: volume do fone quando o foco está na lista; comprimento
+          // nas transições; TOM do deck focado nos efeitos.
           applyCueKnob(v) {
             if (this.focus.section === "lista") {
               this.engine.setCueLevel(v * 1.2)
@@ -2156,18 +2201,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               this.applyLen(1.5 + v * (20 - 1.5))
               return
             }
-            const spec = FX_RING[this.focus.index]
-            const el = spec && byId(spec.id)
-            if (!el) return
-            if (spec.kind === "toggle") {
-              const want = v >= 0.5
-              if ((el.dataset.on === "true") !== want) el.click()
-              return
-            }
-            const value = Math.round(spec.min + v * (spec.max - spec.min))
-            el.value = value
-            spec.set(this, value)
-            this.renderKnobById(spec.id)
+            this.applyFxKnob(FX_DECK[this.focus.deck].tom, v)
           },
         }
       </script>
@@ -2471,7 +2505,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               </button>
             </div>
 
-            <div class="flex w-full items-center justify-center gap-3 py-0.5">
+            <div class="flex w-full items-center justify-center gap-2 py-0.5">
               <.knob
                 id={"dj-filter-#{@d}"}
                 label="Filtro"
@@ -2479,6 +2513,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 min={-100}
                 max={100}
                 value={0}
+                size={40}
                 bipolar={true}
                 title="Filtro bipolar: esquerda afoga (low-pass), direita só ar (high-pass) — duplo clique volta ao centro"
               />
@@ -2489,16 +2524,28 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 min={0}
                 max={100}
                 value={0}
+                size={40}
                 title="Abre o delay sincronizado ao BPM da faixa"
               />
-              <button
+              <.knob
                 id={"dj-tom-#{@d}"}
+                label="Tom"
+                accent={@accent}
+                min={-100}
+                max={100}
+                value={0}
+                size={40}
+                bipolar={true}
+                title="Tom (EQ): à esquerda realça grave e abafa agudo, à direita o contrário — duplo clique zera"
+              />
+              <button
+                id={"dj-vinil-#{@d}"}
                 type="button"
                 data-on="false"
                 title="Modo vinil: o pitch passa a mudar a afinação (tom) junto com o tempo"
-                class="h-8 rounded-md border border-white/10 bg-input px-2 text-[9px] font-bold uppercase tracking-wider text-ink-faint transition-colors hover:text-ink"
+                class="h-8 rounded-md border border-white/10 bg-input px-1.5 text-[8px] font-bold uppercase tracking-wider text-ink-faint transition-colors hover:text-ink"
               >
-                Tom
+                Vinil
               </button>
             </div>
 
@@ -2916,7 +2963,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
   attr :title, :string, default: nil
 
   # Knob giratório: o <input type=range> por baixo continua sendo o MODELO
-  # (o hook lê/escreve .value, o FX_RING/foco navega, o engine reseta no load);
+  # (o hook lê/escreve .value, o foco navega, o engine reseta no load);
   # o hook `initKnobs` desenha o arco (conic-gradient) e o ponteiro a partir do
   # valor e traduz o arraste vertical / roda / duplo clique em mudanças de valor.
   defp knob(assigns) do
