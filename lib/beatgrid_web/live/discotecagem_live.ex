@@ -606,7 +606,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           <div
             id="dj-waves"
             phx-update="ignore"
-            class="mb-3 overflow-hidden rounded-xl border border-white/8"
+            class="mb-1 overflow-hidden rounded-xl border border-white/8"
             style="background:linear-gradient(180deg,#0e0f15,#0b0c10)"
           >
             <div class="relative">
@@ -644,7 +644,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               accent="#2d9cff"
             />
           </div>
-          <div class="mt-2 grid items-start gap-3 lg:grid-cols-[210px_minmax(0,1fr)_minmax(300px,360px)]">
+          <div class="mt-1 grid items-start gap-3 lg:grid-cols-[210px_minmax(0,1fr)_minmax(300px,360px)]">
             <div class="flex min-w-0 flex-col gap-2.5">
               <details
                 id="dj-details-trans"
@@ -738,7 +738,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             />
           </div>
 
-          <div class="mt-2 grid items-start gap-3 lg:grid-cols-2">
+          <div class="mt-1 grid items-start gap-3 lg:grid-cols-2">
             <details
               id="dj-details-scratch"
               class="rounded-xl border border-white/8"
@@ -2779,7 +2779,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
   defp queue_panel(assigns) do
     ~H"""
     <section class={[
-      "flex max-h-[calc(100vh-624px)] min-h-[200px] flex-col overflow-hidden rounded-2xl border bg-surface p-3 transition-colors",
+      "flex max-h-[calc(100vh-600px)] min-h-[200px] flex-col overflow-hidden rounded-2xl border bg-surface p-3 transition-colors",
       @rail_tab == "fila" && "border-primary/40",
       @rail_tab != "fila" && "border-white/8"
     ]}>
@@ -2880,7 +2880,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
   defp library_panel(assigns) do
     ~H"""
     <section class={[
-      "flex max-h-[calc(100vh-624px)] min-h-[200px] flex-col overflow-hidden rounded-2xl border bg-surface p-3 transition-colors",
+      "flex max-h-[calc(100vh-600px)] min-h-[200px] flex-col overflow-hidden rounded-2xl border bg-surface p-3 transition-colors",
       @rail_tab == "biblioteca" && "border-primary/40",
       @rail_tab != "biblioteca" && "border-white/8"
     ]}>
