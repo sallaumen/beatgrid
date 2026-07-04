@@ -1014,10 +1014,26 @@ defmodule BeatgridWeb.RecSetLive do
             </option>
           </select>
         </label>
-        <label class="flex items-center gap-2 pb-1.5 text-caption text-ink-secondary">
-          <input type="checkbox" name="avoid_artist_repeat" value="true" class="accent-primary" />
-          Não repetir artista
-        </label>
+        <div class="flex flex-col gap-1 pb-0.5">
+          <label class="flex items-center gap-2 text-caption text-ink-secondary">
+            <input type="checkbox" name="avoid_artist_repeat" value="true" class="accent-primary" />
+            Não repetir artista
+          </label>
+          <label
+            class="flex items-center gap-2 text-caption text-ink-secondary"
+            title="Só faixas com Selo Ouro (manual, selo do acervo ou popularidade)"
+          >
+            <input type="checkbox" name="gold_only" value="true" class="accent-amber" />
+            Só músicas ouro ✨
+          </label>
+          <label
+            class="flex items-center gap-2 text-caption text-ink-secondary"
+            title="Só as mais instrumentais do acervo (menos vozes) — exige análise Soundcharts"
+          >
+            <input type="checkbox" name="less_vocals" value="true" class="accent-primary" />
+            Menos vozes (instrumental)
+          </label>
+        </div>
       </div>
 
       <fieldset :if={@other_sets != []} class="space-y-1">

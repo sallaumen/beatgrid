@@ -5,7 +5,8 @@ defmodule Beatgrid.MixingTest do
   alias Beatgrid.Mixing
 
   defp sc_track(attrs) do
-    {song_attrs, track_attrs} = Keyword.split(attrs, [:camelot, :tempo_bpm, :energy])
+    {song_attrs, track_attrs} =
+      Keyword.split(attrs, [:camelot, :tempo_bpm, :energy, :instrumentalness])
 
     song =
       insert(
@@ -14,6 +15,21 @@ defmodule Beatgrid.MixingTest do
       )
 
     insert(:track, Keyword.merge([soundcharts_song_id: song.id, status: :present], track_attrs))
+  end
+
+  # The four ways a track relates to the Selo Ouro (mirrors Beatgrid.Gold).
+  defp gold(track, :manual), do: update!(track, %{gold_manual: true})
+  defp gold(track, :status), do: update!(track, %{gold_status: :confirmed})
+
+  defp gold(track, :views),
+    do: update!(track, %{youtube_views: Beatgrid.Gold.view_threshold() + 1})
+
+  defp gold(track, :vetoed),
+    do: update!(track, %{gold_manual: false, gold_status: :confirmed})
+
+  defp update!(track, attrs) do
+    {:ok, t} = track |> Ecto.Changeset.change(attrs) |> Beatgrid.Repo.update()
+    t
   end
 
   describe "config exposed to the UI" do
@@ -182,6 +198,32 @@ defmodule Beatgrid.MixingTest do
       assert keep.id in ids
       refute low.id in ids
       refute banned.id in ids
+    end
+
+    test "gold_only keeps only Selo Ouro tracks (manual, status, or views over the threshold)" do
+      manual = sc_track(tag_title: "Manual") |> gold(:manual)
+      status = sc_track(tag_title: "Status") |> gold(:status)
+      views = sc_track(tag_title: "Views") |> gold(:views)
+      plain = sc_track(tag_title: "Plain")
+      vetoed = sc_track(tag_title: "Vetoed") |> gold(:vetoed)
+
+      ids = Mixing.rank(gold_only: true, limit: 50) |> Enum.map(& &1.track.id)
+      assert manual.id in ids
+      assert status.id in ids
+      assert views.id in ids
+      refute plain.id in ids
+      refute vetoed.id in ids
+    end
+
+    test "less_vocals keeps only tracks whose song is instrumental enough" do
+      instrumental = sc_track(tag_title: "Instr", instrumentalness: 0.4)
+      sung = sc_track(tag_title: "Sung", instrumentalness: 0.0)
+      unknown = insert(:track, soundcharts_song_id: nil, bpm_detected: 120.0)
+
+      ids = Mixing.rank(less_vocals: true, limit: 50) |> Enum.map(& &1.track.id)
+      assert instrumental.id in ids
+      refute sung.id in ids
+      refute unknown.id in ids
     end
 
     test "allow_styles keeps only the whitelisted folders (empty = no restriction)" do

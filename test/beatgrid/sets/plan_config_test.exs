@@ -40,6 +40,14 @@ defmodule Beatgrid.Sets.PlanConfigTest do
     assert PlanConfig.from_params(%{"duration_minutes" => "1"}).duration_minutes == 15
   end
 
+  test "parses the quality booleans (gold_only, less_vocals)" do
+    c = PlanConfig.from_params(%{"gold_only" => "true", "less_vocals" => "true"})
+    assert c.gold_only == true
+    assert c.less_vocals == true
+    assert PlanConfig.from_params(%{}).gold_only == false
+    assert PlanConfig.from_params(%{}).less_vocals == false
+  end
+
   test "reads the style/set-id arrays and the boolean" do
     c =
       PlanConfig.from_params(%{

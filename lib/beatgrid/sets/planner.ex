@@ -87,7 +87,9 @@ defmodule Beatgrid.Sets.Planner do
       exclude_styles: Enum.uniq(preset.exclude_styles ++ config.exclude_styles),
       bpm_min: config.bpm_min,
       bpm_max: config.bpm_max,
-      min_rating: config.min_rating
+      min_rating: config.min_rating,
+      gold_only: config.gold_only,
+      less_vocals: config.less_vocals
     ]
   end
 

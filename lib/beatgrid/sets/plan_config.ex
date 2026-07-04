@@ -13,6 +13,8 @@ defmodule Beatgrid.Sets.PlanConfig do
     * `exclude_styles` — genre folders to hard-exclude.
     * `bpm_min` / `bpm_max` — effective-BPM window (nil = open).
     * `min_rating` — 0–10 floor (nil = any).
+    * `gold_only` — only Selo Ouro tracks (manual/status/views — `Beatgrid.Gold`).
+    * `less_vocals` — only instrumental-leaning tracks ("mais musicais").
     * `arc_shape` — `EnergyArc` shape.
     * `avoid_artist_repeat` — spread artists across the set when possible.
     * `exclude_set_ids` — other sets whose tracks must not repeat here.
@@ -37,6 +39,8 @@ defmodule Beatgrid.Sets.PlanConfig do
     field :bpm_min, :float
     field :bpm_max, :float
     field :min_rating, :integer
+    field :gold_only, :boolean, default: false
+    field :less_vocals, :boolean, default: false
     field :arc_shape, Ecto.Enum, values: EnergyArc.shapes(), default: :wave
     field :avoid_artist_repeat, :boolean, default: false
     field :exclude_set_ids, {:array, :string}, default: []
@@ -44,8 +48,8 @@ defmodule Beatgrid.Sets.PlanConfig do
   end
 
   @castable ~w(preset mode track_count duration_minutes allow_styles exclude_styles
-               bpm_min bpm_max min_rating arc_shape avoid_artist_repeat
-               exclude_set_ids fill_mode)a
+               bpm_min bpm_max min_rating gold_only less_vocals arc_shape
+               avoid_artist_repeat exclude_set_ids fill_mode)a
 
   @doc """
   Builds a `%PlanConfig{}` from raw form params. Always returns a valid struct:

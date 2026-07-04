@@ -98,6 +98,23 @@ defmodule Beatgrid.Sets.PlannerTest do
     assert Enum.all?(rest, & &1.transition)
   end
 
+  test "gold_only plans exclusively Selo Ouro tracks", %{set: set} do
+    golden =
+      for i <- 1..6 do
+        t = track(tag_artist: "Gold #{i}")
+
+        {:ok, g} =
+          t |> Ecto.Changeset.change(%{gold_status: :confirmed}) |> Beatgrid.Repo.update()
+
+        g
+      end
+
+    {:ok, _} = plan(set, %{"mode" => "tracks", "track_count" => "6", "gold_only" => "true"})
+    planned = set |> Sets.tracks() |> MapSet.new(& &1.id)
+    assert MapSet.subset?(planned, MapSet.new(golden, & &1.id))
+    assert MapSet.size(planned) == 6
+  end
+
   test "duration mode fills roughly the requested minutes", %{set: set} do
     {:ok, _} = plan(set, %{"mode" => "duration", "duration_minutes" => "30"})
     assert length(Sets.tracks(set)) >= 2
