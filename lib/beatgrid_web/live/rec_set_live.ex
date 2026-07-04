@@ -1052,6 +1052,13 @@ defmodule BeatgridWeb.RecSetLive do
           <input type="checkbox" name="less_vocals" value="true" class="accent-primary" />
           Menos vozes (instrumental)
         </label>
+        <label
+          class="flex items-center gap-2 text-caption text-ink-secondary"
+          title="Encadeia tons compatíveis (Camelot) faixa a faixa — desligado por padrão: em playlists longas prende tudo num tom só"
+        >
+          <input type="checkbox" name="match_keys" value="true" class="accent-primary" />
+          Casar tons (harmonia)
+        </label>
       </div>
 
       <fieldset :if={@other_sets != []} class="space-y-1">

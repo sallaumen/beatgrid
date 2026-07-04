@@ -18,6 +18,9 @@ defmodule Beatgrid.Sets.PlanConfig do
       aren't viable; this seasons the set instead.
     * `prioritize_rating` — rating leads the scoring (influences, never excludes).
     * `less_vocals` — only instrumental-leaning tracks ("mais musicais").
+    * `match_keys` — harmonic (Camelot) chaining in the scoring. OFF by default:
+      chaining each pick to the previous key locks long playlists into a single
+      key neighborhood ("playlist só de 9A"). The live console keeps harmony.
     * `arc_shape` — `EnergyArc` shape.
     * `avoid_artist_repeat` — spread artists across the set when possible.
     * `exclude_set_ids` — other sets whose tracks must not repeat here.
@@ -45,6 +48,7 @@ defmodule Beatgrid.Sets.PlanConfig do
     field :gold_every, :integer
     field :prioritize_rating, :boolean, default: false
     field :less_vocals, :boolean, default: false
+    field :match_keys, :boolean, default: false
     field :arc_shape, Ecto.Enum, values: EnergyArc.shapes(), default: :wave
     field :avoid_artist_repeat, :boolean, default: false
     field :exclude_set_ids, {:array, :string}, default: []
@@ -53,7 +57,7 @@ defmodule Beatgrid.Sets.PlanConfig do
 
   @castable ~w(preset mode track_count duration_minutes allow_styles exclude_styles
                bpm_min bpm_max min_rating gold_every prioritize_rating less_vocals
-               arc_shape avoid_artist_repeat exclude_set_ids fill_mode)a
+               match_keys arc_shape avoid_artist_repeat exclude_set_ids fill_mode)a
 
   @doc """
   Builds a `%PlanConfig{}` from raw form params. Always returns a valid struct:
