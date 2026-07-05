@@ -1160,22 +1160,15 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         s.wasPlaying = j.wasPlaying
         s.token = deck.loadToken
         scratchScrub(deckId, deck.el.currentTime * sr)
-        // Make the scratch AUDIBLE: if the crossfader has THIS deck cut (you're
-        // scratching the idle deck), slide it to center so the scratch is heard
-        // over the mix. Scratching the deck already up leaves the fader alone.
-        s.xfadeSaved = null
-        if (equalPower(xfade.pos)[deckId] < 0.7) {
-          s.xfadeSaved = xfade.pos
-          scratchCrossfade(0.5)
-        }
+        // The crossfader stays the DJ's — a jog scratch NEVER moves it. Lucas
+        // works the fader by hand to open/close the scratch (transform/chop
+        // cuts), so scratching a deck the crossfader has cut is silent until he
+        // brings the fader over. (This used to auto-slide to center 0.5 for
+        // audibility, which fought the hand and parked the fader in the middle.)
       }
     } else {
       if (s.active) {
         scratchEnd(deckId, j.wasPlaying)
-        if (s.xfadeSaved != null) {
-          setCrossfader(s.xfadeSaved) // put the fader back where the DJ had it
-          s.xfadeSaved = null
-        }
       } else if (j.wasPlaying && j.heldToken === deck.loadToken && deck.trackId != null) {
         // Fallback path (no PCM): resume only what was actually held.
         deck.el.play().catch(() => {})
@@ -1306,13 +1299,6 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       clearInterval(a.timer)
       autoScratch[deckId] = null
       if (restoreXfade) setCrossfader(a.savedXfade)
-    }
-    // A jog-scratch may have slid the crossfader to center (s.xfadeSaved) for
-    // audibility; tearing it down here must put the fader back (on a load) and
-    // always clear it, or a later release would restore a stale value.
-    if (s.xfadeSaved != null) {
-      if (restoreXfade) setCrossfader(s.xfadeSaved)
-      s.xfadeSaved = null
     }
     if (s.active) {
       s.active = false
