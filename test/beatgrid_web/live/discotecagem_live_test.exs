@@ -51,6 +51,36 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert html =~ "dj-cue-device"
   end
 
+  # The scratch engine lives entirely in the `.DjConsole` colocated hook, which
+  # wires itself to these elements by id at mount. When a layout change moves the
+  # scratch panel around the DOM (as the viewport-fit work did), nothing tells us
+  # if an id was dropped or renamed — the hook just silently fails to bind and the
+  # whole scratch (and the console around it) goes dead with no server error. This
+  # pins the id contract the hook depends on so any future merge that breaks it
+  # fails here instead of on Lucas's controller mid-set.
+  test "the scratch panel renders every element the DjConsole hook binds to", %{conn: conn} do
+    {:ok, _view, html} = live(conn, ~p"/discotecagem")
+
+    # the hook itself must be wired on the console root
+    assert html =~ ~s(id="dj-console")
+    assert html =~ "phx-hook"
+
+    # scratch controls (auto-scratch pad, speed, crossfader, target readout)
+    for id <- ~w(dj-scratch dj-scratch-pad dj-scratch-rate dj-scratch-xfader dj-scratch-target) do
+      assert html =~ ~s(id="#{id}"),
+             "missing scratch element ##{id} — the DjConsole hook binds it"
+    end
+
+    # the three auto-scratch pattern buttons the hook lights up by data attribute
+    assert html =~ "data-dj-scratch-pat"
+
+    # the deck audio + jog + waveform the real (jog) scratch reads back and forth
+    for id <- ~w(dj-audio-a dj-audio-b dj-jog-a dj-jog-b dj-wave-a dj-wave-b) do
+      assert html =~ ~s(id="#{id}"),
+             "missing deck element ##{id} — scratch reads it back and forth"
+    end
+  end
+
   test "the transitions palette lists the classics and follows the AUTO switch", %{conn: conn} do
     {:ok, view, html} = live(conn, ~p"/discotecagem")
 
