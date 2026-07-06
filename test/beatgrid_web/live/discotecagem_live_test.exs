@@ -79,6 +79,9 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
       assert html =~ ~s(id="#{id}"),
              "missing deck element ##{id} — scratch reads it back and forth"
     end
+
+    # the crossfader curve toggle (Suave ↔ Seco cut) the hook binds for clean cuts
+    assert html =~ ~s(id="dj-xfader-curve"), "missing the crossfader curve toggle"
   end
 
   test "the transitions palette lists the classics and follows the AUTO switch", %{conn: conn} do
