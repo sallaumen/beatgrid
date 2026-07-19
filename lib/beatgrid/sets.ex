@@ -245,7 +245,7 @@ defmodule Beatgrid.Sets do
   @doc "Removes every track from the set (a `:replace` plan clears before filling). Returns the set."
   @spec clear(RecSet.t()) :: RecSet.t()
   def clear(%RecSet{id: id} = set) do
-    RecSetQuery.delete_all(id)
+    {_n, _} = SetTrack |> where([st], st.rec_set_id == ^id) |> Repo.delete_all()
     broadcast_set_changed(id)
     set
   end
@@ -310,8 +310,8 @@ defmodule Beatgrid.Sets do
   # Parks the track at an out-of-range position (0 = before all, count+1 = after all),
   # then renumbers — so it lands first/last.
   defp reposition(%RecSet{id: id} = set, track, position) do
-    SetTrack
-    |> Repo.get_by!(rec_set_id: id, track_id: track.id)
+    id
+    |> RecSetQuery.row!(track.id)
     |> SetTrack.changeset(%{position: position})
     |> Repo.update()
 
@@ -368,8 +368,8 @@ defmodule Beatgrid.Sets do
   end
 
   defp connect_quiet(%RecSet{id: set_id}, %{id: track_id}, attrs) do
-    SetTrack
-    |> Repo.get_by!(rec_set_id: set_id, track_id: track_id)
+    set_id
+    |> RecSetQuery.row!(track_id)
     |> SetTrack.changeset(%{transition: normalize_transition(attrs)})
     |> Repo.update()
   end
@@ -379,8 +379,8 @@ defmodule Beatgrid.Sets do
           {:ok, SetTrack.t()} | {:error, Ecto.Changeset.t()}
   def disconnect(%RecSet{id: set_id}, %{id: track_id}) do
     result =
-      SetTrack
-      |> Repo.get_by!(rec_set_id: set_id, track_id: track_id)
+      set_id
+      |> RecSetQuery.row!(track_id)
       |> SetTrack.changeset(%{transition: nil})
       |> Repo.update()
 
@@ -533,8 +533,8 @@ defmodule Beatgrid.Sets do
         |> assign_arc(cards)
         |> Enum.with_index(1)
         |> Enum.each(fn {{track, role}, pos} ->
-          SetTrack
-          |> Repo.get_by!(rec_set_id: set.id, track_id: track.id)
+          set.id
+          |> RecSetQuery.row!(track.id)
           |> SetTrack.changeset(%{position: pos, role: role})
           |> Repo.update!()
         end)
