@@ -187,24 +187,26 @@ defmodule Beatgrid.Sets do
     # name/target_style/rows.
     %RecSet{name: name, target_style: style} = RecSetQuery.get(id)
 
-    with {:ok, copy} <-
-           %RecSet{}
-           |> RecSet.changeset(%{name: "#{name} (cópia)", target_style: style})
-           |> Repo.insert() do
-      for row <- RecSetQuery.rows(id) do
-        %SetTrack{}
-        |> SetTrack.changeset(%{
-          rec_set_id: copy.id,
-          track_id: row.track_id,
-          position: row.position,
-          role: row.role,
-          transition: row.transition
-        })
-        |> Repo.insert!()
-      end
+    Repo.transact(fn ->
+      with {:ok, copy} <-
+             %RecSet{}
+             |> RecSet.changeset(%{name: "#{name} (cópia)", target_style: style})
+             |> Repo.insert() do
+        for row <- RecSetQuery.rows(id) do
+          %SetTrack{}
+          |> SetTrack.changeset(%{
+            rec_set_id: copy.id,
+            track_id: row.track_id,
+            position: row.position,
+            role: row.role,
+            transition: row.transition
+          })
+          |> Repo.insert!()
+        end
 
-      {:ok, copy}
-    end
+        {:ok, copy}
+      end
+    end)
   end
 
   @doc """
@@ -294,9 +296,15 @@ defmodule Beatgrid.Sets do
   defp step(:down), do: 1
 
   defp swap_positions(a, b) do
-    pa = a.position
-    a |> SetTrack.changeset(%{position: b.position}) |> Repo.update()
-    b |> SetTrack.changeset(%{position: pa}) |> Repo.update()
+    {:ok, _} =
+      Repo.transact(fn ->
+        pa = a.position
+        a |> SetTrack.changeset(%{position: b.position}) |> Repo.update!()
+        b |> SetTrack.changeset(%{position: pa}) |> Repo.update!()
+        {:ok, :swapped}
+      end)
+
+    :ok
   end
 
   # Parks the track at an out-of-range position (0 = before all, count+1 = after all),
@@ -383,6 +391,12 @@ defmodule Beatgrid.Sets do
   @doc "Auto-connects every consecutive pair (suggest + persist); returns `{:ok, count}`."
   @spec connect_all(RecSet.t()) :: {:ok, non_neg_integer()}
   def connect_all(%RecSet{id: id} = set) do
+    count = connect_pairs_quiet(set)
+    broadcast_set_changed(id)
+    {:ok, count}
+  end
+
+  defp connect_pairs_quiet(set) do
     pairs =
       set
       |> tracks()
@@ -392,8 +406,7 @@ defmodule Beatgrid.Sets do
       {:ok, _} = connect_quiet(set, this, suggest_transition(prev, this))
     end)
 
-    broadcast_set_changed(id)
-    {:ok, length(pairs)}
+    length(pairs)
   end
 
   defp normalize_transition(attrs) do
@@ -512,19 +525,25 @@ defmodule Beatgrid.Sets do
       |> tracks()
       |> Enum.map(&%{track: &1, intensity: Mixing.intensity(&1), gold: gold?(&1)})
 
-    cards
-    |> length()
-    |> EnergyArc.plan()
-    |> assign_arc(cards)
-    |> Enum.with_index(1)
-    |> Enum.each(fn {{track, role}, pos} ->
-      SetTrack
-      |> Repo.get_by!(rec_set_id: set.id, track_id: track.id)
-      |> SetTrack.changeset(%{position: pos, role: role})
-      |> Repo.update()
-    end)
+    {:ok, _} =
+      Repo.transact(fn ->
+        cards
+        |> length()
+        |> EnergyArc.plan()
+        |> assign_arc(cards)
+        |> Enum.with_index(1)
+        |> Enum.each(fn {{track, role}, pos} ->
+          SetTrack
+          |> Repo.get_by!(rec_set_id: set.id, track_id: track.id)
+          |> SetTrack.changeset(%{position: pos, role: role})
+          |> Repo.update!()
+        end)
 
-    connect_all(set)
+        connect_pairs_quiet(set)
+        {:ok, set}
+      end)
+
+    broadcast_set_changed(set.id)
     {:ok, set}
   end
 
@@ -640,12 +659,19 @@ defmodule Beatgrid.Sets do
   # --- internals ---
 
   defp reindex(%RecSet{id: id}) do
-    id
-    |> RecSetQuery.rows()
-    |> Enum.with_index(1)
-    |> Enum.each(fn {row, position} ->
-      row |> SetTrack.changeset(%{position: position}) |> Repo.update()
-    end)
+    {:ok, _} =
+      Repo.transact(fn ->
+        id
+        |> RecSetQuery.rows()
+        |> Enum.with_index(1)
+        |> Enum.each(fn {row, position} ->
+          row |> SetTrack.changeset(%{position: position}) |> Repo.update!()
+        end)
+
+        {:ok, :reindexed}
+      end)
+
+    :ok
   end
 
   defp m3u_body(tracks) do
