@@ -23,6 +23,9 @@ defmodule Beatgrid.Workers.ExpandWorker do
   def perform(%Oban.Job{args: %{"url" => url}}) do
     case YouTube.expand_and_enqueue(url) do
       {:ok, _count} -> :ok
+      # A URL that expands to nothing stays empty on retry — permanent, per the
+      # worker law ({:cancel} for gone/invalid entities, {:error} for transient).
+      {:error, :no_entries} -> {:cancel, :no_entries}
       {:error, reason} -> {:error, reason}
     end
   end

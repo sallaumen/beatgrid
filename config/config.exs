@@ -151,7 +151,7 @@ config :tailwind,
 # messages still carry them for readability — redundancy on purpose).
 config :logger, :default_formatter,
   format: "$time $metadata[$level] $message\n",
-  metadata: [:request_id, :track_id, :mix_id, :segment_id]
+  metadata: [:request_id, :track_id, :mix_id, :segment_id, :batch_id]
 
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
