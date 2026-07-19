@@ -369,18 +369,26 @@ defmodule Beatgrid.Library.TrackQuery do
   defp restrict_pool(q, ids, escape),
     do: where(q, [t], t.id in ^ids or t.genre_folder in ^escape)
 
-  # "Menos vozes": only tracks whose song is instrumental enough. Calibrated on
-  # the real library (2026-07): forró is sung — the median instrumentalness is
-  # 0.0 and >= 0.1 captures the top ~10% "mais musicais" (mostly psicodélico +
-  # roots). Tracks without a Soundcharts match can't prove it, so they're out.
-  @instrumental_min 0.1
+  # "Menos vozes": only tracks whose song is instrumental enough. The default was
+  # calibrated on the real library (2026-07): forró is sung — the median
+  # instrumentalness is 0.0 and >= 0.1 captures the top ~10% "mais musicais"
+  # (mostly psicodélico + roots). That calibration drifts as imports land, so the
+  # floor reads Settings at runtime like its sibling knobs (gold_view_threshold).
+  # Tracks without a Soundcharts match can't prove it, so they're out.
+  @instrumental_min_default 0.1
   defp less_vocals(q, true) do
+    min = instrumental_min()
+
     q
     |> join(:inner, [t], s in assoc(t, :soundcharts_song))
-    |> where([t, ..., s], s.instrumentalness >= @instrumental_min)
+    |> where([t, ..., s], s.instrumentalness >= ^min)
   end
 
   defp less_vocals(q, _), do: q
+
+  @doc "Instrumentalness floor for \"Menos vozes\" (Settings em runtime; default calibrado)."
+  @spec instrumental_min() :: float()
+  def instrumental_min, do: Beatgrid.Settings.get(:instrumental_min, @instrumental_min_default)
 
   # Nil-tolerant on purpose: the DJ's ratings are sparse, so the floor only cuts
   # tracks he actively rated BELOW it — an unrated track still gets its chance.

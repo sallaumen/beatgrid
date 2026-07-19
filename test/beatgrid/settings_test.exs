@@ -38,6 +38,7 @@ defmodule Beatgrid.SettingsTest do
     assert {:ok, _} = Settings.put(:gain_tolerance_db, 0.2)
     assert {:ok, _} = Settings.put(:gold_view_threshold, 5)
     assert {:ok, _} = Settings.put(:auto_file_confidence, 0.95)
+    assert {:ok, _} = Settings.put(:instrumental_min, 0.4)
 
     assert Loudness.target_lufs() == -12.0
     assert Loudness.gain_db(-20.0, nil) == 8.0
@@ -46,5 +47,6 @@ defmodule Beatgrid.SettingsTest do
     assert Gold.popular?(%Beatgrid.Library.Track{youtube_views: 5})
     assert {true, :popular} = Gold.effective(%Beatgrid.Library.Track{youtube_views: 5})
     assert ClassificationAI.auto_file_confidence() == 0.95
+    assert Beatgrid.Library.TrackQuery.instrumental_min() == 0.4
   end
 end
