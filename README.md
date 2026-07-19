@@ -33,6 +33,22 @@ loudness, marcadores, importação do YouTube, lacunas de repertório por IA):
 
 ![Painel](docs/screenshots/painel.png)
 
+**Discotecagem** — console de dois decks para tocar ao vivo: waveforms estilo
+Serato, jog com scratch real (AudioWorklet), FX por deck (filtro/eco/tom),
+transições automáticas e manuais, fila do set + biblioteca sempre visíveis e
+controladora MIDI (Numark DJ2GO2 Touch) mapeada.
+
+**Planejar set (REC SET)** — além do montador: planejador com customização real
+(estilos com escala de prioridade, faixa de BPM, arco de energia, quota de Selo
+Ouro, "menos vozes"), set de referência como pool curado e não-repetição entre
+playlists.
+
+**Importados** — os downloads do YouTube agrupados por playlist de origem, com
+importação em lote e "Criar set" na ordem da playlist.
+
+**Sets online** — mixes/aulas longas baixadas inteiras: reconhecimento de
+faixas, segmentação e navegação por música dentro do áudio.
+
 ## O que ele faz
 
 - **Organiza de verdade**: dedup por conteúdo, pastas por gênero, quarentena

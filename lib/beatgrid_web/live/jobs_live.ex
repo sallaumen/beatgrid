@@ -111,6 +111,9 @@ defmodule BeatgridWeb.JobsLive do
       "ResolveSongWorker" -> List.wrap(args["track_id"])
       "EnrichWorker" -> if(args["scope"] == "track", do: List.wrap(args["id"]), else: [])
       "RecommendWorker" -> if(args["scope"] == "track", do: List.wrap(args["track_id"]), else: [])
+      "GainApplyWorker" -> List.wrap(args["track_id"])
+      "LoudnessWorker" -> List.wrap(args["track_id"])
+      "MarkerAnalyzeWorker" -> List.wrap(args["track_id"])
       _ -> []
     end
   end
@@ -309,7 +312,15 @@ defmodule BeatgridWeb.JobsLive do
     "DedupWorker" => "Procurar duplicatas",
     "ScanWorker" => "Escanear biblioteca",
     "ReviewApplyWorker" => "Aplicar revisão no disco",
-    "UndoBatchWorker" => "Desfazer lote"
+    "UndoBatchWorker" => "Desfazer lote",
+    "GainApplyWorker" => "Aplicar ganho",
+    "LoudnessWorker" => "Medir loudness",
+    "MarkerAnalyzeWorker" => "Detectar marcadores",
+    "MixAnalyzeWorker" => "Analisar set online",
+    "MixDjAudioWorker" => "Reconhecer por áudio (set online)",
+    "MixDjVisionWorker" => "Ler telão do set online",
+    "MixDownloadWorker" => "Baixar set online",
+    "MixRecognizeWorker" => "Reconhecer faixas do set online"
   }
 
   defp worker_label(worker) do

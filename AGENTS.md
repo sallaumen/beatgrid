@@ -11,8 +11,12 @@ for *what* we are building and *why*. This file is *how* to build it.
 
 ## Language rule (hard)
 
-- **Code, comments, module/function names, docs, commit messages, and UI text
-  are English. Always. No exceptions** (README, none of it, in Portuguese).
+- **Code is English: identifiers, module/function names, commit messages,
+  @doc/@moduledoc. Comments: English preferred (pt-BR tolerated where the
+  DJ-domain nuance reads better).**
+- **User-facing text (UI chrome, flashes, transition reasons) is pt-BR** — the
+  product speaks the DJ's language. `README.md` (pt-BR) is canonical;
+  `README.en.md` mirrors it.
 - **User-entered data is not translated.** Genre names (`MPB`, `Forró`, `Forró
   Roots`…), custom tag names (`Pico da Pista`), and personal notes are stored
   verbatim in whatever language the user typed. They are data, not chrome.
