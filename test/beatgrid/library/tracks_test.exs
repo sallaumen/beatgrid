@@ -272,4 +272,28 @@ defmodule Beatgrid.Library.TracksTest do
       assert Enum.find(t_3.cue_points, &(&1["ms"] == 40_000))["label"] == "manual"
     end
   end
+
+  describe "rate_many/2" do
+    test "rates the whole selection in one write (batch, not per-track)" do
+      a = insert(:track, rating: nil)
+      b = insert(:track, rating: 2)
+      untouched = insert(:track, rating: 3)
+      %{updated_at: stamp_before} = Repo.reload!(a)
+
+      assert {:ok, 2} = Tracks.rate_many([a.id, b.id, Uniq.UUID.uuid7()], 8)
+
+      assert %{rating: 8, updated_at: stamp_after} = Repo.reload!(a)
+      assert %{rating: 8} = Repo.reload!(b)
+      assert %{rating: 3} = Repo.reload!(untouched)
+      assert DateTime.compare(stamp_after, stamp_before) != :lt
+      assert {:ok, 0} = Tracks.rate_many([], 5)
+    end
+
+    test "refuses a rating outside the 0..10 scale" do
+      track = insert(:track)
+
+      assert_raise FunctionClauseError, fn -> Tracks.rate_many([track.id], 11) end
+      assert_raise FunctionClauseError, fn -> Tracks.rate_many([track.id], -1) end
+    end
+  end
 end

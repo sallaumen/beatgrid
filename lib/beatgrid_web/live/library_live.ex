@@ -254,16 +254,14 @@ defmodule BeatgridWeb.LibraryLive do
   def handle_event("move_selected", _params, socket), do: {:noreply, socket}
 
   def handle_event("rate_selected", %{"rating" => rating}, socket) do
-    n = String.to_integer(rating)
+    case Integer.parse(rating) do
+      {n, ""} when n in 0..10 ->
+        {:ok, _count} = Tracks.rate_many(MapSet.to_list(socket.assigns.selected), n)
+        {:noreply, load_tracks(socket)}
 
-    Enum.each(socket.assigns.selected, fn id ->
-      case Tracks.get(id) do
-        nil -> :ok
-        track -> Tracks.update(track, %{rating: n})
-      end
-    end)
-
-    {:noreply, socket |> load_tracks()}
+      _invalid ->
+        {:noreply, socket}
+    end
   end
 
   def handle_event("undo_move", _params, socket) do
