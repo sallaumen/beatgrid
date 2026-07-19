@@ -215,19 +215,29 @@ defmodule Beatgrid.Sets do
           {:ok, SetTrack.t()} | {:error, term()}
   def append(set, track, role \\ nil)
 
-  def append(%RecSet{id: id}, track, role) do
-    result =
-      %SetTrack{}
-      |> SetTrack.changeset(%{
-        rec_set_id: id,
-        track_id: track.id,
-        position: RecSetQuery.count(id) + 1,
-        role: role
-      })
-      |> Repo.insert(on_conflict: :nothing, conflict_target: [:rec_set_id, :track_id])
-
+  def append(%RecSet{id: id} = set, track, role) do
+    result = append_quiet(set, track, role)
     broadcast_set_changed(id)
     result
+  end
+
+  @doc """
+  `append/3` without the broadcast — for batch orchestration (the Planner fills
+  a whole set slot by slot). The batch owner broadcasts ONCE at the end; a
+  per-row broadcast made every subscriber (the live console included) re-load
+  the full entry list ~2× per planned track.
+  """
+  @spec append_quiet(RecSet.t(), Library.Track.t(), String.t() | nil) ::
+          {:ok, SetTrack.t()} | {:error, term()}
+  def append_quiet(%RecSet{id: id}, track, role \\ nil) do
+    %SetTrack{}
+    |> SetTrack.changeset(%{
+      rec_set_id: id,
+      track_id: track.id,
+      position: RecSetQuery.count(id) + 1,
+      role: role
+    })
+    |> Repo.insert(on_conflict: :nothing, conflict_target: [:rec_set_id, :track_id])
   end
 
   @doc "Removes every track from the set (a `:replace` plan clears before filling). Returns the set."
@@ -343,15 +353,17 @@ defmodule Beatgrid.Sets do
   @doc "Sets the incoming transition on the entry that receives it (the later track)."
   @spec connect(RecSet.t(), Library.Track.t(), map()) ::
           {:ok, SetTrack.t()} | {:error, Ecto.Changeset.t()}
-  def connect(%RecSet{id: set_id}, %{id: track_id}, attrs) do
-    result =
-      SetTrack
-      |> Repo.get_by!(rec_set_id: set_id, track_id: track_id)
-      |> SetTrack.changeset(%{transition: normalize_transition(attrs)})
-      |> Repo.update()
-
+  def connect(%RecSet{id: set_id} = set, track, attrs) do
+    result = connect_quiet(set, track, attrs)
     broadcast_set_changed(set_id)
     result
+  end
+
+  defp connect_quiet(%RecSet{id: set_id}, %{id: track_id}, attrs) do
+    SetTrack
+    |> Repo.get_by!(rec_set_id: set_id, track_id: track_id)
+    |> SetTrack.changeset(%{transition: normalize_transition(attrs)})
+    |> Repo.update()
   end
 
   @doc "Clears the incoming transition on an entry (back to plain sequential play)."
@@ -370,17 +382,18 @@ defmodule Beatgrid.Sets do
 
   @doc "Auto-connects every consecutive pair (suggest + persist); returns `{:ok, count}`."
   @spec connect_all(RecSet.t()) :: {:ok, non_neg_integer()}
-  def connect_all(%RecSet{} = set) do
-    count =
+  def connect_all(%RecSet{id: id} = set) do
+    pairs =
       set
       |> tracks()
       |> Enum.chunk_every(2, 1, :discard)
-      |> Enum.count(fn [prev, this] ->
-        {:ok, _} = connect(set, this, suggest_transition(prev, this))
-        true
-      end)
 
-    {:ok, count}
+    Enum.each(pairs, fn [prev, this] ->
+      {:ok, _} = connect_quiet(set, this, suggest_transition(prev, this))
+    end)
+
+    broadcast_set_changed(id)
+    {:ok, length(pairs)}
   end
 
   defp normalize_transition(attrs) do

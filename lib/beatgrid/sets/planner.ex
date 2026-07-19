@@ -84,7 +84,7 @@ defmodule Beatgrid.Sets.Planner do
 
       ranked ->
         chosen = pick(ranked, artists, ctx.config.avoid_artist_repeat, slot.role)
-        {:ok, _} = Sets.append(ctx.set, chosen.track, slot.role)
+        {:ok, _} = Sets.append_quiet(ctx.set, chosen.track, slot.role)
 
         {MapSet.put(exclude, chosen.track.id), MapSet.put(artists, artist_key(chosen.track)),
          chosen.track, next_gold_gap(ctx.config, since_gold, chosen.track)}
