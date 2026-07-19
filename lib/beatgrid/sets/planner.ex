@@ -108,7 +108,7 @@ defmodule Beatgrid.Sets.Planner do
   defp next_gold_gap(%PlanConfig{gold_every: nil}, since_gold, _track), do: since_gold
 
   defp next_gold_gap(_config, since_gold, track) do
-    if track |> Beatgrid.Gold.effective() |> elem(0), do: 0, else: since_gold + 1
+    if Beatgrid.Gold.gold?(track), do: 0, else: since_gold + 1
   end
 
   defp rank_opts(ctx, slot, index, exclude, prev) do
@@ -202,7 +202,7 @@ defmodule Beatgrid.Sets.Planner do
   defp gold_preference("pico"), do: &gold?(&1.track)
   defp gold_preference(_role), do: &(not gold?(&1.track))
 
-  defp gold?(track), do: track |> Beatgrid.Gold.effective() |> elem(0)
+  defp gold?(track), do: Beatgrid.Gold.gold?(track)
 
   defp artist_key(track), do: track.norm_artist || track.tag_artist
 end

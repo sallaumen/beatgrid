@@ -27,10 +27,14 @@ defmodule Beatgrid.Gold do
   def candidate?(%{source_playlist: "youtube"} = attrs), do: blank?(Map.get(attrs, :tag_isrc))
   def candidate?(_), do: false
 
-  @doc "View count já passa do limiar? (overlay vivo)."
+  @doc "View count já passa do limiar? (overlay vivo; mesmo limiar do filtro SQL)."
   @spec popular?(Track.t()) :: boolean()
-  def popular?(%{youtube_views: v}) when is_integer(v), do: v >= @view_threshold
+  def popular?(%{youtube_views: v}) when is_integer(v), do: v >= view_threshold()
   def popular?(_), do: false
+
+  @doc "Estado efetivo como booleano — pra quem só precisa saber se é Ouro."
+  @spec gold?(Track.t()) :: boolean()
+  def gold?(track), do: track |> effective() |> elem(0)
 
   @doc """
   Estado efetivo + motivo, pra UI. Manual vence; depois popular; depois o eixo raro.

@@ -562,7 +562,7 @@ defmodule Beatgrid.Sets do
     if role == "pico" and gold, do: fit + 0.35 * c, else: fit
   end
 
-  defp gold?(track), do: track |> Library.gold() |> elem(0)
+  defp gold?(track), do: Beatgrid.Gold.gold?(track)
 
   defp greedy_fill(set, count, _role, _ti) when count <= 0, do: set
 

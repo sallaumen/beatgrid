@@ -17,6 +17,11 @@ defmodule Beatgrid.GoldTest do
   end
 
   describe "popular?/1 + effective/1" do
+    test "gold?/1 is the boolean of effective/1" do
+      assert Gold.gold?(%Beatgrid.Library.Track{gold_manual: true})
+      refute Gold.gold?(%Beatgrid.Library.Track{youtube_views: 10})
+    end
+
     test "views acima do limiar é popular" do
       assert Gold.popular?(%Beatgrid.Library.Track{youtube_views: Gold.view_threshold()})
       refute Gold.popular?(%Beatgrid.Library.Track{youtube_views: 10})
