@@ -192,6 +192,18 @@ defmodule BeatgridWeb.RecSetLiveTest do
   end
 
   @tag :tmp_dir
+  test "entries show the MANUAL BPM/key overrides, not the raw soundcharts values", %{conn: conn} do
+    {:ok, set} = Sets.create("Corrigido")
+    t = track_with("8A", 120.0, tag_title: "Ajustada", bpm_manual: 97.0, camelot_manual: "3B")
+    {:ok, _} = Sets.append(set, t)
+
+    {:ok, _view, html} = live(conn, ~p"/set/#{set.id}")
+
+    assert html =~ ">97</span>"
+    assert html =~ "3B"
+    refute html =~ ">120</span>"
+  end
+
   test "the set page renders the energy/BPM arc chart for a set with 2+ tracks", %{conn: conn} do
     {:ok, set} = Sets.create("Charted")
     t_1 = track_with("8A", 120.0, tag_title: "A")

@@ -389,13 +389,8 @@ defmodule BeatgridWeb.RecSetLive do
     "#{div(secs, 60)} min"
   end
 
-  defp bpm(%{soundcharts_song: %{tempo_bpm: b}}) when is_number(b), do: round(b)
-  defp bpm(%{bpm_detected: b}) when is_number(b), do: round(b)
-  defp bpm(_), do: "—"
-
-  defp camelot(%{soundcharts_song: %{camelot: c}}) when is_binary(c), do: c
-  defp camelot(%{camelot_detected: c}) when is_binary(c), do: c
-  defp camelot(_), do: nil
+  defp bpm(track), do: effective_bpm(track)
+  defp camelot(track), do: effective_camelot(track)
 
   defp title(t), do: t.tag_title || t.filename
 

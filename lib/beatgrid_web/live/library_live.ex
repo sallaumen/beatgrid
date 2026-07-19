@@ -1366,17 +1366,8 @@ defmodule BeatgridWeb.LibraryLive do
 
   defp row_selected?(selected, id), do: MapSet.member?(selected, id)
 
-  # Manual override wins, then Soundcharts, then the locally-detected value — the
-  # same precedence the sort/filter use (TrackQuery coalesce) and Library.effective/1.
-  defp bpm(%{bpm_manual: b}) when is_number(b), do: round(b)
-  defp bpm(%{soundcharts_song: %{tempo_bpm: b}}) when is_number(b), do: round(b)
-  defp bpm(%{bpm_detected: b}) when is_number(b), do: round(b)
-  defp bpm(_track), do: "—"
-
-  defp camelot(%{camelot_manual: c}) when is_binary(c), do: c
-  defp camelot(%{soundcharts_song: %{camelot: c}}) when is_binary(c), do: c
-  defp camelot(%{camelot_detected: c}) when is_binary(c), do: c
-  defp camelot(_track), do: nil
+  defp bpm(track), do: effective_bpm(track)
+  defp camelot(track), do: effective_camelot(track)
 
   # --- Camelot wheel (Tom filter) ---------------------------------------------
 
