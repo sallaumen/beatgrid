@@ -3,6 +3,8 @@ defmodule Beatgrid.SettingsTest do
   use Beatgrid.DataCase, async: false
 
   alias Beatgrid.{Gold, Loudness, Settings}
+  alias Beatgrid.Library.Track
+  alias Beatgrid.Library.TrackQuery
   alias Beatgrid.Organization.ClassificationAI
 
   setup do
@@ -44,9 +46,9 @@ defmodule Beatgrid.SettingsTest do
     assert Loudness.gain_db(-20.0, nil) == 8.0
     assert Loudness.gain_tolerance_db() == 0.2
     assert Gold.view_threshold() == 5
-    assert Gold.popular?(%Beatgrid.Library.Track{youtube_views: 5})
-    assert {true, :popular} = Gold.effective(%Beatgrid.Library.Track{youtube_views: 5})
+    assert Gold.popular?(%Track{youtube_views: 5})
+    assert {true, :popular} = Gold.effective(%Track{youtube_views: 5})
     assert ClassificationAI.auto_file_confidence() == 0.95
-    assert Beatgrid.Library.TrackQuery.instrumental_min() == 0.4
+    assert TrackQuery.instrumental_min() == 0.4
   end
 end

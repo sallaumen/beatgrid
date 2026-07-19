@@ -192,21 +192,24 @@ defmodule Beatgrid.Sets do
              %RecSet{}
              |> RecSet.changeset(%{name: "#{name} (cópia)", target_style: style})
              |> Repo.insert() do
-        for row <- RecSetQuery.rows(id) do
-          %SetTrack{}
-          |> SetTrack.changeset(%{
-            rec_set_id: copy.id,
-            track_id: row.track_id,
-            position: row.position,
-            role: row.role,
-            transition: row.transition
-          })
-          |> Repo.insert!()
-        end
-
+        copy_rows(id, copy.id)
         {:ok, copy}
       end
     end)
+  end
+
+  defp copy_rows(source_id, copy_id) do
+    for row <- RecSetQuery.rows(source_id) do
+      %SetTrack{}
+      |> SetTrack.changeset(%{
+        rec_set_id: copy_id,
+        track_id: row.track_id,
+        position: row.position,
+        role: row.role,
+        transition: row.transition
+      })
+      |> Repo.insert!()
+    end
   end
 
   @doc """

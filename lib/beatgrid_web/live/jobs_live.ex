@@ -105,18 +105,26 @@ defmodule BeatgridWeb.JobsLive do
     end
   end
 
+  # Workers whose args carry a plain track id under this key; the scoped workers
+  # (Enrich/Recommend) only reference a track when their scope says so.
+  @track_id_arg %{
+    "AnalyzeWorker" => "track_id",
+    "ResolveSongWorker" => "track_id",
+    "GainApplyWorker" => "track_id",
+    "LoudnessWorker" => "track_id",
+    "MarkerAnalyzeWorker" => "track_id"
+  }
+
   defp job_track_ids(%Oban.Job{worker: worker, args: args}) do
     case worker_name(worker) do
-      "AnalyzeWorker" -> List.wrap(args["track_id"])
-      "ResolveSongWorker" -> List.wrap(args["track_id"])
-      "EnrichWorker" -> if(args["scope"] == "track", do: List.wrap(args["id"]), else: [])
-      "RecommendWorker" -> if(args["scope"] == "track", do: List.wrap(args["track_id"]), else: [])
-      "GainApplyWorker" -> List.wrap(args["track_id"])
-      "LoudnessWorker" -> List.wrap(args["track_id"])
-      "MarkerAnalyzeWorker" -> List.wrap(args["track_id"])
-      _ -> []
+      "EnrichWorker" -> scoped_track_id(args, "id")
+      "RecommendWorker" -> scoped_track_id(args, "track_id")
+      name -> args |> Map.get(@track_id_arg[name] || "") |> List.wrap()
     end
   end
+
+  defp scoped_track_id(%{"scope" => "track"} = args, key), do: List.wrap(args[key])
+  defp scoped_track_id(_args, _key), do: []
 
   @impl true
   def render(assigns) do
