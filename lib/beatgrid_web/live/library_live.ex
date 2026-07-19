@@ -404,10 +404,7 @@ defmodule BeatgridWeb.LibraryLive do
       tracks: tracks,
       total: total,
       page: 1,
-      has_more?: length(tracks) < total,
-      # Recompute the tag chips alongside the rows so newly added/removed tags
-      # (here or on the track page) appear/disappear without a full page reload.
-      all_tags: Tracks.all_tags()
+      has_more?: length(tracks) < total
     )
   end
 
@@ -504,6 +501,7 @@ defmodule BeatgridWeb.LibraryLive do
               <input
                 type="search"
                 name="search"
+                phx-debounce="250"
                 value={@filters[:search] || ""}
                 placeholder="Buscar artista ou título…"
                 class="w-full rounded-md border border-white/8 bg-input px-3 py-1.5 text-body placeholder:text-ink-faint focus:border-primary/50 focus:outline-none"

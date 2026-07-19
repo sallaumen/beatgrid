@@ -324,7 +324,9 @@ defmodule BeatgridWeb.RecSetLive do
     # Don't hide tracks already in the set — show them flagged "já no set" so a search
     # that matches a member doesn't look broken (the user was confused by the silent
     # exclusion). The render marks members; non-members get the "+ Add" button.
-    results = if q == "", do: [], else: TrackQuery.library(%{search: q}) |> Enum.take(12)
+    # O limite vai NA QUERY — materializar a biblioteca inteira pra pegar 12
+    # era o custo de cada tecla (o console corrigiu isso primeiro; mesma regra).
+    results = if q == "", do: [], else: TrackQuery.library(%{search: q, limit: 12})
 
     {:noreply, assign(socket, search_query: q, search_results: results)}
   end
