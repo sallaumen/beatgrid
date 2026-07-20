@@ -7,6 +7,7 @@ defmodule Beatgrid.Library.GenreFoldersTest do
   import Beatgrid.Factory
 
   alias Beatgrid.Library.GenreFolders
+  alias Beatgrid.Organization
 
   describe "upsert/1 and list/0" do
     test "upserts a folder and lists it" do
@@ -169,6 +170,57 @@ defmodule Beatgrid.Library.GenreFoldersTest do
 
       assert {:error, :in_use} = GenreFolders.delete(folder)
       assert GenreFolders.get_by_key("samba")
+    end
+  end
+
+  describe "create_from_name/2" do
+    test "slugs the accented name into the key, mirrors dir_name, appends the sort order" do
+      insert(:genre_folder, sort_order: 7)
+
+      assert {:ok, folder} = GenreFolders.create_from_name("  Forró Novo  ", "#123456")
+      assert folder.key == "forro_novo"
+      assert folder.display_name == "Forró Novo"
+      assert folder.dir_name == "Forró Novo"
+      assert folder.color == "#123456"
+      assert folder.sort_order == 8
+    end
+
+    test "the first folder starts the sort order at 0 and gets the default color" do
+      assert {:ok, folder} = GenreFolders.create_from_name("Samba", nil)
+      assert folder.sort_order == 0
+      assert folder.color == "#9498a6"
+    end
+
+    test "a name that slugs to nothing is invalid" do
+      assert {:error, :invalid_name} = GenreFolders.create_from_name("!!!", nil)
+    end
+
+    test "a duplicate name returns the changeset error" do
+      insert(:genre_folder, key: "samba", display_name: "Samba", dir_name: "Samba")
+      assert {:error, %Ecto.Changeset{}} = GenreFolders.create_from_name("Samba", nil)
+    end
+  end
+
+  describe "in_use_keys/0" do
+    test "collects track folders and pending move targets in one pass, ignoring the rest" do
+      insert(:track, genre_folder: "samba", status: :present)
+      insert(:genre_folder, key: "vazio", display_name: "Vazio", dir_name: "Vazio")
+
+      t = insert(:track)
+
+      {:ok, _} =
+        Organization.create_suggestion(%{
+          track_id: t.id,
+          from_rel_path: t.rel_path,
+          to_genre_folder: "roots",
+          source: :claude
+        })
+
+      keys = GenreFolders.in_use_keys()
+
+      assert "samba" in keys
+      assert "roots" in keys
+      refute "vazio" in keys
     end
   end
 end
