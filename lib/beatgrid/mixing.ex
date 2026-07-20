@@ -153,18 +153,20 @@ defmodule Beatgrid.Mixing do
   @spec rank(keyword()) :: [suggestion()]
   def rank(opts \\ []) do
     prev = Keyword.get(opts, :prev)
-    target_style = Keyword.get(opts, :target_style)
-    target_intensity = Keyword.get(opts, :target_intensity)
     exclude = Keyword.get(opts, :exclude, [])
     limit = Keyword.get(opts, :limit, @default_limit)
-    weights = opts |> Keyword.get(:weights) |> clamp_weights()
-    tiers = Keyword.get(opts, :style_tiers, %{})
 
-    prev_eff = prev && effective(Repo.preload(prev, :soundcharts_song))
+    ctx = %{
+      prev_eff: prev && effective(Repo.preload(prev, :soundcharts_song)),
+      target_style: Keyword.get(opts, :target_style),
+      target_intensity: Keyword.get(opts, :target_intensity),
+      weights: opts |> Keyword.get(:weights) |> clamp_weights(),
+      tiers: Keyword.get(opts, :style_tiers, %{})
+    }
 
     exclude
-    |> candidates(prev_eff, opts)
-    |> Enum.map(&score(&1, prev_eff, target_style, target_intensity, weights, tiers))
+    |> candidates(ctx.prev_eff, opts)
+    |> Enum.map(&score(&1, ctx))
     |> Enum.sort_by(& &1.score, :desc)
     |> Enum.take(limit)
   end
@@ -209,7 +211,16 @@ defmodule Beatgrid.Mixing do
   defp harmonic_ok?(true, %{camelot: a}, b),
     do: a == b or Camelot.compatible?(a, b)
 
-  defp score(track, prev_eff, target_style, target_intensity, weights, tiers) do
+  # ctx: the per-rank scoring context built once in rank/1.
+  defp score(track, ctx) do
+    %{
+      prev_eff: prev_eff,
+      target_style: target_style,
+      target_intensity: target_intensity,
+      weights: weights,
+      tiers: tiers
+    } = ctx
+
     e = effective(track)
 
     parts = %{
