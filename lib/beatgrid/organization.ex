@@ -18,6 +18,10 @@ defmodule Beatgrid.Organization do
     MoveSuggestionQuery.count(status: :pending, to_genre_folder: folder_key) > 0
   end
 
+  @doc "The distinct folder keys targeted by pending suggestions."
+  @spec pending_to_folder_keys() :: [String.t()]
+  defdelegate pending_to_folder_keys, to: MoveSuggestionQuery, as: :pending_to_folders
+
   @spec get(Ecto.UUID.t()) :: MoveSuggestion.t() | nil
   def get(id), do: Repo.get(MoveSuggestion, id)
 
