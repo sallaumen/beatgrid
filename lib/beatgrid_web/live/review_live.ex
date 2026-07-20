@@ -521,7 +521,11 @@ defmodule BeatgridWeb.ReviewLive do
         >
           Desfazer
         </button>
-        <button phx-click="dismiss_toast" class="text-ink-muted hover:text-ink text-body-sm">✕</button>
+        <button
+          phx-click="dismiss_toast"
+          aria-label="Fechar aviso"
+          class="text-ink-muted hover:text-ink text-body-sm"
+        >✕</button>
       </div>
     </div>
     """
