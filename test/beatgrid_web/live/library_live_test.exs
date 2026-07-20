@@ -364,6 +364,17 @@ defmodule BeatgridWeb.LibraryLiveTest do
     assert html_3 =~ "101 selecionadas"
   end
 
+  test "a hostile sort column is ignored, never crashes the view", %{conn: conn} do
+    insert(:track, status: :present, tag_title: "Sobrevive")
+
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    render_click(view, "sort", %{"by" => "not_an_existing_atom_xyz"})
+    render_click(view, "sort", %{"by" => "delete"})
+
+    assert render(view) =~ "Sobrevive"
+  end
+
   # True if `a` appears before `b` in the rendered HTML.
   defp before?(html, a, b) do
     ia = :binary.match(html, a) |> elem(0)

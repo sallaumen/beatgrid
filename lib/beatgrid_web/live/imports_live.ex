@@ -27,15 +27,20 @@ defmodule BeatgridWeb.ImportsLive do
   end
 
   @impl true
-  def handle_event("toggle_filter", %{"key" => key}, socket) do
+  def handle_event("toggle_filter", %{"key" => key}, socket)
+      when key in ~w(unfiled unresolved gold) do
     k = String.to_existing_atom(key)
     filters = Map.update(socket.assigns.filters, k, true, fn v -> if v, do: nil, else: true end)
     {:noreply, socket |> assign(filters: filters) |> load()}
   end
 
-  def handle_event("sort", %{"by" => by}, socket) do
+  def handle_event("toggle_filter", _params, socket), do: {:noreply, socket}
+
+  def handle_event("sort", %{"by" => by}, socket) when by in ~w(recent views published) do
     {:noreply, socket |> assign(sort: String.to_existing_atom(by)) |> load()}
   end
+
+  def handle_event("sort", _params, socket), do: {:noreply, socket}
 
   def handle_event("toggle_import", _params, socket) do
     {:noreply, update(socket, :show_import, &(not &1))}

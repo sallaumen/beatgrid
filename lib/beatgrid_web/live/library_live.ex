@@ -16,6 +16,10 @@ defmodule BeatgridWeb.LibraryLive do
   # reference track's effective energy.
   @energy_window 12
 
+  # The sortable columns the header emits — client payloads are checked against
+  # this before any String.to_existing_atom.
+  @sort_fields ~w(artist folder bpm key energy rating loudness confidence)
+
   @confidences [{"alta", :high}, {"média", :medium}, {"baixa", :low}]
 
   # Rows loaded per DB page; the rest stream in on scroll (no load-everything query).
@@ -87,14 +91,17 @@ defmodule BeatgridWeb.LibraryLive do
   end
 
   # Clicking a column header sorts by that field — toggling asc/desc when it's
-  # already the active field, otherwise starting ascending.
-  def handle_event("sort", %{"by" => by}, socket) do
+  # already the active field, otherwise starting ascending. `by` is
+  # client-supplied, so it's whitelisted before touching atoms.
+  def handle_event("sort", %{"by" => by}, socket) when by in @sort_fields do
     field = String.to_existing_atom(by)
     {cur_field, cur_dir} = socket.assigns.sort
     dir = if cur_field == field, do: flip_dir(cur_dir), else: :asc
 
     {:noreply, socket |> assign(sort: {field, dir}) |> load_tracks()}
   end
+
+  def handle_event("sort", _params, socket), do: {:noreply, socket}
 
   def handle_event("filter", params, socket) do
     filters =
