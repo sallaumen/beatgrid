@@ -23,6 +23,11 @@ defmodule Beatgrid.Library do
   def broadcast_import(payload),
     do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @import_topic, {:import_progress, payload})
 
+  @doc "Broadcast a background batch-move result on the same library topic (contract: `Beatgrid.Events`)."
+  @spec broadcast_moved(Beatgrid.Events.move_result()) :: :ok
+  def broadcast_moved(result),
+    do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @import_topic, {:tracks_moved, result})
+
   @doc "The on-disk library root (the source of truth)."
   @spec library_root() :: String.t()
   def library_root, do: Application.fetch_env!(:beatgrid, :library_root)

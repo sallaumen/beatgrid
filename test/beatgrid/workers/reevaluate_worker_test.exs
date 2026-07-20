@@ -12,15 +12,13 @@ defmodule Beatgrid.Workers.ReevaluateWorkerTest do
   setup :verify_on_exit!
 
   test "processes the scope and broadcasts running + done progress" do
-    song = insert(:soundcharts_song, credit_name: "Caetano Veloso", name: "Cajuína")
-
     track =
       insert(:track,
         status: :present,
         tag_title: "Cajuina",
         filename: "Cajuina.mp3",
         rel_path: "_Inbox/Cajuina.mp3",
-        soundcharts_song_id: song.id
+        soundcharts_song: build(:soundcharts_song, credit_name: "Caetano Veloso", name: "Cajuína")
       )
 
     {:ok, sug} =

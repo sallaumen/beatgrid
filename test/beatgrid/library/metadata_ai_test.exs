@@ -18,8 +18,6 @@ defmodule Beatgrid.Library.MetadataAITest do
         description: "raiz"
       )
 
-      song = insert(:soundcharts_song, credit_name: "Caetano Veloso", name: "Cajuína")
-
       track =
         insert(:track,
           status: :present,
@@ -27,7 +25,8 @@ defmodule Beatgrid.Library.MetadataAITest do
           tag_artist: nil,
           tag_title: "Cajuina",
           filename: "Cajuina.mp3",
-          soundcharts_song_id: song.id
+          soundcharts_song:
+            build(:soundcharts_song, credit_name: "Caetano Veloso", name: "Cajuína")
         )
 
       expect(Beatgrid.AI.Mock, :complete, fn _prompt, _schema, _opts ->

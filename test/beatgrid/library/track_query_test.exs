@@ -5,8 +5,6 @@ defmodule Beatgrid.Library.TrackQueryTest do
 
   describe "library/1" do
     test "filters present tracks by genre, rating, tag, BPM range and search; preloads song" do
-      song = insert(:soundcharts_song, tempo_bpm: 120.0, camelot: "8A")
-
       keep =
         insert(:track,
           status: :present,
@@ -15,7 +13,7 @@ defmodule Beatgrid.Library.TrackQueryTest do
           tags: ["festa", "abertura"],
           tag_artist: "Djavan",
           norm_artist: "djavan",
-          soundcharts_song_id: song.id
+          soundcharts_song: build(:soundcharts_song, tempo_bpm: 120.0, camelot: "8A")
         )
 
       insert(:track, status: :present, genre_folder: "forro_roots", rating: 8)
@@ -63,8 +61,12 @@ defmodule Beatgrid.Library.TrackQueryTest do
     end
 
     test "bpm range uses the effective value (detected when no Soundcharts)" do
-      s = insert(:soundcharts_song, tempo_bpm: 128.0)
-      sc = insert(:track, status: :present, soundcharts_song_id: s.id)
+      sc =
+        insert(:track,
+          status: :present,
+          soundcharts_song: build(:soundcharts_song, tempo_bpm: 128.0)
+        )
+
       detected = insert(:track, status: :present, bpm_detected: 124.0)
       insert(:track, status: :present, bpm_detected: 90.0)
 
@@ -75,10 +77,20 @@ defmodule Beatgrid.Library.TrackQueryTest do
     end
 
     test "sorts by a chosen field + direction (nils last)" do
-      s_1 = insert(:soundcharts_song, tempo_bpm: 150.0)
-      s_2 = insert(:soundcharts_song, tempo_bpm: 100.0)
-      fast = insert(:track, status: :present, soundcharts_song_id: s_1.id, norm_artist: "z")
-      slow = insert(:track, status: :present, soundcharts_song_id: s_2.id, norm_artist: "a")
+      fast =
+        insert(:track,
+          status: :present,
+          soundcharts_song: build(:soundcharts_song, tempo_bpm: 150.0),
+          norm_artist: "z"
+        )
+
+      slow =
+        insert(:track,
+          status: :present,
+          soundcharts_song: build(:soundcharts_song, tempo_bpm: 100.0),
+          norm_artist: "a"
+        )
+
       nobpm = insert(:track, status: :present, norm_artist: "m")
 
       ids = TrackQuery.library(%{sort: {:bpm, :desc}}) |> Enum.map(& &1.id)
@@ -87,12 +99,27 @@ defmodule Beatgrid.Library.TrackQueryTest do
     end
 
     test "sorts by key in Camelot wheel order, not lexically" do
-      s2a = insert(:soundcharts_song, camelot: "2A")
-      s10a = insert(:soundcharts_song, camelot: "10A")
-      s10b = insert(:soundcharts_song, camelot: "10B")
-      two_a = insert(:track, status: :present, soundcharts_song_id: s2a.id, norm_artist: "z")
-      ten_a = insert(:track, status: :present, soundcharts_song_id: s10a.id, norm_artist: "y")
-      ten_b = insert(:track, status: :present, soundcharts_song_id: s10b.id, norm_artist: "x")
+      two_a =
+        insert(:track,
+          status: :present,
+          soundcharts_song: build(:soundcharts_song, camelot: "2A"),
+          norm_artist: "z"
+        )
+
+      ten_a =
+        insert(:track,
+          status: :present,
+          soundcharts_song: build(:soundcharts_song, camelot: "10A"),
+          norm_artist: "y"
+        )
+
+      ten_b =
+        insert(:track,
+          status: :present,
+          soundcharts_song: build(:soundcharts_song, camelot: "10B"),
+          norm_artist: "x"
+        )
+
       nokey = insert(:track, status: :present, norm_artist: "a")
 
       ids = TrackQuery.library(%{sort: {:key, :asc}}) |> Enum.map(& &1.id)
@@ -101,15 +128,12 @@ defmodule Beatgrid.Library.TrackQueryTest do
     end
 
     test "filters by compatible key, energy range, rating_max, unclassified" do
-      s8a = insert(:soundcharts_song, camelot: "8A", energy: 0.7)
-      s3b = insert(:soundcharts_song, camelot: "3B", energy: 0.2)
-
       keep =
         insert(:track,
           status: :present,
           genre_folder: "mpb",
           rating: 6,
-          soundcharts_song_id: s8a.id
+          soundcharts_song: build(:soundcharts_song, camelot: "8A", energy: 0.7)
         )
 
       far =
@@ -117,7 +141,7 @@ defmodule Beatgrid.Library.TrackQueryTest do
           status: :present,
           genre_folder: "mpb",
           rating: 6,
-          soundcharts_song_id: s3b.id
+          soundcharts_song: build(:soundcharts_song, camelot: "3B", energy: 0.2)
         )
 
       inbox = insert(:track, status: :present, genre_folder: nil)
@@ -135,10 +159,16 @@ defmodule Beatgrid.Library.TrackQueryTest do
     end
 
     test "a decimal BPM filter value parses instead of crashing" do
-      song = insert(:soundcharts_song, tempo_bpm: 128.0)
-      keep = insert(:track, status: :present, soundcharts_song_id: song.id)
-      slow_song = insert(:soundcharts_song, tempo_bpm: 90.0)
-      insert(:track, status: :present, soundcharts_song_id: slow_song.id)
+      keep =
+        insert(:track,
+          status: :present,
+          soundcharts_song: build(:soundcharts_song, tempo_bpm: 128.0)
+        )
+
+      insert(:track,
+        status: :present,
+        soundcharts_song: build(:soundcharts_song, tempo_bpm: 90.0)
+      )
 
       ids = TrackQuery.library(%{bpm_min: "100.5"}) |> Enum.map(& &1.id)
       assert ids == [keep.id]
@@ -246,15 +276,58 @@ defmodule Beatgrid.Library.TrackQueryTest do
     end
 
     test "filtro :unresolved" do
-      song = insert(:soundcharts_song)
-
       _res =
-        insert(:track, status: :present, source_playlist: "youtube", soundcharts_song_id: song.id)
+        insert(:track,
+          status: :present,
+          source_playlist: "youtube",
+          soundcharts_song: build(:soundcharts_song)
+        )
 
       unres = insert(:track, status: :present, source_playlist: "youtube")
 
       ids = TrackQuery.youtube_imports(%{unresolved: true}) |> Enum.map(& &1.id)
       assert ids == [unres.id]
+    end
+  end
+
+  describe "mixing_candidates/2 bpm window" do
+    test "filters on the effective BPM in SQL — manual override included" do
+      inside =
+        insert(:track,
+          status: :present,
+          soundcharts_song: build(:soundcharts_song, tempo_bpm: 125.0)
+        )
+
+      detected = insert(:track, status: :present, bpm_detected: 122.0)
+
+      # Soundcharts says 125 (inside), but the DJ pinned 90 — the override must win.
+      overridden =
+        insert(:track,
+          status: :present,
+          bpm_manual: 90.0,
+          soundcharts_song: build(:soundcharts_song, tempo_bpm: 125.0)
+        )
+
+      outside =
+        insert(:track,
+          status: :present,
+          soundcharts_song: build(:soundcharts_song, tempo_bpm: 90.0)
+        )
+
+      # Carries a key signal but no BPM anywhere: a window must drop it.
+      no_bpm = insert(:track, status: :present, camelot_detected: "8A")
+
+      ids = TrackQuery.mixing_candidates([], bpm_min: 120, bpm_max: 130) |> Enum.map(& &1.id)
+
+      assert inside.id in ids
+      assert detected.id in ids
+      refute overridden.id in ids
+      refute outside.id in ids
+      refute no_bpm.id in ids
+
+      # No window: everyone with a mixing signal stays in.
+      all_ids = TrackQuery.mixing_candidates([]) |> Enum.map(& &1.id)
+      for t <- [inside, detected, overridden, outside, no_bpm], do: assert(t.id in all_ids)
     end
   end
 end

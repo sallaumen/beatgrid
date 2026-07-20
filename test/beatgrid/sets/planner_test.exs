@@ -8,7 +8,7 @@ defmodule Beatgrid.Sets.PlannerTest do
     {song_attrs, track_attrs} = Keyword.split(attrs, [:camelot, :tempo_bpm, :energy])
 
     song =
-      insert(
+      build(
         :soundcharts_song,
         Keyword.merge([camelot: "8A", tempo_bpm: 120.0, energy: 0.6], song_attrs)
       )
@@ -16,7 +16,7 @@ defmodule Beatgrid.Sets.PlannerTest do
     insert(
       :track,
       Keyword.merge(
-        [soundcharts_song_id: song.id, status: :present, genre_folder: "forro"],
+        [soundcharts_song: song, status: :present, genre_folder: "forro"],
         track_attrs
       )
     )
@@ -37,6 +37,49 @@ defmodule Beatgrid.Sets.PlannerTest do
 
     broadcasts = drain_set_changed(0)
     assert broadcasts <= 3
+  end
+
+  test "candidate fetching hits the tracks table a fixed number of times, not once per slot",
+       %{set: set} do
+    test_pid = self()
+    handler_id = "planner-query-count-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:beatgrid, :repo, :query],
+        fn _event, _measurements, meta, _config ->
+          # Handlers run in the emitting process — only count THIS test's queries
+          # (async siblings emit from their own processes).
+          if self() == test_pid, do: send(test_pid, {:repo_query, meta.query})
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    {:ok, _} = plan(set, %{"mode" => "tracks", "track_count" => "2"})
+    small = drain_track_selects(0)
+
+    {:ok, _} = plan(set, %{"mode" => "tracks", "track_count" => "8", "fill_mode" => "replace"})
+    large = drain_track_selects(0)
+
+    assert large == small,
+           "an 8-slot plan issued #{large} tracks SELECTs vs #{small} for 2 slots — " <>
+             "the candidate pool must be fetched per plan, not per slot"
+  end
+
+  defp drain_track_selects(acc) do
+    receive do
+      {:repo_query, q} ->
+        if String.starts_with?(q, "SELECT") and q =~ ~s(FROM "tracks") do
+          drain_track_selects(acc + 1)
+        else
+          drain_track_selects(acc)
+        end
+    after
+      0 -> acc
+    end
   end
 
   test "plans exactly the requested number of tracks", %{set: set} do
@@ -106,9 +149,7 @@ defmodule Beatgrid.Sets.PlannerTest do
 
     standouts =
       for i <- 1..7, into: MapSet.new() do
-        t = track(tag_artist: "Standout #{i}", genre_folder: "forro_secundario")
-        {:ok, r} = t |> Ecto.Changeset.change(%{rating: 10}) |> Beatgrid.Repo.update()
-        r.id
+        track(tag_artist: "Standout #{i}", genre_folder: "forro_secundario", rating: 10).id
       end
 
     {:ok, _} =
@@ -232,9 +273,7 @@ defmodule Beatgrid.Sets.PlannerTest do
 
     far =
       for i <- 1..7, into: MapSet.new() do
-        t = track(tag_artist: "Far #{i}", camelot: "3B")
-        {:ok, r} = t |> Ecto.Changeset.change(%{rating: 10}) |> Beatgrid.Repo.update()
-        r.id
+        track(tag_artist: "Far #{i}", camelot: "3B", rating: 10).id
       end
 
     {:ok, _} =
@@ -250,9 +289,7 @@ defmodule Beatgrid.Sets.PlannerTest do
 
     far =
       for i <- 1..7, into: MapSet.new() do
-        t = track(tag_artist: "Far #{i}", camelot: "3B")
-        {:ok, r} = t |> Ecto.Changeset.change(%{rating: 10}) |> Beatgrid.Repo.update()
-        r.id
+        track(tag_artist: "Far #{i}", camelot: "3B", rating: 10).id
       end
 
     {:ok, _} =
@@ -279,12 +316,7 @@ defmodule Beatgrid.Sets.PlannerTest do
   test "gold_every guarantees at least one Selo Ouro in every window", %{set: set} do
     golden =
       for i <- 1..6, into: MapSet.new() do
-        t = track(tag_artist: "Gold #{i}")
-
-        {:ok, g} =
-          t |> Ecto.Changeset.change(%{gold_status: :confirmed}) |> Beatgrid.Repo.update()
-
-        g.id
+        track(tag_artist: "Gold #{i}", gold_status: :confirmed).id
       end
 
     {:ok, _} = plan(set, %{"mode" => "tracks", "track_count" => "15", "gold_every" => "5"})
@@ -303,20 +335,10 @@ defmodule Beatgrid.Sets.PlannerTest do
     # must land exactly on the pico, the openers must spend the non-golds.
     golden =
       for i <- 1..2, into: MapSet.new() do
-        t = track(tag_artist: "GoldTop #{i}")
-
-        {:ok, g} =
-          t
-          |> Ecto.Changeset.change(%{rating: 10, gold_status: :confirmed})
-          |> Beatgrid.Repo.update()
-
-        g.id
+        track(tag_artist: "GoldTop #{i}", rating: 10, gold_status: :confirmed).id
       end
 
-    for i <- 1..3 do
-      t = track(tag_artist: "PlainTop #{i}")
-      {:ok, _} = t |> Ecto.Changeset.change(%{rating: 10}) |> Beatgrid.Repo.update()
-    end
+    for i <- 1..3, do: track(tag_artist: "PlainTop #{i}", rating: 10)
 
     {:ok, _} =
       plan(set, %{"mode" => "tracks", "track_count" => "3", "arc_shape" => "steady"})
@@ -340,9 +362,7 @@ defmodule Beatgrid.Sets.PlannerTest do
     # rated tracks — deterministic even with the top-K random pick.
     rated =
       for i <- 1..10, into: MapSet.new() do
-        t = track(tag_artist: "Rated #{i}")
-        {:ok, r} = t |> Ecto.Changeset.change(%{rating: 10}) |> Beatgrid.Repo.update()
-        r.id
+        track(tag_artist: "Rated #{i}", rating: 10).id
       end
 
     {:ok, _} =

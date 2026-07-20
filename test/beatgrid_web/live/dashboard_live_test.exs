@@ -34,13 +34,12 @@ defmodule BeatgridWeb.DashboardLiveTest do
 
   test "shows headline KPIs and the genre / artist distributions", %{conn: conn} do
     insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB")
-    song = insert(:soundcharts_song, tempo_bpm: 120.0, release_date: ~D[1975-03-01])
 
     insert(:track,
       status: :present,
       genre_folder: "mpb",
       tag_artist: "Jobim",
-      soundcharts_song_id: song.id,
+      soundcharts_song: build(:soundcharts_song, tempo_bpm: 120.0, release_date: ~D[1975-03-01]),
       sc_match_confidence: :high
     )
 

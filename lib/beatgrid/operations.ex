@@ -17,6 +17,17 @@ defmodule Beatgrid.Operations do
   @spec record(map()) :: {:ok, Operation.t()} | {:error, Ecto.Changeset.t()}
   def record(attrs), do: %Operation{} |> Operation.changeset(attrs) |> Repo.insert()
 
+  @operations_topic "operations"
+
+  @doc "Subscribe to batch-operation completions (`{:batch_undone, undo_result}`)."
+  @spec subscribe() :: :ok | {:error, term()}
+  def subscribe, do: Phoenix.PubSub.subscribe(Beatgrid.PubSub, @operations_topic)
+
+  @doc "Broadcast an undo-batch result from the background worker (contract: `Beatgrid.Events`)."
+  @spec broadcast_undone(Beatgrid.Events.undo_result()) :: :ok
+  def broadcast_undone(result),
+    do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @operations_topic, {:batch_undone, result})
+
   @spec list_by(keyword()) :: [Operation.t()]
   def list_by(opts \\ []), do: OperationQuery.list_by(opts)
 

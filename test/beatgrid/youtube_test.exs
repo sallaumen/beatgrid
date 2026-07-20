@@ -146,8 +146,13 @@ defmodule Beatgrid.YouTubeTest do
 
   test "pending_count counts only downloaded-but-unenriched tracks" do
     insert(:track, status: :present, genre_folder: nil, soundcharts_song_id: nil)
-    song = insert(:soundcharts_song)
-    insert(:track, status: :present, genre_folder: nil, soundcharts_song_id: song.id)
+
+    insert(:track,
+      status: :present,
+      genre_folder: nil,
+      soundcharts_song: build(:soundcharts_song)
+    )
+
     insert(:track, status: :present, genre_folder: "mpb")
 
     assert YouTube.pending_count() == 1

@@ -217,11 +217,11 @@ defmodule BeatgridWeb.TrackLive do
 
         {:noreply,
          socket
-         |> assign(toast: {:ok, "Original backup restored."})
+         |> assign(toast: {:ok, "Backup original restaurado."})
          |> reload()}
 
       _none ->
-        {:noreply, assign(socket, toast: {:error, "No original backup is available."})}
+        {:noreply, assign(socket, toast: {:error, "Nenhum backup original disponível."})}
     end
   end
 
@@ -537,7 +537,7 @@ defmodule BeatgridWeb.TrackLive do
                     :if={@track.id == @playing_track_id}
                     class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary"
                   >
-                    <.vinyl size={12} /> Playing now
+                    <.vinyl size={12} /> Tocando agora
                   </span>
                 </div>
 
@@ -596,11 +596,11 @@ defmodule BeatgridWeb.TrackLive do
                         )
                   }
                   class="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-4 py-2 text-[14px] font-semibold text-white shadow-lg shadow-primary/25 hover:bg-primary/90"
-                  title="Play in the global player"
+                  title="Tocar no player global"
                 >
                   <.vinyl :if={@track.id == @playing_track_id} size={17} />
                   <span :if={@track.id != @playing_track_id} aria-hidden="true">▶</span>
-                  {if @track.id == @playing_track_id, do: "Playing", else: "Play current"}
+                  {if @track.id == @playing_track_id, do: "Tocando", else: "Tocar atual"}
                 </button>
                 <button
                   type="button"
@@ -609,8 +609,8 @@ defmodule BeatgridWeb.TrackLive do
                   class="inline-flex items-center justify-center gap-1.5 rounded-full border border-amber/40 bg-amber/10 px-3 py-2 text-[12px] font-semibold text-amber hover:bg-amber/20 disabled:cursor-not-allowed disabled:opacity-40"
                   title={
                     if @track.id == @playing_track_id,
-                      do: "Mark the current position",
-                      else: "Play this track before adding a marker"
+                      do: "Marcar a posição atual",
+                      else: "Toque esta faixa antes de adicionar um marcador"
                   }
                 >
                   <span aria-hidden="true">＋</span> Mark
@@ -643,13 +643,13 @@ defmodule BeatgridWeb.TrackLive do
             <div class="flex items-center justify-between gap-3">
               <.section_label>Loudness</.section_label>
               <span class="text-caption text-ink-faint">
-                Target {format_lufs(Loudness.target_lufs())}
+                Alvo {format_lufs(Loudness.target_lufs())}
               </span>
             </div>
 
             <div :if={@track.loudness_lufs} class="mt-3 space-y-2 text-body-sm">
               <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span class="w-28 text-ink-faint">Current file</span>
+                <span class="w-28 text-ink-faint">Arquivo atual</span>
                 <span class="text-amber font-mono">{format_lufs(@track.loudness_lufs)}</span>
                 <span :if={@track.true_peak_dbtp} class="text-ink-secondary font-mono">
                   {Float.round(@track.true_peak_dbtp, 1)} dBTP
@@ -663,7 +663,7 @@ defmodule BeatgridWeb.TrackLive do
                 :if={@track.original_loudness_lufs}
                 class="flex flex-wrap items-center gap-x-3 gap-y-1"
               >
-                <span class="w-28 text-ink-faint">Original backup</span>
+                <span class="w-28 text-ink-faint">Backup original</span>
                 <span class="font-mono text-ink-secondary">
                   {format_lufs(@track.original_loudness_lufs)}
                 </span>
@@ -673,9 +673,9 @@ defmodule BeatgridWeb.TrackLive do
               </div>
 
               <div :if={@track.gain_applied_at} class="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span class="w-28 text-ink-faint">Applied gain</span>
+                <span class="w-28 text-ink-faint">Ganho aplicado</span>
                 <span class="font-mono text-primary">{format_gain(@track.gain_applied_db)}</span>
-                <span class="text-ink-muted">Full original backup available</span>
+                <span class="text-ink-muted">Backup original completo disponível</span>
               </div>
             </div>
 
@@ -694,15 +694,15 @@ defmodule BeatgridWeb.TrackLive do
                 }
                 class="inline-flex items-center justify-center gap-2 rounded-md border border-primary/35 bg-primary/10 px-3 py-2 text-[12px] font-semibold text-primary hover:bg-primary/20"
               >
-                <span aria-hidden="true">▶</span> Play original
+                <span aria-hidden="true">▶</span> Tocar original
               </button>
               <button
                 type="button"
                 phx-click="restore_gain_backup"
-                data-confirm="Restore the original pre-gain backup over the current file?"
+                data-confirm="Restaurar o backup original (pré-ganho) por cima do arquivo atual?"
                 class="inline-flex items-center justify-center rounded-md border border-amber/35 bg-amber/10 px-3 py-2 text-[12px] font-semibold text-amber hover:bg-amber/20"
               >
-                Restore original backup
+                Restaurar backup original
               </button>
             </div>
           </section>
@@ -718,18 +718,18 @@ defmodule BeatgridWeb.TrackLive do
                     type="button"
                     phx-click="detect_markers"
                     class="rounded-md border border-white/10 bg-input px-2.5 py-1 text-[11px] text-ink-secondary hover:text-ink"
-                    title="Detect intro/outro automatically by audio analysis"
+                    title="Detectar intro/saída automaticamente por análise de áudio"
                   >
-                    Detect
+                    Detectar
                   </button>
                   <button
                     type="button"
                     phx-click={JS.dispatch("beatgrid:add-marker", to: "#player-audio")}
                     disabled={@track.id != @playing_track_id}
                     class="rounded-md border border-amber/40 bg-amber/10 px-2.5 py-1 text-[11px] font-semibold text-amber hover:bg-amber/20 disabled:cursor-not-allowed disabled:opacity-40"
-                    title="Mark the current player position"
+                    title="Marcar a posição atual do player"
                   >
-                    + mark
+                    + marcar
                   </button>
                 </div>
               </div>
@@ -746,7 +746,7 @@ defmodule BeatgridWeb.TrackLive do
 
             <section class="min-w-0 rounded-xl border border-white/6 bg-surface p-4">
               <div class="flex items-center justify-between gap-3">
-                <.section_label>Other versions of this song ({length(@versions)})</.section_label>
+                <.section_label>Outras versões desta música ({length(@versions)})</.section_label>
               </div>
               <ul :if={@versions != []} class="mt-2 divide-y divide-white/4">
                 <li :for={v <- @versions} class="flex min-w-0 items-center gap-3 py-2">
@@ -759,7 +759,7 @@ defmodule BeatgridWeb.TrackLive do
                       )
                     }
                     class="flex size-8 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/10 text-[12px] text-primary hover:bg-primary/20"
-                    title="Preview this version"
+                    title="Ouvir esta versão"
                   >
                     ▶
                   </button>
@@ -969,6 +969,7 @@ defmodule BeatgridWeb.TrackLive do
                     <button
                       phx-click="remove_tag"
                       phx-value-tag={tag}
+                      aria-label={"Remover tag #{tag}"}
                       class="text-ink-muted hover:text-coral"
                     >✕</button>
                   </span>
@@ -1198,7 +1199,7 @@ defmodule BeatgridWeb.TrackLive do
           phx-key="Escape"
           class="min-w-0 flex-1 rounded-md border border-primary/50 bg-input px-2 py-1 text-body-sm focus:outline-none"
         />
-        <button class="text-green text-[13px]" title="Salvar">✓</button>
+        <button class="text-green text-[13px]" title="Salvar" aria-label="Salvar">✓</button>
         <button
           type="button"
           phx-click="cancel_edit"
@@ -1346,7 +1347,11 @@ defmodule BeatgridWeb.TrackLive do
       )
     ]}>
       <p class="text-body-sm text-ink">{enrich_toast_message(@toast)}</p>
-      <button phx-click="dismiss_toast" class="text-ink-muted hover:text-ink text-body-sm">✕</button>
+      <button
+        phx-click="dismiss_toast"
+        aria-label="Fechar aviso"
+        class="text-ink-muted hover:text-ink text-body-sm"
+      >✕</button>
     </div>
     """
   end

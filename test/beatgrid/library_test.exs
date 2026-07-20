@@ -55,11 +55,13 @@ defmodule Beatgrid.LibraryTest do
 
   describe "effective/1" do
     test "prefers Soundcharts, falls back to detected" do
-      song = insert(:soundcharts_song, tempo_bpm: 120.0, camelot: "8A", energy: 0.7)
-
       t =
-        insert(:track, soundcharts_song_id: song.id, bpm_detected: 90.0, camelot_detected: "5A")
-        |> Repo.preload(:soundcharts_song)
+        insert(:track,
+          soundcharts_song:
+            build(:soundcharts_song, tempo_bpm: 120.0, camelot: "8A", energy: 0.7),
+          bpm_detected: 90.0,
+          camelot_detected: "5A"
+        )
 
       assert %{bpm: 120.0, camelot: "8A", energy: 0.7} = Library.effective(t)
 
@@ -71,17 +73,15 @@ defmodule Beatgrid.LibraryTest do
     end
 
     test "a manual override wins over Soundcharts and detected" do
-      song = insert(:soundcharts_song, tempo_bpm: 120.0, camelot: "8A", energy: 0.7)
-
       t =
         insert(:track,
-          soundcharts_song_id: song.id,
+          soundcharts_song:
+            build(:soundcharts_song, tempo_bpm: 120.0, camelot: "8A", energy: 0.7),
           bpm_detected: 90.0,
           camelot_detected: "5A",
           bpm_manual: 128.0,
           camelot_manual: "11A"
         )
-        |> Repo.preload(:soundcharts_song)
 
       assert %{bpm: 128.0, camelot: "11A", energy: 0.7} = Library.effective(t)
     end

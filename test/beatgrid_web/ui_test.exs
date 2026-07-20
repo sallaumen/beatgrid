@@ -3,6 +3,8 @@ defmodule BeatgridWeb.UITest do
 
   import Phoenix.LiveViewTest
 
+  alias Beatgrid.Library.GenreFolders
+
   describe "play_button/1" do
     test "dispatches beatgrid:play to the global player with src + id" do
       html =
@@ -85,6 +87,14 @@ defmodule BeatgridWeb.UITest do
   end
 
   describe "folder_color/1 and folder_label/1 DB fallback" do
+    # The dynamic-key path reads GenreFolders.by_key/0 — a global cache the
+    # sandbox can't roll back. Factory inserts bypass the invalidating context
+    # writes, so each test starts (and leaves) the cache cold.
+    setup do
+      GenreFolders.invalidate()
+      on_exit(fn -> GenreFolders.invalidate() end)
+    end
+
     test "uses the hardcoded fast path for seeded keys" do
       assert BeatgridWeb.UI.folder_color("mpb") == "#8b7bf0"
       assert BeatgridWeb.UI.folder_label("mpb") == "MPB"
@@ -106,6 +116,21 @@ defmodule BeatgridWeb.UITest do
       assert BeatgridWeb.UI.folder_color("ghost") == "#9498a6"
       assert BeatgridWeb.UI.folder_label("ghost") == "ghost"
       assert BeatgridWeb.UI.folder_label(nil) == "—"
+    end
+
+    test "a folder write through the context refreshes the cached lookup" do
+      # Warm the cache while the key is unknown…
+      assert BeatgridWeb.UI.folder_label("samba2") == "samba2"
+
+      # …then a context write must invalidate it, or the badge stays stale.
+      {:ok, _} =
+        GenreFolders.create(%{
+          key: "samba2",
+          display_name: "Samba Dois",
+          dir_name: "Samba Dois"
+        })
+
+      assert BeatgridWeb.UI.folder_label("samba2") == "Samba Dois"
     end
   end
 end

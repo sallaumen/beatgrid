@@ -3,6 +3,7 @@ defmodule Beatgrid.Workers.DownloadWorkerTest do
 
   alias Beatgrid.Workers.DownloadWorker
   alias Beatgrid.YouTube.DownloaderMock
+  alias Beatgrid.YtDlpError
 
   defp job(opts \\ []) do
     %Oban.Job{
@@ -16,12 +17,17 @@ defmodule Beatgrid.Workers.DownloadWorkerTest do
 
   defp err(message), do: [%{"attempt" => 1, "error" => message}]
 
-  @rate_limited {:yt_dlp_exit, 1,
-                 "WARNING: [youtube] Unable to download webpage: HTTP Error 429: Too Many Requests\n" <>
-                   "ERROR: [youtube] x: Video unavailable. This video is not available\n"}
+  # What the adapter actually returns now: the classified domain error.
+  @rate_limited YtDlpError.from_exit(
+                  1,
+                  "WARNING: [youtube] Unable to download webpage: HTTP Error 429: Too Many Requests\n" <>
+                    "ERROR: [youtube] x: Video unavailable. This video is not available\n"
+                )
 
-  @unavailable {:yt_dlp_exit, 1,
-                "ERROR: [youtube] x: Video unavailable. This video is not available\n"}
+  @unavailable YtDlpError.from_exit(
+                 1,
+                 "ERROR: [youtube] x: Video unavailable. This video is not available\n"
+               )
 
   test "a 429 is retried even when yt-dlp also reports the video unavailable" do
     stub_download({:error, @rate_limited})
@@ -39,7 +45,7 @@ defmodule Beatgrid.Workers.DownloadWorkerTest do
           "ERROR: [youtube] x: This video has been removed by the uploader\n",
           "ERROR: [youtube] x: Sign in to confirm your age. This video may be inappropriate\n"
         ] do
-      reason = {:yt_dlp_exit, 1, message}
+      reason = YtDlpError.from_exit(1, message)
       stub_download({:error, reason})
       assert {:cancel, ^reason} = DownloadWorker.perform(job())
     end
@@ -56,6 +62,12 @@ defmodule Beatgrid.Workers.DownloadWorkerTest do
            ) == 30
 
     assert DownloadWorker.backoff(job(attempt: 3, errors: err("HTTP Error 429"))) == 90
+  end
+
+  test "backoff also spots a 429 persisted in the Beatgrid.Error format" do
+    persisted = "** (Beatgrid.Error) " <> @rate_limited.message
+
+    assert DownloadWorker.backoff(job(attempt: 1, errors: err(persisted))) == 30
   end
 
   test "backoff falls back to the Oban default for non-429 errors" do

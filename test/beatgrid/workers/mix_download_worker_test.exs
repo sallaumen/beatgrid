@@ -59,7 +59,7 @@ defmodule Beatgrid.Workers.MixDownloadWorkerTest do
     mix = insert(:mix, status: :downloading)
 
     expect(Beatgrid.Mixes.SourceMock, :fetch, fn _url, _dest ->
-      {:error, {:yt_dlp_exit, 1, "HTTP Error 429: Too Many Requests"}}
+      {:error, Beatgrid.YtDlpError.from_exit(1, "HTTP Error 429: Too Many Requests")}
     end)
 
     assert {:error, _} = perform_job(MixDownloadWorker, %{mix_id: mix.id})
@@ -69,7 +69,7 @@ defmodule Beatgrid.Workers.MixDownloadWorkerTest do
     mix = insert(:mix, status: :downloading)
 
     expect(Beatgrid.Mixes.SourceMock, :fetch, fn _url, _dest ->
-      {:error, {:yt_dlp_exit, 1, "This track is not available"}}
+      {:error, Beatgrid.YtDlpError.from_exit(1, "This track is not available")}
     end)
 
     assert {:cancel, _} = perform_job(MixDownloadWorker, %{mix_id: mix.id})

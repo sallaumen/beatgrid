@@ -10,11 +10,15 @@ defmodule BeatgridWeb.LibraryLive do
   alias Beatgrid.Operations
   alias Beatgrid.Playback
   alias Beatgrid.Soundcharts.Camelot
-  alias Beatgrid.Workers.ImportWorker
+  alias Beatgrid.Workers.{ImportWorker, MoveBatchWorker, UndoBatchWorker}
 
   # "Parecidas" widens the energy window by ±this many points (0–100) around the
   # reference track's effective energy.
   @energy_window 12
+
+  # The sortable columns the header emits — client payloads are checked against
+  # this before any String.to_existing_atom.
+  @sort_fields ~w(artist folder bpm key energy rating loudness confidence)
 
   @confidences [{"alta", :high}, {"média", :medium}, {"baixa", :low}]
 
@@ -30,6 +34,7 @@ defmodule BeatgridWeb.LibraryLive do
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Library.subscribe_import()
+      Operations.subscribe()
       Playback.subscribe()
     end
 
@@ -87,14 +92,17 @@ defmodule BeatgridWeb.LibraryLive do
   end
 
   # Clicking a column header sorts by that field — toggling asc/desc when it's
-  # already the active field, otherwise starting ascending.
-  def handle_event("sort", %{"by" => by}, socket) do
+  # already the active field, otherwise starting ascending. `by` is
+  # client-supplied, so it's whitelisted before touching atoms.
+  def handle_event("sort", %{"by" => by}, socket) when by in @sort_fields do
     field = String.to_existing_atom(by)
     {cur_field, cur_dir} = socket.assigns.sort
     dir = if cur_field == field, do: flip_dir(cur_dir), else: :asc
 
     {:noreply, socket |> assign(sort: {field, dir}) |> load_tracks()}
   end
+
+  def handle_event("sort", _params, socket), do: {:noreply, socket}
 
   def handle_event("filter", params, socket) do
     filters =
@@ -240,15 +248,14 @@ defmodule BeatgridWeb.LibraryLive do
   def handle_event("clear_selection", _params, socket),
     do: {:noreply, assign(socket, selected: MapSet.new())}
 
+  # A big selection means many disk renames — the move runs in a background
+  # worker (durable, visible in /jobs) and {:tracks_moved, _} pops the toast.
   def handle_event("move_selected", %{"folder" => folder_key}, socket)
       when folder_key not in [nil, ""] do
     ids = MapSet.to_list(socket.assigns.selected)
-    %{moved: moved, batch_id: batch_id} = Library.move_many(ids, folder_key)
+    {:ok, _job} = MoveBatchWorker.enqueue(ids, folder_key)
 
-    {:noreply,
-     socket
-     |> assign(move_toast: {:moved, moved, batch_id}, selected: MapSet.new())
-     |> load_tracks()}
+    {:noreply, assign(socket, move_toast: {:moving, length(ids)}, selected: MapSet.new())}
   end
 
   def handle_event("move_selected", _params, socket), do: {:noreply, socket}
@@ -267,8 +274,8 @@ defmodule BeatgridWeb.LibraryLive do
   def handle_event("undo_move", _params, socket) do
     case socket.assigns.move_toast do
       {:moved, _n, batch_id} ->
-        Operations.undo_batch(batch_id)
-        {:noreply, socket |> assign(move_toast: nil) |> load_tracks()}
+        {:ok, _job} = UndoBatchWorker.enqueue(batch_id)
+        {:noreply, assign(socket, move_toast: :undoing)}
 
       _ ->
         {:noreply, socket}
@@ -365,6 +372,20 @@ defmodule BeatgridWeb.LibraryLive do
 
   def handle_info({:import_progress, p}, socket) do
     {:noreply, assign(socket, import_progress: p)}
+  end
+
+  # The background batch move finished — swap the "movendo…" toast for the
+  # Desfazer one and refresh the rows.
+  def handle_info({:tracks_moved, %{moved: moved, batch_id: batch_id}}, socket) do
+    {:noreply,
+     socket
+     |> assign(move_toast: {:moved, moved, batch_id})
+     |> load_tracks()}
+  end
+
+  # The background undo finished — the rows return to their folders.
+  def handle_info({:batch_undone, _result}, socket) do
+    {:noreply, socket |> assign(move_toast: nil) |> load_tracks()}
   end
 
   def handle_info({:now_playing, np}, socket) do
@@ -1115,27 +1136,38 @@ defmodule BeatgridWeb.LibraryLive do
     """
   end
 
-  # Confirmation bar after a move, carrying the batch_id behind a "Desfazer".
+  # Confirmation bar around a move: "movendo…" while the worker runs, then the
+  # result carrying the batch_id behind a "Desfazer", then "desfazendo…".
   attr :toast, :any, required: true
 
   defp move_toast(assigns) do
-    {:moved, n, _batch_id} = assigns.toast
-    assigns = assign(assigns, :n, n)
+    {label, undoable} =
+      case assigns.toast do
+        {:moving, n} -> {"Movendo #{n} faixa(s) em segundo plano…", false}
+        :undoing -> {"Desfazendo o último lote…", false}
+        {:moved, n, _batch_id} -> {move_toast_label(n), n > 0}
+      end
+
+    assigns = assign(assigns, label: label, undoable: undoable)
 
     ~H"""
     <div class="flex items-center justify-between gap-4 border-b border-primary/30 bg-primary/10 px-5 py-2">
       <p class="text-body-sm text-ink">
-        {move_toast_label(@n)}
+        {@label}
       </p>
       <div class="flex items-center gap-3">
         <button
-          :if={@n > 0}
+          :if={@undoable}
           phx-click="undo_move"
           class="rounded-md border border-primary/40 bg-primary/15 px-2.5 py-1 text-body-sm font-semibold text-primary hover:bg-primary/25"
         >
           Desfazer
         </button>
-        <button phx-click="dismiss_move_toast" class="text-body-sm text-ink-muted hover:text-ink">
+        <button
+          phx-click="dismiss_move_toast"
+          aria-label="Fechar aviso"
+          class="text-body-sm text-ink-muted hover:text-ink"
+        >
           ✕
         </button>
       </div>
@@ -1213,7 +1245,11 @@ defmodule BeatgridWeb.LibraryLive do
       <div class="relative max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-white/10 bg-surface p-5">
         <div class="mb-4 flex items-center justify-between">
           <h3 class="text-[18px] font-semibold">Importar pasta ou arquivo</h3>
-          <button phx-click="hide_import" class="text-ink-muted hover:text-ink">✕</button>
+          <button
+            phx-click="hide_import"
+            aria-label="Fechar importação"
+            class="text-ink-muted hover:text-ink"
+          >✕</button>
         </div>
 
         <form id="import-source" phx-submit="preview_import" class="space-y-3">

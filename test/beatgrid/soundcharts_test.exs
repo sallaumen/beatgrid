@@ -64,8 +64,7 @@ defmodule Beatgrid.SoundchartsTest do
     end
 
     test "is a no-op when the track is already linked (makes no API calls)" do
-      song = insert(:soundcharts_song)
-      track = insert(:track, soundcharts_song_id: song.id)
+      track = insert(:track, soundcharts_song: build(:soundcharts_song))
 
       # No Mox expectations set: any call would fail verify_on_exit!.
       assert {:ok, :already_linked} = Soundcharts.resolve_track(track)

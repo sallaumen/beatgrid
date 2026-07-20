@@ -22,8 +22,8 @@ defmodule BeatgridWeb.RecSetLiveTest do
   end
 
   defp track_with(camelot, bpm, attrs) do
-    song = insert(:soundcharts_song, camelot: camelot, tempo_bpm: bpm, energy: 0.5)
-    insert(:track, Keyword.merge([soundcharts_song_id: song.id, status: :present], attrs))
+    song = build(:soundcharts_song, camelot: camelot, tempo_bpm: bpm, energy: 0.5)
+    insert(:track, Keyword.merge([soundcharts_song: song, status: :present], attrs))
   end
 
   defp new_set(view),
@@ -565,5 +565,18 @@ defmodule BeatgridWeb.RecSetLiveTest do
     assert entry_b.transition["type"] == "crossfade"
     assert entry_b.transition["from_ms"] == 100_000
     assert render(view) =~ "xfade"
+  end
+
+  test "hostile move/weight payloads are ignored, never crash the view", %{conn: conn} do
+    {:ok, set} = Sets.create("Blindado")
+    track = track_with("8A", 120.0, tag_title: "Firme")
+    {:ok, _} = Sets.append(set, track)
+
+    {:ok, view, _html} = live(conn, ~p"/set/#{set.id}")
+
+    render_click(view, "move", %{"track" => track.id, "dir" => "not_an_existing_atom_xyz"})
+    render_click(view, "set_weight", %{"dim" => "delete", "value" => "50"})
+
+    assert render(view) =~ "Firme"
   end
 end

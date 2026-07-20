@@ -45,15 +45,17 @@ defmodule BeatgridWeb.UI do
   def folder_label(nil), do: "—"
   def folder_label(key), do: @folder_labels[key] || db_label(key)
 
+  # Per-row hot path (badges in the library / rec-set / console lists): reads the
+  # cached folder map, never the DB.
   defp db_color(key) do
-    case GenreFolders.get_by_key(key) do
+    case GenreFolders.by_key()[key] do
       %{color: color} when is_binary(color) and color != "" -> color
       _ -> "#9498a6"
     end
   end
 
   defp db_label(key) do
-    case GenreFolders.get_by_key(key) do
+    case GenreFolders.by_key()[key] do
       %{display_name: name} when is_binary(name) and name != "" -> name
       _ -> key
     end

@@ -35,8 +35,6 @@ defmodule Beatgrid.Workers.ReResolveWorkerTest do
   end
 
   test "matches: rejects the suspect, re-proposes, and broadcasts :resolved" do
-    wrong = insert(:soundcharts_song, credit_name: "Wrong", name: "Song")
-
     track =
       insert(:track,
         tag_title: "Disritmia",
@@ -45,7 +43,7 @@ defmodule Beatgrid.Workers.ReResolveWorkerTest do
         norm_artist: "casuarina",
         filename: "old.mp3",
         rel_path: "MPB/old.mp3",
-        soundcharts_song_id: wrong.id,
+        soundcharts_song: build(:soundcharts_song, credit_name: "Wrong", name: "Song"),
         sc_match_confidence: :low
       )
 
@@ -78,8 +76,6 @@ defmodule Beatgrid.Workers.ReResolveWorkerTest do
   end
 
   test "no match: rejects the suspect and broadcasts :no_match" do
-    wrong = insert(:soundcharts_song, credit_name: "Wrong", name: "Song")
-
     track =
       insert(:track,
         tag_title: "Obscure",
@@ -88,7 +84,7 @@ defmodule Beatgrid.Workers.ReResolveWorkerTest do
         norm_artist: "nobody",
         filename: "old.mp3",
         rel_path: "MPB/old.mp3",
-        soundcharts_song_id: wrong.id,
+        soundcharts_song: build(:soundcharts_song, credit_name: "Wrong", name: "Song"),
         sc_match_confidence: :low
       )
 

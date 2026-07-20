@@ -11,14 +11,12 @@ defmodule BeatgridWeb.TrackLiveTest do
   alias Beatgrid.Workers.{AnalyzeWorker, EnrichWorker, ExpandWorker, RecommendWorker}
 
   test "shows the detail and updates rating, tags and note", %{conn: conn} do
-    song = insert(:soundcharts_song, camelot: "8A", tempo_bpm: 120.0, energy: 0.6)
-
     track =
       insert(:track,
         status: :present,
         tag_title: "Sina",
         tag_artist: "Djavan",
-        soundcharts_song_id: song.id,
+        soundcharts_song: build(:soundcharts_song, camelot: "8A", tempo_bpm: 120.0, energy: 0.6),
         analyzed_at: ~U[2026-01-01 00:00:00Z]
       )
 
@@ -57,25 +55,23 @@ defmodule BeatgridWeb.TrackLiveTest do
 
     {:ok, _view, html} = live(conn, ~p"/track/#{track.id}")
 
-    assert html =~ "Original backup"
+    assert html =~ "Backup original"
     assert html =~ "-9.8 LUFS"
     assert html =~ "-0.4 dBTP"
-    assert html =~ "Current file"
+    assert html =~ "Arquivo atual"
     assert html =~ "-14.1 LUFS"
     assert html =~ "-3.8 dBTP"
-    assert html =~ "Applied gain"
+    assert html =~ "Ganho aplicado"
     assert html =~ "-4.2 dB"
-    assert html =~ "Full original backup available"
+    assert html =~ "Backup original completo disponível"
   end
 
   test "inline-edits a metadata field and a manual BPM override", %{conn: conn} do
-    song = insert(:soundcharts_song, tempo_bpm: 120.0)
-
     track =
       insert(:track,
         status: :present,
         tag_title: "Velho",
-        soundcharts_song_id: song.id,
+        soundcharts_song: build(:soundcharts_song, tempo_bpm: 120.0),
         analyzed_at: ~U[2026-01-01 00:00:00Z]
       )
 
@@ -184,7 +180,7 @@ defmodule BeatgridWeb.TrackLiveTest do
 
     {:ok, _view, html} = live(conn, ~p"/track/#{studio.id}")
 
-    assert html =~ "Other versions of this song"
+    assert html =~ "Outras versões desta música"
     assert html =~ "Asa Branca (Ao Vivo)"
     assert html =~ "ao vivo"
   end
@@ -233,14 +229,14 @@ defmodule BeatgridWeb.TrackLiveTest do
 
     {:ok, view, html} = live(conn, ~p"/track/#{track.id}")
 
-    assert html =~ "Original backup"
+    assert html =~ "Backup original"
     assert html =~ "-9.8 LUFS"
-    assert html =~ "Current file"
+    assert html =~ "Arquivo atual"
     assert html =~ "-14.1 LUFS"
-    assert has_element?(view, "button", "Play original")
-    assert has_element?(view, "button", "Restore original backup")
+    assert has_element?(view, "button", "Tocar original")
+    assert has_element?(view, "button", "Restaurar backup original")
     assert html =~ ~p"/audio/#{track.id}/original"
-    assert html =~ "Other versions of this song"
+    assert html =~ "Outras versões desta música"
     assert has_element?(view, "a[href='/track/#{version.id}']", "Asa Branca (Ao Vivo)")
     assert html =~ ~p"/audio/#{version.id}"
     refute html =~ "Start set"
@@ -692,11 +688,11 @@ defmodule BeatgridWeb.TrackLiveTest do
 
     # Another track playing → this page is not marked.
     send(view.pid, {:now_playing, %{track_id: Ecto.UUID.generate(), set_id: nil}})
-    refute render(view) =~ "Playing now"
+    refute render(view) =~ "Tocando agora"
 
     # This track becomes the now-playing one → the page lights up.
     send(view.pid, {:now_playing, %{track_id: track.id, set_id: nil}})
-    assert render(view) =~ "Playing now"
+    assert render(view) =~ "Tocando agora"
   end
 
   test "enrich button shows the soundcharts gate when no credentials are configured",

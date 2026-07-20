@@ -152,27 +152,40 @@ defmodule Beatgrid.Mixing do
   """
   @spec rank(keyword()) :: [suggestion()]
   def rank(opts \\ []) do
-    prev = Keyword.get(opts, :prev)
-    target_style = Keyword.get(opts, :target_style)
-    target_intensity = Keyword.get(opts, :target_intensity)
-    exclude = Keyword.get(opts, :exclude, [])
+    opts
+    |> Keyword.get(:exclude, [])
+    |> candidate_pool(opts)
+    |> rank_pool(Keyword.delete(opts, :exclude))
+  end
+
+  @doc """
+  Ranks over an already-loaded candidate pool — the planner's per-slot path:
+  it fetches the pool once per plan (`candidate_pool/2`) and re-ranks in memory,
+  so the hard filters (`:bpm_min`/`:bpm_max`, styles, rating…) belong to the
+  fetch and only the scoring options (+ `:exclude`, `:harmonic_only`) act here.
+  """
+  @spec rank_pool([Track.t()], keyword()) :: [suggestion()]
+  def rank_pool(pool, opts \\ []) do
+    exclude = MapSet.new(Keyword.get(opts, :exclude, []))
     limit = Keyword.get(opts, :limit, @default_limit)
-    weights = opts |> Keyword.get(:weights) |> clamp_weights()
-    tiers = Keyword.get(opts, :style_tiers, %{})
+    ctx = scoring_ctx(opts)
 
-    prev_eff = prev && effective(Repo.preload(prev, :soundcharts_song))
-
-    exclude
-    |> candidates(prev_eff, opts)
-    |> Enum.map(&score(&1, prev_eff, target_style, target_intensity, weights, tiers))
+    pool
+    |> Enum.reject(&MapSet.member?(exclude, &1.id))
+    |> filter_harmonic(ctx.prev_eff, opts[:harmonic_only] == true)
+    |> Enum.map(&score(&1, ctx))
     |> Enum.sort_by(& &1.score, :desc)
     |> Enum.take(limit)
   end
 
-  defp candidates(exclude, prev_eff, opts) do
-    exclude
-    |> TrackQuery.mixing_candidates(
+  @doc "Loads the SQL-filtered candidate pool (hard filters only; no scoring)."
+  @spec candidate_pool([Ecto.UUID.t()], keyword()) :: [Track.t()]
+  def candidate_pool(exclude, opts \\ []) do
+    TrackQuery.mixing_candidates(
+      exclude,
       Keyword.take(opts, [
+        :bpm_min,
+        :bpm_max,
         :min_rating,
         :allow_styles,
         :exclude_styles,
@@ -182,34 +195,42 @@ defmodule Beatgrid.Mixing do
         :escape_styles
       ])
     )
-    |> filter_effective(prev_eff, opts)
   end
 
-  defp filter_effective(tracks, prev_eff, opts) do
-    bpm_min = opts[:bpm_min]
-    bpm_max = opts[:bpm_max]
-    harmonic? = opts[:harmonic_only] == true
+  # The per-rank scoring context, built once per rank/rank_pool call.
+  defp scoring_ctx(opts) do
+    prev = Keyword.get(opts, :prev)
 
-    Enum.filter(tracks, fn t ->
-      e = effective(t)
-      bpm_ok?(e.bpm, bpm_min, bpm_max) and harmonic_ok?(harmonic?, prev_eff, e.camelot)
-    end)
+    %{
+      prev_eff: prev && effective(Repo.preload(prev, :soundcharts_song)),
+      target_style: Keyword.get(opts, :target_style),
+      target_intensity: Keyword.get(opts, :target_intensity),
+      weights: opts |> Keyword.get(:weights) |> clamp_weights(),
+      tiers: Keyword.get(opts, :style_tiers, %{})
+    }
   end
 
-  defp bpm_ok?(_bpm, nil, nil), do: true
-  defp bpm_ok?(nil, _min, _max), do: false
+  defp filter_harmonic(tracks, _prev_eff, false), do: tracks
 
-  defp bpm_ok?(bpm, min, max),
-    do: (is_nil(min) or bpm >= min) and (is_nil(max) or bpm <= max)
+  defp filter_harmonic(tracks, prev_eff, true),
+    do: Enum.filter(tracks, &harmonic_ok?(prev_eff, effective(&1).camelot))
 
-  defp harmonic_ok?(false, _prev_eff, _camelot), do: true
-  defp harmonic_ok?(true, nil, _camelot), do: true
-  defp harmonic_ok?(true, _prev_eff, nil), do: false
+  defp harmonic_ok?(nil, _camelot), do: true
+  defp harmonic_ok?(_prev_eff, nil), do: false
 
-  defp harmonic_ok?(true, %{camelot: a}, b),
+  defp harmonic_ok?(%{camelot: a}, b),
     do: a == b or Camelot.compatible?(a, b)
 
-  defp score(track, prev_eff, target_style, target_intensity, weights, tiers) do
+  # ctx: the scoring context from scoring_ctx/1, built once per rank call.
+  defp score(track, ctx) do
+    %{
+      prev_eff: prev_eff,
+      target_style: target_style,
+      target_intensity: target_intensity,
+      weights: weights,
+      tiers: tiers
+    } = ctx
+
     e = effective(track)
 
     parts = %{

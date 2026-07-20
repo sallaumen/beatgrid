@@ -62,17 +62,20 @@ defmodule Beatgrid.Workers.MixDownloadWorker do
     :ok
   end
 
+  # Branches on the code the yt-dlp adapter classifies (Beatgrid.YtDlpError):
+  # rate limits retry with the long backoff, permanent refusals mark the mix
+  # failed and cancel.
   defp handle_error(mix, reason) do
-    cond do
-      rate_limited?(reason) ->
+    case reason do
+      %Beatgrid.Error{code: :rate_limited} ->
         {:error, reason}
 
-      unavailable?(reason) ->
+      %Beatgrid.Error{code: :video_unavailable} ->
         {:ok, _} = Mixes.update_mix(mix, %{status: :failed, error: inspect(reason)})
         Mixes.broadcast(%{mix_id: mix.id, status: :failed})
         {:cancel, reason}
 
-      true ->
+      _ ->
         {:error, reason}
     end
   end
@@ -81,16 +84,6 @@ defmodule Beatgrid.Workers.MixDownloadWorker do
   def backoff(%Oban.Job{attempt: attempt} = job) do
     if last_error_rate_limited?(job), do: min(30 * attempt, 300), else: super(job)
   end
-
-  defp rate_limited?({:yt_dlp_exit, _code, out}) when is_binary(out),
-    do: out =~ "429" or out =~ "Too Many Requests"
-
-  defp rate_limited?(_reason), do: false
-
-  defp unavailable?({:yt_dlp_exit, _code, out}) when is_binary(out),
-    do: out =~ "not available" or out =~ "unavailable"
-
-  defp unavailable?(_reason), do: false
 
   defp last_error_rate_limited?(%Oban.Job{errors: errors}) do
     case List.last(errors || []) do

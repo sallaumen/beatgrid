@@ -4,10 +4,11 @@ defmodule Beatgrid.Workers.DownloadWorker do
   provenance), broadcasting a progress tick. Deduped per video URL while a job for
   it is in flight.
 
-  Retry policy is YouTube-aware: a 429 (rate limit) is retried with a long backoff
-  even when yt-dlp *also* reports "video unavailable" (the unavailability is the
-  rate limit talking). A genuine "unavailable" with no 429 is permanent, so the
-  job is cancelled rather than burning all its attempts.
+  Retry policy is YouTube-aware, branching on the `Beatgrid.Error` code the
+  yt-dlp adapter classifies (`Beatgrid.YtDlpError`): `:rate_limited` retries
+  with a long backoff — even when yt-dlp *also* reported "video unavailable"
+  (the unavailability is the rate limit talking) — while `:video_unavailable`
+  is permanent, so the job is cancelled rather than burning all its attempts.
   """
   use Oban.Worker,
     queue: :youtube,
@@ -41,12 +42,14 @@ defmodule Beatgrid.Workers.DownloadWorker do
         YouTube.broadcast_tick()
         :ok
 
+      {:error, %Beatgrid.Error{code: :rate_limited} = error} ->
+        {:error, error}
+
+      {:error, %Beatgrid.Error{code: :video_unavailable} = error} ->
+        {:cancel, error}
+
       {:error, reason} ->
-        cond do
-          rate_limited?(reason) -> {:error, reason}
-          unavailable?(reason) -> {:cancel, reason}
-          true -> {:error, reason}
-        end
+        {:error, reason}
     end
   end
 
@@ -64,28 +67,10 @@ defmodule Beatgrid.Workers.DownloadWorker do
     if last_error_rate_limited?(job), do: min(30 * attempt, 300), else: super(job)
   end
 
-  defp rate_limited?({:yt_dlp_exit, _code, out}) when is_binary(out),
-    do: out =~ "429" or out =~ "Too Many Requests"
-
-  defp rate_limited?(_reason), do: false
-
-  # Genuinely permanent yt-dlp refusals — retrying burns 10 attempts for nothing
-  # (76 real jobs did exactly that before "Private video" & friends were listed).
-  @permanent [
-    "Video unavailable",
-    "not available",
-    "Private video",
-    "no longer available",
-    "removed by the uploader",
-    "account associated with this video has been terminated",
-    "Sign in to confirm your age"
-  ]
-
-  defp unavailable?({:yt_dlp_exit, _code, out}) when is_binary(out),
-    do: Enum.any?(@permanent, &String.contains?(out, &1))
-
-  defp unavailable?(_reason), do: false
-
+  # Oban persists errors as strings, so this is the one place that still greps:
+  # YtDlpError keeps "429" in the :rate_limited message precisely so it survives
+  # into the persisted error (old-format errors carried the raw excerpt, which
+  # also contains it).
   defp last_error_rate_limited?(%Oban.Job{errors: errors}) do
     case List.last(errors || []) do
       %{"error" => message} when is_binary(message) ->

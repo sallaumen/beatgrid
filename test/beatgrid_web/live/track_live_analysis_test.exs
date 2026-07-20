@@ -17,8 +17,11 @@ defmodule BeatgridWeb.TrackLiveAnalysisTest do
       {:ok, %{bpm: 92.0, key: 9, mode: 0}}
     end)
 
-    song = insert(:soundcharts_song, camelot: "5A", tempo_bpm: 180.0)
-    track = insert(:track, status: :present, soundcharts_song_id: song.id)
+    track =
+      insert(:track,
+        status: :present,
+        soundcharts_song: build(:soundcharts_song, camelot: "5A", tempo_bpm: 180.0)
+      )
 
     # Opening the track enqueues a background analysis job (it does not run inline).
     {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")

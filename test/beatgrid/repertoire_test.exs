@@ -46,18 +46,15 @@ defmodule Beatgrid.RepertoireTest do
 
     test "bpm_histogram/1 buckets resolved tracks" do
       for bpm <- [122.0, 128.0, 141.0] do
-        song = insert(:soundcharts_song, tempo_bpm: bpm)
-        insert(:track, soundcharts_song_id: song.id)
+        insert(:track, soundcharts_song: build(:soundcharts_song, tempo_bpm: bpm))
       end
 
       assert Repertoire.bpm_histogram(10) == %{120 => 2, 140 => 1}
     end
 
     test "decade_distribution/0 buckets by release decade" do
-      s_1 = insert(:soundcharts_song, release_date: ~D[1987-03-01])
-      s_2 = insert(:soundcharts_song, release_date: ~D[2010-06-01])
-      insert(:track, soundcharts_song_id: s_1.id)
-      insert(:track, soundcharts_song_id: s_2.id)
+      insert(:track, soundcharts_song: build(:soundcharts_song, release_date: ~D[1987-03-01]))
+      insert(:track, soundcharts_song: build(:soundcharts_song, release_date: ~D[2010-06-01]))
 
       assert Repertoire.decade_distribution() == %{1980 => 1, 2010 => 1}
     end

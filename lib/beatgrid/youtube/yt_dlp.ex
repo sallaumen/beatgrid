@@ -10,6 +10,7 @@ defmodule Beatgrid.YouTube.YtDlp do
   @behaviour Beatgrid.YouTube.Downloader
 
   alias Beatgrid.Cli
+  alias Beatgrid.YtDlpError
 
   @sep "\t"
   # 10 min: a playlist of several tracks can take a while.
@@ -39,10 +40,17 @@ defmodule Beatgrid.YouTube.YtDlp do
     argv = ["-c", ~s|exec "$@" < /dev/null|, "sh", executable() | cli_args]
 
     case Cli.run(fn -> System.cmd("/bin/sh", argv, stderr_to_stdout: true) end, timeout()) do
-      {:ok, {out, 0}} -> {:ok, parse(out, dest_dir)}
-      {:ok, {out, code}} -> {:error, {:yt_dlp_exit, code, String.slice(out, 0, @error_excerpt)}}
-      {:error, {:exit, reason}} -> {:error, {:yt_dlp_exception, inspect(reason)}}
-      {:error, :timeout} -> {:error, :timeout}
+      {:ok, {out, 0}} ->
+        {:ok, parse(out, dest_dir)}
+
+      {:ok, {out, code}} ->
+        {:error, YtDlpError.from_exit(code, String.slice(out, 0, @error_excerpt))}
+
+      {:error, {:exit, reason}} ->
+        {:error, {:yt_dlp_exception, inspect(reason)}}
+
+      {:error, :timeout} ->
+        {:error, :timeout}
     end
   end
 
@@ -58,10 +66,17 @@ defmodule Beatgrid.YouTube.YtDlp do
     argv = ["-c", ~s|exec "$@" < /dev/null|, "sh", executable() | cli_args]
 
     case Cli.run(fn -> System.cmd("/bin/sh", argv, stderr_to_stdout: true) end, @list_timeout_ms) do
-      {:ok, {out, 0}} -> {:ok, parse_entries(out)}
-      {:ok, {out, code}} -> {:error, {:yt_dlp_exit, code, String.slice(out, 0, @error_excerpt)}}
-      {:error, {:exit, reason}} -> {:error, {:yt_dlp_exception, inspect(reason)}}
-      {:error, :timeout} -> {:error, :timeout}
+      {:ok, {out, 0}} ->
+        {:ok, parse_entries(out)}
+
+      {:ok, {out, code}} ->
+        {:error, YtDlpError.from_exit(code, String.slice(out, 0, @error_excerpt))}
+
+      {:error, {:exit, reason}} ->
+        {:error, {:yt_dlp_exception, inspect(reason)}}
+
+      {:error, :timeout} ->
+        {:error, :timeout}
     end
   end
 

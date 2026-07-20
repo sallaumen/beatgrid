@@ -14,8 +14,13 @@ defmodule BeatgridWeb.GenresLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, folders: GenreFolders.list(), toast: nil, ai_fill: %{}, suggesting: nil)}
+    {:ok, assign_folders(assign(socket, toast: nil, ai_fill: %{}, suggesting: nil))}
   end
+
+  # Folders + their in-use flags in one place: the flags come as ONE set (two
+  # queries total), not two queries per card per render.
+  defp assign_folders(socket),
+    do: assign(socket, folders: GenreFolders.list(), in_use: GenreFolders.in_use_keys())
 
   @impl true
   def handle_event("save_description", %{"key" => key, "description" => description}, socket) do
@@ -30,39 +35,23 @@ defmodule BeatgridWeb.GenresLive do
       end
 
     {:noreply,
-     assign(socket,
-       folders: GenreFolders.list(),
+     socket
+     |> assign_folders()
+     |> assign(
        toast: toast,
        ai_fill: Map.delete(socket.assigns.ai_fill, key)
      )}
   end
 
   def handle_event("create_genre", %{"display_name" => display_name} = params, socket) do
-    name = String.trim(display_name)
-    color = params["color"] || "#9498a6"
-
     toast =
-      case slugify(name) do
-        "" ->
-          {:create_error, "Informe um nome válido."}
-
-        key ->
-          attrs = %{
-            key: key,
-            display_name: name,
-            dir_name: name,
-            color: color,
-            description: "",
-            sort_order: next_sort_order(socket.assigns.folders)
-          }
-
-          case GenreFolders.create(attrs) do
-            {:ok, _folder} -> {:created, key}
-            {:error, _changeset} -> {:create_error, "Já existe um gênero com esse nome."}
-          end
+      case GenreFolders.create_from_name(display_name, params["color"]) do
+        {:ok, folder} -> {:created, folder.key}
+        {:error, :invalid_name} -> {:create_error, "Informe um nome válido."}
+        {:error, _changeset} -> {:create_error, "Já existe um gênero com esse nome."}
       end
 
-    {:noreply, assign(socket, folders: GenreFolders.list(), toast: toast)}
+    {:noreply, socket |> assign_folders() |> assign(toast: toast)}
   end
 
   def handle_event("delete_genre", %{"key" => key}, socket) do
@@ -78,7 +67,7 @@ defmodule BeatgridWeb.GenresLive do
           end
       end
 
-    {:noreply, assign(socket, folders: GenreFolders.list(), toast: toast)}
+    {:noreply, socket |> assign_folders() |> assign(toast: toast)}
   end
 
   def handle_event("suggest_description", %{"key" => key}, socket) do
@@ -174,7 +163,7 @@ defmodule BeatgridWeb.GenresLive do
                   {if @suggesting == f.key, do: "Preenchendo…", else: "Preencher com IA"}
                 </button>
                 <button
-                  :if={!GenreFolders.in_use?(f)}
+                  :if={f.key not in @in_use}
                   type="button"
                   phx-click="delete_genre"
                   phx-value-key={f.key}
@@ -184,7 +173,7 @@ defmodule BeatgridWeb.GenresLive do
                   Excluir
                 </button>
                 <span
-                  :if={GenreFolders.in_use?(f)}
+                  :if={f.key in @in_use}
                   class="text-ink-faint text-[11px]"
                   title="Mova as faixas antes de excluir."
                 >
@@ -239,21 +228,5 @@ defmodule BeatgridWeb.GenresLive do
       Falha ao salvar. Tente novamente.
     </p>
     """
-  end
-
-  defp next_sort_order([]), do: 0
-
-  defp next_sort_order(folders) do
-    folders |> Enum.map(& &1.sort_order) |> Enum.max() |> Kernel.+(1)
-  end
-
-  defp slugify(name) do
-    name
-    |> String.normalize(:nfd)
-    |> String.replace(~r/[\x{0300}-\x{036f}]/u, "")
-    |> String.downcase()
-    |> String.replace(~r/[^a-z0-9]+/, "_")
-    |> String.replace(~r/_+/, "_")
-    |> String.trim("_")
   end
 end

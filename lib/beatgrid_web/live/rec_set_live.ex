@@ -70,11 +70,19 @@ defmodule BeatgridWeb.RecSetLive do
     {:noreply, assign(socket, playing_track_id: np.track_id, playing_set_id: np.set_id)}
   end
 
-  defp load_set(socket, nil), do: assign(socket, set: nil, entries: [], candidates: [], arc: [])
+  defp load_set(socket, nil),
+    do: assign(socket, set: nil, entries: [], loudness_jumps: %{}, candidates: [], arc: [])
 
   defp load_set(socket, set) do
+    entries = Sets.entries(set)
+
     socket
-    |> assign(set: set, entries: Sets.entries(set), arc: Sets.arc_series(set))
+    |> assign(
+      set: set,
+      entries: entries,
+      loudness_jumps: loudness_jumps(entries),
+      arc: Sets.arc_series(set)
+    )
     |> assign_candidates()
   end
 
@@ -175,10 +183,13 @@ defmodule BeatgridWeb.RecSetLive do
     {:noreply, reload(socket)}
   end
 
-  def handle_event("move", %{"track" => track_id, "dir" => dir}, socket) do
+  def handle_event("move", %{"track" => track_id, "dir" => dir}, socket)
+      when dir in ~w(top up down bottom) do
     Sets.move(socket.assigns.set, Tracks.get(track_id), String.to_existing_atom(dir))
     {:noreply, reload(socket)}
   end
+
+  def handle_event("move", _params, socket), do: {:noreply, socket}
 
   # --- connections (transition into a track from its predecessor) ---
 
@@ -263,11 +274,14 @@ defmodule BeatgridWeb.RecSetLive do
 
   # --- mixing console (weights + hard filters) ---
 
-  def handle_event("set_weight", %{"dim" => dim, "value" => value}, socket) do
+  def handle_event("set_weight", %{"dim" => dim, "value" => value}, socket)
+      when dim in ~w(style harmony intensity bpm rating) do
     key = String.to_existing_atom(dim)
     weights = Map.put(socket.assigns.weights, key, parse_weight(value))
     {:noreply, socket |> assign(weights: Mixing.clamp_weights(weights)) |> assign_candidates()}
   end
+
+  def handle_event("set_weight", _params, socket), do: {:noreply, socket}
 
   def handle_event("reset_console", _params, socket) do
     {:noreply,
@@ -402,18 +416,20 @@ defmodule BeatgridWeb.RecSetLive do
   defp first_track_id([%{track: %{id: id}} | _]), do: id
   defp first_track_id(_), do: nil
 
-  # Loudness jump (LU) from the previous entry to entry `i` (1-based) — nil at the top
-  # or when either track is unmeasured. Drives the between-track "salto" marker.
-  defp loudness_jump(entries, i) when i > 1 do
-    with %{track: %{loudness_lufs: cur}} when is_number(cur) <- Enum.at(entries, i - 1),
-         %{track: %{loudness_lufs: prev}} when is_number(prev) <- Enum.at(entries, i - 2) do
-      Float.round(cur - prev, 1)
-    else
-      _ -> nil
-    end
+  # Loudness jumps (LU) between consecutive entries, keyed by the 1-based index of
+  # the LOWER row — one pass at load time, so the render reads @loudness_jumps[i]
+  # instead of re-scanning the list per row. Unmeasured pairs get no key.
+  defp loudness_jumps(entries) do
+    entries
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.with_index(2)
+    |> Enum.reduce(%{}, fn {[prev, cur], i}, acc ->
+      case {prev.track.loudness_lufs, cur.track.loudness_lufs} do
+        {p, c} when is_number(p) and is_number(c) -> Map.put(acc, i, Float.round(c - p, 1))
+        _ -> acc
+      end
+    end)
   end
-
-  defp loudness_jump(_entries, _i), do: nil
 
   defp loudness_jump_label(delta) do
     sign = if delta >= 0, do: "+", else: ""
@@ -632,12 +648,12 @@ defmodule BeatgridWeb.RecSetLive do
 
             <ol class="mt-4 space-y-0.5">
               <li :for={{e, i} <- Enum.with_index(@entries, 1)} class="space-y-0.5">
-                <div :if={loudness_jump(@entries, i)} class="flex justify-center">
+                <div :if={@loudness_jumps[i]} class="flex justify-center">
                   <span class={[
                     "font-mono text-[10px]",
-                    loudness_delta_class(loudness_jump(@entries, i))
+                    loudness_delta_class(@loudness_jumps[i])
                   ]}>
-                    {loudness_jump_label(loudness_jump(@entries, i))}
+                    {loudness_jump_label(@loudness_jumps[i])}
                   </span>
                 </div>
                 <div :if={i > 1} class="flex items-center justify-center gap-2 py-0">
@@ -724,6 +740,7 @@ defmodule BeatgridWeb.RecSetLive do
                       phx-value-dir="top"
                       class="text-ink-faint hover:text-ink"
                       title="Para o topo"
+                      aria-label="Para o topo"
                     >⤒</button>
                     <button
                       phx-click="move"
@@ -731,6 +748,7 @@ defmodule BeatgridWeb.RecSetLive do
                       phx-value-dir="up"
                       class="text-ink-faint hover:text-ink"
                       title="Subir"
+                      aria-label="Subir"
                     >▲</button>
                     <button
                       phx-click="move"
@@ -738,6 +756,7 @@ defmodule BeatgridWeb.RecSetLive do
                       phx-value-dir="down"
                       class="text-ink-faint hover:text-ink"
                       title="Descer"
+                      aria-label="Descer"
                     >▼</button>
                     <button
                       phx-click="move"
@@ -745,12 +764,14 @@ defmodule BeatgridWeb.RecSetLive do
                       phx-value-dir="bottom"
                       class="text-ink-faint hover:text-ink"
                       title="Para o fim"
+                      aria-label="Para o fim"
                     >⤓</button>
                     <button
                       phx-click="remove"
                       phx-value-track={e.track.id}
                       class="ml-1 text-ink-muted hover:text-coral"
                       title="Remover"
+                      aria-label="Remover do set"
                     >✕</button>
                   </div>
                 </div>
@@ -1555,7 +1576,11 @@ defmodule BeatgridWeb.RecSetLive do
       <div class="relative max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-white/10 bg-surface p-5">
         <div class="mb-4 flex items-center justify-between">
           <h3 class="text-[18px] font-semibold">Critérios de montagem</h3>
-          <button phx-click="hide_criteria" class="text-ink-muted hover:text-ink">✕</button>
+          <button
+            phx-click="hide_criteria"
+            aria-label="Fechar critérios"
+            class="text-ink-muted hover:text-ink"
+          >✕</button>
         </div>
         <p class="mb-4 text-caption text-ink-muted">
           O arco de energia e a afinidade de estilos vêm do backend. Os pesos de cada critério
@@ -1622,7 +1647,11 @@ defmodule BeatgridWeb.RecSetLive do
     ~H"""
     <div class="mt-4 flex items-center justify-between gap-4 rounded-lg border border-green/30 bg-green/10 px-4 py-2.5">
       <p class="text-body-sm text-ink">{toast_message(@toast)}</p>
-      <button phx-click="dismiss_toast" class="text-ink-muted hover:text-ink text-body-sm">✕</button>
+      <button
+        phx-click="dismiss_toast"
+        aria-label="Fechar aviso"
+        class="text-ink-muted hover:text-ink text-body-sm"
+      >✕</button>
     </div>
     """
   end

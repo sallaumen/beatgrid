@@ -14,6 +14,16 @@ defmodule Beatgrid.Organization.MoveSuggestionQuery do
           | {:batch_id, Ecto.UUID.t()}
           | {:preload, list()}
 
+  @doc "Distinct `to_genre_folder` keys across pending suggestions."
+  @spec pending_to_folders() :: [String.t()]
+  def pending_to_folders do
+    MoveSuggestion
+    |> where([s], s.status == :pending)
+    |> distinct(true)
+    |> select([s], s.to_genre_folder)
+    |> Repo.all()
+  end
+
   @spec list_by([list_opt()]) :: [MoveSuggestion.t()]
   def list_by(opts \\ []) do
     opts

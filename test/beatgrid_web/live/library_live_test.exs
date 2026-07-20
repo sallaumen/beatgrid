@@ -129,16 +129,12 @@ defmodule BeatgridWeb.LibraryLiveTest do
 
   describe "extended filter rail" do
     test "the Tom wheel filters by the clicked key and widens to compatibles", %{conn: conn} do
-      song_8a = insert(:soundcharts_song, camelot: "8A")
-      song_8b = insert(:soundcharts_song, camelot: "8B")
-      song_3b = insert(:soundcharts_song, camelot: "3B")
-
       insert(:track,
         status: :present,
         tag_title: "Keep",
         tag_artist: "Keeper",
         norm_artist: "keeper",
-        soundcharts_song_id: song_8a.id
+        soundcharts_song: build(:soundcharts_song, camelot: "8A")
       )
 
       insert(:track,
@@ -146,7 +142,7 @@ defmodule BeatgridWeb.LibraryLiveTest do
         tag_title: "Neighbor",
         tag_artist: "Near",
         norm_artist: "near",
-        soundcharts_song_id: song_8b.id
+        soundcharts_song: build(:soundcharts_song, camelot: "8B")
       )
 
       insert(:track,
@@ -154,7 +150,7 @@ defmodule BeatgridWeb.LibraryLiveTest do
         tag_title: "Drop",
         tag_artist: "Dropper",
         norm_artist: "dropper",
-        soundcharts_song_id: song_3b.id
+        soundcharts_song: build(:soundcharts_song, camelot: "3B")
       )
 
       {:ok, view, _html} = live(conn, ~p"/")
@@ -289,14 +285,12 @@ defmodule BeatgridWeb.LibraryLiveTest do
   end
 
   test "the table shows the manual BPM/key override, not the Soundcharts value", %{conn: conn} do
-    song = insert(:soundcharts_song, tempo_bpm: 120.0, camelot: "8A")
-
     insert(:track,
       status: :present,
       tag_artist: "Override",
       tag_title: "Manual",
       norm_artist: "override",
-      soundcharts_song_id: song.id,
+      soundcharts_song: build(:soundcharts_song, tempo_bpm: 120.0, camelot: "8A"),
       bpm_manual: 132.0,
       camelot_manual: "11A"
     )
@@ -368,6 +362,17 @@ defmodule BeatgridWeb.LibraryLiveTest do
     view |> element("button[phx-click=toggle_select_mode]") |> render_click()
     html_3 = view |> element("button[phx-click=select_all]") |> render_click()
     assert html_3 =~ "101 selecionadas"
+  end
+
+  test "a hostile sort column is ignored, never crashes the view", %{conn: conn} do
+    insert(:track, status: :present, tag_title: "Sobrevive")
+
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    render_click(view, "sort", %{"by" => "not_an_existing_atom_xyz"})
+    render_click(view, "sort", %{"by" => "delete"})
+
+    assert render(view) =~ "Sobrevive"
   end
 
   # True if `a` appears before `b` in the rendered HTML.

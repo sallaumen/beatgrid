@@ -5,13 +5,14 @@ defmodule BeatgridWeb.ReviewLive do
   import BeatgridWeb.UI
 
   alias Beatgrid.Library.GenreFolders
-  alias Beatgrid.{Playback, Review}
+  alias Beatgrid.{Operations, Playback, Review}
   alias Beatgrid.Workers.{ReevaluateWorker, ReResolveWorker, ReviewApplyWorker, UndoBatchWorker}
 
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Review.subscribe()
+      Operations.subscribe()
       Playback.subscribe()
     end
 
@@ -521,7 +522,11 @@ defmodule BeatgridWeb.ReviewLive do
         >
           Desfazer
         </button>
-        <button phx-click="dismiss_toast" class="text-ink-muted hover:text-ink text-body-sm">✕</button>
+        <button
+          phx-click="dismiss_toast"
+          aria-label="Fechar aviso"
+          class="text-ink-muted hover:text-ink text-body-sm"
+        >✕</button>
       </div>
     </div>
     """
