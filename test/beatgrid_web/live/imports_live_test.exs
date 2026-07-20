@@ -145,4 +145,13 @@ defmodule BeatgridWeb.ImportsLiveTest do
     # itself is covered in YouTubeTest)
     refute has_element?(view, "form[phx-submit=import_playlist]")
   end
+
+  test "hostile sort/filter payloads are ignored, never crash the view", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/importados")
+
+    render_click(view, "sort", %{"by" => "not_an_existing_atom_xyz"})
+    render_click(view, "toggle_filter", %{"key" => "delete"})
+
+    assert render(view) =~ "Importados"
+  end
 end

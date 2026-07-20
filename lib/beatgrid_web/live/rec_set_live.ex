@@ -183,10 +183,13 @@ defmodule BeatgridWeb.RecSetLive do
     {:noreply, reload(socket)}
   end
 
-  def handle_event("move", %{"track" => track_id, "dir" => dir}, socket) do
+  def handle_event("move", %{"track" => track_id, "dir" => dir}, socket)
+      when dir in ~w(top up down bottom) do
     Sets.move(socket.assigns.set, Tracks.get(track_id), String.to_existing_atom(dir))
     {:noreply, reload(socket)}
   end
+
+  def handle_event("move", _params, socket), do: {:noreply, socket}
 
   # --- connections (transition into a track from its predecessor) ---
 
@@ -271,11 +274,14 @@ defmodule BeatgridWeb.RecSetLive do
 
   # --- mixing console (weights + hard filters) ---
 
-  def handle_event("set_weight", %{"dim" => dim, "value" => value}, socket) do
+  def handle_event("set_weight", %{"dim" => dim, "value" => value}, socket)
+      when dim in ~w(style harmony intensity bpm rating) do
     key = String.to_existing_atom(dim)
     weights = Map.put(socket.assigns.weights, key, parse_weight(value))
     {:noreply, socket |> assign(weights: Mixing.clamp_weights(weights)) |> assign_candidates()}
   end
+
+  def handle_event("set_weight", _params, socket), do: {:noreply, socket}
 
   def handle_event("reset_console", _params, socket) do
     {:noreply,
