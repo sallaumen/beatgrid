@@ -1220,7 +1220,11 @@ defmodule BeatgridWeb.LibraryLive do
       <div class="relative max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-white/10 bg-surface p-5">
         <div class="mb-4 flex items-center justify-between">
           <h3 class="text-[18px] font-semibold">Importar pasta ou arquivo</h3>
-          <button phx-click="hide_import" class="text-ink-muted hover:text-ink">✕</button>
+          <button
+            phx-click="hide_import"
+            aria-label="Fechar importação"
+            class="text-ink-muted hover:text-ink"
+          >✕</button>
         </div>
 
         <form id="import-source" phx-submit="preview_import" class="space-y-3">

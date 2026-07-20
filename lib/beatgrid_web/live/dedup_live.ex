@@ -416,7 +416,11 @@ defmodule BeatgridWeb.DedupLive do
         >
           Desfazer
         </button>
-        <button phx-click="dismiss_undo" class="text-body-sm text-ink-muted hover:text-ink">✕</button>
+        <button
+          phx-click="dismiss_undo"
+          aria-label="Fechar aviso"
+          class="text-body-sm text-ink-muted hover:text-ink"
+        >✕</button>
       </div>
     </div>
     """

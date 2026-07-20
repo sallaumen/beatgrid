@@ -969,6 +969,7 @@ defmodule BeatgridWeb.TrackLive do
                     <button
                       phx-click="remove_tag"
                       phx-value-tag={tag}
+                      aria-label={"Remover tag #{tag}"}
                       class="text-ink-muted hover:text-coral"
                     >✕</button>
                   </span>
@@ -1198,7 +1199,7 @@ defmodule BeatgridWeb.TrackLive do
           phx-key="Escape"
           class="min-w-0 flex-1 rounded-md border border-primary/50 bg-input px-2 py-1 text-body-sm focus:outline-none"
         />
-        <button class="text-green text-[13px]" title="Salvar">✓</button>
+        <button class="text-green text-[13px]" title="Salvar" aria-label="Salvar">✓</button>
         <button
           type="button"
           phx-click="cancel_edit"
@@ -1346,7 +1347,11 @@ defmodule BeatgridWeb.TrackLive do
       )
     ]}>
       <p class="text-body-sm text-ink">{enrich_toast_message(@toast)}</p>
-      <button phx-click="dismiss_toast" class="text-ink-muted hover:text-ink text-body-sm">✕</button>
+      <button
+        phx-click="dismiss_toast"
+        aria-label="Fechar aviso"
+        class="text-ink-muted hover:text-ink text-body-sm"
+      >✕</button>
     </div>
     """
   end

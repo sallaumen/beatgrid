@@ -681,6 +681,7 @@ defmodule BeatgridWeb.MixLive do
         />
         <button
           type="submit"
+          aria-label="Salvar título"
           class="shrink-0 rounded px-2 py-0.5 text-[11px] text-ink-faint hover:text-ink"
         >✓</button>
       </form>

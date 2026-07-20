@@ -740,6 +740,7 @@ defmodule BeatgridWeb.RecSetLive do
                       phx-value-dir="top"
                       class="text-ink-faint hover:text-ink"
                       title="Para o topo"
+                      aria-label="Para o topo"
                     >⤒</button>
                     <button
                       phx-click="move"
@@ -747,6 +748,7 @@ defmodule BeatgridWeb.RecSetLive do
                       phx-value-dir="up"
                       class="text-ink-faint hover:text-ink"
                       title="Subir"
+                      aria-label="Subir"
                     >▲</button>
                     <button
                       phx-click="move"
@@ -754,6 +756,7 @@ defmodule BeatgridWeb.RecSetLive do
                       phx-value-dir="down"
                       class="text-ink-faint hover:text-ink"
                       title="Descer"
+                      aria-label="Descer"
                     >▼</button>
                     <button
                       phx-click="move"
@@ -761,12 +764,14 @@ defmodule BeatgridWeb.RecSetLive do
                       phx-value-dir="bottom"
                       class="text-ink-faint hover:text-ink"
                       title="Para o fim"
+                      aria-label="Para o fim"
                     >⤓</button>
                     <button
                       phx-click="remove"
                       phx-value-track={e.track.id}
                       class="ml-1 text-ink-muted hover:text-coral"
                       title="Remover"
+                      aria-label="Remover do set"
                     >✕</button>
                   </div>
                 </div>
@@ -1571,7 +1576,11 @@ defmodule BeatgridWeb.RecSetLive do
       <div class="relative max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-white/10 bg-surface p-5">
         <div class="mb-4 flex items-center justify-between">
           <h3 class="text-[18px] font-semibold">Critérios de montagem</h3>
-          <button phx-click="hide_criteria" class="text-ink-muted hover:text-ink">✕</button>
+          <button
+            phx-click="hide_criteria"
+            aria-label="Fechar critérios"
+            class="text-ink-muted hover:text-ink"
+          >✕</button>
         </div>
         <p class="mb-4 text-caption text-ink-muted">
           O arco de energia e a afinidade de estilos vêm do backend. Os pesos de cada critério
@@ -1638,7 +1647,11 @@ defmodule BeatgridWeb.RecSetLive do
     ~H"""
     <div class="mt-4 flex items-center justify-between gap-4 rounded-lg border border-green/30 bg-green/10 px-4 py-2.5">
       <p class="text-body-sm text-ink">{toast_message(@toast)}</p>
-      <button phx-click="dismiss_toast" class="text-ink-muted hover:text-ink text-body-sm">✕</button>
+      <button
+        phx-click="dismiss_toast"
+        aria-label="Fechar aviso"
+        class="text-ink-muted hover:text-ink text-body-sm"
+      >✕</button>
     </div>
     """
   end
