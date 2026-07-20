@@ -10,6 +10,7 @@ defmodule Beatgrid.YouTubeTest do
   alias Beatgrid.Repo
   alias Beatgrid.Soundcharts.{ApiCall, Response}
   alias Beatgrid.Workers.DownloadWorker
+  alias Beatgrid.Workers.EnrichWorker
   alias Beatgrid.YouTube
 
   setup :isolate_library_root
@@ -181,7 +182,7 @@ defmodule Beatgrid.YouTubeTest do
     }
   end
 
-  test "enrich_pending resolves pending tracks and creates review suggestions" do
+  test "the pending-scope enrich resolves tracks and creates review suggestions" do
     insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB", description: "d")
 
     track =
@@ -229,7 +230,8 @@ defmodule Beatgrid.YouTubeTest do
        }}
     end)
 
-    assert {:ok, %{enriched: 1, resolved: 1}} = YouTube.enrich_pending()
+    job = %Oban.Job{args: %{"scope" => "pending", "batch_id" => "b"}}
+    assert :ok = EnrichWorker.perform(job)
 
     assert Tracks.get(track.id).soundcharts_song_id
     assert [_rename] = NameSync.list_by(status: :pending)
@@ -237,8 +239,9 @@ defmodule Beatgrid.YouTubeTest do
     assert move.track_id == track.id
   end
 
-  test "enrich_pending with nothing to do makes no external calls" do
-    assert {:ok, %{enriched: 0, resolved: 0}} = YouTube.enrich_pending()
+  test "enriching with nothing pending makes no external calls" do
+    job = %Oban.Job{args: %{"scope" => "pending", "batch_id" => "b"}}
+    assert :ok = EnrichWorker.perform(job)
   end
 
   test "reparse_polluted_titles strips the channel tail using the stored raw title" do

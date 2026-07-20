@@ -18,6 +18,8 @@ defmodule Beatgrid.Workers.EnrichWorker do
   # `unique` so a double-click (or a Lifeline-rescued retry while one is still in
   # flight) can't stack duplicate jobs: at most one in-flight job per scope+id
   # (the "pending" batch shares scope only; per-track jobs key on the track id).
+  require Logger
+
   use Oban.Worker,
     queue: :soundcharts,
     max_attempts: 3,
@@ -44,6 +46,8 @@ defmodule Beatgrid.Workers.EnrichWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"scope" => "track", "id" => id, "batch_id" => bid}}) do
+    Logger.metadata(batch_id: bid, track_id: id)
+
     YouTube.broadcast_enrich(%{
       batch_id: bid,
       scope: "track",
@@ -70,6 +74,8 @@ defmodule Beatgrid.Workers.EnrichWorker do
   end
 
   def perform(%Oban.Job{args: %{"scope" => "rare", "batch_id" => bid}}) do
+    Logger.metadata(batch_id: bid)
+
     ids = YouTube.rare_unfiled_ids()
     total = length(ids)
 
@@ -113,6 +119,8 @@ defmodule Beatgrid.Workers.EnrichWorker do
   end
 
   def perform(%Oban.Job{args: %{"scope" => "pending", "batch_id" => bid}}) do
+    Logger.metadata(batch_id: bid)
+
     ids = YouTube.pending_ids()
     total = length(ids)
 
@@ -176,8 +184,24 @@ defmodule Beatgrid.Workers.EnrichWorker do
     {done, resolved, budget}
   end
 
-  defp enrich_step(id, {done, res, _b, acc}, ctx) do
-    case id |> Tracks.get() |> YouTube.resolve_track_enrich() do
+  defp enrich_step(id, {done, res, b, acc}, ctx) do
+    case Tracks.get(id) do
+      # Hard-deleted between enqueue and perform — skip it (counted as done so
+      # the progress bar still completes) instead of crashing the whole batch.
+      nil -> skip_missing(id, {done, res, b, acc}, ctx)
+      track -> resolve_step(track, id, {done, res, b, acc}, ctx)
+    end
+  end
+
+  defp skip_missing(id, {done, res, _b, acc}, ctx) do
+    done = done + 1
+    Logger.info("enrich: track #{id} gone before enrich — skipped", track_id: id)
+    YouTube.broadcast_enrich(Map.merge(ctx, %{status: :running, done: done, resolved: res}))
+    {:cont, {done, res, false, acc}}
+  end
+
+  defp resolve_step(track, id, {done, res, _b, acc}, ctx) do
+    case YouTube.resolve_track_enrich(track) do
       :budget_exhausted ->
         {:halt, {done, res, true, acc}}
 

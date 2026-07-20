@@ -324,7 +324,9 @@ defmodule BeatgridWeb.RecSetLive do
     # Don't hide tracks already in the set — show them flagged "já no set" so a search
     # that matches a member doesn't look broken (the user was confused by the silent
     # exclusion). The render marks members; non-members get the "+ Add" button.
-    results = if q == "", do: [], else: TrackQuery.library(%{search: q}) |> Enum.take(12)
+    # O limite vai NA QUERY — materializar a biblioteca inteira pra pegar 12
+    # era o custo de cada tecla (o console corrigiu isso primeiro; mesma regra).
+    results = if q == "", do: [], else: TrackQuery.library(%{search: q, limit: 12})
 
     {:noreply, assign(socket, search_query: q, search_results: results)}
   end
@@ -389,13 +391,8 @@ defmodule BeatgridWeb.RecSetLive do
     "#{div(secs, 60)} min"
   end
 
-  defp bpm(%{soundcharts_song: %{tempo_bpm: b}}) when is_number(b), do: round(b)
-  defp bpm(%{bpm_detected: b}) when is_number(b), do: round(b)
-  defp bpm(_), do: "—"
-
-  defp camelot(%{soundcharts_song: %{camelot: c}}) when is_binary(c), do: c
-  defp camelot(%{camelot_detected: c}) when is_binary(c), do: c
-  defp camelot(_), do: nil
+  defp bpm(track), do: effective_bpm(track)
+  defp camelot(track), do: effective_camelot(track)
 
   defp title(t), do: t.tag_title || t.filename
 

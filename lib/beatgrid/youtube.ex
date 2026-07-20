@@ -196,36 +196,6 @@ defmodule Beatgrid.YouTube do
     end
   end
 
-  @doc """
-  Enriches every pending (downloaded-but-unfiled) track: refines ambiguous titles
-  with the AI, resolves each against Soundcharts (the only quota-spending step),
-  then proposes renames + AI classifications so they land in the Central de Revisão.
-  Returns `{:ok, %{enriched: n, resolved: m}}`.
-  """
-  @spec enrich_pending() :: {:ok, %{enriched: non_neg_integer(), resolved: non_neg_integer()}}
-  def enrich_pending do
-    ids = pending_ids()
-
-    refine_titles(ids)
-
-    ids
-    |> then(&Tracks.list_by(ids: &1))
-    |> Enum.each(fn track ->
-      result = Soundcharts.resolve_track(track)
-      refreshed = Tracks.get_with_song(track.id)
-      repropose_if_matched(refreshed)
-      Gold.apply_resolve_result(refreshed, result)
-    end)
-
-    Review.reevaluate_tracks(ids)
-
-    refreshed = Tracks.list_by(ids: ids)
-    ClassificationAI.reclassify(tracks: refreshed)
-
-    resolved = Enum.count(refreshed, &(&1.soundcharts_song_id != nil))
-    {:ok, %{enriched: length(ids), resolved: resolved}}
-  end
-
   @doc "Ids of pending (downloaded-but-unfiled) tracks: present, unresolved, unfiled, never attempted with Soundcharts."
   @spec pending_ids() :: [binary()]
   def pending_ids do

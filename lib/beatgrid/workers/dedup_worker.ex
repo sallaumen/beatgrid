@@ -13,9 +13,7 @@ defmodule Beatgrid.Workers.DedupWorker do
     :ok
   end
 
-  @spec enqueue() :: {:ok, Oban.Job.t()} | {:error, term()}
-  def enqueue, do: %{} |> new() |> Oban.insert()
-
   @spec enqueue(Ecto.UUID.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
-  def enqueue(batch_id), do: %{batch_id: batch_id} |> new() |> Oban.insert()
+  def enqueue(batch_id \\ Uniq.UUID.uuid7()),
+    do: %{batch_id: batch_id} |> new() |> Oban.insert()
 end

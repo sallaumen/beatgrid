@@ -254,16 +254,14 @@ defmodule BeatgridWeb.LibraryLive do
   def handle_event("move_selected", _params, socket), do: {:noreply, socket}
 
   def handle_event("rate_selected", %{"rating" => rating}, socket) do
-    n = String.to_integer(rating)
+    case Integer.parse(rating) do
+      {n, ""} when n in 0..10 ->
+        {:ok, _count} = Tracks.rate_many(MapSet.to_list(socket.assigns.selected), n)
+        {:noreply, load_tracks(socket)}
 
-    Enum.each(socket.assigns.selected, fn id ->
-      case Tracks.get(id) do
-        nil -> :ok
-        track -> Tracks.update(track, %{rating: n})
-      end
-    end)
-
-    {:noreply, socket |> load_tracks()}
+      _invalid ->
+        {:noreply, socket}
+    end
   end
 
   def handle_event("undo_move", _params, socket) do
@@ -406,10 +404,7 @@ defmodule BeatgridWeb.LibraryLive do
       tracks: tracks,
       total: total,
       page: 1,
-      has_more?: length(tracks) < total,
-      # Recompute the tag chips alongside the rows so newly added/removed tags
-      # (here or on the track page) appear/disappear without a full page reload.
-      all_tags: Tracks.all_tags()
+      has_more?: length(tracks) < total
     )
   end
 
@@ -506,6 +501,7 @@ defmodule BeatgridWeb.LibraryLive do
               <input
                 type="search"
                 name="search"
+                phx-debounce="250"
                 value={@filters[:search] || ""}
                 placeholder="Buscar artista ou título…"
                 class="w-full rounded-md border border-white/8 bg-input px-3 py-1.5 text-body placeholder:text-ink-faint focus:border-primary/50 focus:outline-none"
@@ -1366,17 +1362,8 @@ defmodule BeatgridWeb.LibraryLive do
 
   defp row_selected?(selected, id), do: MapSet.member?(selected, id)
 
-  # Manual override wins, then Soundcharts, then the locally-detected value — the
-  # same precedence the sort/filter use (TrackQuery coalesce) and Library.effective/1.
-  defp bpm(%{bpm_manual: b}) when is_number(b), do: round(b)
-  defp bpm(%{soundcharts_song: %{tempo_bpm: b}}) when is_number(b), do: round(b)
-  defp bpm(%{bpm_detected: b}) when is_number(b), do: round(b)
-  defp bpm(_track), do: "—"
-
-  defp camelot(%{camelot_manual: c}) when is_binary(c), do: c
-  defp camelot(%{soundcharts_song: %{camelot: c}}) when is_binary(c), do: c
-  defp camelot(%{camelot_detected: c}) when is_binary(c), do: c
-  defp camelot(_track), do: nil
+  defp bpm(track), do: effective_bpm(track)
+  defp camelot(track), do: effective_camelot(track)
 
   # --- Camelot wheel (Tom filter) ---------------------------------------------
 

@@ -228,4 +228,14 @@ defmodule Beatgrid.Workers.EnrichWorkerTest do
       assert [_, _] = all_enqueued(worker: EnrichWorker)
     end
   end
+
+  describe "missing tracks" do
+    test "a track hard-deleted between enqueue and perform is skipped, not a crash" do
+      job = %Oban.Job{
+        args: %{"scope" => "track", "id" => Uniq.UUID.uuid7(), "batch_id" => "gone"}
+      }
+
+      assert :ok = EnrichWorker.perform(job)
+    end
+  end
 end

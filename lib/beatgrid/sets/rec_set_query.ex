@@ -69,10 +69,8 @@ defmodule Beatgrid.Sets.RecSetQuery do
     |> Repo.all()
   end
 
-  @doc "Removes all of a set's tracks. Returns the number deleted."
-  @spec delete_all(Ecto.UUID.t()) :: non_neg_integer()
-  def delete_all(set_id) do
-    {n, _} = SetTrack |> where([st], st.rec_set_id == ^set_id) |> Repo.delete_all()
-    n
-  end
+  @doc "The membership row of `track_id` in `set_id` — raises if it isn't a member."
+  @spec row!(Ecto.UUID.t(), Ecto.UUID.t()) :: SetTrack.t()
+  def row!(set_id, track_id),
+    do: Repo.get_by!(SetTrack, rec_set_id: set_id, track_id: track_id)
 end

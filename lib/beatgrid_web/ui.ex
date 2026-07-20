@@ -446,6 +446,29 @@ defmodule BeatgridWeb.UI do
 
   def format_ms(_ms), do: "0:00"
 
+  @doc """
+  Effective BPM for display — manual override, then Soundcharts, then detected
+  (the `Library.effective/1` precedence; requires `:soundcharts_song` preloaded).
+  Every screen must render THIS, never a hand-rolled fallback chain: the REC SET
+  once skipped the manual clause and showed stale values for corrected tracks.
+  """
+  @spec effective_bpm(Beatgrid.Library.Track.t() | any()) :: integer() | String.t()
+  def effective_bpm(%Beatgrid.Library.Track{} = track) do
+    case Beatgrid.Library.effective(track).bpm do
+      bpm when is_number(bpm) -> round(bpm)
+      _missing -> "—"
+    end
+  end
+
+  def effective_bpm(_track), do: "—"
+
+  @doc "Effective Camelot key for display — same precedence as `effective_bpm/1`."
+  @spec effective_camelot(Beatgrid.Library.Track.t() | any()) :: String.t() | nil
+  def effective_camelot(%Beatgrid.Library.Track{} = track),
+    do: Beatgrid.Library.effective(track).camelot
+
+  def effective_camelot(_track), do: nil
+
   @doc "App shell: left nav rail + main content + the sticky global player."
   attr :active, :atom, default: :biblioteca
   attr :socket, Phoenix.LiveView.Socket, required: true

@@ -34,6 +34,21 @@ loudness, cue markers, YouTube import, AI repertoire gaps):
 
 ![Dashboard](docs/screenshots/painel.png)
 
+**Discotecagem** — dual-deck live console: Serato-style waveforms, real jog
+scratching (AudioWorklet), per-deck FX (filter/echo/tone), automatic and manual
+transitions, always-visible set queue + library, and a mapped MIDI controller
+(Numark DJ2GO2 Touch).
+
+**Set planner (REC SET)** — beyond the builder: real customization (style
+priority scales, BPM range, energy arc, Selo Ouro quota, "less vocals"), a
+reference set as a curated pool, and cross-playlist no-repeat.
+
+**Importados** — YouTube downloads grouped by source playlist, with batch
+import and "Create set" in playlist order.
+
+**Sets online** — full-length downloaded mixes/classes: track recognition,
+segmentation and per-song navigation inside the audio.
+
 ## What it does
 
 - **Real organization**: content-hash dedup, genre folders, reversible

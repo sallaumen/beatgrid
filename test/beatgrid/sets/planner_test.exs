@@ -30,6 +30,15 @@ defmodule Beatgrid.Sets.PlannerTest do
     %{set: set}
   end
 
+  test "a whole plan broadcasts a handful of set_changed, not ~2 per track", %{set: set} do
+    Phoenix.PubSub.subscribe(Beatgrid.PubSub, "sets:#{set.id}")
+
+    {:ok, _} = plan(set, %{"mode" => "tracks", "track_count" => "12"})
+
+    broadcasts = drain_set_changed(0)
+    assert broadcasts <= 3
+  end
+
   test "plans exactly the requested number of tracks", %{set: set} do
     {:ok, _} = plan(set, %{"mode" => "tracks", "track_count" => "12"})
     assert length(Sets.tracks(set)) == 12
@@ -347,5 +356,13 @@ defmodule Beatgrid.Sets.PlannerTest do
   test "duration mode fills roughly the requested minutes", %{set: set} do
     {:ok, _} = plan(set, %{"mode" => "duration", "duration_minutes" => "30"})
     assert length(Sets.tracks(set)) >= 2
+  end
+
+  defp drain_set_changed(count) do
+    receive do
+      {:set_changed, _id} -> drain_set_changed(count + 1)
+    after
+      50 -> count
+    end
   end
 end

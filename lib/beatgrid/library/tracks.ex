@@ -103,6 +103,19 @@ defmodule Beatgrid.Library.Tracks do
   @spec update(Track.t(), map()) :: {:ok, Track.t()} | {:error, Ecto.Changeset.t()}
   def update(track, attrs), do: track |> Track.changeset(attrs) |> Repo.update()
 
+  @doc "Rates a whole selection in ONE write (update_all bypasses timestamps — set it)."
+  @spec rate_many([Ecto.UUID.t()], 0..10) :: {:ok, non_neg_integer()}
+  def rate_many(ids, rating) when is_list(ids) and is_integer(rating) and rating in 0..10 do
+    now = DateTime.utc_now(:second)
+
+    {count, _} =
+      Track
+      |> where([t], t.id in ^ids)
+      |> Repo.update_all(set: [rating: rating, updated_at: now])
+
+    {:ok, count}
+  end
+
   @doc "Remove permanentemente o REGISTRO da faixa (o arquivo é tratado por Library.hard_delete/1)."
   @spec delete(Track.t()) :: {:ok, Track.t()} | {:error, Ecto.Changeset.t()}
   def delete(%Track{} = track), do: Repo.delete(track)
