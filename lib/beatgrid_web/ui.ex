@@ -591,7 +591,14 @@ defmodule BeatgridWeb.UI do
       %{
         title: "Sistema",
         items: [
-          %{key: :jobs, label: "Jobs", short: "JOB", icon: "hero-arrow-path", href: "/jobs"}
+          %{key: :jobs, label: "Jobs", short: "JOB", icon: "hero-arrow-path", href: "/jobs"},
+          %{
+            key: :ajustes,
+            label: "Ajustes",
+            short: "AJU",
+            icon: "hero-adjustments-horizontal",
+            href: "/ajustes"
+          }
         ]
       }
     ]
