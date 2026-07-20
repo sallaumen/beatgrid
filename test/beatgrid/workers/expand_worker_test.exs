@@ -13,8 +13,10 @@ defmodule Beatgrid.Workers.ExpandWorkerTest do
   end
 
   test "a transient failure keeps the retryable error shape" do
-    stub(DownloaderMock, :list_entries, fn _url -> {:error, {:yt_dlp_exit, 1, "timeout"}} end)
+    stub(DownloaderMock, :list_entries, fn _url ->
+      {:error, Beatgrid.YtDlpError.from_exit(1, "boom")}
+    end)
 
-    assert {:error, {:yt_dlp_exit, 1, "timeout"}} = ExpandWorker.perform(job())
+    assert {:error, %Beatgrid.Error{code: :yt_dlp_exit}} = ExpandWorker.perform(job())
   end
 end
