@@ -898,6 +898,11 @@ defmodule BeatgridWeb.DiscotecagemLive do
           color: #8b7bf0;
           background: rgba(139, 123, 240, 0.12);
         }
+        #dj-xfader-curve[data-on="true"] {
+          border-color: #ff5d6c;
+          color: #ff5d6c;
+          background: rgba(255, 93, 108, 0.12);
+        }
         .dj-scratch-pat[data-on="true"] {
           border-color: #8b7bf0;
           color: #8b7bf0;
@@ -1297,6 +1302,26 @@ defmodule BeatgridWeb.DiscotecagemLive do
             // Solta o foco ao largar o knob — o guard de activeElement travava
             // o espelhamento das transições automáticas depois de um clique.
             byId("dj-xfader").addEventListener("pointerup", (e) => e.target.blur())
+
+            // Curva do crossfader: Suave (equal-power, pra mixar) ↔ Seco (corte
+            // pra scratch — o deck cortado silencia rápido ao sair da beira). Só
+            // afeta o crossfader manual; as transições disparadas seguem suaves.
+            // Persistida no localStorage; reaplica no mount.
+            const curveBtn = byId("dj-xfader-curve")
+            if (curveBtn) {
+              const applyCurve = (sharp) => {
+                curveBtn.dataset.on = sharp ? "true" : "false"
+                curveBtn.textContent = sharp ? "curva: seco" : "curva: suave"
+                this.engine.setCrossfaderCurve(sharp ? "sharp" : "smooth")
+              }
+              applyCurve(localStorage.getItem("dj-xfader-curve") === "sharp")
+              curveBtn.addEventListener("click", () => {
+                const sharp = curveBtn.dataset.on !== "true"
+                localStorage.setItem("dj-xfader-curve", sharp ? "sharp" : "smooth")
+                applyCurve(sharp)
+                this.log(sharp ? "crossfader: corte seco (scratch)" : "crossfader: curva suave")
+              })
+            }
 
             // The transitions palette: fire NOW, from the crossfader's deck
             // into the other one. Same protocol as AUTO — the server just
@@ -2704,9 +2729,17 @@ defmodule BeatgridWeb.DiscotecagemLive do
         </div>
 
         <div class="w-full">
-          <div class="flex justify-between text-[9px] font-bold">
+          <div class="flex items-center justify-between text-[9px] font-bold">
             <span style="color:#8b7bf0">A</span>
-            <span class="text-ink-faint tracking-[0.18em] uppercase">Crossfader</span>
+            <button
+              id="dj-xfader-curve"
+              type="button"
+              data-on="false"
+              title="Curva do crossfader — clique pra alternar: Suave (mixagem) ↔ Seco (corte pra scratch)"
+              class="rounded border border-white/10 bg-input px-1.5 py-px text-[8px] font-bold uppercase tracking-[0.12em] text-ink-faint transition-colors hover:text-ink"
+            >
+              curva: suave
+            </button>
             <span style="color:#2d9cff">B</span>
           </div>
           <input

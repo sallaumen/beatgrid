@@ -99,6 +99,19 @@ function equalPower(pos) {
   return {a: Math.cos((pos * Math.PI) / 2), b: Math.cos(((1 - pos) * Math.PI) / 2)}
 }
 
+// Sharp "cut" crossfader curve for scratching: each deck stays SILENT across the
+// far part of the throw (a comfortable dead zone, not just the exact end-stop),
+// then snaps to full near its own edge — so a chop needs only a short flick and
+// the off-deck never bleeds. equalPower (the smooth blend) stays the default; the
+// DJ flips to this with the crossfader-curve toggle. Tunables: bigger CUT_DEAD =
+// wider silent zone, smaller CUT_WIDTH = harder snap.
+const CUT_DEAD = 0.3 // fraction of the throw from each edge the far deck stays silent
+const CUT_WIDTH = 0.12 // ramp from silent to full after the dead zone
+function cutCurve(pos) {
+  const clamp = (x) => Math.min(Math.max(x, 0), 1)
+  return {a: clamp((1 - pos - CUT_DEAD) / CUT_WIDTH), b: clamp((pos - CUT_DEAD) / CUT_WIDTH)}
+}
+
 function sideOf(deckId) {
   return deckId === "a" ? 0 : 1
 }
@@ -313,7 +326,11 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     a: new Deck("a", deckElA, ctx),
     b: new Deck("b", deckElB, ctx),
   }
-  const xfade = {a: ctx.createGain(), b: ctx.createGain(), pos: 0.5}
+  const xfade = {a: ctx.createGain(), b: ctx.createGain(), pos: 0.5, curve: "smooth"}
+  // The crossfader gain map: smooth equal-power for mixing, sharp cut for
+  // scratching (the DJ toggles it). Transitions IGNORE this and always ramp
+  // equal-power — a fired blend stays smooth regardless of the toggle.
+  const xfadeGains = (pos) => (xfade.curve === "sharp" ? cutCurve(pos) : equalPower(pos))
 
   // "Estourado": compressor before the master. IMPORTANT: WebAudio's
   // DynamicsCompressor applies automatic makeup gain, so a low fixed threshold
@@ -335,7 +352,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   punch.connect(punchComp)
   punchComp.connect(master)
 
-  const g = equalPower(xfade.pos)
+  const g = xfadeGains(xfade.pos)
   xfade.a.gain.value = g.a
   xfade.b.gain.value = g.b
 
@@ -1025,11 +1042,25 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     xfadeGlide++
     cancelAnimationFrame(xfadeAnim)
     xfade.pos = Math.min(Math.max(pos, 0), 1)
-    const g2 = equalPower(xfade.pos)
+    const g2 = xfadeGains(xfade.pos)
     for (const side of ["a", "b"]) {
       takeOver(xfade[side].gain, g2[side], RAMP.manualFaderTau)
     }
     emit("xfadePos", {pos: xfade.pos, automated: false})
+  }
+
+  // Flip the crossfader gain map (smooth blend ↔ sharp scratch cut) and re-map
+  // the CURRENT position through it so the change is heard immediately. Only the
+  // gains change — xfade.pos (and thus on-air detection) is untouched.
+  function setCrossfaderCurve(mode) {
+    xfade.curve = mode === "sharp" ? "sharp" : "smooth"
+    const g = xfadeGains(xfade.pos)
+    const now = ctx.currentTime
+    for (const side of ["a", "b"]) {
+      xfade[side].gain.cancelScheduledValues(now)
+      xfade[side].gain.setTargetAtTime(g[side], now, 0.01)
+    }
+    emit("xfadeCurve", {curve: xfade.curve})
   }
 
   function setDeckLevel(deckId, value) {
@@ -1268,7 +1299,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
   function scratchCrossfade(pos) {
     xfade.pos = Math.min(Math.max(pos, 0), 1)
-    const g = equalPower(xfade.pos)
+    const g = xfadeGains(xfade.pos)
     const now = ctx.currentTime
     xfade.a.gain.setTargetAtTime(g.a, now, 0.004)
     xfade.b.gain.setTargetAtTime(g.b, now, 0.004)
@@ -1641,6 +1672,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     },
 
     setCrossfader,
+    setCrossfaderCurve,
     setDeckLevel,
     setMasterLevel,
 
