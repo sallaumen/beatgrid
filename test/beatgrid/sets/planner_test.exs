@@ -106,9 +106,7 @@ defmodule Beatgrid.Sets.PlannerTest do
 
     standouts =
       for i <- 1..7, into: MapSet.new() do
-        t = track(tag_artist: "Standout #{i}", genre_folder: "forro_secundario")
-        {:ok, r} = t |> Ecto.Changeset.change(%{rating: 10}) |> Beatgrid.Repo.update()
-        r.id
+        track(tag_artist: "Standout #{i}", genre_folder: "forro_secundario", rating: 10).id
       end
 
     {:ok, _} =
@@ -232,9 +230,7 @@ defmodule Beatgrid.Sets.PlannerTest do
 
     far =
       for i <- 1..7, into: MapSet.new() do
-        t = track(tag_artist: "Far #{i}", camelot: "3B")
-        {:ok, r} = t |> Ecto.Changeset.change(%{rating: 10}) |> Beatgrid.Repo.update()
-        r.id
+        track(tag_artist: "Far #{i}", camelot: "3B", rating: 10).id
       end
 
     {:ok, _} =
@@ -250,9 +246,7 @@ defmodule Beatgrid.Sets.PlannerTest do
 
     far =
       for i <- 1..7, into: MapSet.new() do
-        t = track(tag_artist: "Far #{i}", camelot: "3B")
-        {:ok, r} = t |> Ecto.Changeset.change(%{rating: 10}) |> Beatgrid.Repo.update()
-        r.id
+        track(tag_artist: "Far #{i}", camelot: "3B", rating: 10).id
       end
 
     {:ok, _} =
@@ -279,12 +273,7 @@ defmodule Beatgrid.Sets.PlannerTest do
   test "gold_every guarantees at least one Selo Ouro in every window", %{set: set} do
     golden =
       for i <- 1..6, into: MapSet.new() do
-        t = track(tag_artist: "Gold #{i}")
-
-        {:ok, g} =
-          t |> Ecto.Changeset.change(%{gold_status: :confirmed}) |> Beatgrid.Repo.update()
-
-        g.id
+        track(tag_artist: "Gold #{i}", gold_status: :confirmed).id
       end
 
     {:ok, _} = plan(set, %{"mode" => "tracks", "track_count" => "15", "gold_every" => "5"})
@@ -303,20 +292,10 @@ defmodule Beatgrid.Sets.PlannerTest do
     # must land exactly on the pico, the openers must spend the non-golds.
     golden =
       for i <- 1..2, into: MapSet.new() do
-        t = track(tag_artist: "GoldTop #{i}")
-
-        {:ok, g} =
-          t
-          |> Ecto.Changeset.change(%{rating: 10, gold_status: :confirmed})
-          |> Beatgrid.Repo.update()
-
-        g.id
+        track(tag_artist: "GoldTop #{i}", rating: 10, gold_status: :confirmed).id
       end
 
-    for i <- 1..3 do
-      t = track(tag_artist: "PlainTop #{i}")
-      {:ok, _} = t |> Ecto.Changeset.change(%{rating: 10}) |> Beatgrid.Repo.update()
-    end
+    for i <- 1..3, do: track(tag_artist: "PlainTop #{i}", rating: 10)
 
     {:ok, _} =
       plan(set, %{"mode" => "tracks", "track_count" => "3", "arc_shape" => "steady"})
@@ -340,9 +319,7 @@ defmodule Beatgrid.Sets.PlannerTest do
     # rated tracks — deterministic even with the top-K random pick.
     rated =
       for i <- 1..10, into: MapSet.new() do
-        t = track(tag_artist: "Rated #{i}")
-        {:ok, r} = t |> Ecto.Changeset.change(%{rating: 10}) |> Beatgrid.Repo.update()
-        r.id
+        track(tag_artist: "Rated #{i}", rating: 10).id
       end
 
     {:ok, _} =
