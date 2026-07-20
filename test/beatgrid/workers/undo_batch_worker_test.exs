@@ -1,11 +1,11 @@
 defmodule Beatgrid.Workers.UndoBatchWorkerTest do
   use Beatgrid.DataCase, async: false, oban: true
 
-  alias Beatgrid.Review
+  alias Beatgrid.Operations
   alias Beatgrid.Workers.UndoBatchWorker
 
   test "undoes the batch and broadcasts the undone/failed tally" do
-    Review.subscribe()
+    Operations.subscribe()
     batch_id = Uniq.UUID.uuid7()
 
     assert :ok = perform_job(UndoBatchWorker, %{batch_id: batch_id})

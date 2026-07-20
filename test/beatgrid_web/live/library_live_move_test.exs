@@ -2,13 +2,14 @@ defmodule BeatgridWeb.LibraryLiveMoveTest do
   # async: false — the row ⋯ menu and batch bar drive real on-disk moves
   # (override :library_root) and the move's Tagging write goes through the global
   # Mox stub, so the LiveView process must see it (set_mox_global).
-  use BeatgridWeb.ConnCase, async: false
+  use BeatgridWeb.ConnCase, async: false, oban: true
 
   import Phoenix.LiveViewTest
   import Mox
   import Beatgrid.Factory
 
   alias Beatgrid.Library.Tracks
+  alias Beatgrid.Workers.{MoveBatchWorker, UndoBatchWorker}
 
   setup :set_mox_global
   setup :isolate_library_root
@@ -208,14 +209,21 @@ defmodule BeatgridWeb.LibraryLiveMoveTest do
       |> element("button[phx-click='toggle_select'][phx-value-id='#{b.id}']")
       |> render_click()
 
+      # The click only enqueues — the disk work runs in the background worker.
       html =
         view
         |> form("#batch-move", %{folder: "forro"})
         |> render_change()
 
+      assert html =~ "Movendo 2 faixa(s)"
+      assert [job] = all_enqueued(worker: MoveBatchWorker)
+      assert :ok = perform_job(MoveBatchWorker, job.args)
+
       assert Tracks.get(a.id).genre_folder == "forro"
       assert Tracks.get(b.id).genre_folder == "forro"
-      assert html =~ "Desfazer"
+
+      # The completion broadcast swaps the toast for the undoable one.
+      assert render(view) =~ "Desfazer"
     end
 
     test "Avaliar N rates every selected track", %{conn: conn} do
@@ -269,7 +277,11 @@ defmodule BeatgridWeb.LibraryLiveMoveTest do
 
       assert Tracks.get(track.id).genre_folder == "forro"
 
+      # Desfazer only enqueues; the background worker reverts the batch.
       view |> element("button[phx-click='undo_move']") |> render_click()
+
+      assert [job] = all_enqueued(worker: UndoBatchWorker)
+      assert :ok = perform_job(UndoBatchWorker, job.args)
 
       assert Tracks.get(track.id).genre_folder == "mpb"
       assert File.exists?(Path.join(root, "MPB/x.mp3"))
