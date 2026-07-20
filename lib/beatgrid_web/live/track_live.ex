@@ -221,7 +221,7 @@ defmodule BeatgridWeb.TrackLive do
          |> reload()}
 
       _none ->
-        {:noreply, assign(socket, toast: {:error, "No original backup is available."})}
+        {:noreply, assign(socket, toast: {:error, "Nenhum backup original disponível."})}
     end
   end
 
