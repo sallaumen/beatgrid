@@ -344,6 +344,7 @@ defmodule Beatgrid.Library.TrackQuery do
   @spec mixing_candidates([Ecto.UUID.t()], keyword()) :: [Track.t()]
   def mixing_candidates(exclude, opts \\ []) do
     Track
+    |> join(:left, [t], s in assoc(t, :soundcharts_song), as: :song)
     |> where([t], t.status == :present)
     |> where([t], t.id not in ^exclude)
     |> where(
@@ -351,14 +352,26 @@ defmodule Beatgrid.Library.TrackQuery do
       not is_nil(t.soundcharts_song_id) or not is_nil(t.camelot_detected) or
         not is_nil(t.bpm_detected)
     )
+    |> bpm_window(opts[:bpm_min], opts[:bpm_max])
     |> min_rating(opts[:min_rating])
     |> allow_styles(opts[:allow_styles])
     |> exclude_styles(opts[:exclude_styles])
     |> gold_filter(%{gold: opts[:gold_only]})
     |> less_vocals(opts[:less_vocals])
     |> restrict_pool(opts[:restrict_ids], opts[:escape_styles] || [])
-    |> preload(:soundcharts_song)
+    |> preload([t, song: s], soundcharts_song: s)
     |> Repo.all()
+  end
+
+  # The set scorer's BPM range, on the same effective-BPM SQL the library filters
+  # use (manual → Soundcharts → detected). nil bounds are open; a track with no
+  # BPM signal at all only survives when no window is set.
+  defp bpm_window(q, nil, nil), do: q
+
+  defp bpm_window(q, min, max) do
+    q
+    |> then(fn q -> if min, do: where(q, ^dynamic(^effective_bpm() >= ^min)), else: q end)
+    |> then(fn q -> if max, do: where(q, ^dynamic(^effective_bpm() <= ^max)), else: q end)
   end
 
   # Reference-set pool: keep only tracks that are members of the reference set
@@ -379,9 +392,9 @@ defmodule Beatgrid.Library.TrackQuery do
   defp less_vocals(q, true) do
     min = instrumental_min()
 
-    q
-    |> join(:inner, [t], s in assoc(t, :soundcharts_song))
-    |> where([t, ..., s], s.instrumentalness >= ^min)
+    # On the shared LEFT :song join a NULL comparison drops the row, keeping the
+    # old inner-join semantics: no match, no proof of instrumentalness.
+    where(q, [t, song: s], s.instrumentalness >= ^min)
   end
 
   defp less_vocals(q, _), do: q

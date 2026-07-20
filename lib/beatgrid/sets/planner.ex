@@ -7,11 +7,14 @@ defmodule Beatgrid.Sets.Planner do
   set's members, the tracks in the chosen other playlists, and — when asked — the
   artists already placed). Picks one at random among the top few, so plans vary.
 
-  The running exclude set is threaded in memory (no per-slot member re-query), and
-  a `:replace` fill clears the set first. Finishes by connecting every consecutive
-  pair with a transition.
+  The candidate pool is fetched once per plan (every SQL filter, BPM window
+  included, is plan-constant) and each slot re-ranks it in memory; the running
+  exclude set is threaded the same way (no per-slot re-query). A `:replace`
+  fill clears the set first. Finishes by connecting every consecutive pair
+  with a transition.
   """
 
+  alias Beatgrid.Gold
   alias Beatgrid.Mixing
   alias Beatgrid.Sets
   alias Beatgrid.Sets.{EnergyArc, PlanConfig, Presets, RecSet, RecSetQuery}
@@ -43,10 +46,26 @@ defmodule Beatgrid.Sets.Planner do
     exclude0 =
       MapSet.new(Enum.map(members, & &1.id) ++ Sets.cross_set_track_ids(config.exclude_set_ids))
 
+    # The SQL-side filters are all plan-constant, so the candidate pool is
+    # fetched ONCE per plan (BPM window included, in SQL); every slot then
+    # re-ranks it in memory. Gold slots draw from the same pool via the
+    # in-memory twin of the SQL gold filter (Gold.gold?/1).
+    pool =
+      exclude0
+      |> MapSet.to_list()
+      |> Mixing.candidate_pool(candidate_opts(config, preset, reference))
+
     # The reduce threads the running exclude/used-artists/prev/gold-gap
     # accumulator; its final value is spent (the fill is via append side
     # effects), so discard it.
-    ctx = %{set: set, config: config, preset: preset, count: count, reference: reference}
+    ctx = %{
+      set: set,
+      config: config,
+      preset: preset,
+      count: count,
+      pool: pool,
+      gold_pool: Enum.filter(pool, &Gold.gold?/1)
+    }
 
     _ =
       count
@@ -78,7 +97,7 @@ defmodule Beatgrid.Sets.Planner do
   defp fill_slot(ctx, slot, index, {exclude, artists, prev, since_gold}) do
     opts = rank_opts(ctx, slot, index, exclude, prev)
 
-    case ranked_for(ctx.config, since_gold, opts) do
+    case ranked_for(ctx, since_gold, opts) do
       [] ->
         {exclude, artists, prev, since_gold}
 
@@ -95,15 +114,15 @@ defmodule Beatgrid.Sets.Planner do
   # Selo Ouro, this slot ranks gold candidates only — so no window of N goes
   # gold-less. A dry gold pool falls back to the normal ranking (never stall);
   # a naturally-picked gold resets the gap like a forced one.
-  defp ranked_for(%PlanConfig{gold_every: n}, since_gold, opts)
+  defp ranked_for(%{config: %PlanConfig{gold_every: n}} = ctx, since_gold, opts)
        when is_integer(n) and since_gold >= n - 1 do
-    case Mixing.rank([{:gold_only, true} | opts]) do
-      [] -> Mixing.rank(opts)
+    case Mixing.rank_pool(ctx.gold_pool, opts) do
+      [] -> Mixing.rank_pool(ctx.pool, opts)
       golds -> golds
     end
   end
 
-  defp ranked_for(_config, _since_gold, opts), do: Mixing.rank(opts)
+  defp ranked_for(ctx, _since_gold, opts), do: Mixing.rank_pool(ctx.pool, opts)
 
   defp next_gold_gap(%PlanConfig{gold_every: nil}, since_gold, _track), do: since_gold
 
@@ -111,21 +130,28 @@ defmodule Beatgrid.Sets.Planner do
     if Beatgrid.Gold.gold?(track), do: 0, else: since_gold + 1
   end
 
+  # Scoring-side options only — the hard (SQL) filters live in candidate_opts/3.
   defp rank_opts(ctx, slot, index, exclude, prev) do
-    %{config: config, preset: preset} = ctx
-
     [
       prev: prev,
-      target_style: Presets.phase_target_style(preset, index, ctx.count, ctx.set.target_style),
+      target_style:
+        Presets.phase_target_style(ctx.preset, index, ctx.count, ctx.set.target_style),
       target_intensity: slot.target_intensity,
       exclude: MapSet.to_list(exclude),
       limit: @topk,
-      weights: weights_for(config),
+      weights: weights_for(ctx.config)
+    ] ++ tier_opts(ctx.config)
+  end
+
+  # The plan-constant SQL filters for the one-shot pool fetch. pool_opts/3 may
+  # also carry :style_tiers — a scoring knob candidate_pool/2 just ignores.
+  defp candidate_opts(config, preset, reference) do
+    [
       bpm_min: config.bpm_min,
       bpm_max: config.bpm_max,
       min_rating: config.min_rating,
       less_vocals: config.less_vocals
-    ] ++ pool_opts(config, preset, ctx.reference)
+    ] ++ pool_opts(config, preset, reference)
   end
 
   # Library mode: the whole library, gated by the style whitelist/exclusions.
