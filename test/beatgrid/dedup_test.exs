@@ -108,14 +108,12 @@ defmodule Beatgrid.DedupTest do
     end
 
     test "pick_keeper prefers fewer quality issues, then classified placement, then resolved, then bitrate" do
-      song = insert(:soundcharts_song)
-
       best =
         insert(:track,
           content_sha256: "h",
           bitrate_kbps: 128,
           genre_folder: "mpb",
-          soundcharts_song_id: song.id,
+          soundcharts_song: build(:soundcharts_song),
           rel_path: "MPB/a.mp3"
         )
 

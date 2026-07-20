@@ -22,8 +22,8 @@ defmodule BeatgridWeb.RecSetLiveTest do
   end
 
   defp track_with(camelot, bpm, attrs) do
-    song = insert(:soundcharts_song, camelot: camelot, tempo_bpm: bpm, energy: 0.5)
-    insert(:track, Keyword.merge([soundcharts_song_id: song.id, status: :present], attrs))
+    song = build(:soundcharts_song, camelot: camelot, tempo_bpm: bpm, energy: 0.5)
+    insert(:track, Keyword.merge([soundcharts_song: song, status: :present], attrs))
   end
 
   defp new_set(view),

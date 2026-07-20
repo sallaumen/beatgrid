@@ -64,8 +64,6 @@ defmodule BeatgridWeb.LibraryLiveMoveTest do
     end
 
     test "Parecidas pre-fills the filters around a track and narrows the list", %{conn: conn} do
-      song = insert(:soundcharts_song, camelot: "8A", energy: 0.6)
-
       ref =
         insert(:track,
           status: :present,
@@ -73,10 +71,8 @@ defmodule BeatgridWeb.LibraryLiveMoveTest do
           tag_title: "Referência",
           tag_artist: "Ref",
           norm_artist: "ref",
-          soundcharts_song_id: song.id
+          soundcharts_song: build(:soundcharts_song, camelot: "8A", energy: 0.6)
         )
-
-      neighbor_song = insert(:soundcharts_song, camelot: "9A", energy: 0.6)
 
       insert(:track,
         status: :present,
@@ -84,10 +80,8 @@ defmodule BeatgridWeb.LibraryLiveMoveTest do
         tag_title: "Vizinha",
         tag_artist: "Viz",
         norm_artist: "viz",
-        soundcharts_song_id: neighbor_song.id
+        soundcharts_song: build(:soundcharts_song, camelot: "9A", energy: 0.6)
       )
-
-      far_song = insert(:soundcharts_song, camelot: "3B", energy: 0.1)
 
       insert(:track,
         status: :present,
@@ -95,7 +89,7 @@ defmodule BeatgridWeb.LibraryLiveMoveTest do
         tag_title: "Distante",
         tag_artist: "Dist",
         norm_artist: "dist",
-        soundcharts_song_id: far_song.id
+        soundcharts_song: build(:soundcharts_song, camelot: "3B", energy: 0.1)
       )
 
       {:ok, view, _html} = live(conn, ~p"/")

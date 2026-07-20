@@ -9,12 +9,12 @@ defmodule Beatgrid.MixingTest do
       Keyword.split(attrs, [:camelot, :tempo_bpm, :energy, :instrumentalness])
 
     song =
-      insert(
+      build(
         :soundcharts_song,
         Keyword.merge([camelot: "8A", tempo_bpm: 120.0, energy: 0.5], song_attrs)
       )
 
-    insert(:track, Keyword.merge([soundcharts_song_id: song.id, status: :present], track_attrs))
+    insert(:track, Keyword.merge([soundcharts_song: song, status: :present], track_attrs))
   end
 
   # The four ways a track relates to the Selo Ouro (mirrors Beatgrid.Gold).

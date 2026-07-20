@@ -43,12 +43,10 @@ defmodule Beatgrid.ReviewTest do
 
   describe "decisions" do
     test "approve, reject and edit drive the rename suggestion's status and target" do
-      song = insert(:soundcharts_song, credit_name: "Artist", name: "Song")
-
       insert(:track,
         filename: "x.mp3",
         rel_path: "MPB/x.mp3",
-        soundcharts_song_id: song.id,
+        soundcharts_song: build(:soundcharts_song, credit_name: "Artist", name: "Song"),
         sc_match_confidence: :medium
       )
 
@@ -68,20 +66,17 @@ defmodule Beatgrid.ReviewTest do
     end
 
     test "queue_renames sinks rejected (ignored) cards to the bottom" do
-      song_1 = insert(:soundcharts_song, credit_name: "A", name: "One")
-      song_2 = insert(:soundcharts_song, credit_name: "B", name: "Two")
-
       insert(:track,
         filename: "a.mp3",
         rel_path: "MPB/a.mp3",
-        soundcharts_song_id: song_1.id,
+        soundcharts_song: build(:soundcharts_song, credit_name: "A", name: "One"),
         sc_match_confidence: :medium
       )
 
       insert(:track,
         filename: "z.mp3",
         rel_path: "MPB/z.mp3",
-        soundcharts_song_id: song_2.id,
+        soundcharts_song: build(:soundcharts_song, credit_name: "B", name: "Two"),
         sc_match_confidence: :medium
       )
 
@@ -127,12 +122,10 @@ defmodule Beatgrid.ReviewTest do
 
   describe "audit actions" do
     test "dismiss_audit strips the [audit:...] flag, keeping it as a normal rename" do
-      song = insert(:soundcharts_song, credit_name: "A", name: "B")
-
       insert(:track,
         filename: "x.mp3",
         rel_path: "MPB/x.mp3",
-        soundcharts_song_id: song.id,
+        soundcharts_song: build(:soundcharts_song, credit_name: "A", name: "B"),
         sc_match_confidence: :medium
       )
 
@@ -150,14 +143,13 @@ defmodule Beatgrid.ReviewTest do
     } do
       File.mkdir_p!(Path.join(root, "MPB"))
       File.write!(Path.join(root, "MPB/bad.mp3"), "x")
-      song = insert(:soundcharts_song, credit_name: "A", name: "B")
 
       track =
         insert(:track,
           rel_path: "MPB/bad.mp3",
           filename: "bad.mp3",
           genre_folder: "mpb",
-          soundcharts_song_id: song.id,
+          soundcharts_song: build(:soundcharts_song, credit_name: "A", name: "B"),
           sc_match_confidence: :low
         )
 
@@ -172,8 +164,6 @@ defmodule Beatgrid.ReviewTest do
     end
 
     test "re_resolve relinks the track, rejects the suspect rename, and re-proposes" do
-      wrong = insert(:soundcharts_song, credit_name: "Wrong", name: "Song")
-
       track =
         insert(:track,
           tag_title: "Disritmia",
@@ -182,7 +172,7 @@ defmodule Beatgrid.ReviewTest do
           norm_artist: "casuarina",
           filename: "old.mp3",
           rel_path: "MPB/old.mp3",
-          soundcharts_song_id: wrong.id,
+          soundcharts_song: build(:soundcharts_song, credit_name: "Wrong", name: "Song"),
           sc_match_confidence: :low
         )
 
@@ -208,8 +198,6 @@ defmodule Beatgrid.ReviewTest do
     end
 
     test "re_resolve with no match rejects the suspect rename and leaves the track unlinked" do
-      wrong = insert(:soundcharts_song, credit_name: "Wrong", name: "Song")
-
       track =
         insert(:track,
           tag_title: "Obscure",
@@ -218,7 +206,7 @@ defmodule Beatgrid.ReviewTest do
           norm_artist: "nobody",
           filename: "old.mp3",
           rel_path: "MPB/old.mp3",
-          soundcharts_song_id: wrong.id,
+          soundcharts_song: build(:soundcharts_song, credit_name: "Wrong", name: "Song"),
           sc_match_confidence: :low
         )
 
@@ -245,14 +233,11 @@ defmodule Beatgrid.ReviewTest do
       File.write!(Path.join(root, "MPB/A.mp3"), "a")
       File.write!(Path.join(root, "MPB/B.mp3"), "b")
 
-      s_1 = insert(:soundcharts_song, credit_name: "Art", name: "One")
-      s_2 = insert(:soundcharts_song, credit_name: "Art", name: "Two")
-
       insert(:track,
         rel_path: "MPB/A.mp3",
         filename: "A.mp3",
         genre_folder: "mpb",
-        soundcharts_song_id: s_1.id,
+        soundcharts_song: build(:soundcharts_song, credit_name: "Art", name: "One"),
         sc_match_confidence: :high
       )
 
@@ -260,7 +245,7 @@ defmodule Beatgrid.ReviewTest do
         rel_path: "MPB/B.mp3",
         filename: "B.mp3",
         genre_folder: "mpb",
-        soundcharts_song_id: s_2.id,
+        soundcharts_song: build(:soundcharts_song, credit_name: "Art", name: "Two"),
         sc_match_confidence: :high
       )
 
@@ -281,7 +266,6 @@ defmodule Beatgrid.ReviewTest do
     setup :verify_on_exit!
 
     defp pending_rename(attrs) do
-      song = insert(:soundcharts_song, credit_name: "Caetano Veloso", name: "Cajuína")
       n = :erlang.unique_integer([:positive])
       filename = "Cajuina-#{n}.mp3"
       rel_path = "_Inbox/#{filename}"
@@ -295,7 +279,8 @@ defmodule Beatgrid.ReviewTest do
               tag_title: "Cajuina",
               filename: filename,
               rel_path: rel_path,
-              soundcharts_song_id: song.id
+              soundcharts_song:
+                build(:soundcharts_song, credit_name: "Caetano Veloso", name: "Cajuína")
             ],
             attrs[:track] || []
           )
@@ -385,8 +370,6 @@ defmodule Beatgrid.ReviewTest do
         description: "raiz"
       )
 
-      song = insert(:soundcharts_song, credit_name: "Caetano Veloso", name: "Cajuína")
-
       track =
         insert(:track,
           status: :present,
@@ -394,7 +377,8 @@ defmodule Beatgrid.ReviewTest do
           tag_title: "Cajuina",
           filename: "Cajuina.mp3",
           rel_path: "_Inbox/Cajuina.mp3",
-          soundcharts_song_id: song.id,
+          soundcharts_song:
+            build(:soundcharts_song, credit_name: "Caetano Veloso", name: "Cajuína"),
           sc_match_confidence: :low
         )
 
@@ -447,14 +431,13 @@ defmodule Beatgrid.ReviewTest do
       # --- approved rename ---
       File.mkdir_p!(Path.join(root, "MPB"))
       File.write!(Path.join(root, "MPB/Old.mp3"), "a")
-      song = insert(:soundcharts_song, credit_name: "Artist", name: "New")
 
       rtrack =
         insert(:track,
           rel_path: "MPB/Old.mp3",
           filename: "Old.mp3",
           genre_folder: "mpb",
-          soundcharts_song_id: song.id,
+          soundcharts_song: build(:soundcharts_song, credit_name: "Artist", name: "New"),
           sc_match_confidence: :high
         )
 

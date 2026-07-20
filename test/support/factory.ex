@@ -2,6 +2,13 @@ defmodule Beatgrid.Factory do
   @moduledoc """
   ExMachina factories. Keep defaults minimal — every default cascades into other
   tests. Use the `Map.pop_lazy` optional-association idiom when adding associations.
+
+  A track with its Soundcharts song is one insert — no hand-rolled FK pair:
+
+      insert(:track, soundcharts_song: build(:soundcharts_song, camelot: "8A"))
+
+  Passing an already-inserted song reuses it instead of duplicating (see
+  `Beatgrid.FactoryTest`, which pins both forms).
   """
   use ExMachina.Ecto, repo: Beatgrid.Repo
 

@@ -8,7 +8,7 @@ defmodule Beatgrid.Sets.PlannerTest do
     {song_attrs, track_attrs} = Keyword.split(attrs, [:camelot, :tempo_bpm, :energy])
 
     song =
-      insert(
+      build(
         :soundcharts_song,
         Keyword.merge([camelot: "8A", tempo_bpm: 120.0, energy: 0.6], song_attrs)
       )
@@ -16,7 +16,7 @@ defmodule Beatgrid.Sets.PlannerTest do
     insert(
       :track,
       Keyword.merge(
-        [soundcharts_song_id: song.id, status: :present, genre_folder: "forro"],
+        [soundcharts_song: song, status: :present, genre_folder: "forro"],
         track_attrs
       )
     )

@@ -26,14 +26,13 @@ defmodule BeatgridWeb.ReviewLiveApplyTest do
     # an approvable rename
     File.mkdir_p!(Path.join(root, "MPB"))
     File.write!(Path.join(root, "MPB/Old.mp3"), "a")
-    song = insert(:soundcharts_song, credit_name: "Artist", name: "New")
 
     track =
       insert(:track,
         rel_path: "MPB/Old.mp3",
         filename: "Old.mp3",
         genre_folder: "mpb",
-        soundcharts_song_id: song.id,
+        soundcharts_song: build(:soundcharts_song, credit_name: "Artist", name: "New"),
         sc_match_confidence: :high
       )
 
@@ -100,14 +99,13 @@ defmodule BeatgridWeb.ReviewLiveApplyTest do
   } do
     File.mkdir_p!(Path.join(root, "MPB"))
     File.write!(Path.join(root, "MPB/bad.mp3"), "x")
-    song = insert(:soundcharts_song, credit_name: "A", name: "B")
 
     track =
       insert(:track,
         rel_path: "MPB/bad.mp3",
         filename: "bad.mp3",
         genre_folder: "mpb",
-        soundcharts_song_id: song.id,
+        soundcharts_song: build(:soundcharts_song, credit_name: "A", name: "B"),
         sc_match_confidence: :low
       )
 
@@ -128,8 +126,6 @@ defmodule BeatgridWeb.ReviewLiveApplyTest do
   @tag :tmp_dir
   test "re-resolve from the auditoria tab enqueues a worker and updates on completion (no-match path)",
        %{conn: conn} do
-    wrong = insert(:soundcharts_song, credit_name: "Wrong", name: "Song")
-
     track =
       insert(:track,
         tag_title: "Obscure",
@@ -138,7 +134,7 @@ defmodule BeatgridWeb.ReviewLiveApplyTest do
         norm_artist: "nobody",
         filename: "old.mp3",
         rel_path: "MPB/old.mp3",
-        soundcharts_song_id: wrong.id,
+        soundcharts_song: build(:soundcharts_song, credit_name: "Wrong", name: "Song"),
         sc_match_confidence: :low
       )
 
