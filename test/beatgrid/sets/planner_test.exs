@@ -39,6 +39,49 @@ defmodule Beatgrid.Sets.PlannerTest do
     assert broadcasts <= 3
   end
 
+  test "candidate fetching hits the tracks table a fixed number of times, not once per slot",
+       %{set: set} do
+    test_pid = self()
+    handler_id = "planner-query-count-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:beatgrid, :repo, :query],
+        fn _event, _measurements, meta, _config ->
+          # Handlers run in the emitting process — only count THIS test's queries
+          # (async siblings emit from their own processes).
+          if self() == test_pid, do: send(test_pid, {:repo_query, meta.query})
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    {:ok, _} = plan(set, %{"mode" => "tracks", "track_count" => "2"})
+    small = drain_track_selects(0)
+
+    {:ok, _} = plan(set, %{"mode" => "tracks", "track_count" => "8", "fill_mode" => "replace"})
+    large = drain_track_selects(0)
+
+    assert large == small,
+           "an 8-slot plan issued #{large} tracks SELECTs vs #{small} for 2 slots — " <>
+             "the candidate pool must be fetched per plan, not per slot"
+  end
+
+  defp drain_track_selects(acc) do
+    receive do
+      {:repo_query, q} ->
+        if String.starts_with?(q, "SELECT") and q =~ ~s(FROM "tracks") do
+          drain_track_selects(acc + 1)
+        else
+          drain_track_selects(acc)
+        end
+    after
+      0 -> acc
+    end
+  end
+
   test "plans exactly the requested number of tracks", %{set: set} do
     {:ok, _} = plan(set, %{"mode" => "tracks", "track_count" => "12"})
     assert length(Sets.tracks(set)) == 12

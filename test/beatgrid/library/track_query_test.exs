@@ -289,4 +289,45 @@ defmodule Beatgrid.Library.TrackQueryTest do
       assert ids == [unres.id]
     end
   end
+
+  describe "mixing_candidates/2 bpm window" do
+    test "filters on the effective BPM in SQL — manual override included" do
+      inside =
+        insert(:track,
+          status: :present,
+          soundcharts_song: build(:soundcharts_song, tempo_bpm: 125.0)
+        )
+
+      detected = insert(:track, status: :present, bpm_detected: 122.0)
+
+      # Soundcharts says 125 (inside), but the DJ pinned 90 — the override must win.
+      overridden =
+        insert(:track,
+          status: :present,
+          bpm_manual: 90.0,
+          soundcharts_song: build(:soundcharts_song, tempo_bpm: 125.0)
+        )
+
+      outside =
+        insert(:track,
+          status: :present,
+          soundcharts_song: build(:soundcharts_song, tempo_bpm: 90.0)
+        )
+
+      # Carries a key signal but no BPM anywhere: a window must drop it.
+      no_bpm = insert(:track, status: :present, camelot_detected: "8A")
+
+      ids = TrackQuery.mixing_candidates([], bpm_min: 120, bpm_max: 130) |> Enum.map(& &1.id)
+
+      assert inside.id in ids
+      assert detected.id in ids
+      refute overridden.id in ids
+      refute outside.id in ids
+      refute no_bpm.id in ids
+
+      # No window: everyone with a mixing signal stays in.
+      all_ids = TrackQuery.mixing_candidates([]) |> Enum.map(& &1.id)
+      for t <- [inside, detected, overridden, outside, no_bpm], do: assert(t.id in all_ids)
+    end
+  end
 end
