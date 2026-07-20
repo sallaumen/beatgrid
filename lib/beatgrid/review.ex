@@ -168,11 +168,6 @@ defmodule Beatgrid.Review do
   def broadcast_applied(result),
     do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @reeval_topic, {:review_applied, result})
 
-  @doc "Broadcast an undo-batch result from the background worker."
-  @spec broadcast_undone(Beatgrid.Events.undo_result()) :: :ok
-  def broadcast_undone(result),
-    do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @reeval_topic, {:batch_undone, result})
-
   @doc "Resolves a re-evaluation scope (string-keyed, Oban-args-shaped) to a suggestion list."
   @spec suggestions_for_scope(map()) :: [RenameSuggestion.t()]
   def suggestions_for_scope(%{"scope" => "unevaluated"}),

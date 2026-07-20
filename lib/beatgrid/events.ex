@@ -12,8 +12,9 @@ defmodule Beatgrid.Events do
   | `loudness`        | `Beatgrid.Loudness`               | `{:loudness_tick}`                                  | Painel                         |
   | `youtube`         | `Beatgrid.YouTube`                | `{:youtube_tick}`                                   | Painel                         |
   | `enrich`          | `Beatgrid.YouTube` (`_enrich`)    | `{:enrich_progress, enrich_progress()}`             | Painel, Detalhe da faixa       |
-  | `reevaluate`      | `Beatgrid.Review`                 | `{:reevaluate_progress, reevaluate_progress()}`, `{:re_resolve_done, re_resolve_done()}`, `{:review_applied, batch_result()}`, `{:batch_undone, undo_result()}` | Central de Revisão |
-  | `import`          | `Beatgrid.Library` (`_import`)    | `{:import_progress, import_progress()}`             | Biblioteca                     |
+  | `reevaluate`      | `Beatgrid.Review`                 | `{:reevaluate_progress, reevaluate_progress()}`, `{:re_resolve_done, re_resolve_done()}`, `{:review_applied, batch_result()}` | Central de Revisão |
+  | `operations`      | `Beatgrid.Operations`             | `{:batch_undone, undo_result()}`                    | Central de Revisão, Biblioteca |
+  | `import`          | `Beatgrid.Library` (`_import`)    | `{:import_progress, import_progress()}`, `{:tracks_moved, move_result()}` | Biblioteca   |
   | `mixes`           | `Beatgrid.Mixes`                  | `{:mix_progress, mix_progress()}`                   | Sets online (lista + estudo)   |
   | `dedup`           | `Beatgrid.Dedup`                  | `{:dedup_progress, dedup_progress()}`               | Duplicatas                     |
   | `recommendations` | `Beatgrid.Repertoire`             | `{:recommend_progress, recommend_progress()}`       | Painel, Detalhe da faixa       |
@@ -70,6 +71,13 @@ defmodule Beatgrid.Events do
 
   @typedoc "Result of undoing an operations batch."
   @type undo_result :: %{undone: non_neg_integer(), failed: non_neg_integer()}
+
+  @typedoc "Result of a background batch move (Biblioteca: seleção → pasta)."
+  @type move_result :: %{
+          moved: non_neg_integer(),
+          failed: non_neg_integer(),
+          batch_id: Ecto.UUID.t()
+        }
 
   @typedoc "Per-file progress of a background import commit."
   @type import_progress :: %{

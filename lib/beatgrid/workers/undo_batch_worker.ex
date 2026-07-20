@@ -2,7 +2,7 @@ defmodule Beatgrid.Workers.UndoBatchWorker do
   @moduledoc """
   Reverts one operations batch (renames, moves, genre tags) in the background, so
   the undo is durable and visible in `/jobs`. Broadcasts `{:batch_undone, result}`
-  on the review topic when done.
+  on the operations topic when done (Revisão and Biblioteca both listen).
 
   `max_attempts: 1` — the undo reports per-item undone/failed counts, skips
   already-undone operations, and never aborts on one failure; the user retries
@@ -18,7 +18,6 @@ defmodule Beatgrid.Workers.UndoBatchWorker do
     ]
 
   alias Beatgrid.Operations
-  alias Beatgrid.Review
 
   @spec enqueue(Ecto.UUID.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
   def enqueue(batch_id), do: %{batch_id: batch_id} |> new() |> Oban.insert()
@@ -26,7 +25,7 @@ defmodule Beatgrid.Workers.UndoBatchWorker do
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"batch_id" => batch_id}}) do
     {:ok, result} = Operations.undo_batch(batch_id)
-    Review.broadcast_undone(result)
+    Operations.broadcast_undone(result)
     :ok
   end
 end
