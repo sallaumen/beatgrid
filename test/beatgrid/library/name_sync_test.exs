@@ -24,14 +24,13 @@ defmodule Beatgrid.Library.NameSyncTest do
       File.mkdir_p!(Path.join(root, "MPB"))
       File.write!(Path.join(root, "MPB/Enxuga o Rato.mp3"), "audio")
 
-      song = insert(:soundcharts_song, credit_name: "Zé Ranulfo", name: "Enxuga o Rato")
-
       track =
         insert(:track,
           rel_path: "MPB/Enxuga o Rato.mp3",
           filename: "Enxuga o Rato.mp3",
           genre_folder: "mpb",
-          soundcharts_song_id: song.id,
+          soundcharts_song:
+            build(:soundcharts_song, credit_name: "Zé Ranulfo", name: "Enxuga o Rato"),
           sc_match_confidence: :high
         )
 
@@ -53,12 +52,11 @@ defmodule Beatgrid.Library.NameSyncTest do
       File.mkdir_p!(Path.join(root, "Forró Roots"))
       File.write!(Path.join(root, "Forró Roots/Baiao.mp3"), "audio")
 
-      song = insert(:soundcharts_song, credit_name: "Wesley Safadão", name: "Seis Cordas / Baião")
-
       insert(:track,
         rel_path: "Forró Roots/Baiao.mp3",
         filename: "Baiao.mp3",
-        soundcharts_song_id: song.id,
+        soundcharts_song:
+          build(:soundcharts_song, credit_name: "Wesley Safadão", name: "Seis Cordas / Baião"),
         sc_match_confidence: :low
       )
 
@@ -75,12 +73,11 @@ defmodule Beatgrid.Library.NameSyncTest do
     test "skips files whose name already matches the canonical", %{tmp_dir: root} do
       File.mkdir_p!(Path.join(root, "MPB"))
       File.write!(Path.join(root, "MPB/Artist - Song.mp3"), "audio")
-      song = insert(:soundcharts_song, credit_name: "Artist", name: "Song")
 
       insert(:track,
         rel_path: "MPB/Artist - Song.mp3",
         filename: "Artist - Song.mp3",
-        soundcharts_song_id: song.id,
+        soundcharts_song: build(:soundcharts_song, credit_name: "Artist", name: "Song"),
         sc_match_confidence: :high
       )
 
@@ -133,13 +130,12 @@ defmodule Beatgrid.Library.NameSyncTest do
     test "reverses an applied rename", %{tmp_dir: root} do
       File.mkdir_p!(Path.join(root, "MPB"))
       File.write!(Path.join(root, "MPB/Old.mp3"), "a")
-      song = insert(:soundcharts_song, credit_name: "Artist", name: "New")
 
       track =
         insert(:track,
           rel_path: "MPB/Old.mp3",
           filename: "Old.mp3",
-          soundcharts_song_id: song.id,
+          soundcharts_song: build(:soundcharts_song, credit_name: "Artist", name: "New"),
           sc_match_confidence: :high
         )
 

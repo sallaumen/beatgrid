@@ -7,8 +7,8 @@ defmodule Beatgrid.SetsTest do
   setup :isolate_library_root
 
   defp track_with(camelot, bpm, attrs \\ []) do
-    song = insert(:soundcharts_song, camelot: camelot, tempo_bpm: bpm, energy: 0.5)
-    insert(:track, Keyword.merge([soundcharts_song_id: song.id], attrs))
+    song = build(:soundcharts_song, camelot: camelot, tempo_bpm: bpm, energy: 0.5)
+    insert(:track, Keyword.merge([soundcharts_song: song], attrs))
   end
 
   test "create, append in order, then remove with reindex" do
@@ -78,8 +78,8 @@ defmodule Beatgrid.SetsTest do
     {:ok, set} = Sets.create("Remix")
 
     e = fn energy, attrs ->
-      song = insert(:soundcharts_song, camelot: "8A", tempo_bpm: 120.0, energy: energy)
-      insert(:track, Keyword.merge([soundcharts_song_id: song.id, status: :present], attrs))
+      song = build(:soundcharts_song, camelot: "8A", tempo_bpm: 120.0, energy: energy)
+      insert(:track, Keyword.merge([soundcharts_song: song, status: :present], attrs))
     end
 
     lo = e.(0.2, [])
@@ -115,8 +115,8 @@ defmodule Beatgrid.SetsTest do
     {:ok, set} = Sets.create("Peak")
 
     e = fn energy, attrs ->
-      song = insert(:soundcharts_song, camelot: "8A", tempo_bpm: 120.0, energy: energy)
-      insert(:track, Keyword.merge([soundcharts_song_id: song.id, status: :present], attrs))
+      song = build(:soundcharts_song, camelot: "8A", tempo_bpm: 120.0, energy: energy)
+      insert(:track, Keyword.merge([soundcharts_song: song, status: :present], attrs))
     end
 
     star = e.(0.98, gold_manual: true)

@@ -11,14 +11,12 @@ defmodule BeatgridWeb.TrackLiveTest do
   alias Beatgrid.Workers.{AnalyzeWorker, EnrichWorker, ExpandWorker, RecommendWorker}
 
   test "shows the detail and updates rating, tags and note", %{conn: conn} do
-    song = insert(:soundcharts_song, camelot: "8A", tempo_bpm: 120.0, energy: 0.6)
-
     track =
       insert(:track,
         status: :present,
         tag_title: "Sina",
         tag_artist: "Djavan",
-        soundcharts_song_id: song.id,
+        soundcharts_song: build(:soundcharts_song, camelot: "8A", tempo_bpm: 120.0, energy: 0.6),
         analyzed_at: ~U[2026-01-01 00:00:00Z]
       )
 
@@ -69,13 +67,11 @@ defmodule BeatgridWeb.TrackLiveTest do
   end
 
   test "inline-edits a metadata field and a manual BPM override", %{conn: conn} do
-    song = insert(:soundcharts_song, tempo_bpm: 120.0)
-
     track =
       insert(:track,
         status: :present,
         tag_title: "Velho",
-        soundcharts_song_id: song.id,
+        soundcharts_song: build(:soundcharts_song, tempo_bpm: 120.0),
         analyzed_at: ~U[2026-01-01 00:00:00Z]
       )
 

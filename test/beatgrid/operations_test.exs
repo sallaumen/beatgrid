@@ -51,14 +51,13 @@ defmodule Beatgrid.OperationsTest do
       # --- applied rename fixture ---
       File.mkdir_p!(Path.join(root, "MPB"))
       File.write!(Path.join(root, "MPB/Old.mp3"), "a")
-      song = insert(:soundcharts_song, credit_name: "Artist", name: "New")
 
       rtrack =
         insert(:track,
           rel_path: "MPB/Old.mp3",
           filename: "Old.mp3",
           genre_folder: "mpb",
-          soundcharts_song_id: song.id,
+          soundcharts_song: build(:soundcharts_song, credit_name: "Artist", name: "New"),
           sc_match_confidence: :high
         )
 

@@ -14,20 +14,18 @@ defmodule BeatgridWeb.ReviewLiveTest do
   end
 
   defp pending_rename do
-    song =
-      insert(:soundcharts_song,
-        credit_name: "Djavan",
-        name: "Sina",
-        image_url: "https://img.test/cover.jpg"
-      )
-
     track =
       insert(:track,
         filename: "old.mp3",
         rel_path: "MPB/old.mp3",
         tag_title: "Sina",
         tag_artist: "Djavan",
-        soundcharts_song_id: song.id,
+        soundcharts_song:
+          build(:soundcharts_song,
+            credit_name: "Djavan",
+            name: "Sina",
+            image_url: "https://img.test/cover.jpg"
+          ),
         sc_match_confidence: :high
       )
 
@@ -36,13 +34,11 @@ defmodule BeatgridWeb.ReviewLiveTest do
   end
 
   defp pending_low_rename do
-    song = insert(:soundcharts_song, credit_name: "Bola", name: "Sete")
-
     track =
       insert(:track,
         filename: "z.mp3",
         rel_path: "MPB/z.mp3",
-        soundcharts_song_id: song.id,
+        soundcharts_song: build(:soundcharts_song, credit_name: "Bola", name: "Sete"),
         sc_match_confidence: :low
       )
 
@@ -118,12 +114,10 @@ defmodule BeatgridWeb.ReviewLiveTest do
     pending_rename()
     pending_low_rename()
 
-    song = insert(:soundcharts_song, credit_name: "Trio", name: "Xote")
-
     insert(:track,
       filename: "m.mp3",
       rel_path: "MPB/m.mp3",
-      soundcharts_song_id: song.id,
+      soundcharts_song: build(:soundcharts_song, credit_name: "Trio", name: "Xote"),
       sc_match_confidence: :medium
     )
 
