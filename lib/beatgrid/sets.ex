@@ -16,12 +16,13 @@ defmodule Beatgrid.Sets do
   alias Beatgrid.Repo
 
   alias Beatgrid.Sets.{
-    EnergyArc,
+    M3u,
     PlanConfig,
     Planner,
     Presets,
     RecSet,
     RecSetQuery,
+    Remixer,
     SetTrack,
     TransitionChooser
   }
@@ -31,8 +32,6 @@ defmodule Beatgrid.Sets do
   # Console hint clamps (never-again #4: from_ms is never trusted blindly).
   @default_outro_window_ms 8_000
   @min_tail_ms 3_000
-
-  @unsafe ~r/[\/\\:*?"<>|]/u
 
   @doc "The transition-type vocabulary, in UI order — screens mirror the engine."
   @spec transition_types() :: [String.t()]
@@ -517,23 +516,21 @@ defmodule Beatgrid.Sets do
 
   @doc """
   Remixes an EXISTING set: keeps the same tracks but reorders them along the energy
-  arc (`EnergyArc.plan/1`), giving each slot the remaining track whose intensity
+  arc (`Remixer.order/1`), giving each slot the remaining track whose intensity
   best fits and nudging "ouro" (gold) tracks toward the peaks so they spread across
   the highlights. Re-tags the arc roles and re-connects every pair. `{:ok, set}`.
   """
   @spec remix(RecSet.t()) :: {:ok, RecSet.t()}
   def remix(%RecSet{} = set) do
-    cards =
+    ordered =
       set
       |> tracks()
-      |> Enum.map(&%{track: &1, intensity: Mixing.intensity(&1), gold: gold?(&1)})
+      |> Enum.map(&%{track: &1, intensity: Mixing.intensity(&1), gold: Beatgrid.Gold.gold?(&1)})
+      |> Remixer.order()
 
     {:ok, _} =
       Repo.transact(fn ->
-        cards
-        |> length()
-        |> EnergyArc.plan()
-        |> assign_arc(cards)
+        ordered
         |> Enum.with_index(1)
         |> Enum.each(fn {{track, role}, pos} ->
           set.id
@@ -549,55 +546,6 @@ defmodule Beatgrid.Sets do
     broadcast_set_changed(set.id)
     {:ok, set}
   end
-
-  @remix_jitter 0.08
-
-  # Assigns a track to each arc slot, but visits the CENTER slots first so the best /
-  # gold / highest-energy tracks get claimed for the middle of the set (the peak the
-  # crowd actually hears) instead of being grabbed by the early slots; edge slots take
-  # what's left. Reassembled in position order. Top-K sampling keeps each remix varied.
-  defp assign_arc(plan, cards) do
-    n = length(plan)
-
-    {assigned, _} =
-      plan
-      |> Enum.with_index()
-      |> Enum.sort_by(fn {_slot, i} -> -centrality(i, n) end)
-      |> Enum.reduce({%{}, cards}, fn {slot, i}, {acc, remaining} ->
-        chosen = pick_card(slot, centrality(i, n), remaining)
-        {Map.put(acc, i, {chosen.track, slot.role}), List.delete(remaining, chosen)}
-      end)
-
-    Enum.map(0..(n - 1)//1, &Map.fetch!(assigned, &1))
-  end
-
-  # 1.0 at the center of the set, tapering to 0.0 at the very ends.
-  defp centrality(_i, n) when n <= 1, do: 1.0
-  defp centrality(i, n), do: 1.0 - abs(i - (n - 1) / 2) / ((n - 1) / 2)
-
-  # Random among the tracks whose fit is within a small margin of the best: when one
-  # track clearly fits best (a standout/gold for a center peak) it's placed decisively;
-  # when several fit similarly, it samples among them so each remix varies.
-  defp pick_card(slot, c, cards) do
-    scored = Enum.map(cards, &{&1, slot_fit(slot, c, &1)})
-    best = scored |> Enum.map(&elem(&1, 1)) |> Enum.max()
-
-    scored
-    |> Enum.filter(fn {_card, s} -> s >= best - @remix_jitter end)
-    |> Enum.random()
-    |> elem(0)
-  end
-
-  # Center slots aim for the full target intensity; edge slots aim lower — so the
-  # high-energy tracks fit the middle. Gold gets a centrality-scaled nudge, pulling
-  # the rare gems toward the peak instead of the warm-up.
-  defp slot_fit(%{target_intensity: ti, role: role}, c, %{intensity: i, gold: gold}) do
-    target = ti * (0.68 + 0.32 * c)
-    fit = 1.0 - abs(target - i)
-    if role == "pico" and gold, do: fit + 0.35 * c, else: fit
-  end
-
-  defp gold?(track), do: Beatgrid.Gold.gold?(track)
 
   defp greedy_fill(set, count, _role, _ti) when count <= 0, do: set
 
@@ -650,11 +598,12 @@ defmodule Beatgrid.Sets do
   @doc "Writes the set as an `.m3u` playlist under `<library_root>/_Sets`."
   @spec export_m3u(RecSet.t()) :: {:ok, Path.t()} | {:error, term()}
   def export_m3u(%RecSet{id: id, name: name}) do
-    dir = Path.join(Library.library_root(), "_Sets")
-    path = Path.join(dir, sanitize(name) <> ".m3u")
+    root = Library.library_root()
+    dir = Path.join(root, "_Sets")
+    path = Path.join(dir, M3u.filename(name))
 
     with :ok <- File.mkdir_p(dir),
-         :ok <- File.write(path, m3u_body(RecSetQuery.ordered_tracks(id))) do
+         :ok <- File.write(path, M3u.body(RecSetQuery.ordered_tracks(id), root)) do
       {:ok, path}
     end
   end
@@ -676,19 +625,4 @@ defmodule Beatgrid.Sets do
 
     :ok
   end
-
-  defp m3u_body(tracks) do
-    root = Library.library_root()
-    lines = Enum.flat_map(tracks, &extinf(&1, root))
-    Enum.join(["#EXTM3U" | lines], "\n") <> "\n"
-  end
-
-  defp extinf(track, root) do
-    secs = if track.duration_ms, do: div(track.duration_ms, 1000), else: -1
-    artist = track.tag_artist || "—"
-    title = track.tag_title || track.filename
-    ["#EXTINF:#{secs},#{artist} - #{title}", Path.join(root, track.rel_path)]
-  end
-
-  defp sanitize(name), do: (name || "set") |> String.replace(@unsafe, "-") |> String.trim()
 end
