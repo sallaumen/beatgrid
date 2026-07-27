@@ -72,15 +72,22 @@ defmodule BeatgridWeb.ImportsLive do
         {:noreply, put_flash(socket, :error, "Playlist não encontrada — atualize a página.")}
 
       playlist ->
-        {:ok, set} = Playlists.create_set(playlist)
+        case Playlists.create_set(playlist) do
+          {:ok, set} ->
+            {:noreply,
+             socket
+             |> put_flash(
+               :info,
+               "Set “#{set.name}” criado com #{playlist.count} faixas e transições sugeridas."
+             )
+             |> push_navigate(to: ~p"/set/#{set.id}")}
 
-        {:noreply,
-         socket
-         |> put_flash(
-           :info,
-           "Set “#{set.name}” criado com #{playlist.count} faixas e transições sugeridas."
-         )
-         |> push_navigate(to: ~p"/set/#{set.id}")}
+          {:error, _reason} ->
+            {:noreply,
+             socket
+             |> put_flash(:error, "Não deu pra criar o set desta playlist — tente de novo.")
+             |> load()}
+        end
     end
   end
 

@@ -40,7 +40,8 @@ defmodule BeatgridWeb.RecSetLive do
        plan_presets: Sets.plan_presets(),
        max_plan_tracks: Sets.max_plan_tracks(),
        plan_preset: "custom",
-       plan_prefill: Sets.preset_fields("custom")
+       plan_prefill: Sets.preset_fields("custom"),
+       planning?: false
      )
      |> assign(sets: sets)
      |> load_set(List.first(sets))}
@@ -87,6 +88,22 @@ defmodule BeatgridWeb.RecSetLive do
   end
 
   defp reload(socket), do: load_set(socket, Sets.get(socket.assigns.set.id))
+
+  defp with_track(socket, track_id, fun) do
+    case Tracks.get(track_id) do
+      nil -> stale_reference(socket)
+      track -> fun.(track)
+    end
+  end
+
+  defp connected(socket, {:ok, _row}), do: reload(socket)
+  defp connected(socket, {:error, :not_a_member}), do: stale_reference(socket)
+
+  defp stale_reference(socket) do
+    socket
+    |> put_flash(:error, "Faixa não encontrada — atualize a lista.")
+    |> reload()
+  end
 
   # Candidates always reflect the live mixing console: the per-dimension weights,
   # the hard filters, and the active section's energy target. Changing any console
@@ -174,19 +191,28 @@ defmodule BeatgridWeb.RecSetLive do
   # --- members ---
 
   def handle_event("append", %{"track" => track_id}, socket) do
-    Sets.append(socket.assigns.set, Tracks.get(track_id))
-    {:noreply, reload(socket)}
+    {:noreply,
+     with_track(socket, track_id, fn track ->
+       {:ok, _} = Sets.append(socket.assigns.set, track)
+       reload(socket)
+     end)}
   end
 
   def handle_event("remove", %{"track" => track_id}, socket) do
-    Sets.remove(socket.assigns.set, Tracks.get(track_id))
-    {:noreply, reload(socket)}
+    {:noreply,
+     with_track(socket, track_id, fn track ->
+       :ok = Sets.remove(socket.assigns.set, track)
+       reload(socket)
+     end)}
   end
 
   def handle_event("move", %{"track" => track_id, "dir" => dir}, socket)
       when dir in ~w(top up down bottom) do
-    Sets.move(socket.assigns.set, Tracks.get(track_id), String.to_existing_atom(dir))
-    {:noreply, reload(socket)}
+    {:noreply,
+     with_track(socket, track_id, fn track ->
+       :ok = Sets.move(socket.assigns.set, track, String.to_existing_atom(dir))
+       reload(socket)
+     end)}
   end
 
   def handle_event("move", _params, socket), do: {:noreply, socket}
@@ -200,26 +226,34 @@ defmodule BeatgridWeb.RecSetLive do
     if idx && idx > 0 do
       prev = Enum.at(entries, idx - 1).track
       this = Enum.at(entries, idx).track
-      {:ok, _} = Sets.connect(socket.assigns.set, this, Sets.suggest_transition(prev, this))
-    end
 
-    {:noreply, reload(socket)}
+      {:noreply,
+       connected(
+         socket,
+         Sets.connect(socket.assigns.set, this, Sets.suggest_transition(prev, this))
+       )}
+    else
+      {:noreply, reload(socket)}
+    end
   end
 
   def handle_event("disconnect_pair", %{"track" => id}, socket) do
-    Sets.disconnect(socket.assigns.set, Tracks.get(id))
-    {:noreply, reload(socket)}
+    {:noreply,
+     with_track(socket, id, fn track ->
+       _ = Sets.disconnect(socket.assigns.set, track)
+       reload(socket)
+     end)}
   end
 
   def handle_event("set_transition_type", %{"track" => id, "type" => type}, socket) do
     entry = Enum.find(socket.assigns.entries, &(&1.track.id == id))
 
     if entry && entry.transition do
-      {:ok, _} =
-        Sets.connect(socket.assigns.set, entry.track, Map.put(entry.transition, "type", type))
+      transition = Map.put(entry.transition, "type", type)
+      {:noreply, connected(socket, Sets.connect(socket.assigns.set, entry.track, transition))}
+    else
+      {:noreply, reload(socket)}
     end
-
-    {:noreply, reload(socket)}
   end
 
   def handle_event("connect_all", _params, socket) do
@@ -228,12 +262,12 @@ defmodule BeatgridWeb.RecSetLive do
   end
 
   def handle_event("remix", _params, socket) do
-    {:ok, _set} = Sets.remix(socket.assigns.set)
+    set = socket.assigns.set
 
     {:noreply,
      socket
-     |> reload()
-     |> put_flash(:info, "Set remixado no arco de energia (ouro nos picos) + reconectado.")}
+     |> assign(planning?: true)
+     |> start_async(:remix, fn -> Sets.remix(set) end)}
   end
 
   # --- auto-composition ---
@@ -259,17 +293,17 @@ defmodule BeatgridWeb.RecSetLive do
     {:noreply, assign(socket, plan_preset: key, plan_prefill: Sets.preset_fields(key))}
   end
 
+  # O plano roda fora do processo da página: a UI segue viva ("Planejando…"),
+  # e um plano que falhe volta como flash — a transação em Sets.plan garante
+  # que o set fica exatamente como estava.
   def handle_event("plan_set", params, socket) do
-    {:ok, set} = Sets.plan(socket.assigns.set, params)
+    set = socket.assigns.set
     verb = if params["fill_mode"] == "append", do: "estendido", else: "planejado"
 
     {:noreply,
      socket
-     |> reload()
-     |> put_flash(
-       :info,
-       "Set #{verb}: #{length(Sets.entries(set))} faixas com arco + transições."
-     )}
+     |> assign(planning?: true, plan_verb: verb)
+     |> start_async(:plan, fn -> Sets.plan(set, params) end)}
   end
 
   # --- mixing console (weights + hard filters) ---
@@ -366,6 +400,46 @@ defmodule BeatgridWeb.RecSetLive do
   end
 
   def handle_event("dismiss_toast", _params, socket), do: {:noreply, assign(socket, toast: nil)}
+
+  @impl true
+  def handle_async(:plan, {:ok, {:ok, set}}, socket) do
+    {:noreply,
+     socket
+     |> assign(planning?: false)
+     |> reload()
+     |> put_flash(
+       :info,
+       "Set #{socket.assigns.plan_verb}: #{length(Sets.entries(set))} faixas com arco + transições."
+     )}
+  end
+
+  def handle_async(:plan, failure, socket) do
+    {:noreply, plan_failed(socket, "Plano falhou", failure)}
+  end
+
+  def handle_async(:remix, {:ok, {:ok, _set}}, socket) do
+    {:noreply,
+     socket
+     |> assign(planning?: false)
+     |> reload()
+     |> put_flash(:info, "Set remixado no arco de energia (ouro nos picos) + reconectado.")}
+  end
+
+  def handle_async(:remix, failure, socket) do
+    {:noreply, plan_failed(socket, "Remix falhou", failure)}
+  end
+
+  defp plan_failed(socket, action, failure) do
+    socket
+    |> assign(planning?: false)
+    |> reload()
+    |> put_flash(:error, "#{action}: #{failure_reason(failure)} — o set ficou como estava.")
+  end
+
+  defp failure_reason({:ok, {:error, reason}}), do: inspect(reason)
+
+  defp failure_reason({:exit, reason}),
+    do: reason |> Exception.format_exit() |> String.slice(0, 160)
 
   # --- helpers ---
 
@@ -581,7 +655,8 @@ defmodule BeatgridWeb.RecSetLive do
                 <button
                   :if={length(@entries) > 1}
                   phx-click="remix"
-                  class="rounded-md border border-primary/40 bg-primary/10 px-3 py-1.5 text-body-sm font-semibold text-primary hover:bg-primary/20"
+                  disabled={@planning?}
+                  class="rounded-md border border-primary/40 bg-primary/10 px-3 py-1.5 text-body-sm font-semibold text-primary hover:bg-primary/20 disabled:opacity-40"
                   title="Reorganiza as faixas atuais no arco de energia (ouro nos picos) e reconecta"
                 >
                   ↻ Remixar
@@ -792,6 +867,7 @@ defmodule BeatgridWeb.RecSetLive do
                   max_tracks={@max_plan_tracks}
                   folders={@folders}
                   other_sets={Enum.reject(@sets, &(@set && &1.id == @set.id))}
+                  planning?={@planning?}
                 />
               </.collapsible>
 
@@ -921,6 +997,7 @@ defmodule BeatgridWeb.RecSetLive do
   attr :max_tracks, :integer, required: true
   attr :folders, :list, required: true
   attr :other_sets, :list, required: true
+  attr :planning?, :boolean, default: false
 
   @arc_shapes [
     {"wave", "Onda"},
@@ -1133,14 +1210,16 @@ defmodule BeatgridWeb.RecSetLive do
         <button
           name="fill_mode"
           value="replace"
-          class="flex-1 rounded-md bg-primary px-3 py-1.5 text-body-sm font-semibold text-white hover:bg-primary/90"
+          disabled={@planning?}
+          class="flex-1 rounded-md bg-primary px-3 py-1.5 text-body-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-40"
         >
-          Refazer
+          {if @planning?, do: "Planejando…", else: "Refazer"}
         </button>
         <button
           name="fill_mode"
           value="append"
-          class="flex-1 rounded-md border border-white/12 bg-input px-3 py-1.5 text-body-sm font-semibold text-ink-secondary hover:border-primary/40 hover:text-ink"
+          disabled={@planning?}
+          class="flex-1 rounded-md border border-white/12 bg-input px-3 py-1.5 text-body-sm font-semibold text-ink-secondary hover:border-primary/40 hover:text-ink disabled:opacity-40"
         >
           Adicionar
         </button>

@@ -125,6 +125,8 @@ defmodule BeatgridWeb.RecSetLiveTest do
     |> form("#plan-set-form")
     |> render_submit(%{mode: "tracks", track_count: "10", preset: "custom"})
 
+    render_async(view)
+
     [set] = Sets.list()
     entries = Sets.entries(set)
     assert length(entries) == 10
@@ -159,6 +161,8 @@ defmodule BeatgridWeb.RecSetLiveTest do
       duration_minutes: "300",
       preset: "forro_roots_marathon"
     })
+
+    render_async(view, 10_000)
 
     [set] = Sets.list()
     assert length(Sets.entries(set)) == 70
@@ -228,6 +232,7 @@ defmodule BeatgridWeb.RecSetLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/set/#{set.id}")
     view |> element("button[phx-click=remix]") |> render_click()
+    render_async(view)
 
     entries = Sets.entries(set)
     assert [_, _, _] = entries

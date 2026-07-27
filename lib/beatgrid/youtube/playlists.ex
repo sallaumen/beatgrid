@@ -45,17 +45,12 @@ defmodule Beatgrid.YouTube.Playlists do
   end
 
   @doc """
-  Creates a `RecSet` named after the playlist, appends its tracks in order, and
-  auto-connects every consecutive pair with a suggested DJ transition (which the
-  player can toggle). Returns `{:ok, set}`.
+  Creates a `RecSet` named after the playlist, filled with its tracks in order and
+  every consecutive pair connected with a suggested DJ transition (which the
+  player can toggle). All-or-nothing: a failing row leaves no half-created set.
   """
-  @spec create_set(playlist()) :: {:ok, Beatgrid.Sets.RecSet.t()}
-  def create_set(%{title: title, tracks: tracks}) do
-    {:ok, set} = Sets.create(title)
-    Enum.each(tracks, &Sets.append(set, &1))
-    Sets.connect_all(set)
-    {:ok, set}
-  end
+  @spec create_set(playlist()) :: {:ok, Beatgrid.Sets.RecSet.t()} | {:error, term()}
+  def create_set(%{title: title, tracks: tracks}), do: Sets.create_filled(title, tracks)
 
   defp build_playlist(url, tracks) do
     %{
