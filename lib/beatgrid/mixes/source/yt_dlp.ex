@@ -9,6 +9,7 @@ defmodule Beatgrid.Mixes.Source.YtDlp do
   """
   @behaviour Beatgrid.Mixes.Source
 
+  alias Beatgrid.Cli
   alias Beatgrid.YtDlpError
 
   @sep "\t"
@@ -35,17 +36,17 @@ defmodule Beatgrid.Mixes.Source.YtDlp do
 
     argv = ["-c", ~s|exec "$@" < /dev/null|, "sh", executable() | cli_args]
 
-    case run(fn -> System.cmd("/bin/sh", argv, stderr_to_stdout: true) end, timeout()) do
+    case Cli.run(fn -> System.cmd("/bin/sh", argv, stderr_to_stdout: true) end, timeout()) do
       {:ok, {out, 0}} ->
         parse_meta(out, dest_dir)
 
       {:ok, {out, code}} ->
         {:error, YtDlpError.from_exit(code, String.slice(out, 0, @error_excerpt))}
 
-      {:exit, reason} ->
+      {:error, {:exit, reason}} ->
         {:error, {:yt_dlp_exception, inspect(reason)}}
 
-      nil ->
+      {:error, :timeout} ->
         {:error, :timeout}
     end
   end
@@ -100,11 +101,6 @@ defmodule Beatgrid.Mixes.Source.YtDlp do
   end
 
   defp nil_if_blank(s), do: if(String.trim(s) in ["", "NA"], do: nil, else: s)
-
-  defp run(fun, timeout) do
-    task = Task.async(fun)
-    Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill)
-  end
 
   defp executable, do: config()[:executable] || "yt-dlp"
   defp timeout, do: config()[:timeout_ms] || @default_timeout_ms

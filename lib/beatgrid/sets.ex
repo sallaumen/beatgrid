@@ -163,6 +163,37 @@ defmodule Beatgrid.Sets do
   @spec create(String.t()) :: {:ok, RecSet.t()} | {:error, Ecto.Changeset.t()}
   def create(name), do: %RecSet{} |> RecSet.changeset(%{name: name}) |> Repo.insert()
 
+  @doc """
+  Creates a set already filled with `tracks` in order and every consecutive pair
+  connected — one transaction, one broadcast. The playlist-import flow (and any
+  future "turn this list into a set") gets all-or-nothing semantics for free.
+  """
+  @spec create_filled(String.t() | nil, [Library.Track.t()]) ::
+          {:ok, RecSet.t()} | {:error, term()}
+  def create_filled(name, tracks) do
+    with {:ok, set} <- Repo.transact(fn -> insert_filled(name, tracks) end) do
+      broadcast_set_changed(set.id)
+      {:ok, set}
+    end
+  end
+
+  defp insert_filled(name, tracks) do
+    with {:ok, set} <- create(name),
+         :ok <- append_all_quiet(set, tracks),
+         {:ok, _count} <- connect_all_quiet(set) do
+      {:ok, set}
+    end
+  end
+
+  defp append_all_quiet(set, tracks) do
+    Enum.reduce_while(tracks, :ok, fn track, :ok ->
+      case append_quiet(set, track) do
+        {:ok, _row} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
   @spec rename(RecSet.t(), String.t()) :: {:ok, RecSet.t()} | {:error, Ecto.Changeset.t()}
   def rename(set, name), do: set |> RecSet.changeset(%{name: name}) |> Repo.update()
 
@@ -230,25 +261,41 @@ defmodule Beatgrid.Sets do
   a whole set slot by slot). The batch owner broadcasts ONCE at the end; a
   per-row broadcast made every subscriber (the live console included) re-load
   the full entry list ~2× per planned track.
+
+  The position is claimed under a row lock on the set: concurrent appends (two
+  tabs, console + planner) serialize instead of both reading the same tail, and
+  `max + 1` stays correct after a library deletion cascades a hole that `count`
+  would land on.
   """
   @spec append_quiet(RecSet.t(), Library.Track.t(), String.t() | nil) ::
           {:ok, SetTrack.t()} | {:error, term()}
   def append_quiet(%RecSet{id: id}, track, role \\ nil) do
-    %SetTrack{}
-    |> SetTrack.changeset(%{
-      rec_set_id: id,
-      track_id: track.id,
-      position: RecSetQuery.count(id) + 1,
-      role: role
-    })
-    |> Repo.insert(on_conflict: :nothing, conflict_target: [:rec_set_id, :track_id])
+    Repo.transact(fn ->
+      RecSetQuery.lock(id)
+
+      %SetTrack{}
+      |> SetTrack.changeset(%{
+        rec_set_id: id,
+        track_id: track.id,
+        position: RecSetQuery.max_position(id) + 1,
+        role: role
+      })
+      |> Repo.insert(on_conflict: :nothing, conflict_target: [:rec_set_id, :track_id])
+    end)
   end
 
-  @doc "Removes every track from the set (a `:replace` plan clears before filling). Returns the set."
+  @doc "Removes every track from the set. Returns the set."
   @spec clear(RecSet.t()) :: RecSet.t()
   def clear(%RecSet{id: id} = set) do
-    {_n, _} = SetTrack |> where([st], st.rec_set_id == ^id) |> Repo.delete_all()
+    cleared = clear_quiet(set)
     broadcast_set_changed(id)
+    cleared
+  end
+
+  @doc "`clear/1` without the broadcast — a `:replace` plan clears inside its transaction."
+  @spec clear_quiet(RecSet.t()) :: RecSet.t()
+  def clear_quiet(%RecSet{id: id} = set) do
+    {_n, _} = SetTrack |> where([st], st.rec_set_id == ^id) |> Repo.delete_all()
     set
   end
 
@@ -360,43 +407,49 @@ defmodule Beatgrid.Sets do
     |> Enum.map(fn [prev, this] -> {this.id, suggest_transition(prev, this)} end)
   end
 
-  @doc "Sets the incoming transition on the entry that receives it (the later track)."
+  @doc """
+  Sets the incoming transition on the entry that receives it (the later track).
+  A track no longer in the set (edited elsewhere) is an error, not a crash.
+  """
   @spec connect(RecSet.t(), Library.Track.t(), map()) ::
-          {:ok, SetTrack.t()} | {:error, Ecto.Changeset.t()}
+          {:ok, SetTrack.t()} | {:error, :not_a_member | Ecto.Changeset.t()}
   def connect(%RecSet{id: set_id} = set, track, attrs) do
-    result = connect_quiet(set, track, attrs)
-    broadcast_set_changed(set_id)
-    result
+    with {:ok, row} <- connect_quiet(set, track, attrs) do
+      broadcast_set_changed(set_id)
+      {:ok, row}
+    end
   end
 
   defp connect_quiet(%RecSet{id: set_id}, %{id: track_id}, attrs) do
-    set_id
-    |> RecSetQuery.row!(track_id)
-    |> SetTrack.changeset(%{transition: normalize_transition(attrs)})
-    |> Repo.update()
+    with {:ok, row} <- RecSetQuery.fetch_row(set_id, track_id) do
+      row
+      |> SetTrack.changeset(%{transition: normalize_transition(attrs)})
+      |> Repo.update()
+    end
   end
 
   @doc "Clears the incoming transition on an entry (back to plain sequential play)."
   @spec disconnect(RecSet.t(), Library.Track.t()) ::
-          {:ok, SetTrack.t()} | {:error, Ecto.Changeset.t()}
+          {:ok, SetTrack.t()} | {:error, :not_a_member | Ecto.Changeset.t()}
   def disconnect(%RecSet{id: set_id}, %{id: track_id}) do
-    result =
-      set_id
-      |> RecSetQuery.row!(track_id)
-      |> SetTrack.changeset(%{transition: nil})
-      |> Repo.update()
-
-    broadcast_set_changed(set_id)
-    result
+    with {:ok, row} <- RecSetQuery.fetch_row(set_id, track_id),
+         {:ok, updated} <- row |> SetTrack.changeset(%{transition: nil}) |> Repo.update() do
+      broadcast_set_changed(set_id)
+      {:ok, updated}
+    end
   end
 
   @doc "Auto-connects every consecutive pair (suggest + persist); returns `{:ok, count}`."
   @spec connect_all(RecSet.t()) :: {:ok, non_neg_integer()}
   def connect_all(%RecSet{id: id} = set) do
-    count = connect_pairs_quiet(set)
+    {:ok, count} = connect_all_quiet(set)
     broadcast_set_changed(id)
     {:ok, count}
   end
+
+  @doc "`connect_all/1` without the broadcast — for batch owners that notify once at the end."
+  @spec connect_all_quiet(RecSet.t()) :: {:ok, non_neg_integer()}
+  def connect_all_quiet(%RecSet{} = set), do: {:ok, connect_pairs_quiet(set)}
 
   defp connect_pairs_quiet(set) do
     pairs =
@@ -455,8 +508,11 @@ defmodule Beatgrid.Sets do
 
   @doc "Greedily appends up to `:count` (default 8) compatible tracks (style + harmony)."
   @spec auto_fill(RecSet.t(), keyword()) :: {:ok, RecSet.t()}
-  def auto_fill(set, opts \\ []),
-    do: {:ok, greedy_fill(set, Keyword.get(opts, :count, 8), nil, nil)}
+  def auto_fill(%RecSet{} = set, opts \\ []) do
+    filled = greedy_fill(set, Keyword.get(opts, :count, 8), nil, nil)
+    broadcast_set_changed(set.id)
+    {:ok, filled}
+  end
 
   @doc """
   Fills a section: appends `count` tracks targeting the section role's energy,
@@ -464,8 +520,11 @@ defmodule Beatgrid.Sets do
   is tagged with `role`. Stops early if no candidate remains.
   """
   @spec fill_section(RecSet.t(), String.t(), pos_integer()) :: {:ok, RecSet.t()}
-  def fill_section(%RecSet{} = set, role, count) when is_integer(count) and count > 0,
-    do: {:ok, greedy_fill(set, count, role, Mixing.target_intensity(role))}
+  def fill_section(%RecSet{} = set, role, count) when is_integer(count) and count > 0 do
+    filled = greedy_fill(set, count, role, Mixing.target_intensity(role))
+    broadcast_set_changed(set.id)
+    {:ok, filled}
+  end
 
   @doc "Configurable long-set planning presets read by the set-builder UI."
   @spec plan_presets() :: [map()]
@@ -486,11 +545,18 @@ defmodule Beatgrid.Sets do
   @doc """
   Plans (or extends) `set` from raw Planning-Studio form params: validates them
   into a `PlanConfig` and runs the `Planner` (energy arc → ranked, filtered,
-  deduped fill → automatic transitions). Returns `{:ok, set}`.
+  deduped fill → automatic transitions). The whole plan is one transaction, so
+  a `:replace` that fails mid-fill rolls back to the untouched set instead of
+  committing the clear and losing it. Subscribers hear one broadcast, after commit.
   """
-  @spec plan(RecSet.t(), map()) :: {:ok, RecSet.t()}
-  def plan(%RecSet{} = set, params) when is_map(params),
-    do: Planner.run(set, PlanConfig.from_params(params))
+  @spec plan(RecSet.t(), map()) :: {:ok, RecSet.t()} | {:error, term()}
+  def plan(%RecSet{id: id} = set, params) when is_map(params) do
+    with {:ok, planned} <-
+           Repo.transact(fn -> Planner.run(set, PlanConfig.from_params(params)) end) do
+      broadcast_set_changed(id)
+      {:ok, planned}
+    end
+  end
 
   @doc """
   Estimates how many tracks fill `minutes`, from the average duration of present
@@ -552,7 +618,7 @@ defmodule Beatgrid.Sets do
   defp greedy_fill(set, count, role, ti) do
     case Mixing.rank(rank_opts(set, target_intensity: ti, limit: 1)) do
       [%{track: next} | _] ->
-        append(set, next, role)
+        {:ok, _} = append_quiet(set, next, role)
         greedy_fill(set, count - 1, role, ti)
 
       [] ->
@@ -560,7 +626,6 @@ defmodule Beatgrid.Sets do
     end
   end
 
-  # Console opts forwarded as-is to Mixing.rank/1 (weights + hard filters).
   @passthrough [
     :weights,
     :harmonic_only,
@@ -571,9 +636,8 @@ defmodule Beatgrid.Sets do
     :limit
   ]
 
-  # Common rank options: anchor on the set's style, chain from the last member,
-  # and exclude everything already in the set. Console weights/filters
-  # (`@passthrough`) flow through unchanged.
+  # Anchor on the set's style, chain from the last member, exclude every member;
+  # console weights/filters (`@passthrough`) flow through unchanged.
   defp rank_opts(%RecSet{} = set, opts) do
     members = RecSetQuery.ordered_tracks(set.id)
 

@@ -92,7 +92,10 @@ defmodule BeatgridWeb.TrackLive do
 
   @impl true
   def handle_event("set_rating", %{"n" => n}, socket) do
-    {:noreply, save(socket, %{rating: String.to_integer(n)})}
+    case Integer.parse(n) do
+      {rating, ""} -> {:noreply, save(socket, %{rating: rating})}
+      _ -> {:noreply, socket}
+    end
   end
 
   def handle_event("toggle_gold", _params, socket) do

@@ -34,49 +34,48 @@ defmodule Beatgrid.Sets.Planner do
   @doc "Plans (or extends) `set` per `config`. Returns `{:ok, set}`."
   @spec run(RecSet.t(), PlanConfig.t()) :: {:ok, RecSet.t()}
   def run(%RecSet{} = set, %PlanConfig{} = config) do
-    # Read the reference pool BEFORE clearing, so referencing the very set being
-    # replaced re-plans from its own (pre-clear) tracks.
+    # Read BEFORE a :replace clears — the reference may be this very set.
     reference = reference_pool(config)
     set = maybe_clear(set, config.fill_mode)
     preset = Presets.get(config.preset)
-    count = plan_count(config, preset)
-
     members = RecSetQuery.ordered_tracks(set.id)
+    exclude = initial_exclusions(members, config)
+    pool = fetch_pool(exclude, config, preset, reference)
 
-    exclude0 =
-      MapSet.new(Enum.map(members, & &1.id) ++ Sets.cross_set_track_ids(config.exclude_set_ids))
-
-    # The SQL-side filters are all plan-constant, so the candidate pool is
-    # fetched ONCE per plan (BPM window included, in SQL); every slot then
-    # re-ranks it in memory. Gold slots draw from the same pool via the
-    # in-memory twin of the SQL gold filter (Gold.gold?/1).
-    pool =
-      exclude0
-      |> MapSet.to_list()
-      |> Mixing.candidate_pool(candidate_opts(config, preset, reference))
-
-    # The reduce threads the running exclude/used-artists/prev/gold-gap
-    # accumulator; its final value is spent (the fill is via append side
-    # effects), so discard it.
     ctx = %{
       set: set,
       config: config,
       preset: preset,
-      count: count,
+      count: plan_count(config, preset),
       pool: pool,
       gold_pool: Enum.filter(pool, &Gold.gold?/1)
     }
 
-    _ =
-      count
-      |> EnergyArc.plan(config.arc_shape)
-      |> Enum.with_index()
-      |> Enum.reduce({exclude0, MapSet.new(), List.last(members), 0}, fn {slot, index}, acc ->
-        fill_slot(ctx, slot, index, acc)
-      end)
-
-    Sets.connect_all(set)
+    fill_slots(ctx, {exclude, MapSet.new(), List.last(members), 0})
+    {:ok, _count} = Sets.connect_all_quiet(set)
     {:ok, set}
+  end
+
+  defp initial_exclusions(members, config) do
+    MapSet.new(Enum.map(members, & &1.id) ++ Sets.cross_set_track_ids(config.exclude_set_ids))
+  end
+
+  # One SQL fetch per plan (every hard filter is plan-constant); slots re-rank
+  # it in memory.
+  defp fetch_pool(exclude, config, preset, reference) do
+    exclude
+    |> MapSet.to_list()
+    |> Mixing.candidate_pool(candidate_opts(config, preset, reference))
+  end
+
+  defp fill_slots(ctx, initial_acc) do
+    _spent_acc =
+      ctx.count
+      |> EnergyArc.plan(ctx.config.arc_shape)
+      |> Enum.with_index()
+      |> Enum.reduce(initial_acc, fn {slot, index}, acc -> fill_slot(ctx, slot, index, acc) end)
+
+    :ok
   end
 
   # nil = plan from the whole library; a list = restrict the pool to these track
@@ -84,7 +83,7 @@ defmodule Beatgrid.Sets.Planner do
   defp reference_pool(%PlanConfig{reference_set_id: id}) when id in [nil, ""], do: nil
   defp reference_pool(%PlanConfig{reference_set_id: id}), do: RecSetQuery.track_ids_in([id])
 
-  defp maybe_clear(set, :replace), do: Sets.clear(set)
+  defp maybe_clear(set, :replace), do: Sets.clear_quiet(set)
   defp maybe_clear(set, :append), do: set
 
   defp plan_count(config, preset) do
@@ -130,7 +129,6 @@ defmodule Beatgrid.Sets.Planner do
     if Beatgrid.Gold.gold?(track), do: 0, else: since_gold + 1
   end
 
-  # Scoring-side options only — the hard (SQL) filters live in candidate_opts/3.
   defp rank_opts(ctx, slot, index, exclude, prev) do
     [
       prev: prev,
@@ -143,8 +141,8 @@ defmodule Beatgrid.Sets.Planner do
     ] ++ tier_opts(ctx.config)
   end
 
-  # The plan-constant SQL filters for the one-shot pool fetch. pool_opts/3 may
-  # also carry :style_tiers — a scoring knob candidate_pool/2 just ignores.
+  # pool_opts/3 may also carry :style_tiers — a scoring knob candidate_pool/2
+  # just ignores.
   defp candidate_opts(config, preset, reference) do
     [
       bpm_min: config.bpm_min,

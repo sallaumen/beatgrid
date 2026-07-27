@@ -17,6 +17,24 @@ defmodule Beatgrid.Sets.RecSetQuery do
     SetTrack |> where([st], st.rec_set_id == ^set_id) |> Repo.aggregate(:count, :id)
   end
 
+  @doc "Highest occupied position (0 for an empty set) — deletions may leave holes, so count is not it."
+  @spec max_position(Ecto.UUID.t()) :: non_neg_integer()
+  def max_position(set_id) do
+    SetTrack
+    |> where([st], st.rec_set_id == ^set_id)
+    |> Repo.aggregate(:max, :position)
+    |> Kernel.||(0)
+  end
+
+  @doc "Row-locks the set for the current transaction, serializing concurrent membership writes."
+  @spec lock(Ecto.UUID.t()) :: RecSet.t() | nil
+  def lock(set_id) do
+    RecSet
+    |> where([s], s.id == ^set_id)
+    |> lock("FOR UPDATE")
+    |> Repo.one()
+  end
+
   @doc "The set's tracks, in position order, with the soundcharts song preloaded."
   @spec ordered_tracks(Ecto.UUID.t()) :: [Beatgrid.Library.Track.t()]
   def ordered_tracks(set_id) do
@@ -73,4 +91,13 @@ defmodule Beatgrid.Sets.RecSetQuery do
   @spec row!(Ecto.UUID.t(), Ecto.UUID.t()) :: SetTrack.t()
   def row!(set_id, track_id),
     do: Repo.get_by!(SetTrack, rec_set_id: set_id, track_id: track_id)
+
+  @doc "The membership row of `track_id` in `set_id`, or an error for a stale reference."
+  @spec fetch_row(Ecto.UUID.t(), Ecto.UUID.t()) :: {:ok, SetTrack.t()} | {:error, :not_a_member}
+  def fetch_row(set_id, track_id) do
+    case Repo.get_by(SetTrack, rec_set_id: set_id, track_id: track_id) do
+      nil -> {:error, :not_a_member}
+      row -> {:ok, row}
+    end
+  end
 end
