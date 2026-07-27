@@ -6,11 +6,15 @@ defmodule Beatgrid.Dedup do
   reviewable groups, each with a suggested keeper (highest bitrate, then
   longest, then first by path).
 
-  `detect/0` is idempotent: it rebuilds all groups from the current tracks.
+  `detect/0` rebuilds the PENDING groups from the current tracks; resolved
+  groups (kept or dismissed by the user) are decisions and stay decided — a
+  signature only comes back when its member set changed (new evidence).
   """
+  import Ecto.Query, only: [where: 3]
+
   alias Beatgrid.Dedup.{DedupQuery, DuplicateGroup, DuplicateMember}
   alias Beatgrid.{Library, Operations, Repo}
-  alias Beatgrid.Library.{Tracks, Version}
+  alias Beatgrid.Library.{Track, Tracks, Version}
 
   @topic "dedup"
 
@@ -56,28 +60,47 @@ defmodule Beatgrid.Dedup do
           {:ok, %{quarantined: non_neg_integer(), batch_id: Ecto.UUID.t()}}
           | {:error, term()}
   def resolve_group(group_id, keeper_track_id) do
-    group = DedupQuery.get(group_id)
-    members = group.members
-
-    if Enum.any?(members, &(&1.track_id == keeper_track_id)) do
+    with %DuplicateGroup{} = group <- DedupQuery.get(group_id) || {:error, :group_not_found},
+         {:ok, keeper} <- fetch_member(group, keeper_track_id) do
       batch_id = Uniq.UUID.uuid7()
-      set_keeper(group, members, keeper_track_id)
-      keeper_isrc = members |> Enum.find(&(&1.track_id == keeper_track_id)) |> member_isrc()
+      keeper_isrc = member_isrc(keeper)
 
       quarantined =
-        members
-        # Skip the keeper, and never quarantine a DIFFERENT recording (a conflicting
-        # ISRC) — that's a distinct version kept on purpose, not a duplicate.
-        |> Enum.reject(fn m ->
-          m.track_id == keeper_track_id or different_recording?(m, keeper_isrc)
-        end)
+        group.members
+        |> Enum.reject(&spared?(&1, keeper_track_id, keeper_isrc))
         |> Enum.count(&quarantine_member(&1, batch_id))
 
-      set_group_status(group, :resolved)
+      finalize_resolution(group, keeper_track_id)
       {:ok, %{quarantined: quarantined, batch_id: batch_id}}
-    else
-      {:error, :keeper_not_in_group}
     end
+  end
+
+  defp fetch_member(group, track_id) do
+    case Enum.find(group.members, &(&1.track_id == track_id)) do
+      nil -> {:error, :keeper_not_in_group}
+      member -> {:ok, member}
+    end
+  end
+
+  # Spared from quarantine: the keeper itself, a DIFFERENT recording (a
+  # conflicting ISRC is a distinct version kept on purpose), and members already
+  # quarantined — a crashed half-resolution re-run must not move them again.
+  defp spared?(member, keeper_track_id, keeper_isrc) do
+    member.track_id == keeper_track_id or
+      different_recording?(member, keeper_isrc) or
+      match?(%{track: %{status: :quarantined}}, member)
+  end
+
+  # Bookkeeping last, atomically: a crash mid-quarantine leaves the group
+  # pending, and re-resolving converges (already-quarantined members are spared).
+  defp finalize_resolution(group, keeper_track_id) do
+    {:ok, _} =
+      Repo.transact(fn ->
+        set_keeper(group, group.members, keeper_track_id)
+        set_group_status(group, :resolved)
+      end)
+
+    :ok
   end
 
   @doc """
@@ -127,25 +150,23 @@ defmodule Beatgrid.Dedup do
 
   # Quarantine one member's track (reversible move) and log a :quarantine op with
   # the ORIGINAL rel_path captured BEFORE the move, so the undo can restore it.
+  # A vanished track (deleted since the group was built) just doesn't count.
   defp quarantine_member(member, batch_id) do
-    track = Tracks.get(member.track_id)
-    orig = track.rel_path
+    with %Track{} = track <- Tracks.get(member.track_id),
+         orig = track.rel_path,
+         {:ok, _moved} <- Library.quarantine(track) do
+      Operations.record(%{
+        track_id: track.id,
+        kind: :quarantine,
+        from: orig,
+        to: "_Quarantine",
+        batch_id: batch_id,
+        suggestion_id: nil
+      })
 
-    case Library.quarantine(track) do
-      {:ok, _moved} ->
-        Operations.record(%{
-          track_id: track.id,
-          kind: :quarantine,
-          from: orig,
-          to: "_Quarantine",
-          batch_id: batch_id,
-          suggestion_id: nil
-        })
-
-        true
-
-      _ ->
-        false
+      true
+    else
+      _ -> false
     end
   end
 
@@ -153,8 +174,8 @@ defmodule Beatgrid.Dedup do
           {:ok, %{exact: non_neg_integer(), fuzzy: non_neg_integer(), near: non_neg_integer()}}
   def detect do
     Repo.transact(fn ->
-      Repo.delete_all(DuplicateMember)
-      Repo.delete_all(DuplicateGroup)
+      decided = DedupQuery.resolved_member_index()
+      clear_pending_groups()
 
       tracks = Tracks.list_by(status: :present)
 
@@ -164,20 +185,31 @@ defmodule Beatgrid.Dedup do
       taken = MapSet.union(taken, member_ids(fuzzy))
       near = tracks |> Enum.reject(&MapSet.member?(taken, &1.id)) |> group_near()
 
-      Enum.each(exact, fn {signature, members} ->
-        persist_group(:exact_hash, signature, members)
-      end)
-
-      Enum.each(fuzzy, fn {signature, members} ->
-        persist_group(:fuzzy_meta, signature, members)
-      end)
-
-      Enum.each(near, fn {signature, members} ->
-        persist_group(:near_meta, signature, members)
-      end)
+      persist_new(:exact_hash, exact, decided)
+      persist_new(:fuzzy_meta, fuzzy, decided)
+      persist_new(:near_meta, near, decided)
 
       {:ok, %{exact: length(exact), fuzzy: length(fuzzy), near: length(near)}}
     end)
+  end
+
+  defp clear_pending_groups do
+    pending_ids = DedupQuery.pending_ids()
+    DuplicateMember |> where([m], m.group_id in ^pending_ids) |> Repo.delete_all()
+    DuplicateGroup |> where([g], g.id in ^pending_ids) |> Repo.delete_all()
+  end
+
+  defp persist_new(match_type, groups, decided) do
+    Enum.each(groups, fn {signature, members} ->
+      unless decision_stands?(decided, {match_type, signature}, members) do
+        persist_group(match_type, signature, members)
+      end
+    end)
+  end
+
+  defp decision_stands?(decided, key, members) do
+    ids = MapSet.new(members, & &1.id)
+    decided |> Map.get(key, []) |> Enum.any?(&MapSet.equal?(&1, ids))
   end
 
   defp group_exact(tracks) do

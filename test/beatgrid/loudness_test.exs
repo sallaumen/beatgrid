@@ -156,6 +156,11 @@ defmodule Beatgrid.LoudnessTest do
           loudness_attempted_at: ~U[2026-01-01 00:00:00Z]
         )
 
+      expect(LoudnessMock, :measure, fn path ->
+        assert File.read!(path) == "original-audio"
+        {:ok, %{lufs: -11.0, true_peak: -0.2, lra: 5.0}}
+      end)
+
       expect(GainApplierMock, :apply, fn path, gain ->
         assert String.ends_with?(path, "_Inbox/loud.mp3")
         assert gain == -3.0
@@ -173,7 +178,7 @@ defmodule Beatgrid.LoudnessTest do
       assert updated.true_peak_dbtp == -3.2
       assert updated.original_loudness_lufs == -11.0
       assert updated.original_true_peak_dbtp == -0.2
-      assert updated.original_loudness_measured_at == ~U[2026-01-01 00:00:00Z]
+      assert updated.original_loudness_measured_at != nil
       assert updated.loudness_measurement_origin == :post_gain
       assert updated.gain_applied_db == -3.0
       assert updated.gain_applied_at != nil
@@ -196,12 +201,43 @@ defmodule Beatgrid.LoudnessTest do
           loudness_attempted_at: ~U[2026-01-01 00:00:00Z]
         )
 
+      expect(LoudnessMock, :measure, fn _path ->
+        {:ok, %{lufs: -14.5, true_peak: -6.0, lra: 5.0}}
+      end)
+
       expect(GainApplierMock, :apply, 0, fn _path, _gain -> :ok end)
-      expect(LoudnessMock, :measure, 0, fn _path -> :ok end)
 
       assert {:ok, updated} = Loudness.apply_gain(track)
       assert updated.gain_applied_db == 0.0
       assert updated.gain_applied_at != nil
+      assert Operations.list_by(track_id: track.id, kind: :gain) == []
+    end
+
+    @tag :tmp_dir
+    test "a retry after a crash between apply and update never gains twice", %{tmp_dir: root} do
+      rel_path = "_Inbox/half-applied.mp3"
+      write_library_file(root, rel_path, "gained-by-attempt-1")
+
+      # Attempt 1 mutated the FILE but died before any row update: the row still
+      # carries the stale pre-gain numbers Oban's retry would have trusted.
+      track =
+        insert(:track,
+          status: :present,
+          rel_path: rel_path,
+          loudness_lufs: -20.0,
+          true_peak_dbtp: -8.0,
+          loudness_attempted_at: ~U[2026-01-01 00:00:00Z]
+        )
+
+      expect(LoudnessMock, :measure, fn _path ->
+        {:ok, %{lufs: -14.0, true_peak: -2.0, lra: 4.0}}
+      end)
+
+      expect(GainApplierMock, :apply, 0, fn _path, _gain -> :ok end)
+
+      assert {:ok, updated} = Loudness.apply_gain(track)
+      assert updated.gain_applied_db == 0.0
+      assert File.read!(Path.join(root, rel_path)) == "gained-by-attempt-1"
       assert Operations.list_by(track_id: track.id, kind: :gain) == []
     end
 
@@ -219,8 +255,11 @@ defmodule Beatgrid.LoudnessTest do
           loudness_attempted_at: ~U[2026-01-01 00:00:00Z]
         )
 
+      expect(LoudnessMock, :measure, fn _path ->
+        {:ok, %{lufs: -20.0, true_peak: -8.0, lra: 4.0}}
+      end)
+
       expect(GainApplierMock, :apply, fn _path, 6.0 -> {:error, :failed} end)
-      expect(LoudnessMock, :measure, 0, fn _path -> :ok end)
 
       assert {:error, :failed} = Loudness.apply_gain(track)
       reloaded = Beatgrid.Repo.get!(Track, track.id)
@@ -243,6 +282,10 @@ defmodule Beatgrid.LoudnessTest do
           true_peak_dbtp: -8.0,
           loudness_attempted_at: ~U[2026-01-01 00:00:00Z]
         )
+
+      expect(LoudnessMock, :measure, fn _path ->
+        {:ok, %{lufs: -20.0, true_peak: -8.0, lra: 4.0}}
+      end)
 
       expect(GainApplierMock, :apply, fn path, 6.0 ->
         File.write!(path, "gain-applied-audio")
@@ -345,6 +388,10 @@ defmodule Beatgrid.LoudnessTest do
           loudness_attempted_at: ~U[2026-01-01 00:00:00Z]
         )
 
+      expect(LoudnessMock, :measure, fn _path ->
+        {:ok, %{lufs: -20.0, true_peak: -8.0, lra: 4.0}}
+      end)
+
       expect(GainApplierMock, :apply, fn _path, 6.0 -> :ok end)
 
       expect(LoudnessMock, :measure, fn _path ->
@@ -386,7 +433,7 @@ defmodule Beatgrid.LoudnessTest do
 
       expect(GainApplierMock, :apply, 2, fn _path, _gain -> :ok end)
 
-      expect(LoudnessMock, :measure, 2, fn _path ->
+      expect(LoudnessMock, :measure, 4, fn _path ->
         {:ok, %{lufs: -20.0, true_peak: -8.0, lra: 4.0}}
       end)
 
