@@ -39,4 +39,29 @@ defmodule Beatgrid.Dedup.DedupQuery do
 
   @spec count_groups() :: non_neg_integer()
   def count_groups, do: Repo.aggregate(DuplicateGroup, :count, :id)
+
+  @doc "Ids of pending groups — the slice a re-detect rebuilds (decisions are kept)."
+  @spec pending_ids() :: [Ecto.UUID.t()]
+  def pending_ids do
+    DuplicateGroup
+    |> where([g], g.status == :pending)
+    |> select([g], g.id)
+    |> Repo.all()
+  end
+
+  @doc """
+  Past decisions: `{match_type, signature}` => the member track-id sets of every
+  resolved group under that key (one per time the user decided it).
+  """
+  @spec resolved_member_index() :: %{{atom(), String.t()} => [MapSet.t()]}
+  def resolved_member_index do
+    DuplicateGroup
+    |> where([g], g.status == :resolved)
+    |> preload(:members)
+    |> Repo.all()
+    |> Enum.group_by(
+      fn group -> {group.match_type, group.signature} end,
+      fn group -> MapSet.new(group.members, & &1.track_id) end
+    )
+  end
 end

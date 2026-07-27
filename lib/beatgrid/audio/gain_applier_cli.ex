@@ -3,8 +3,9 @@ defmodule Beatgrid.Audio.GainApplierCli do
   Applies loudness gain to files using the safest available local tool.
 
   MP3 files use `mp3gain` when available, which is lossless and reversible. Other
-  files, and MP3 files without `mp3gain`, use `ffmpeg` with a sibling temp file
-  and an atomic rename after a successful non-empty output.
+  files, and MP3 files without `mp3gain`, use `ffmpeg`. Both tools operate on a
+  sibling temp file with an atomic rename after a successful non-empty output —
+  a timeout kill mid-write can never leave a half-written original behind.
   """
   @behaviour Beatgrid.Audio.GainApplier
 
@@ -45,12 +46,23 @@ defmodule Beatgrid.Audio.GainApplierCli do
   end
 
   defp run_mp3gain(path, steps) do
-    args = ["-q", "-p", "-g", to_string(steps), path]
+    tmp = Path.join(Path.dirname(path), ".gain-" <> Path.basename(path))
+    args = ["-q", "-p", "-g", to_string(steps), tmp]
 
-    case Cli.run(fn -> System.cmd("mp3gain", args, stderr_to_stdout: true) end, timeout()) do
-      {:ok, {_out, 0}} -> :ok
-      {:ok, {out, code}} -> {:error, {:mp3gain_exit, code, String.slice(out, 0, 500)}}
-      {:error, reason} -> {:error, reason}
+    with :ok <- File.cp(path, tmp),
+         {:ok, {_out, 0}} <-
+           Cli.run(fn -> System.cmd("mp3gain", args, stderr_to_stdout: true) end, timeout()),
+         :ok <- non_empty_file(tmp),
+         :ok <- File.rename(tmp, path) do
+      :ok
+    else
+      {:ok, {out, code}} ->
+        File.rm(tmp)
+        {:error, {:mp3gain_exit, code, String.slice(out, 0, 500)}}
+
+      {:error, reason} ->
+        File.rm(tmp)
+        {:error, reason}
     end
   end
 

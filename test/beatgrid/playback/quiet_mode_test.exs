@@ -45,4 +45,39 @@ defmodule Beatgrid.Playback.QuietModeTest do
     refute_receive {:resume, :all}, 50
     refute QuietMode.active?(__MODULE__.Server)
   end
+
+  test "the activator dying without deactivating resumes background work" do
+    owner =
+      spawn(fn ->
+        QuietMode.activate(__MODULE__.Server)
+
+        receive do
+          :die -> :ok
+        end
+      end)
+
+    assert_receive {:pause, :all}
+    assert QuietMode.active?(__MODULE__.Server)
+
+    send(owner, :die)
+
+    assert_receive {:resume, :all}
+    refute QuietMode.active?(__MODULE__.Server)
+  end
+
+  test "a re-activation follows the newest activator" do
+    first = spawn(fn -> forever(fn -> QuietMode.activate(__MODULE__.Server) end) end)
+    assert_receive {:pause, :all}
+
+    assert :ok = QuietMode.activate(__MODULE__.Server)
+    Process.exit(first, :kill)
+
+    refute_receive {:resume, :all}, 50
+    assert QuietMode.active?(__MODULE__.Server)
+  end
+
+  defp forever(fun) do
+    fun.()
+    Process.sleep(:infinity)
+  end
 end

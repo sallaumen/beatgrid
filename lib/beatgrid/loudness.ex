@@ -175,23 +175,41 @@ defmodule Beatgrid.Loudness do
   end
 
   @doc """
-  Applies the current headroom-safe gain to a measured track, remeasures the file,
+  Applies the current headroom-safe gain to the track's file, remeasures it,
   marks the track, and records the reversible disk mutation.
+
+  The gain is derived from a measurement taken NOW, never from the stored
+  numbers: a retry after a crashed half-applied attempt sees the already-gained
+  file, computes ~0 and lands in the tolerance branch — the file is never
+  gained twice.
   """
   @spec apply_gain(Track.t(), keyword()) :: {:ok, Track.t()} | {:error, term()}
   def apply_gain(%Track{} = track, opts \\ []) do
     now = DateTime.truncate(DateTime.utc_now(), :second)
 
-    case gain_db(track.loudness_lufs, track.true_peak_dbtp) do
-      nil ->
-        {:error, :loudness_not_measured}
+    with {:ok, lufs, true_peak} <- measure_now(track) do
+      gain = gain_db(lufs, true_peak)
 
-      gain ->
-        if abs(gain) < gain_tolerance_db(),
-          do: Tracks.update(track, %{gain_applied_db: 0.0, gain_applied_at: now}),
-          else: apply_measured_gain(track, gain, now, opts)
+      if abs(gain) < gain_tolerance_db() do
+        Tracks.update(track, %{gain_applied_db: 0.0, gain_applied_at: now})
+      else
+        track
+        |> refreshed(lufs, true_peak, now)
+        |> apply_measured_gain(gain, now, opts)
+      end
     end
   end
+
+  defp measure_now(track) do
+    case @adapter.measure(abs_path(track)) do
+      {:ok, %{lufs: lufs, true_peak: true_peak}} -> {:ok, lufs, true_peak}
+      {:error, :no_loudness_data} -> {:error, :loudness_not_measured}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp refreshed(track, lufs, true_peak, now),
+    do: %{track | loudness_lufs: lufs, true_peak_dbtp: true_peak, loudness_attempted_at: now}
 
   defp apply_measured_gain(track, gain, now, opts) do
     batch_id = Keyword.get_lazy(opts, :batch_id, &Uniq.UUID.uuid7/0)
@@ -202,7 +220,7 @@ defmodule Beatgrid.Loudness do
          {:ok, updated} <-
            Tracks.update(
              measured,
-             Map.merge(original_snapshot_attrs(track, now), %{
+             Map.merge(original_snapshot_attrs(track), %{
                gain_applied_db: gain,
                gain_applied_at: now
              })
@@ -223,14 +241,14 @@ defmodule Beatgrid.Loudness do
     end
   end
 
-  defp original_snapshot_attrs(%Track{original_loudness_lufs: lufs}, _now) when is_number(lufs),
+  defp original_snapshot_attrs(%Track{original_loudness_lufs: lufs}) when is_number(lufs),
     do: %{}
 
-  defp original_snapshot_attrs(track, now) do
+  defp original_snapshot_attrs(track) do
     %{
       original_loudness_lufs: track.loudness_lufs,
       original_true_peak_dbtp: track.true_peak_dbtp,
-      original_loudness_measured_at: track.loudness_attempted_at || now
+      original_loudness_measured_at: track.loudness_attempted_at
     }
   end
 

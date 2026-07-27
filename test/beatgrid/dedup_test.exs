@@ -141,5 +141,51 @@ defmodule Beatgrid.DedupTest do
 
       assert [_] = Dedup.list_groups()
     end
+
+    test "a dismissed group stays dismissed across re-detections" do
+      insert(:track, content_sha256: "abc", rel_path: "a.mp3")
+      insert(:track, content_sha256: "abc", rel_path: "b.mp3")
+
+      {:ok, _} = Dedup.detect()
+      [group] = Dedup.list_pending()
+      {:ok, _} = Dedup.ignore_group(group.id)
+
+      {:ok, _} = Dedup.detect()
+
+      assert Dedup.list_pending() == []
+    end
+
+    test "a dismissed group reopens when a new copy appears (new evidence)" do
+      insert(:track, content_sha256: "abc", rel_path: "a.mp3")
+      insert(:track, content_sha256: "abc", rel_path: "b.mp3")
+
+      {:ok, _} = Dedup.detect()
+      [group] = Dedup.list_pending()
+      {:ok, _} = Dedup.ignore_group(group.id)
+
+      insert(:track, content_sha256: "abc", rel_path: "c.mp3")
+      {:ok, _} = Dedup.detect()
+
+      assert [reopened] = Dedup.list_pending()
+      assert length(reopened.members) == 3
+    end
+  end
+
+  describe "resolve_group/2 stale references" do
+    test "a vanished group is an error, not a crash" do
+      assert {:error, :group_not_found} =
+               Dedup.resolve_group(Ecto.UUID.generate(), Ecto.UUID.generate())
+    end
+
+    test "a keeper outside the group is an error" do
+      insert(:track, content_sha256: "abc", rel_path: "a.mp3")
+      insert(:track, content_sha256: "abc", rel_path: "b.mp3")
+      outsider = insert(:track, content_sha256: "zzz", rel_path: "c.mp3")
+
+      {:ok, _} = Dedup.detect()
+      [group] = Dedup.list_pending()
+
+      assert {:error, :keeper_not_in_group} = Dedup.resolve_group(group.id, outsider.id)
+    end
   end
 end
