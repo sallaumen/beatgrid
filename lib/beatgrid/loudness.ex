@@ -220,7 +220,7 @@ defmodule Beatgrid.Loudness do
          {:ok, updated} <-
            Tracks.update(
              measured,
-             Map.merge(original_snapshot_attrs(track, now), %{
+             Map.merge(original_snapshot_attrs(track), %{
                gain_applied_db: gain,
                gain_applied_at: now
              })
@@ -241,14 +241,14 @@ defmodule Beatgrid.Loudness do
     end
   end
 
-  defp original_snapshot_attrs(%Track{original_loudness_lufs: lufs}, _now) when is_number(lufs),
+  defp original_snapshot_attrs(%Track{original_loudness_lufs: lufs}) when is_number(lufs),
     do: %{}
 
-  defp original_snapshot_attrs(track, now) do
+  defp original_snapshot_attrs(track) do
     %{
       original_loudness_lufs: track.loudness_lufs,
       original_true_peak_dbtp: track.true_peak_dbtp,
-      original_loudness_measured_at: track.loudness_attempted_at || now
+      original_loudness_measured_at: track.loudness_attempted_at
     }
   end
 
