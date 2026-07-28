@@ -32,6 +32,7 @@ defmodule Beatgrid.Sets do
   # Console hint clamps (never-again #4: from_ms is never trusted blindly).
   @default_outro_window_ms 8_000
   @min_tail_ms 3_000
+  @max_intro_skip_ms 10_000
 
   @doc "The transition-type vocabulary, in UI order — screens mirror the engine."
   @spec transition_types() :: [String.t()]
@@ -109,8 +110,8 @@ defmodule Beatgrid.Sets do
 
   @doc """
   The Discotecagem console hint: the entry that follows `current_track_id` in the
-  set's CURRENT order — its track, the incoming transition (with `from_ms` already
-  clamped to the outgoing track's back half; never trusted blindly), and the
+  set's CURRENT order — its track, the incoming transition (timing DERIVED here
+  from both tracks' current markers; the row only stores the decision), and the
   playback facts a deck needs (effective BPM, duration, markers). Nil when current
   is last or not a member. Fresh-read every call: a pointer, never a plan.
   """
@@ -132,7 +133,7 @@ defmodule Beatgrid.Sets do
       track: track,
       position: entry.position,
       role: entry.role,
-      transition: clamp_transition(entry.transition, outgoing),
+      transition: hint_transition(entry.transition, outgoing, track),
       bpm: Library.effective(track).bpm,
       outgoing_bpm: Library.effective(outgoing).bpm,
       duration_ms: track.duration_ms,
@@ -140,25 +141,52 @@ defmodule Beatgrid.Sets do
     }
   end
 
-  # Mid-song auto-outros are still persisted (the old "salto no meio"), so the
-  # hint clamps from_ms to the outgoing track's back half and away from its tail;
-  # a missing from_ms falls back to an end window. The client re-clamps against
-  # the real media duration.
-  defp clamp_transition(nil, _outgoing), do: nil
+  # Timing comes from the tracks' CURRENT markers, never from the row: marker
+  # re-analysis and hand edits reach the console instantly, and a reordered set
+  # can't fire on a predecessor that no longer precedes it. A disabled row plays
+  # as plain sequential. The client still re-clamps against real media duration.
+  defp hint_transition(nil, _outgoing, _incoming), do: nil
+  defp hint_transition(%{"enabled" => false}, _outgoing, _incoming), do: nil
 
-  defp clamp_transition(transition, %{duration_ms: dur}) when is_integer(dur) and dur > 0 do
-    from = transition["from_ms"] || dur - @default_outro_window_ms
+  defp hint_transition(transition, outgoing, incoming) do
+    transition
+    |> Map.put("from_ms", derived_from_ms(outgoing))
+    |> Map.put("to_ms", derived_to_ms(incoming))
+    |> clamp_from(outgoing)
+  end
 
-    clamped =
-      from
-      |> max(div(dur, 2))
+  defp derived_from_ms(outgoing) do
+    case Marker.outro(outgoing) do
+      %{"ms" => ms} when is_integer(ms) -> ms
+      _missing -> nil
+    end
+  end
+
+  # Skip a short breath at the head; a LONG quiet opening is real music (live/
+  # acoustic intros measured only 6-8dB under the chorus), so play it from 0.
+  defp derived_to_ms(incoming) do
+    case Marker.intro(incoming) do
+      %{"ms" => ms} when is_integer(ms) and ms <= @max_intro_skip_ms -> ms
+      _long_or_missing -> 0
+    end
+  end
+
+  defp clamp_from(transition, %{duration_ms: dur}) when is_integer(dur) and dur > 0 do
+    from =
+      transition["from_ms"]
+      |> trusted_from(dur)
       |> min(dur - @min_tail_ms)
       |> max(0)
 
-    Map.put(transition, "from_ms", clamped)
+    Map.put(transition, "from_ms", from)
   end
 
-  defp clamp_transition(transition, _outgoing), do: transition
+  defp clamp_from(transition, _outgoing), do: transition
+
+  # An outro in the front 70% of the track is noise (the old "salto no meio"),
+  # not a mix-out point — fall back to the end window, same as no marker at all.
+  defp trusted_from(from, dur) when is_integer(from) and from * 10 >= dur * 7, do: from
+  defp trusted_from(_untrusted, dur), do: dur - @default_outro_window_ms
 
   @spec create(String.t()) :: {:ok, RecSet.t()} | {:error, Ecto.Changeset.t()}
   def create(name), do: %RecSet{} |> RecSet.changeset(%{name: name}) |> Repo.insert()
@@ -375,8 +403,9 @@ defmodule Beatgrid.Sets do
   Suggests a transition for mixing `prev` into `this`: a `crossfade` (beat-aware)
   when both have outro/intro markers and effective BPMs within ~8%, an `echo`
   (echo-out — the delay tail masks the tempo jump) when the markers exist but
-  tempos diverge, else a `cut`. `from_ms`/`to_ms` default to the outro(prev)/
-  intro(this) markers (to_ms 0 when no intro). `fade` stays selectable manually.
+  tempos diverge, else a `cut`. A suggestion is a DECISION (type/reason); the
+  fire timing is derived from current markers when the console asks for a hint.
+  `fade` stays selectable manually.
   """
   @spec suggest_transition(Library.Track.t(), Library.Track.t()) :: map()
   def suggest_transition(prev, this) do
@@ -392,9 +421,7 @@ defmodule Beatgrid.Sets do
       "type" => type,
       # Por que o console escolheu esta transição — mostrado na UI para tirar o
       # "mistério" da remixagem automática.
-      "reason" => reason,
-      "from_ms" => out && out["ms"],
-      "to_ms" => (intro && intro["ms"]) || 0
+      "reason" => reason
     }
   end
 
@@ -464,19 +491,20 @@ defmodule Beatgrid.Sets do
     length(pairs)
   end
 
+  # Only the DECISION persists (enabled/type/reason); timing keys are dropped —
+  # they froze marker positions from plan day and went stale (the "Tramontina"
+  # root cause). Legacy rows may still carry them; hints always overwrite.
   defp normalize_transition(attrs) do
     type = attrs["type"] || attrs[:type]
     reason = attrs["reason"] || attrs[:reason]
 
     %{
-      "enabled" => (attrs["enabled"] || attrs[:enabled]) != false,
+      "enabled" => Map.get(attrs, "enabled", Map.get(attrs, :enabled, true)) != false,
       # An unknown type degrades to the SAFEST behavior (plain cut), never to an
       # overlap the engine would then execute with bogus parameters.
       "type" => if(type in @transition_types, do: type, else: "cut"),
       # Preserved when the console suggested it; nil for a hand-set transition.
-      "reason" => reason,
-      "from_ms" => attrs["from_ms"] || attrs[:from_ms],
-      "to_ms" => attrs["to_ms"] || attrs[:to_ms] || 0
+      "reason" => reason
     }
   end
 

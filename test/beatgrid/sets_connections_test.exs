@@ -32,14 +32,14 @@ defmodule Beatgrid.SetsConnectionsTest do
       assert Sets.suggest_transition(a, c)["reason"] =~ "Sem marcadores"
     end
 
-    test "close BPM with unknown keys → crossfade, carrying its from/to markers" do
+    test "close BPM with unknown keys → crossfade; a suggestion is a decision, not a timing" do
       a = mixable(128.0)
       b = mixable(130.0)
       t = Sets.suggest_transition(a, b)
       assert t["type"] == "crossfade"
-      assert t["from_ms"] == 150_000
-      assert t["to_ms"] == 4_000
       assert t["reason"] =~ "casado"
+      refute Map.has_key?(t, "from_ms")
+      refute Map.has_key?(t, "to_ms")
     end
 
     test "a big BPM jump UP → brake (rare, dramatic); a big drop → afunda" do
@@ -88,8 +88,10 @@ defmodule Beatgrid.SetsConnectionsTest do
     {:ok, _} = Sets.connect(set, b, %{"type" => "fade", "from_ms" => 90_000, "to_ms" => 3_000})
     entry_b = Enum.find(Sets.entries(set), &(&1.track.id == b.id))
     assert entry_b.transition["type"] == "fade"
-    assert entry_b.transition["from_ms"] == 90_000
     assert entry_b.transition["enabled"] == true
+    # Timing never persists — the console derives it from the CURRENT markers.
+    refute Map.has_key?(entry_b.transition, "from_ms")
+    refute Map.has_key?(entry_b.transition, "to_ms")
 
     {:ok, _} = Sets.disconnect(set, b)
     assert Enum.find(Sets.entries(set), &(&1.track.id == b.id)).transition == nil
@@ -152,22 +154,104 @@ defmodule Beatgrid.SetsConnectionsTest do
       assert hint.duration_ms == 180_000
       assert [%{"type" => "intro"}] = hint.markers
 
-      # 100→130 BPM is a +30% jump → brake (the big-jump case); the persisted
-      # outro sat mid-song (30s of 200s), so the hint clamps from_ms to the
-      # outgoing track's back half, away from the "salto no meio" bug
+      # 100→130 BPM is a +30% jump → brake (the big-jump case); a mid-song outro
+      # (30s of 200s — the old "salto no meio") is noise, not a mix-out point, so
+      # the hint falls back to the end window instead of firing mid-music
       assert hint.transition["type"] == "brake"
-      assert hint.transition["from_ms"] == 100_000
+      assert hint.transition["from_ms"] == 192_000
     end
 
-    test "a missing from_ms falls back to an end window, clear of the tail" do
+    test "no outro marker on the outgoing track → end window, clear of the tail" do
       {:ok, set} = Sets.create("S")
       a = insert(:track, status: :present, duration_ms: 200_000)
       b = insert(:track, status: :present)
       {:ok, _} = Sets.append(set, a)
       {:ok, _} = Sets.append(set, b)
-      {:ok, _} = Sets.connect(set, b, %{"type" => "crossfade", "from_ms" => nil})
+      {:ok, _} = Sets.connect(set, b, %{"type" => "crossfade"})
 
       assert Sets.entry_after(set.id, a.id).transition["from_ms"] == 192_000
+    end
+
+    test "timing is derived from CURRENT markers, never from the persisted row" do
+      {:ok, set} = Sets.create("S")
+
+      a =
+        insert(:track,
+          status: :present,
+          duration_ms: 200_000,
+          cue_points: [%{"ms" => 180_000, "type" => "outro", "source" => "auto"}]
+        )
+
+      b =
+        insert(:track,
+          status: :present,
+          cue_points: [%{"ms" => 4_000, "type" => "intro", "source" => "auto"}]
+        )
+
+      {:ok, _} = Sets.append(set, a)
+      {:ok, _} = Sets.append(set, b)
+      {:ok, _} = Sets.connect(set, b, %{"type" => "crossfade"})
+      legacy_row_with_stale_timing(set, b, 60_000, 52_000)
+
+      hint = Sets.entry_after(set.id, a.id)
+
+      assert hint.transition["from_ms"] == 180_000
+      assert hint.transition["to_ms"] == 4_000
+    end
+
+    test "an outro hugging the tail keeps a minimum runway before the end" do
+      {:ok, set} = Sets.create("S")
+
+      a =
+        insert(:track,
+          status: :present,
+          duration_ms: 200_000,
+          cue_points: [%{"ms" => 199_000, "type" => "outro", "source" => "auto"}]
+        )
+
+      b = insert(:track, status: :present)
+      {:ok, _} = Sets.append(set, a)
+      {:ok, _} = Sets.append(set, b)
+      {:ok, _} = Sets.connect(set, b, %{"type" => "cut"})
+
+      assert Sets.entry_after(set.id, a.id).transition["from_ms"] == 197_000
+    end
+
+    test "a short intro is skipped; a LONG quiet head is real music and plays from the top" do
+      {:ok, set} = Sets.create("S")
+      a = insert(:track, status: :present, duration_ms: 200_000)
+
+      slow_opening =
+        insert(:track,
+          status: :present,
+          cue_points: [%{"ms" => 52_000, "type" => "intro", "source" => "auto"}]
+        )
+
+      {:ok, _} = Sets.append(set, a)
+      {:ok, _} = Sets.append(set, slow_opening)
+      {:ok, _} = Sets.connect(set, slow_opening, %{"type" => "echo"})
+
+      assert Sets.entry_after(set.id, a.id).transition["to_ms"] == 0
+    end
+
+    test "a disabled transition hints as plain sequential play" do
+      {:ok, set} = Sets.create("S")
+      a = insert(:track, status: :present, duration_ms: 200_000)
+      b = insert(:track, status: :present)
+      {:ok, _} = Sets.append(set, a)
+      {:ok, _} = Sets.append(set, b)
+      {:ok, _} = Sets.connect(set, b, %{"type" => "fade", "enabled" => false})
+
+      entry_b = Enum.find(Sets.entries(set), &(&1.track.id == b.id))
+      assert entry_b.transition["enabled"] == false
+      assert Sets.entry_after(set.id, a.id).transition == nil
+    end
+
+    # Simulates a pre-derivation row: timing frozen into the JSON at plan time.
+    defp legacy_row_with_stale_timing(set, track, from_ms, to_ms) do
+      row = Repo.get_by!(Beatgrid.Sets.SetTrack, rec_set_id: set.id, track_id: track.id)
+      stale = Map.merge(row.transition, %{"from_ms" => from_ms, "to_ms" => to_ms})
+      {:ok, _} = row |> Ecto.Changeset.change(transition: stale) |> Repo.update()
     end
 
     test "nil for the last track, an unknown track, and sequential (no transition) entries" do
