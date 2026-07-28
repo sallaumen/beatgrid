@@ -153,6 +153,37 @@ defmodule BeatgridWeb.AudioControllerTest do
       assert resp.status == 200
       assert get_resp_header(resp, "content-type") == ["audio/mpeg"]
       assert resp.resp_body == "exact-72s"
+      # without accept-ranges the browser marks the media unseekable and the
+      # player's progress bar goes dead — the preview must stay scrubbable
+      assert get_resp_header(resp, "accept-ranges") == ["bytes"]
+    end
+
+    @tag :tmp_dir
+    test "answers Range requests so the preview stays seekable", %{conn: conn, tmp_dir: root} do
+      audio = Path.join(root, "set.mp3")
+      File.write!(audio, "set")
+      mix = insert(:mix, audio_path: audio, duration_ms: 600_000)
+
+      Mox.expect(Beatgrid.Audio.MixCutterMock, :cut, 2, fn _src, dest, _opts ->
+        File.write!(dest, "0123456789")
+        :ok
+      end)
+
+      ranged =
+        conn
+        |> put_req_header("range", "bytes=2-5")
+        |> get(~p"/sets-online/#{mix.id}/audio?from=0&to=60000")
+
+      assert ranged.status == 206
+      assert get_resp_header(ranged, "content-range") == ["bytes 2-5/10"]
+      assert ranged.resp_body == "2345"
+
+      beyond =
+        conn
+        |> put_req_header("range", "bytes=99-200")
+        |> get(~p"/sets-online/#{mix.id}/audio?from=0&to=60000")
+
+      assert beyond.status == 416
     end
 
     @tag :tmp_dir
