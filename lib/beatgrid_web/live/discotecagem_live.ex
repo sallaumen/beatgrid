@@ -1505,6 +1505,20 @@ defmodule BeatgridWeb.DiscotecagemLive do
             }
             window.addEventListener("keydown", this.onKeys)
 
+            // O seletor de set e os sliders não podem sequestrar o teclado:
+            // escolher o set (o último clique antes de tocar!) e soltar um
+            // fader devolvem o foco à página — senão os atalhos morrem mudos.
+            // Delegado no document para sobreviver aos patches do LiveView.
+            this.onSetPicked = (e) => {
+              if (e.target && e.target.name === "set_id") e.target.blur()
+            }
+            document.addEventListener("change", this.onSetPicked)
+            this.onSliderDone = (e) => {
+              const t = e.target
+              if (t && t.tagName === "INPUT" && t.type === "range") t.blur()
+            }
+            document.addEventListener("pointerup", this.onSliderDone)
+
             // Loop de pintura: SÓ espelha a UI — o áudio nunca depende dele.
             const tick = () => {
               this.raf = requestAnimationFrame(tick)
@@ -1543,6 +1557,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
             window.removeEventListener("dj:pfl-sync", this.onPflSync)
             window.removeEventListener("beatgrid:playing", this.onForeignPlay)
             window.removeEventListener("keydown", this.onKeys)
+            document.removeEventListener("change", this.onSetPicked)
+            document.removeEventListener("pointerup", this.onSliderDone)
             // End a scratch drag in flight and drop the pad's global listener so
             // neither leaks across a LiveView reconnect.
             if (this._jogCleanup) this._jogCleanup()
