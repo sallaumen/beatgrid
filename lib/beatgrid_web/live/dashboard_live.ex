@@ -30,6 +30,10 @@ defmodule BeatgridWeb.DashboardLive do
     {:noreply, apply_dashboard_result(socket, Dashboard.run(:map_markers))}
   end
 
+  def handle_event("remap_markers", _params, socket) do
+    {:noreply, apply_dashboard_result(socket, Dashboard.run(:remap_markers))}
+  end
+
   def handle_event("analyze_loudness", _params, socket) do
     {:noreply, apply_dashboard_result(socket, Dashboard.run(:analyze_loudness))}
   end
@@ -327,13 +331,23 @@ defmodule BeatgridWeb.DashboardLive do
                       {@markers_note}
                     </p>
                   </div>
-                  <button
-                    phx-click="map_markers"
-                    disabled={@markers_unmapped == 0}
-                    class="w-full shrink-0 whitespace-normal break-words rounded-md bg-primary/15 px-2 py-1.5 text-center text-body-sm font-semibold text-primary disabled:opacity-40 sm:w-auto sm:px-3.5"
-                  >
-                    Mapear marcadores ({@markers_unmapped})
-                  </button>
+                  <div class="flex w-full shrink-0 flex-col gap-1.5 sm:w-auto">
+                    <button
+                      phx-click="map_markers"
+                      disabled={@markers_unmapped == 0}
+                      class="w-full whitespace-normal break-words rounded-md bg-primary/15 px-2 py-1.5 text-center text-body-sm font-semibold text-primary disabled:opacity-40 sm:w-auto sm:px-3.5"
+                    >
+                      Mapear marcadores ({@markers_unmapped})
+                    </button>
+                    <button
+                      phx-click="remap_markers"
+                      data-confirm="Re-analisar TODAS as faixas com o detector novo? Marcadores manuais são preservados; os automáticos serão recalculados em background."
+                      title="Rollout de um detector novo: recalcula intro/saída/seções de toda a biblioteca"
+                      class="w-full whitespace-normal break-words rounded-md border border-white/10 px-2 py-1.5 text-center text-body-sm font-semibold text-ink-secondary hover:text-ink sm:w-auto sm:px-3.5"
+                    >
+                      Re-mapear tudo
+                    </button>
+                  </div>
                 </div>
               </div>
             </.panel>

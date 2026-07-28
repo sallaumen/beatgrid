@@ -78,6 +78,23 @@ defmodule Beatgrid.DashboardTest do
     assert_enqueued(worker: MarkerAnalyzeWorker, args: %{track_id: track.id})
   end
 
+  test "run(:remap_markers) re-enqueues the whole present library (detector rollout)" do
+    fresh = insert(:track, status: :present, rel_path: "r1.mp3", cue_points: [])
+
+    mapped =
+      insert(:track,
+        status: :present,
+        rel_path: "r2.mp3",
+        cue_points: [%{"ms" => 500, "type" => "intro", "source" => "auto"}]
+      )
+
+    assert {:ok, patch} = Dashboard.run(:remap_markers)
+
+    assert patch.markers_note =~ "Re-mapeando 2"
+    assert_enqueued(worker: MarkerAnalyzeWorker, args: %{track_id: fresh.id})
+    assert_enqueued(worker: MarkerAnalyzeWorker, args: %{track_id: mapped.id})
+  end
+
   test "run(:apply_gain) enqueues eligible gain application with one batch id" do
     eligible =
       insert(:track,
