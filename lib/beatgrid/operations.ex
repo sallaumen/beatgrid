@@ -61,6 +61,10 @@ defmodule Beatgrid.Operations do
     end
   end
 
+  @doc "Reverts ONE applied operation (same dispatch as `undo_batch/1`)."
+  @spec undo_operation(Operation.t()) :: :undone | :failed
+  def undo_operation(%Operation{} = operation), do: undo_one(operation)
+
   @doc """
   Reverts every still-applied operation in a batch, newest first, delegating to
   the owning context so the suggestion is flipped back to `:undone` too. One

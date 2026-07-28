@@ -58,6 +58,14 @@ defmodule Beatgrid.Library.Track do
 
     field :last_scanned_at, :utc_datetime
 
+    # Playability census (Resgate): does the file exist and decode end to end?
+    field :integrity_status, Ecto.Enum,
+      values: [:unchecked, :ok, :corrupt, :missing_file],
+      default: :unchecked
+
+    field :integrity_error, :string
+    field :integrity_checked_at, :utc_datetime
+
     field :bpm_detected, :float
     field :camelot_detected, :string
     field :analyzed_at, :utc_datetime
@@ -95,6 +103,7 @@ defmodule Beatgrid.Library.Track do
                tag_title tag_artist tag_album tag_album_artist tag_year
                tag_track_no tag_isrc tag_genre tag_comment raw_tags
                source_playlist genre_folder status quality_issues
+               integrity_status integrity_error integrity_checked_at
                rating personal_note tags cue_points last_scanned_at sc_match_confidence
                sc_art_trusted bpm_detected camelot_detected analyzed_at
                loudness_lufs true_peak_dbtp loudness_attempted_at
