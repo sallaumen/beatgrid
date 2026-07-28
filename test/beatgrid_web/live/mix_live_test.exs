@@ -504,4 +504,75 @@ defmodule BeatgridWeb.MixLiveTest do
       assert render(view) =~ "34 sem match"
     end
   end
+
+  describe "recortes" do
+    @tag :tmp_dir
+    test "✂ opens the panel prefilled from the segment and queues the cut", %{
+      conn: conn,
+      tmp_dir: tmp
+    } do
+      audio = Path.join(tmp, "set.mp3")
+      File.write!(audio, "mp3")
+      mix = insert(:mix, status: :ready, audio_path: audio, duration_ms: 3_600_000)
+
+      insert(:mix_segment,
+        mix: mix,
+        position: 0,
+        start_ms: 43_000,
+        end_ms: 90_000,
+        artist: "Zé",
+        title: "Perdida"
+      )
+
+      {:ok, view, html} = live(conn, ~p"/sets-online/#{mix.id}")
+      assert html =~ "Recortar trecho"
+
+      seg = Repo.get_by!(Segment, mix_id: mix.id)
+      html = view |> element("button[phx-value-segment='#{seg.id}']") |> render_click()
+
+      # prefilled with the segment's range and name
+      assert html =~ "Novo recorte"
+      assert html =~ ~s(value="00:43")
+      assert html =~ ~s(value="01:30")
+      assert html =~ ~s(value="Perdida")
+
+      html =
+        view
+        |> element("form[phx-submit=create_recorte]")
+        |> render_submit(%{
+          "start" => "00:43",
+          "end" => "01:30",
+          "artist" => "Zé",
+          "title" => "Perdida",
+          "folder" => ""
+        })
+
+      assert html =~ "Recorte na fila"
+      assert_enqueued(worker: Beatgrid.Workers.MixCutWorker, args: %{mix_id: mix.id})
+    end
+
+    @tag :tmp_dir
+    test "bad times keep the panel open with an error", %{conn: conn, tmp_dir: tmp} do
+      audio = Path.join(tmp, "set.mp3")
+      File.write!(audio, "mp3")
+      mix = insert(:mix, status: :ready, audio_path: audio)
+
+      {:ok, view, _html} = live(conn, ~p"/sets-online/#{mix.id}")
+      view |> element("button", "✂ Recortar trecho") |> render_click()
+
+      html =
+        view
+        |> element("form[phx-submit=create_recorte]")
+        |> render_submit(%{
+          "start" => "abc",
+          "end" => "01:30",
+          "artist" => "",
+          "title" => "X",
+          "folder" => ""
+        })
+
+      assert html =~ "Tempos inválidos"
+      assert html =~ "Novo recorte"
+    end
+  end
 end

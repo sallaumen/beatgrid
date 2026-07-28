@@ -90,7 +90,11 @@ defmodule Beatgrid.Events do
           optional(:skipped) => non_neg_integer()
         }
 
-  @typedoc "Stage ticks of an online-set pipeline (download/analyze/recognize/DJ detection)."
+  @typedoc """
+  Stage ticks of an online-set pipeline (download/analyze/recognize/DJ
+  detection), plus the `"cut_done"` stage a finished recorte announces
+  (carrying the new library track's id and title).
+  """
   @type mix_progress :: %{
           :mix_id => Ecto.UUID.t(),
           optional(:status) => atom(),
@@ -99,7 +103,9 @@ defmodule Beatgrid.Events do
           optional(:total) => non_neg_integer(),
           optional(:matched) => non_neg_integer(),
           optional(:no_match) => non_neg_integer(),
-          optional(:error) => non_neg_integer()
+          optional(:error) => non_neg_integer(),
+          optional(:track_id) => Ecto.UUID.t(),
+          optional(:title) => String.t()
         }
 
   @typedoc "Progress of a duplicate-detection rebuild."

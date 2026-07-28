@@ -563,7 +563,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <.app_shell active={:discotecagem} socket={@socket}>
+    <.app_shell flash={@flash} active={:discotecagem} socket={@socket}>
       <div class="mx-auto max-w-7xl px-4 py-3">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div class="flex items-baseline gap-3">

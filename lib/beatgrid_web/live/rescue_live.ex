@@ -95,7 +95,7 @@ defmodule BeatgridWeb.RescueLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <.app_shell active={:resgate} socket={@socket}>
+    <.app_shell flash={@flash} active={:resgate} socket={@socket}>
       <div class="mx-auto max-w-5xl px-4 py-4">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div>

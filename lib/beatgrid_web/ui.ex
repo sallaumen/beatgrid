@@ -335,10 +335,14 @@ defmodule BeatgridWeb.UI do
   @doc "App shell: left nav rail + main content + the sticky global player."
   attr :active, :atom, default: :biblioteca
   attr :socket, Phoenix.LiveView.Socket, required: true
+  # Every page passes @flash — the shell is the ONE place flashes render (there
+  # is no LiveView layout; without this, every put_flash in the app is invisible).
+  attr :flash, :map, default: %{}
   slot :inner_block, required: true
 
   def app_shell(assigns) do
     ~H"""
+    <BeatgridWeb.Layouts.flash_group flash={@flash} />
     <div class="flex min-h-screen bg-base text-ink">
       <nav
         aria-label="Navegação principal"
