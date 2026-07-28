@@ -530,18 +530,18 @@ defmodule BeatgridWeb.MixLiveTest do
       seg = Repo.get_by!(Segment, mix_id: mix.id)
       html = view |> element("button[phx-value-segment='#{seg.id}']") |> render_click()
 
-      # prefilled with the segment's range and name
+      # prefilled as ONE pasteable range plus the segment's name
       assert html =~ "Novo recorte"
-      assert html =~ ~s(value="00:43")
-      assert html =~ ~s(value="01:30")
+      assert html =~ ~s(value="00:43-01:30")
       assert html =~ ~s(value="Perdida")
+      # the preview window starts 15s before the cut (the mark buttons' origin)
+      assert html =~ ~s(data-window-start="28000")
 
       html =
         view
         |> element("form[phx-submit=create_recorte]")
         |> render_submit(%{
-          "start" => "00:43",
-          "end" => "01:30",
+          "range" => "00:43-01:30",
           "artist" => "Zé",
           "title" => "Perdida",
           "folder" => ""
@@ -552,27 +552,77 @@ defmodule BeatgridWeb.MixLiveTest do
     end
 
     @tag :tmp_dir
-    test "bad times keep the panel open with an error", %{conn: conn, tmp_dir: tmp} do
-      audio = Path.join(tmp, "set.mp3")
-      File.write!(audio, "mp3")
-      mix = insert(:mix, status: :ready, audio_path: audio)
+    test "a pasted range is accepted with spaces, dashes or arrows", %{conn: conn, tmp_dir: tmp} do
+      view = open_recorte(conn, tmp)
 
-      {:ok, view, _html} = live(conn, ~p"/sets-online/#{mix.id}")
-      view |> element("button", "✂ Recortar trecho") |> render_click()
+      for pasted <- [
+            "1:00:05-1:01:17",
+            "1:00:05 - 1:01:17",
+            "1:00:05 → 1:01:17",
+            "1:00:05 1:01:17"
+          ] do
+        html = render_change(view, "recorte_change", %{"range" => pasted, "title" => "X"})
+        assert html =~ "1:00:05 → 1:01:17"
+        assert html =~ ~s(data-range="1:00:05-1:01:17")
+      end
+    end
+
+    @tag :tmp_dir
+    test "marking from the preview sets an exact absolute time", %{conn: conn, tmp_dir: tmp} do
+      view = open_recorte(conn, tmp)
+      render_change(view, "recorte_change", %{"range" => "1:00:00-1:02:00", "title" => "X"})
+
+      # the DJ heard the song start 20s into the context preview
+      html = render_hook(view, "mark_recorte", %{"field" => "start", "ms" => 3_605_000})
+      assert html =~ ~s(value="1:00:05-1:02:00")
+
+      html = render_hook(view, "mark_recorte", %{"field" => "end", "ms" => 3_677_000})
+      assert html =~ ~s(value="1:00:05-1:01:17")
+      assert html =~ "1:00:05 → 1:01:17 · 01:12"
+    end
+
+    @tag :tmp_dir
+    test "the ±5s buttons move one end and keep the range pasteable", %{conn: conn, tmp_dir: tmp} do
+      view = open_recorte(conn, tmp)
+      render_change(view, "recorte_change", %{"range" => "1:00:05-1:01:17", "title" => "X"})
+
+      html =
+        view
+        |> element("button[phx-value-field=start][phx-value-delta='-5000']")
+        |> render_click()
+
+      assert html =~ ~s(value="1:00:00-1:01:17")
+    end
+
+    @tag :tmp_dir
+    test "an unparseable range keeps the panel open and blocks the cut", %{
+      conn: conn,
+      tmp_dir: tmp
+    } do
+      view = open_recorte(conn, tmp)
+
+      html = render_change(view, "recorte_change", %{"range" => "abc", "title" => "X"})
+      assert html =~ "Formatos aceitos"
+      refute html =~ "recorte-preview"
 
       html =
         view
         |> element("form[phx-submit=create_recorte]")
-        |> render_submit(%{
-          "start" => "abc",
-          "end" => "01:30",
-          "artist" => "",
-          "title" => "X",
-          "folder" => ""
-        })
+        |> render_submit(%{"range" => "abc", "artist" => "", "title" => "X", "folder" => ""})
 
       assert html =~ "Tempos inválidos"
       assert html =~ "Novo recorte"
+      refute_enqueued(worker: Beatgrid.Workers.MixCutWorker)
+    end
+
+    defp open_recorte(conn, tmp) do
+      audio = Path.join(tmp, "set.mp3")
+      File.write!(audio, "mp3")
+      mix = insert(:mix, status: :ready, audio_path: audio, duration_ms: 7_200_000)
+
+      {:ok, view, _html} = live(conn, ~p"/sets-online/#{mix.id}")
+      view |> element("button", "✂ Recortar trecho") |> render_click()
+      view
     end
   end
 end
