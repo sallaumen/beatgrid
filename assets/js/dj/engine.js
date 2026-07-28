@@ -1852,6 +1852,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         audibleDeck: audibleDeckId(),
         auto: state.autoOn,
         xfadePos: xfade.pos,
+        postponeMs: state.postponeMs,
         a: {trackId: decks.a.trackId, posMs: decks.a.positionMs(), playing: decks.a.audible()},
         b: {trackId: decks.b.trackId, posMs: decks.b.positionMs(), playing: decks.b.audible()},
       }
