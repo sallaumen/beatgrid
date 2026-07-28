@@ -282,7 +282,9 @@ defmodule Beatgrid.Loudness do
   defp restore_backup_file(backup_path, target_path) do
     tmp = Path.join(Path.dirname(target_path), ".restore-" <> Path.basename(target_path))
 
+    # A ghost's whole folder may be gone too — the restore recreates the path.
     with true <- File.regular?(backup_path) || {:error, :backup_not_found},
+         :ok <- File.mkdir_p(Path.dirname(target_path)),
          :ok <- File.cp(backup_path, tmp),
          :ok <- non_empty_file(tmp),
          :ok <- File.rename(tmp, target_path) do

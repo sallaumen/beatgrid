@@ -62,6 +62,26 @@ defmodule Beatgrid.MarkersTest do
       assert Markers.unmapped_count() == length(ids)
     end
 
+    test "detect broadcasts a progress tick for the Painel's live bar" do
+      :ok = Markers.subscribe()
+      track = insert(:track, status: :present, rel_path: "tick.mp3")
+
+      expect(Beatgrid.Audio.MarkerDetectorMock, :detect, fn _path ->
+        {:ok, %{intro_ms: 1_000, outro_ms: 2_000, sections: []}}
+      end)
+
+      {:ok, _} = Markers.detect(track)
+      assert_receive {:markers_tick}
+    end
+
+    test "a ghost track (file deleted outside the app) cancels the job, never retries" do
+      track = insert(:track, status: :present, rel_path: "ghost.mp3")
+      expect(Beatgrid.Audio.MarkerDetectorMock, :detect, fn _path -> {:error, :enoent} end)
+
+      assert {:cancel, :file_missing} =
+               MarkerAnalyzeWorker.perform(%Oban.Job{args: %{"track_id" => track.id}})
+    end
+
     test "enqueue_unmapped enqueues one MarkerAnalyzeWorker per unmapped track" do
       t_1 = insert(:track, status: :present, rel_path: "a.mp3", cue_points: [])
       t_2 = insert(:track, status: :present, rel_path: "b.mp3", cue_points: [manual(1000)])

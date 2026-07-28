@@ -24,6 +24,10 @@ defmodule Beatgrid.Audio.MarkerDetectorCliTest do
     end
   end
 
+  test "a missing file answers {:error, :enoent} without launching python" do
+    assert {:error, :enoent} = MarkerDetectorCli.detect("/nowhere/ghost.mp3")
+  end
+
   # `:librosa`-tagged: runs the real python+librosa v2 script; excluded by
   # default. The fixture is a ~1s clip — no beat grid, no structure — so this
   # pins the graceful-degrade path: the full shape comes back, never a crash.

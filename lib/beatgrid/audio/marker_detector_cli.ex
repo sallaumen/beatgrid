@@ -26,6 +26,16 @@ defmodule Beatgrid.Audio.MarkerDetectorCli do
 
   @impl Beatgrid.Audio.MarkerDetector
   def detect(path) do
+    if File.regular?(path) do
+      run_script(path)
+    else
+      # A ghost (file deleted outside the app) is not an analysis failure —
+      # answer cleanly so the worker can cancel instead of retrying a traceback.
+      {:error, :enoent}
+    end
+  end
+
+  defp run_script(path) do
     cmd = fn ->
       System.cmd(python(), [script(), path], stderr_to_stdout: false, env: @thread_env)
     end

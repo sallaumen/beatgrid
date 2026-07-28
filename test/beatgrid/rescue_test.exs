@@ -1,8 +1,12 @@
 defmodule Beatgrid.RescueTest do
-  use Beatgrid.DataCase, async: true, oban: true
+  # async: false — isolate_library_root swaps a GLOBAL app env; a concurrent
+  # test file reading the root mid-swap sees the wrong library.
+  use Beatgrid.DataCase, async: false, oban: true
 
   import Beatgrid.Factory
   import Mox
+
+  @moduletag :tmp_dir
 
   setup :verify_on_exit!
   setup :isolate_library_root
@@ -10,14 +14,13 @@ defmodule Beatgrid.RescueTest do
   alias Beatgrid.Audio.IntegrityCheckerMock
   alias Beatgrid.Audio.LoudnessMock
   alias Beatgrid.Library
-  alias Beatgrid.Library.Tracks
   alias Beatgrid.Operations
   alias Beatgrid.Rescue
   alias Beatgrid.Workers.IntegrityCheckWorker
 
   defp root, do: Library.library_root()
 
-  defp write_file(rel, content \\ "mp3-bytes") do
+  defp write_file(rel, content) do
     path = Path.join(root(), rel)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, content)
@@ -184,6 +187,7 @@ defmodule Beatgrid.RescueTest do
         })
 
       assert [%{restore_rel: "Forró/dupla.mp3"}] = Rescue.quarantined()
+      assert File.exists?(Path.join(root(), track.rel_path))
 
       assert {:ok, restored} = Rescue.restore_from_quarantine(track)
       assert restored.status == :present

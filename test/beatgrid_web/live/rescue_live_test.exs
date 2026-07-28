@@ -1,8 +1,11 @@
 defmodule BeatgridWeb.RescueLiveTest do
-  use BeatgridWeb.ConnCase, async: true
+  # async: false — isolate_library_root swaps a GLOBAL app env (see RescueTest).
+  use BeatgridWeb.ConnCase, async: false
 
   import Beatgrid.Factory
   import Phoenix.LiveViewTest
+
+  @moduletag :tmp_dir
 
   alias Beatgrid.Library
   alias Beatgrid.Operations
