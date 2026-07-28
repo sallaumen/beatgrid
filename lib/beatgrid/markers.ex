@@ -14,7 +14,9 @@ defmodule Beatgrid.Markers do
   alias Beatgrid.Repo
   alias Beatgrid.Workers.MarkerAnalyzeWorker
 
-  @topic "markers"
+  # NOT "markers": that topic already carries {:markers_changed, id} to the
+  # player and the track page (NowPlaying) — a tick there crashes their views.
+  @topic "markers_progress"
 
   @doc "Subscribe to marker-mapping progress (`{:markers_tick}` — contract: `Beatgrid.Events`)."
   @spec subscribe() :: :ok | {:error, term()}

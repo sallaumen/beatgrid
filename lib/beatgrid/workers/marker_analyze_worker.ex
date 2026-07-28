@@ -25,6 +25,7 @@ defmodule Beatgrid.Workers.MarkerAnalyzeWorker do
       track ->
         case Markers.detect(track) do
           {:ok, _track} -> :ok
+          {:error, :enoent} -> {:cancel, :file_missing}
           {:error, reason} -> {:error, reason}
         end
     end
