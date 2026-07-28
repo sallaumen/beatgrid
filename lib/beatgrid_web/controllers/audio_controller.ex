@@ -37,12 +37,38 @@ defmodule BeatgridWeb.AudioController do
     end
   end
 
+  # A range preview (`?from=&to=`) is cut server-side and streamed whole: the
+  # browser's own seeking on a long VBR mp3 drifts by minutes, so a recorte can
+  # only be judged by hearing the exact bytes we would save.
+  #
+  # Reviewed false-positive: the body is mp3 bytes produced by ffmpeg from a
+  # DB-held path (never request input), served under a fixed audio/mpeg type.
+  @sobelow_skip ["XSS.SendResp"]
+  def mix(conn, %{"id" => id, "from" => from, "to" => to}) do
+    with %{} = mix <- Mixes.get_mix(id),
+         {:ok, audio} <- Mixes.preview_cut(mix, parse_ms(from), parse_ms(to)) do
+      conn
+      |> put_resp_header("content-type", "audio/mpeg")
+      |> put_resp_header("cache-control", "no-store")
+      |> send_resp(200, audio)
+    else
+      _ -> conn |> put_status(:not_found) |> text("Not found")
+    end
+  end
+
   def mix(conn, %{"id" => id}) do
     with %{audio_path: path} when is_binary(path) <- Mixes.get_mix(id),
          true <- within_root?(path) and File.exists?(path) do
       serve(conn, path)
     else
       _ -> conn |> put_status(:not_found) |> text("Not found")
+    end
+  end
+
+  defp parse_ms(value) do
+    case Integer.parse(to_string(value)) do
+      {ms, _rest} -> ms
+      :error -> nil
     end
   end
 

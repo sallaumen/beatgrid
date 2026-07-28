@@ -127,4 +127,62 @@ defmodule BeatgridWeb.AudioControllerTest do
   test "404 when the mix does not exist", %{conn: conn} do
     assert get(conn, ~p"/sets-online/#{Ecto.UUID.generate()}/audio").status == 404
   end
+
+  describe "recorte preview (?from&to)" do
+    setup do
+      Mox.set_mox_global()
+      :ok
+    end
+
+    @tag :tmp_dir
+    test "streams exactly the requested range, cut server-side", %{conn: conn, tmp_dir: root} do
+      audio = Path.join(root, "set.mp3")
+      File.write!(audio, "the-whole-4h-set")
+      mix = insert(:mix, audio_path: audio, duration_ms: 15_562_000)
+
+      Mox.expect(Beatgrid.Audio.MixCutterMock, :cut, fn src, dest, opts ->
+        assert src == audio
+        assert opts[:start_ms] == 14_405_000
+        assert opts[:end_ms] == 14_477_000
+        File.write!(dest, "exact-72s")
+        :ok
+      end)
+
+      resp = get(conn, ~p"/sets-online/#{mix.id}/audio?from=14405000&to=14477000")
+
+      assert resp.status == 200
+      assert get_resp_header(resp, "content-type") == ["audio/mpeg"]
+      assert resp.resp_body == "exact-72s"
+    end
+
+    @tag :tmp_dir
+    test "a context window past the end of the set is trimmed, not refused", %{
+      conn: conn,
+      tmp_dir: root
+    } do
+      audio = Path.join(root, "set.mp3")
+      File.write!(audio, "set")
+      mix = insert(:mix, audio_path: audio, duration_ms: 600_000)
+
+      Mox.expect(Beatgrid.Audio.MixCutterMock, :cut, fn _src, dest, opts ->
+        assert opts[:start_ms] == 0
+        assert opts[:end_ms] == 600_000
+        File.write!(dest, "trimmed")
+        :ok
+      end)
+
+      resp = get(conn, ~p"/sets-online/#{mix.id}/audio?from=-15000&to=900000")
+      assert resp.status == 200
+    end
+
+    @tag :tmp_dir
+    test "404 for a nonsense range instead of a broken player", %{conn: conn, tmp_dir: root} do
+      audio = Path.join(root, "set.mp3")
+      File.write!(audio, "set")
+      mix = insert(:mix, audio_path: audio, duration_ms: 600_000)
+
+      assert get(conn, ~p"/sets-online/#{mix.id}/audio?from=abc&to=1000").status == 404
+      assert get(conn, ~p"/sets-online/#{mix.id}/audio?from=5000&to=5000").status == 404
+    end
+  end
 end
