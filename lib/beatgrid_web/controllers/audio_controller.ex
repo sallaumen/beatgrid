@@ -47,10 +47,7 @@ defmodule BeatgridWeb.AudioController do
   def mix(conn, %{"id" => id, "from" => from, "to" => to}) do
     with %{} = mix <- Mixes.get_mix(id),
          {:ok, audio} <- Mixes.preview_cut(mix, parse_ms(from), parse_ms(to)) do
-      conn
-      |> put_resp_header("content-type", "audio/mpeg")
-      |> put_resp_header("cache-control", "no-store")
-      |> send_resp(200, audio)
+      serve_binary(conn, audio)
     else
       _ -> conn |> put_status(:not_found) |> text("Not found")
     end
@@ -111,6 +108,43 @@ defmodule BeatgridWeb.AudioController do
 
       _ ->
         send_file(conn, 200, path)
+    end
+  end
+
+  # Same Range contract as `serve/2`, for audio we hold in memory. Without
+  # `accept-ranges` (and a real 206) the browser marks the media unseekable and
+  # clicking the player's progress bar does nothing.
+  #
+  # Reviewed false-positive: mp3 bytes from ffmpeg, fixed audio/mpeg type.
+  @sobelow_skip ["XSS.SendResp"]
+  defp serve_binary(conn, audio) do
+    size = byte_size(audio)
+
+    conn =
+      conn
+      |> put_resp_header("content-type", "audio/mpeg")
+      |> put_resp_header("accept-ranges", "bytes")
+      |> put_resp_header("cache-control", "no-store")
+
+    case get_req_header(conn, "range") do
+      ["bytes=" <> spec] ->
+        case parse_range(spec, size) do
+          {:ok, offset, length} ->
+            conn
+            |> put_resp_header("content-range", "bytes #{offset}-#{offset + length - 1}/#{size}")
+            |> send_resp(206, :binary.part(audio, offset, length))
+
+          :unsatisfiable ->
+            conn
+            |> put_resp_header("content-range", "bytes */#{size}")
+            |> send_resp(416, "")
+
+          :invalid ->
+            send_resp(conn, 200, audio)
+        end
+
+      _no_range ->
+        send_resp(conn, 200, audio)
     end
   end
 

@@ -582,6 +582,24 @@ defmodule BeatgridWeb.MixLiveTest do
     end
 
     @tag :tmp_dir
+    test "the preview toggles between context and the exact cut", %{conn: conn, tmp_dir: tmp} do
+      view = open_recorte(conn, tmp)
+
+      html =
+        render_change(view, "recorte_change", %{"range" => "1:00:00-1:02:00", "title" => "X"})
+
+      # context mode: 15s of run-up, and marks are measured from there
+      assert html =~ ~s(data-window-start="3585000")
+      assert html =~ "from=3585000&amp;to=3735000"
+
+      html = view |> element("button[phx-value-mode=exact]") |> render_click()
+
+      # exact mode: the player IS the cut, so marks measure from its start
+      assert html =~ ~s(data-window-start="3600000")
+      assert html =~ "from=3600000&amp;to=3720000"
+    end
+
+    @tag :tmp_dir
     test "the ±5s buttons move one end and keep the range pasteable", %{conn: conn, tmp_dir: tmp} do
       view = open_recorte(conn, tmp)
       render_change(view, "recorte_change", %{"range" => "1:00:05-1:01:17", "title" => "X"})
@@ -602,7 +620,7 @@ defmodule BeatgridWeb.MixLiveTest do
       view = open_recorte(conn, tmp)
 
       html = render_change(view, "recorte_change", %{"range" => "abc", "title" => "X"})
-      assert html =~ "Formatos aceitos"
+      assert html =~ "aceita 3:59:14-4:00:50"
       refute html =~ "recorte-preview"
 
       html =

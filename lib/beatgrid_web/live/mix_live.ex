@@ -252,10 +252,15 @@ defmodule BeatgridWeb.MixLive do
   def handle_event("close_recorte", _params, socket),
     do: {:noreply, assign(socket, recorte: nil)}
 
+  def handle_event("recorte_mode", %{"mode" => mode}, socket) when mode in ~w(context exact),
+    do: {:noreply, assign(socket, recorte: %{socket.assigns.recorte | mode: mode})}
+
   # Every keystroke keeps the assign in sync so the preview players (and the
   # nudge buttons) always point at the range currently on screen.
   def handle_event("recorte_change", params, socket),
-    do: {:noreply, assign(socket, recorte: recorte_from_params(params))}
+    do:
+      {:noreply,
+       assign(socket, recorte: recorte_from_params(params, socket.assigns.recorte.mode))}
 
   def handle_event("nudge_recorte", %{"field" => field, "delta" => delta}, socket)
       when field in ~w(start end),
@@ -535,155 +540,188 @@ defmodule BeatgridWeb.MixLive do
             </button>
           </div>
           <p class="mt-1 text-caption text-ink-muted">
-            O trecho vira uma faixa DE VERDADE na Biblioteca — MP3 próprio, com marca de
-            recorte e link de volta pra este set. Depois ela entra no fluxo normal
-            (BPM, loudness, marcadores). Tempos em h:mm:ss ou mm:ss.
-          </p>
-          <p class="mt-1.5 rounded-md bg-amber/10 px-2 py-1 text-caption text-amber">
-            ⚠ O relógio do player acima erra em sets longos (MP3 de horas: o navegador
-            estima a posição e escorrega até minutos). <b>Confie na prévia abaixo</b> — ela
-            toca exatamente os segundos que serão salvos.
-          </p>
-          <form
-            id="recorte-form"
-            phx-change="recorte_change"
-            phx-submit="create_recorte"
-            class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-8"
-          >
-            <label class="col-span-2 text-caption text-ink-muted">
-              Trecho — cole início-fim de uma vez
-              <input
-                name="range"
-                value={@recorte.range}
-                placeholder="3:59:14-4:00:50"
-                class="mt-0.5 w-full rounded-md border border-white/10 bg-input px-2 py-1 font-mono text-body-sm text-ink placeholder:text-ink-faint focus:border-primary/50 focus:outline-none"
-              />
-            </label>
-            <label class="col-span-2 text-caption text-ink-muted">
-              Título da música
-              <input
-                name="title"
-                value={@recorte.title}
-                required
-                placeholder="Osso duro de roer"
-                class="mt-0.5 w-full rounded-md border border-white/10 bg-input px-2 py-1 text-body-sm text-ink focus:border-primary/50 focus:outline-none"
-              />
-            </label>
-            <label class="col-span-2 text-caption text-ink-muted">
-              Artista (opcional)
-              <input
-                name="artist"
-                value={@recorte.artist}
-                placeholder="Os 3 do Nordeste"
-                class="mt-0.5 w-full rounded-md border border-white/10 bg-input px-2 py-1 text-body-sm text-ink focus:border-primary/50 focus:outline-none"
-              />
-            </label>
-            <label class="text-caption text-ink-muted">
-              Pasta
-              <select
-                name="folder"
-                class="mt-0.5 w-full rounded-md border border-white/10 bg-input px-2 py-1 text-body-sm text-ink focus:border-primary/50 focus:outline-none"
-              >
-                <option value="">_Inbox</option>
-                <option :for={f <- @folders} value={f.key} selected={@recorte.folder == f.key}>
-                  {f.display_name}
-                </option>
-              </select>
-            </label>
-            <div class="flex items-end">
-              <button
-                type="submit"
-                disabled={is_nil(recorte_range(@recorte))}
-                class="w-full rounded-md bg-primary px-3 py-1.5 text-body-sm font-semibold text-white disabled:opacity-40"
-              >
-                Criar
-              </button>
-            </div>
-          </form>
-
-          <p
-            :if={is_nil(recorte_range(@recorte))}
-            class="mt-1.5 font-mono text-caption text-ink-faint"
-          >
-            Formatos aceitos: 3:59:14-4:00:50 · 59:14 - 1:00:50 · 3:59:14 4:00:50
+            O trecho vira uma faixa de verdade na Biblioteca — MP3 próprio, marcado como
+            recorte e ligado a este set.
           </p>
 
-          <div
-            :if={recorte_range(@recorte)}
-            id="recorte-preview"
-            phx-hook=".RecortePreview"
-            data-window-start={recorte_window_start(@recorte)}
-            data-range={recorte_canonical(@recorte)}
-            data-src-context={recorte_preview_src(@mix, @recorte, context_pad_ms())}
-            data-src-exact={recorte_preview_src(@mix, @recorte, 0)}
-            class="mt-3 border-t border-white/6 pt-3"
-          >
-            <div class="flex flex-wrap items-center gap-1.5">
-              <span class="font-mono text-caption text-ink-secondary">
-                {recorte_summary(@recorte)}
-              </span>
-              <button
-                type="button"
-                data-recorte-copy
-                title="Copiar o trecho (pra colar em outro lugar ou guardar)"
-                class="rounded border border-white/10 px-2 py-0.5 text-[11px] text-ink-muted hover:text-ink"
-              >
-                ⧉ copiar
-              </button>
-              <button
-                :for={
-                  {field, delta, label} <- [
-                    {"start", -5000, "início −5s"},
-                    {"start", 5000, "início +5s"},
-                    {"end", -5000, "fim −5s"},
-                    {"end", 5000, "fim +5s"}
-                  ]
-                }
-                type="button"
-                phx-click="nudge_recorte"
-                phx-value-field={field}
-                phx-value-delta={delta}
-                class="rounded border border-white/10 px-2 py-0.5 font-mono text-[11px] text-ink-muted hover:text-ink"
-              >
-                {label}
-              </button>
-            </div>
+          <div class="mt-4 space-y-4">
+            <section>
+              <div class="flex items-baseline gap-2">
+                <span class="text-caption font-bold text-primary">1</span>
+                <h4 class="text-body-sm font-semibold">Trecho</h4>
+                <span class="text-caption text-ink-faint">cole início-fim de uma vez</span>
+              </div>
 
-            <div class="mt-2 grid gap-3 sm:grid-cols-2">
-              <div class="rounded-lg border border-primary/20 bg-base/40 p-2">
-                <p class="text-caption font-semibold text-ink-secondary">
-                  Ouça e marque (15s antes e depois)
-                </p>
-                <audio id="recorte-context" controls preload="none" class="mt-1 w-full" />
-                <div class="mt-1.5 flex gap-1.5">
+              <div class="mt-1.5 flex flex-wrap items-center gap-2">
+                <input
+                  form="recorte-form"
+                  name="range"
+                  value={@recorte.range}
+                  aria-label="Trecho do recorte (início-fim)"
+                  placeholder="3:59:14-4:00:50"
+                  class="h-10 w-56 rounded-lg border border-white/12 bg-input px-3 font-mono text-body text-ink placeholder:text-ink-faint focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+                />
+                <span
+                  :if={recorte_range(@recorte)}
+                  class="font-mono text-body-sm tabular-nums text-ink-secondary"
+                >
+                  {recorte_summary(@recorte)}
+                </span>
+                <button
+                  :if={recorte_range(@recorte)}
+                  type="button"
+                  data-recorte-copy
+                  form="recorte-form"
+                  title="Copiar o trecho"
+                  class="h-8 rounded-md border border-white/12 px-2.5 text-caption text-ink-muted hover:border-white/25 hover:text-ink focus:outline-none focus:ring-2 focus:ring-primary/40"
+                >
+                  ⧉ copiar
+                </button>
+              </div>
+
+              <p
+                :if={is_nil(recorte_range(@recorte))}
+                class="mt-1.5 font-mono text-caption text-ink-faint"
+              >
+                aceita 3:59:14-4:00:50 · 59:14 - 1:00:50 · 3:59:14 4:00:50
+              </p>
+
+              <div :if={recorte_range(@recorte)} class="mt-2 flex flex-wrap items-center gap-3">
+                <div
+                  :for={{field, label} <- [{"start", "início"}, {"end", "fim"}]}
+                  class="flex items-center gap-1"
+                >
+                  <span class="w-11 text-caption text-ink-faint">{label}</span>
                   <button
+                    :for={delta <- [-5000, 5000]}
                     type="button"
-                    data-mark="start"
-                    title="O ponto onde a prévia está agora vira o INÍCIO do recorte"
-                    class="flex-1 rounded border border-primary/40 px-2 py-1 text-[11px] font-semibold text-primary hover:bg-primary/10"
+                    phx-click="nudge_recorte"
+                    phx-value-field={field}
+                    phx-value-delta={delta}
+                    class="h-8 w-11 rounded-md border border-white/12 font-mono text-caption text-ink-secondary hover:border-primary/50 hover:text-ink focus:outline-none focus:ring-2 focus:ring-primary/40"
                   >
-                    ⟵ marcar início aqui
-                  </button>
-                  <button
-                    type="button"
-                    data-mark="end"
-                    title="O ponto onde a prévia está agora vira o FIM do recorte"
-                    class="flex-1 rounded border border-primary/40 px-2 py-1 text-[11px] font-semibold text-primary hover:bg-primary/10"
-                  >
-                    marcar fim aqui ⟶
+                    {if delta < 0, do: "−5s", else: "+5s"}
                   </button>
                 </div>
               </div>
-              <div class="rounded-lg border border-white/8 bg-base/40 p-2">
-                <p class="text-caption font-semibold text-ink-secondary">
-                  Confira o corte exato (o que será salvo)
-                </p>
-                <audio id="recorte-exact" controls preload="none" class="mt-1 w-full" />
-                <p class="mt-1.5 text-caption text-ink-faint">
-                  Começou tarde? Marque de novo ou use os ±5s. A duração salva é <b>{recorte_length_label(@recorte)}</b>.
-                </p>
+            </section>
+
+            <section
+              :if={recorte_range(@recorte)}
+              id="recorte-preview"
+              phx-hook=".RecortePreview"
+              data-window-start={recorte_window_start(@recorte)}
+              data-range={recorte_canonical(@recorte)}
+              data-src={recorte_preview_src(@mix, @recorte, recorte_pad(@recorte))}
+            >
+              <div class="flex flex-wrap items-baseline gap-2">
+                <span class="text-caption font-bold text-primary">2</span>
+                <h4 class="text-body-sm font-semibold">Ouça e marque</h4>
+                <div class="ml-auto flex overflow-hidden rounded-md border border-white/12">
+                  <button
+                    :for={
+                      {mode, label} <- [
+                        {"context", "com 15s de contexto"},
+                        {"exact", "só o corte"}
+                      ]
+                    }
+                    type="button"
+                    phx-click="recorte_mode"
+                    phx-value-mode={mode}
+                    aria-pressed={to_string(@recorte.mode == mode)}
+                    class={[
+                      "px-2.5 py-1 text-caption focus:outline-none focus:ring-2 focus:ring-primary/40",
+                      (@recorte.mode == mode && "bg-primary/20 text-primary") ||
+                        "text-ink-muted hover:text-ink"
+                    ]}
+                  >
+                    {label}
+                  </button>
+                </div>
               </div>
-            </div>
+
+              <audio id="recorte-player" controls preload="metadata" class="mt-1.5 w-full" />
+
+              <div class="mt-2 flex flex-col gap-2 sm:flex-row">
+                <button
+                  type="button"
+                  data-mark="start"
+                  title="Onde a prévia está agora vira o início do recorte (tecla I)"
+                  class="flex h-11 flex-1 items-center justify-center gap-2 rounded-lg border border-primary/50 bg-primary/10 text-body-sm font-semibold text-primary hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                >
+                  ⟵ marcar início <kbd class="rounded bg-black/30 px-1 font-mono text-[10px]">I</kbd>
+                </button>
+                <button
+                  type="button"
+                  data-mark="end"
+                  title="Onde a prévia está agora vira o fim do recorte (tecla O)"
+                  class="flex h-11 flex-1 items-center justify-center gap-2 rounded-lg border border-primary/50 bg-primary/10 text-body-sm font-semibold text-primary hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                >
+                  marcar fim <kbd class="rounded bg-black/30 px-1 font-mono text-[10px]">O</kbd> ⟶
+                </button>
+              </div>
+
+              <p class="mt-1.5 text-caption text-ink-faint">
+                Esta prévia é cortada no servidor: a posição dela é exata (o relógio do player
+                do set inteiro escorrega em MP3 de horas). Atalhos: <b>espaço</b>
+                toca/pausa, <b>I</b>
+                marca início, <b>O</b>
+                marca fim.
+              </p>
+            </section>
+
+            <section>
+              <div class="flex items-baseline gap-2">
+                <span class="text-caption font-bold text-primary">3</span>
+                <h4 class="text-body-sm font-semibold">Nome e destino</h4>
+              </div>
+
+              <form
+                id="recorte-form"
+                phx-change="recorte_change"
+                phx-submit="create_recorte"
+                class="mt-1.5 grid grid-cols-1 items-end gap-2 sm:grid-cols-12"
+              >
+                <label class="text-caption text-ink-muted sm:col-span-4">
+                  Título da música
+                  <input
+                    name="title"
+                    value={@recorte.title}
+                    required
+                    placeholder="Osso duro de roer"
+                    class="mt-0.5 h-10 w-full rounded-lg border border-white/12 bg-input px-3 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  />
+                </label>
+                <label class="text-caption text-ink-muted sm:col-span-4">
+                  Artista <span class="text-ink-faint">(opcional)</span>
+                  <input
+                    name="artist"
+                    value={@recorte.artist}
+                    placeholder="Os 3 do Nordeste"
+                    class="mt-0.5 h-10 w-full rounded-lg border border-white/12 bg-input px-3 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  />
+                </label>
+                <label class="text-caption text-ink-muted sm:col-span-2">
+                  Pasta
+                  <select
+                    name="folder"
+                    class="mt-0.5 h-10 w-full rounded-lg border border-white/12 bg-input px-2 text-body-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  >
+                    <option value="">_Inbox</option>
+                    <option :for={f <- @folders} value={f.key} selected={@recorte.folder == f.key}>
+                      {f.display_name}
+                    </option>
+                  </select>
+                </label>
+                <button
+                  type="submit"
+                  disabled={is_nil(recorte_range(@recorte))}
+                  class="h-10 rounded-lg bg-primary px-4 text-body-sm font-semibold text-white hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-40 sm:col-span-2"
+                >
+                  ✂ Criar
+                </button>
+              </form>
+            </section>
           </div>
         </div>
 
@@ -712,37 +750,54 @@ defmodule BeatgridWeb.MixLive do
       // longo), então marcar início/fim aqui = tempo absoluto exato no arquivo.
       export default {
         mounted() {
-          this.ctx = this.el.querySelector("#recorte-context")
-          this.exact = this.el.querySelector("#recorte-exact")
+          this.player = this.el.querySelector("#recorte-player")
           this.sync()
+
           this.el.addEventListener("click", (e) => {
             const mark = e.target.closest("[data-mark]")
-            if (mark) {
-              const at = Number(this.el.dataset.windowStart) + this.ctx.currentTime * 1000
-              this.pushEvent("mark_recorte", {field: mark.dataset.mark, ms: Math.round(at)})
-              return
-            }
+            if (mark) return this.mark(mark.dataset.mark)
             if (e.target.closest("[data-recorte-copy]")) {
               navigator.clipboard.writeText(this.el.dataset.range || "")
             }
           })
+
+          // Atalhos de editor: I/O marcam entrada e saída, espaço toca.
+          this.onKeys = (e) => {
+            const t = e.target
+            if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return
+            const k = e.key.toLowerCase()
+            if (k === "i" || k === "o") {
+              this.mark(k === "i" ? "start" : "end")
+            } else if (e.key === " ") {
+              this.player.paused ? this.player.play().catch(() => {}) : this.player.pause()
+            } else {
+              return
+            }
+            e.preventDefault()
+          }
+          window.addEventListener("keydown", this.onKeys)
         },
 
         updated() {
           this.sync()
         },
 
+        destroyed() {
+          window.removeEventListener("keydown", this.onKeys)
+        },
+
+        mark(field) {
+          const at = Number(this.el.dataset.windowStart) + this.player.currentTime * 1000
+          this.pushEvent("mark_recorte", {field, ms: Math.round(at)})
+        },
+
         // Trocar o src de um <audio> não recarrega sozinho: sem o load() o
         // player continuaria tocando o trecho anterior depois de um ajuste.
         sync() {
-          for (const [el, src] of [
-            [this.ctx, this.el.dataset.srcContext],
-            [this.exact, this.el.dataset.srcExact],
-          ]) {
-            if (el && el.getAttribute("src") !== src) {
-              el.setAttribute("src", src)
-              el.load()
-            }
+          const src = this.el.dataset.src
+          if (this.player && this.player.getAttribute("src") !== src) {
+            this.player.setAttribute("src", src)
+            this.player.load()
           }
         },
       }
@@ -825,7 +880,7 @@ defmodule BeatgridWeb.MixLive do
   # ── Recortes ────────────────────────────────────────────────────────────────
 
   defp recorte_prefill(_mix, nil),
-    do: %{range: "", artist: "", title: "", folder: nil}
+    do: %{range: "", artist: "", title: "", folder: nil, mode: "context"}
 
   defp recorte_prefill(mix, seg) do
     end_ms = seg.end_ms || min(seg.start_ms + 90_000, mix.duration_ms || seg.start_ms + 90_000)
@@ -834,16 +889,18 @@ defmodule BeatgridWeb.MixLive do
       range: range_text(seg.start_ms, end_ms),
       artist: seg.artist || "",
       title: seg.title || "",
-      folder: nil
+      folder: nil,
+      mode: "context"
     }
   end
 
-  defp recorte_from_params(params) do
+  defp recorte_from_params(params, mode \\ "context") do
     %{
       range: params["range"] || "",
       artist: params["artist"] || "",
       title: params["title"] || "",
-      folder: if(params["folder"] == "", do: nil, else: params["folder"])
+      folder: if(params["folder"] == "", do: nil, else: params["folder"]),
+      mode: mode
     }
   end
 
@@ -911,11 +968,14 @@ defmodule BeatgridWeb.MixLive do
   # Seconds of run-up the context preview adds around the cut.
   defp context_pad_ms, do: 15_000
 
-  # Where the context preview starts in the set — the hook adds the player's
-  # own position to this to turn "aqui" into an absolute time.
+  defp recorte_pad(%{mode: "exact"}), do: 0
+  defp recorte_pad(_recorte), do: context_pad_ms()
+
+  # Where the preview starts in the set — the hook adds the player's own
+  # position to this to turn "aqui" into an absolute time.
   defp recorte_window_start(recorte) do
     {from, _to} = recorte_range(recorte)
-    max(from - context_pad_ms(), 0)
+    max(from - recorte_pad(recorte), 0)
   end
 
   defp recorte_canonical(recorte) do
