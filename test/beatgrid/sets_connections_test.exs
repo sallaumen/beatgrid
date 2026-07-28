@@ -247,6 +247,26 @@ defmodule Beatgrid.SetsConnectionsTest do
       assert Sets.entry_after(set.id, a.id).transition == nil
     end
 
+    test "derived_timing exposes the exact points a hint would fire and enter at" do
+      outgoing =
+        insert(:track,
+          status: :present,
+          duration_ms: 200_000,
+          cue_points: [%{"ms" => 180_000, "type" => "outro", "source" => "auto"}]
+        )
+
+      incoming =
+        insert(:track,
+          status: :present,
+          cue_points: [%{"ms" => 4_000, "type" => "intro", "source" => "auto"}]
+        )
+
+      assert Sets.derived_timing(outgoing, incoming) == %{from_ms: 180_000, to_ms: 4_000}
+
+      bare = insert(:track, status: :present, duration_ms: 200_000)
+      assert Sets.derived_timing(bare, incoming) == %{from_ms: 192_000, to_ms: 4_000}
+    end
+
     # Simulates a pre-derivation row: timing frozen into the JSON at plan time.
     defp legacy_row_with_stale_timing(set, track, from_ms, to_ms) do
       row = Repo.get_by!(Beatgrid.Sets.SetTrack, rec_set_id: set.id, track_id: track.id)

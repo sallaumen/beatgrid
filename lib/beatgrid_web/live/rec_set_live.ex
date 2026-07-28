@@ -4,7 +4,7 @@ defmodule BeatgridWeb.RecSetLive do
 
   import BeatgridWeb.UI
 
-  alias Beatgrid.Library.{GenreFolders, TrackQuery, Tracks}
+  alias Beatgrid.Library.{GenreFolders, Marker, TrackQuery, Tracks}
   alias Beatgrid.Mixing
   alias Beatgrid.Mixing.StyleAffinity
   alias Beatgrid.Playback
@@ -71,8 +71,16 @@ defmodule BeatgridWeb.RecSetLive do
     {:noreply, assign(socket, playing_track_id: np.track_id, playing_set_id: np.set_id)}
   end
 
-  defp load_set(socket, nil),
-    do: assign(socket, set: nil, entries: [], loudness_jumps: %{}, candidates: [], arc: [])
+  defp load_set(socket, nil) do
+    assign(socket,
+      set: nil,
+      entries: [],
+      loudness_jumps: %{},
+      pair_timings: %{},
+      candidates: [],
+      arc: []
+    )
+  end
 
   defp load_set(socket, set) do
     entries = Sets.entries(set)
@@ -82,10 +90,29 @@ defmodule BeatgridWeb.RecSetLive do
       set: set,
       entries: entries,
       loudness_jumps: loudness_jumps(entries),
+      pair_timings: pair_timings(entries),
       arc: Sets.arc_series(set)
     )
     |> assign_candidates()
   end
+
+  # What the console will actually DO at each boundary, derived from the
+  # CURRENT markers — the editor shows the mix points, not just the type.
+  defp pair_timings(entries) do
+    entries
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Map.new(fn [prev, this] ->
+      timing = Sets.derived_timing(prev.track, this.track)
+      {this.track.id, Map.put(timing, :has_outro?, Marker.outro(prev.track) != nil)}
+    end)
+  end
+
+  defp pair_summary(%{from_ms: from, to_ms: to, has_outro?: has_outro?}) do
+    exit_label = if has_outro?, do: "sai #{format_ms(from)}", else: "sai ~fim"
+    "#{exit_label} · entra #{format_ms(to)}"
+  end
+
+  defp pair_warns?(%{has_outro?: has_outro?}), do: not has_outro?
 
   defp reload(socket), do: load_set(socket, Sets.get(socket.assigns.set.id))
 
@@ -754,6 +781,16 @@ defmodule BeatgridWeb.RecSetLive do
                       {transition_abbrev(t)}
                     </button>
                   </div>
+                  <span
+                    :if={transition_on?(e) && @pair_timings[e.track.id]}
+                    class={[
+                      "whitespace-nowrap font-mono text-[9px]",
+                      (pair_warns?(@pair_timings[e.track.id]) && "text-amber") || "text-ink-faint"
+                    ]}
+                    title="Pontos derivados dos marcadores ATUAIS da faixa que sai e da que entra — é aqui que o console dispara e onde a próxima começa. '~fim' = sem marcador de saída, corte na janela final."
+                  >
+                    {pair_summary(@pair_timings[e.track.id])}
+                  </span>
                   <button
                     :if={transition_on?(e)}
                     type="button"

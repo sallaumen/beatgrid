@@ -60,11 +60,14 @@ defmodule BeatgridWeb.DashboardLiveTest do
     insert(:track, status: :present, rel_path: "u2.mp3", cue_points: [])
 
     {:ok, view, html} = live(conn, ~p"/painel")
-    assert html =~ "Mapear marcadores (2)"
+    assert html =~ "Mapear faltantes (2)"
+    assert html =~ "0/2 com marcadores"
 
-    html = view |> element("button", "Mapear marcadores") |> render_click()
+    html = view |> element("button", "Mapear faltantes") |> render_click()
 
     assert html =~ "Mapeando marcadores de 2 faixa"
+    # both queued → the remap button flips to its busy state
+    assert html =~ "Re-mapeando…"
     assert_enqueued(worker: MarkerAnalyzeWorker)
   end
 
