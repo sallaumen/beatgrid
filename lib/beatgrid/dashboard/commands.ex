@@ -36,6 +36,13 @@ defmodule Beatgrid.Dashboard.Commands do
     {:ok, %{markers_unmapped: Markers.unmapped_count(), markers_note: note}}
   end
 
+  def run(:remap_markers, _opts) do
+    {:ok, count} = Markers.enqueue_all()
+
+    note = "Re-mapeando #{count} faixa(s) com o detector novo — acompanhe em Jobs."
+    {:ok, %{markers_unmapped: Markers.unmapped_count(), markers_note: note}}
+  end
+
   def run(:analyze_loudness, _opts) do
     {:ok, count} = Loudness.enqueue_pending()
 

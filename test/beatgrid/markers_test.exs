@@ -72,5 +72,16 @@ defmodule Beatgrid.MarkersTest do
       assert_enqueued(worker: MarkerAnalyzeWorker, args: %{track_id: t_1.id})
       assert_enqueued(worker: MarkerAnalyzeWorker, args: %{track_id: t_2.id})
     end
+
+    test "enqueue_all re-enqueues every present track, mapped or not (detector rollout)" do
+      fresh = insert(:track, status: :present, rel_path: "f.mp3", cue_points: [])
+      mapped = insert(:track, status: :present, rel_path: "m.mp3", cue_points: [auto(500)])
+      _absent = insert(:track, status: :quarantined, rel_path: "q.mp3", cue_points: [])
+
+      assert {:ok, 2} = Markers.enqueue_all()
+
+      assert_enqueued(worker: MarkerAnalyzeWorker, args: %{track_id: fresh.id})
+      assert_enqueued(worker: MarkerAnalyzeWorker, args: %{track_id: mapped.id})
+    end
   end
 end

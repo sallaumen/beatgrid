@@ -63,10 +63,23 @@ defmodule Beatgrid.Markers do
   (manual markers are preserved by the worker). Returns `{:ok, enqueued_count}`.
   """
   @spec enqueue_unmapped() :: {:ok, non_neg_integer()}
-  def enqueue_unmapped do
+  def enqueue_unmapped, do: enqueue_ids(unmapped_ids())
+
+  @doc """
+  Re-enqueues marker analysis for EVERY present track — the rollout path after
+  a detector upgrade. Auto markers are replaced; manual ones survive.
+  """
+  @spec enqueue_all() :: {:ok, non_neg_integer()}
+  def enqueue_all do
+    [status: :present]
+    |> Tracks.list_by()
+    |> Enum.map(& &1.id)
+    |> enqueue_ids()
+  end
+
+  defp enqueue_ids(ids) do
     count =
-      unmapped_ids()
-      |> Enum.reduce(0, fn id, acc ->
+      Enum.reduce(ids, 0, fn id, acc ->
         case MarkerAnalyzeWorker.enqueue(id) do
           {:ok, _job} -> acc + 1
           _error -> acc
