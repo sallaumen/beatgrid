@@ -252,6 +252,28 @@ defmodule BeatgridWeb.MixLive do
   def handle_event("close_recorte", _params, socket),
     do: {:noreply, assign(socket, recorte: nil)}
 
+  # Every keystroke keeps the assign in sync so the preview players (and the
+  # nudge buttons) always point at the range currently on screen.
+  def handle_event("recorte_change", params, socket),
+    do: {:noreply, assign(socket, recorte: recorte_from_params(params))}
+
+  def handle_event("nudge_recorte", %{"field" => field, "delta" => delta}, socket)
+      when field in ~w(start end) do
+    recorte = socket.assigns.recorte
+    current = parse_clock_ms(Map.get(recorte, String.to_existing_atom(field)))
+
+    if current do
+      shifted = max(current + String.to_integer(delta), 0)
+
+      {:noreply,
+       assign(socket,
+         recorte: %{recorte | String.to_existing_atom(field) => format_clock(shifted)}
+       )}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_event("create_recorte", params, socket) do
     attrs = %{
       start_ms: parse_clock_ms(params["start"]),
@@ -523,13 +545,42 @@ defmodule BeatgridWeb.MixLive do
             recorte e link de volta pra este set. Depois ela entra no fluxo normal
             (BPM, loudness, marcadores). Tempos em h:mm:ss ou mm:ss.
           </p>
-          <form phx-submit="create_recorte" class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-7">
+          <p class="mt-1.5 rounded-md bg-amber/10 px-2 py-1 text-caption text-amber">
+            ⚠ O relógio do player acima erra em sets longos (MP3 de horas: o navegador
+            estima a posição e escorrega até minutos). <b>Confie na prévia abaixo</b> — ela
+            toca exatamente os segundos que serão salvos.
+          </p>
+          <form
+            id="recorte-form"
+            phx-change="recorte_change"
+            phx-submit="create_recorte"
+            class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-7"
+          >
+            <label class="text-caption text-ink-muted sm:col-span-2">
+              Título da música
+              <input
+                name="title"
+                value={@recorte.title}
+                required
+                placeholder="Osso duro de roer"
+                class="mt-0.5 w-full rounded-md border border-white/10 bg-input px-2 py-1 text-body-sm text-ink focus:border-primary/50 focus:outline-none"
+              />
+            </label>
+            <label class="text-caption text-ink-muted sm:col-span-2">
+              Artista (opcional)
+              <input
+                name="artist"
+                value={@recorte.artist}
+                placeholder="Os 3 do Nordeste"
+                class="mt-0.5 w-full rounded-md border border-white/10 bg-input px-2 py-1 text-body-sm text-ink focus:border-primary/50 focus:outline-none"
+              />
+            </label>
             <label class="text-caption text-ink-muted">
               Início
               <input
                 name="start"
                 value={@recorte.start}
-                placeholder="43:10"
+                placeholder="4:00:05"
                 class="mt-0.5 w-full rounded-md border border-white/10 bg-input px-2 py-1 font-mono text-body-sm text-ink focus:border-primary/50 focus:outline-none"
               />
             </label>
@@ -538,27 +589,8 @@ defmodule BeatgridWeb.MixLive do
               <input
                 name="end"
                 value={@recorte.end}
-                placeholder="44:40"
+                placeholder="4:01:17"
                 class="mt-0.5 w-full rounded-md border border-white/10 bg-input px-2 py-1 font-mono text-body-sm text-ink focus:border-primary/50 focus:outline-none"
-              />
-            </label>
-            <label class="text-caption text-ink-muted sm:col-span-2">
-              Artista
-              <input
-                name="artist"
-                value={@recorte.artist}
-                placeholder="opcional"
-                class="mt-0.5 w-full rounded-md border border-white/10 bg-input px-2 py-1 text-body-sm text-ink focus:border-primary/50 focus:outline-none"
-              />
-            </label>
-            <label class="text-caption text-ink-muted sm:col-span-2">
-              Título
-              <input
-                name="title"
-                value={@recorte.title}
-                required
-                placeholder="Nome da música"
-                class="mt-0.5 w-full rounded-md border border-white/10 bg-input px-2 py-1 text-body-sm text-ink focus:border-primary/50 focus:outline-none"
               />
             </label>
             <label class="text-caption text-ink-muted">
@@ -582,6 +614,55 @@ defmodule BeatgridWeb.MixLive do
               </button>
             </div>
           </form>
+
+          <div :if={recorte_range(@recorte)} class="mt-3 border-t border-white/6 pt-3">
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="mr-1 text-caption font-semibold text-ink-secondary">Ajuste fino:</span>
+              <button
+                :for={
+                  {field, delta, label} <- [
+                    {"start", -5000, "início −5s"},
+                    {"start", 5000, "início +5s"},
+                    {"end", -5000, "fim −5s"},
+                    {"end", 5000, "fim +5s"}
+                  ]
+                }
+                type="button"
+                phx-click="nudge_recorte"
+                phx-value-field={field}
+                phx-value-delta={delta}
+                class="rounded border border-white/10 px-2 py-0.5 font-mono text-[11px] text-ink-muted hover:text-ink"
+              >
+                {label}
+              </button>
+              <span class="ml-auto font-mono text-caption text-ink-muted">
+                duração {recorte_length_label(@recorte)}
+              </span>
+            </div>
+
+            <div class="mt-2 grid gap-2 sm:grid-cols-2">
+              <div>
+                <p class="text-caption text-ink-muted">▶ Trecho exato (o que será salvo)</p>
+                <audio
+                  id={"recorte-preview-#{recorte_key(@recorte)}"}
+                  controls
+                  preload="none"
+                  src={recorte_preview_src(@mix, @recorte, 0)}
+                  class="mt-1 w-full"
+                />
+              </div>
+              <div>
+                <p class="text-caption text-ink-muted">▶ Com 15s antes e depois (contexto)</p>
+                <audio
+                  id={"recorte-context-#{recorte_key(@recorte)}"}
+                  controls
+                  preload="none"
+                  src={recorte_preview_src(@mix, @recorte, 15_000)}
+                  class="mt-1 w-full"
+                />
+              </div>
+            </div>
+          </div>
         </div>
 
         <ol :if={@mix.segments != []} class="mt-5 space-y-1">
@@ -716,6 +797,34 @@ defmodule BeatgridWeb.MixLive do
       |> Enum.reduce(0, fn part, acc -> acc * 60 + part end)
       |> Kernel.*(1000)
     end
+  end
+
+  # The range currently typed, in ms — nil while it isn't a usable pair yet.
+  defp recorte_range(recorte) do
+    with from when is_integer(from) <- parse_clock_ms(recorte.start),
+         to when is_integer(to) <- parse_clock_ms(recorte.end),
+         true <- to > from do
+      {from, to}
+    else
+      _incomplete -> nil
+    end
+  end
+
+  defp recorte_preview_src(mix, recorte, pad_ms) do
+    {from, to} = recorte_range(recorte)
+    ~p"/sets-online/#{mix.id}/audio?from=#{max(from - pad_ms, 0)}&to=#{to + pad_ms}"
+  end
+
+  # The players are keyed by range so a nudge swaps the element (a plain src
+  # change on a played <audio> keeps the old buffer).
+  defp recorte_key(recorte) do
+    {from, to} = recorte_range(recorte)
+    "#{from}-#{to}"
+  end
+
+  defp recorte_length_label(recorte) do
+    {from, to} = recorte_range(recorte)
+    format_clock(to - from)
   end
 
   defp recorte_error(:no_audio),

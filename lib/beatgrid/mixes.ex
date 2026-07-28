@@ -355,6 +355,41 @@ defmodule Beatgrid.Mixes do
     end
   end
 
+  @doc """
+  The exact bytes a recorte of this range would save, so the DJ can judge it by
+  ear before committing. The browser's own seeking on a long VBR mp3 drifts by
+  minutes; this is cut server-side, so it never lies. The temp file lives and
+  dies here — callers get audio, not a path.
+  """
+  @spec preview_cut(Mix.t(), integer() | nil, integer() | nil) ::
+          {:ok, binary()} | {:error, term()}
+  def preview_cut(%Mix{} = mix, from_ms, to_ms) do
+    cut = clamp_to_mix(mix, from_ms, to_ms)
+
+    with :ok <- audio_available(mix),
+         :ok <- validate_cut_range(mix, cut) do
+      name = "recorte-preview-#{mix.id}-#{cut.start_ms}-#{cut.end_ms}.mp3"
+      path = Path.join(System.tmp_dir!(), name)
+      opts = [start_ms: cut.start_ms, end_ms: cut.end_ms, artist: "", title: "prévia"]
+
+      try do
+        with :ok <- @cutter.cut(mix.audio_path, path, opts), do: File.read(path)
+      after
+        File.rm(path)
+      end
+    end
+  end
+
+  # A context preview asks for seconds around the cut that may fall outside the
+  # set — trim to what exists instead of refusing to play.
+  defp clamp_to_mix(%Mix{duration_ms: dur}, from_ms, to_ms)
+       when is_integer(from_ms) and is_integer(to_ms) do
+    ceiling = if is_integer(dur) and dur > 0, do: min(to_ms, dur), else: to_ms
+    %{start_ms: max(from_ms, 0), end_ms: ceiling}
+  end
+
+  defp clamp_to_mix(_mix, from_ms, to_ms), do: %{start_ms: from_ms, end_ms: to_ms}
+
   @doc "Executes a validated cut (the `MixCutWorker` body): file, track row, analysis."
   @spec cut_to_track(Mix.t(), map()) :: {:ok, Library.Track.t()} | {:error, term()}
   def cut_to_track(%Mix{} = mix, cut) do
