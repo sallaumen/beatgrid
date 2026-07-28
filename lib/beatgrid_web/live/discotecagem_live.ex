@@ -261,6 +261,28 @@ defmodule BeatgridWeb.DiscotecagemLive do
     end
   end
 
+  # O DJ cancelou a transição que acabou de disparar (tecla X): a faixa
+  # resgatada volta a ser o ponteiro do set e a dica seguinte é re-armada — o
+  # deck derrubado acabou de silenciar, então o preload o reencontra livre.
+  def handle_event("transition_cancelled", %{"track_id" => id, "deck" => deck}, socket) do
+    socket = socket |> assign(active_deck: deck, playing?: true) |> assign_deck_by_id(deck, id)
+
+    case in_set_entry(socket, id) do
+      nil ->
+        Playback.set_now_playing(%{track_id: id, set_id: nil})
+        {:noreply, push_hint(socket, nil)}
+
+      _entry ->
+        set = socket.assigns.set
+        Playback.set_now_playing(%{track_id: id, set_id: set.id})
+
+        {:noreply,
+         socket
+         |> assign(pointer_id: id)
+         |> push_hint(Sets.entry_after(set.id, id))}
+    end
+  end
+
   # O cliente armou a dica num deck concreto — cabeçalho do deck + card Próxima.
   def handle_event("hint_armed", %{"deck" => deck, "track_id" => id}, socket)
       when deck in ["a", "b"],
@@ -718,6 +740,14 @@ defmodule BeatgridWeb.DiscotecagemLive do
                     {label}
                   </button>
                 </div>
+                <p class="px-3 pb-2 text-[9px] leading-relaxed text-ink-faint">
+                  Teclado: <b>T</b>
+                  dispara a próxima · <b>W</b>
+                  adia 15s · <b>X</b>
+                  cancela · <b>A</b>
+                  auto · <b>←→</b>
+                  crossfader
+                </p>
               </details>
             </div>
 
@@ -1036,6 +1066,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
                   const tag = mode === "manual" ? " (manual)" : ""
                   this.log(`transição ${type.toUpperCase()}${tag} → deck ${deck.toUpperCase()}`)
                   window.dispatchEvent(new CustomEvent("beatgrid:playing", {detail: {source: "dj-console"}}))
+                },
+                transitionCancelled: ({trackId, deck}) => {
+                  this.pushEvent("transition_cancelled", {track_id: trackId, deck})
+                  this.log(`✕ transição cancelada — deck ${deck.toUpperCase()} de volta ao ar`)
                 },
                 trackEnded: ({trackId}) => {
                   this.hint = null
@@ -1444,6 +1478,33 @@ defmodule BeatgridWeb.DiscotecagemLive do
             }
             window.addEventListener("beatgrid:playing", this.onForeignPlay)
 
+            // Teclado da viagem: mão no volante, olho na pista. Nunca rouba
+            // teclas de quem está digitando num campo.
+            this.onKeys = (e) => {
+              if (e.metaKey || e.ctrlKey || e.altKey) return
+              const t = e.target
+              if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return
+              const k = e.key.toLowerCase()
+              if (k === "t") {
+                const res = this.engine.fireHint()
+                if (res.ok) this.log(`T → ${res.type.toUpperCase()} disparada`)
+                else this.log(res.reason === "no_hint" ? "sem próxima armada para disparar" : FIRE_ERRORS[res.reason] || "transição indisponível")
+              } else if (k === "w") {
+                this.log(this.engine.postponeFire(15_000) != null ? "transição adiada +15s" : "sem próxima armada para adiar")
+              } else if (k === "x") {
+                if (!this.engine.cancelTransition().ok) this.log("nada para cancelar")
+              } else if (k === "a") {
+                this.pushEvent("toggle_auto", {})
+              } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                const pos = this.engine.snapshot().xfadePos
+                this.engine.setCrossfader(Math.min(1, Math.max(0, pos + (e.key === "ArrowRight" ? 0.06 : -0.06))))
+              } else {
+                return
+              }
+              e.preventDefault()
+            }
+            window.addEventListener("keydown", this.onKeys)
+
             // Loop de pintura: SÓ espelha a UI — o áudio nunca depende dele.
             const tick = () => {
               this.raf = requestAnimationFrame(tick)
@@ -1481,6 +1542,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             window.removeEventListener("dj:midi", this.onMidi)
             window.removeEventListener("dj:pfl-sync", this.onPflSync)
             window.removeEventListener("beatgrid:playing", this.onForeignPlay)
+            window.removeEventListener("keydown", this.onKeys)
             // End a scratch drag in flight and drop the pad's global listener so
             // neither leaks across a LiveView reconnect.
             if (this._jogCleanup) this._jogCleanup()
@@ -1571,6 +1633,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
           },
 
           paintWaves() {
+            // O ponto de disparo do AUTO entra na onda do deck ATIVO — dá pra
+            // VER o corte chegando, não só o countdown.
+            const snap = this.engine.snapshot()
+            const fireMs = snap.auto ? this.engine.firePointMs() : null
             for (const d of ["a", "b"]) {
               const canvas = byId(`dj-wave-${d}`)
               if (!canvas) continue
@@ -1593,6 +1659,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 gridPhaseMs: intro ? intro.ms : 0,
                 markers,
                 loop: this.engine.loopState(d),
+                fireMs: d === snap.activeDeck ? fireMs : null,
                 label:
                   track && failed
                     ? `sem forma de onda para ${track.title}`
@@ -1778,15 +1845,21 @@ defmodule BeatgridWeb.DiscotecagemLive do
             const active = snap.activeDeck
             if (!hint || !hint.transition || !active || !snap[active].playing) {
               el.textContent = "—"
+              el.style.color = ""
               return
             }
             // Com AUTO desligado ninguém vai disparar sozinho — não prometa.
             if (!snap.auto) {
               el.textContent = "manual"
+              el.style.color = ""
               return
             }
-            const remaining = (hint.transition.from_ms || 0) - snap[active].posMs
+            // A verdade do ENGINE (re-clamp + adiamentos), não o número do
+            // servidor — os dois divergem em arquivos com duração VBR mentirosa.
+            const fireMs = this.engine.firePointMs()
+            const remaining = (fireMs != null ? fireMs : 0) - snap[active].posMs
             el.textContent = remaining > 0 ? `em ${fmt(remaining)}` : "agora"
+            el.style.color = remaining <= 10_000 ? "#ff5d6c" : remaining <= 30_000 ? "#ffb020" : ""
           },
 
           applyMidi(a) {

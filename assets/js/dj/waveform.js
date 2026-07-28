@@ -160,6 +160,22 @@ export function drawWave(canvas, state) {
     g.fill()
   }
 
+  // the AUTO fire point — where the next transition takes over (flag at the
+  // bottom so it never collides with the cue-marker flags at the top)
+  if (state.fireMs != null) {
+    const x = (state.fireMs / 1000 - startS) * pxPerS
+    if (x >= 0 && x <= w) {
+      g.fillStyle = "#ff9f2e"
+      g.fillRect(x - 1, 0, 2, h)
+      g.beginPath()
+      g.moveTo(x - 5, h)
+      g.lineTo(x + 5, h)
+      g.lineTo(x, h - 7)
+      g.closePath()
+      g.fill()
+    }
+  }
+
   // fixed playhead at center
   g.fillStyle = state.playing ? "#ffffff" : "rgba(255,255,255,.6)"
   g.fillRect(w / 2 - 1, 0, 2, h)

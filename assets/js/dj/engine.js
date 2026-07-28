@@ -445,6 +445,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     firedForTrack: null, // dedupes transition vs ended for one boundary
     lastFireAt: null, // performance.now() of the last fired transition
     autoOn: false,
+    // "Ainda não!": offset added to the AUTO fire point for the CURRENT
+    // boundary only — cleared whenever the boundary advances or changes hands.
+    postponeMs: 0,
     // User "comprimento" knob: scales every transition's timings around the
     // reference length (REF_LEN_S = the default crossfade). 1.0 = as designed.
     transitionScale: 1,
@@ -484,12 +487,19 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
   function watchOutgoing(deck) {
     deck.el.addEventListener("timeupdate", () => maybeFire(deck))
+    // A seek that lands inside the AUTO window must not fire on the spot — the
+    // DJ was inspecting the outro, not asking to advance. Playing back into the
+    // region from BEFORE the fire point re-arms it (see maybeFire).
+    deck.el.addEventListener("seeked", () => {
+      if (deck.id === state.activeDeck) deck._seekGuard = true
+    })
     // A deck going silent is the moment a queued hint can claim it. Event-driven
     // on purpose: rAF loops don't run in background tabs, and re-arming the next
     // track must not depend on the page being visible.
     deck.el.addEventListener("pause", () => emit("deckFreed", {deck: deck.id}))
     deck.el.addEventListener("ended", () => {
       if (deck.id !== state.activeDeck) return
+      state.postponeMs = 0
       const hint = state.hint
       const other = decks[otherId(deck.id)]
 
@@ -541,8 +551,12 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     if (!hint.transition) return // sequential entries advance on `ended`
     if (!hintFireable(hint)) return // waits; the ended fallback still covers it
 
-    const fromMs = clampFromMs(hint.transition["from_ms"], deck)
+    const fromMs = clampFromMs(hint.transition["from_ms"], deck) + state.postponeMs
     const pos = deck.positionMs()
+    if (deck._seekGuard) {
+      if (pos >= fromMs) return // landed at/past the point: re-enter or let `ended` cut
+      deck._seekGuard = false
+    }
     // Inside the window only: toggling AUTO on far past the mark must not slam
     // an instant transition — the ended fallback covers the overshoot.
     if (pos < fromMs || pos > fromMs + RAMP.autoFireSlackMs) return
@@ -609,6 +623,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     state.activeDeck = to.id
     state.hint = null
     state.firedForTrack = null
+    state.postponeMs = 0
+    from._seekGuard = false
+    to._seekGuard = false
   }
 
   function settleTransitionParams(deck) {
@@ -1529,6 +1546,77 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       return {ok: true, from: fromId, to: to.id, type}
     },
 
+    // The fire point AUTO is actually watching — engine-clamped against the real
+    // media duration, plus any postponement. The countdown and the waveform flag
+    // paint THIS number, never the server's (which can disagree on VBR files).
+    firePointMs() {
+      const hint = state.hint
+      const active = state.activeDeck
+      if (!hint || !hint.transition || !active) return null
+      return clampFromMs(hint.transition["from_ms"], decks[active]) + state.postponeMs
+    },
+
+    // "Ainda não!" — push the AUTO fire point forward for this boundary only.
+    // Postponed past the end of the track, the `ended` fallback still advances.
+    postponeFire(ms) {
+      if (this.firePointMs() == null) return null
+      state.postponeMs += ms
+      return this.firePointMs()
+    },
+
+    // "Agora!" — fire the armed hint immediately with its planned type/to_ms
+    // (the keyboard cousin of AUTO's own fire; works with AUTO off too).
+    fireHint() {
+      const hint = state.hint
+      const active = state.activeDeck
+      if (state.lastFireAt && performance.now() - state.lastFireAt < 400) {
+        return {ok: false, reason: "too_fast"}
+      }
+      if (!hint || !hint.transition || !active || !decks[active].audible()) {
+        return {ok: false, reason: "no_hint"}
+      }
+      if (!hintFireable(hint)) return {ok: false, reason: "target_loading"}
+      const from = decks[active]
+      if (state.firedForTrack === from.trackId) return {ok: false, reason: "too_fast"}
+      this.resume()
+      boundaryOnce(from.trackId, () => fireTransition(from, decks[hint.deck], hint.transition, "manual"))
+      return {ok: true, type: hint.transition["type"] || "cut"}
+    },
+
+    // Panic rescue: undo a transition that just fired — the outgoing deck comes
+    // back on air with a neutral chain, the incoming is pulled off, and the
+    // server hears transitionCancelled to rewind the set pointer.
+    cancelTransition() {
+      if (!state.lastFireAt || performance.now() - state.lastFireAt > 30_000) {
+        return {ok: false, reason: "nothing"}
+      }
+      const rescued = decks[otherId(state.activeDeck)]
+      const dropped = decks[state.activeDeck]
+      if (rescued.trackId == null) return {ok: false, reason: "nothing"}
+      state.transitionToken++ // cancels every scheduled pause/ramp of the fired run
+      settleTransitionParams(rescued)
+      settleTransitionParams(dropped)
+      const now = ctx.currentTime
+      rescued.gain.gain.linearRampToValueAtTime(1, now + 0.25)
+      rescued.dry.gain.linearRampToValueAtTime(1, now + 0.25)
+      rescued.echoSend.gain.linearRampToValueAtTime(0, now + 0.25)
+      rescued.hpf.frequency.linearRampToValueAtTime(10, now + 0.2)
+      rescued.lpf.frequency.linearRampToValueAtTime(20_000, now + 0.2)
+      // A brake mid-flight left the rate collapsed — restore the deck's own.
+      rescued.el.preservesPitch = true
+      rescued.el.playbackRate = rescued.baseRate
+      if (rescued.el.paused) rescued.play()
+      dropped.pause()
+      setCrossfader(rescued.id === "a" ? 0 : 1)
+      state.activeDeck = rescued.id
+      state.firedForTrack = null
+      state.postponeMs = 0
+      state.lastFireAt = null
+      emit("fxReset", {deck: rescued.id})
+      emit("transitionCancelled", {trackId: rescued.trackId, deck: rescued.id})
+      return {ok: true}
+    },
+
     playPause(deckId) {
       const deck = decks[deckId]
       if (jog[deckId].held) return // nunca dar play embaixo da mão do DJ
@@ -1550,6 +1638,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         deck.play()
         state.activeDeck = deckId
         state.firedForTrack = null
+        state.postponeMs = 0
         emit("deckStarted", {deck: deckId, trackId: deck.trackId})
       }
     },
