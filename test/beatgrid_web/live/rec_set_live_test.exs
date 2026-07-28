@@ -568,7 +568,7 @@ defmodule BeatgridWeb.RecSetLiveTest do
 
     entry_b = Enum.find(Sets.entries(set), &(&1.track.id == b.id))
     assert entry_b.transition["type"] == "crossfade"
-    assert entry_b.transition["from_ms"] == 100_000
+    refute Map.has_key?(entry_b.transition, "from_ms")
     assert render(view) =~ "xfade"
   end
 

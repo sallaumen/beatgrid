@@ -16,7 +16,10 @@ defmodule Beatgrid.Sets.SetTrack do
   schema "rec_set_tracks" do
     field :position, :integer
     field :role, :string
-    # Incoming transition from the previous track: %{"enabled","type","from_ms","to_ms"}.
+    # Incoming transition from the previous track — the DECISION only:
+    # %{"enabled","type","reason"}. Fire timing is derived from current markers
+    # at hint time (Sets.entry_after); legacy rows may still carry stale
+    # from_ms/to_ms keys, which every reader ignores.
     field :transition, :map
 
     belongs_to :rec_set, RecSet

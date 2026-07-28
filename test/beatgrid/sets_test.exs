@@ -35,7 +35,7 @@ defmodule Beatgrid.SetsTest do
     b = track_with("9A", 122.0)
     {:ok, _} = Sets.append(orig, a, "abertura")
     {:ok, _} = Sets.append(orig, b, "pico")
-    {:ok, _} = Sets.connect(orig, b, %{"type" => "echo", "from_ms" => 90_000})
+    {:ok, _} = Sets.connect(orig, b, %{"type" => "echo"})
 
     {:ok, copy} = Sets.duplicate(orig)
 
@@ -49,7 +49,6 @@ defmodule Beatgrid.SetsTest do
     assert Enum.map(copy_entries, & &1.position) == [1, 2]
     assert Enum.map(copy_entries, & &1.role) == ["abertura", "pico"]
     assert List.last(copy_entries).transition["type"] == "echo"
-    assert List.last(copy_entries).transition["from_ms"] == 90_000
 
     # Editing the copy leaves the original untouched (it's a real backup).
     :ok = Sets.remove(copy, a)

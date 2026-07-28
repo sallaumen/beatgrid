@@ -249,8 +249,10 @@ defmodule BeatgridWeb.RecSetLive do
     entry = Enum.find(socket.assigns.entries, &(&1.track.id == id))
 
     if entry && entry.transition do
-      transition = Map.put(entry.transition, "type", type)
-      {:noreply, connected(socket, Sets.connect(socket.assigns.set, entry.track, transition))}
+      # A fresh decision, not a patch of the old map — the previous suggestion's
+      # reason would otherwise keep explaining a type it no longer describes.
+      {:noreply,
+       connected(socket, Sets.connect(socket.assigns.set, entry.track, %{"type" => type}))}
     else
       {:noreply, reload(socket)}
     end
