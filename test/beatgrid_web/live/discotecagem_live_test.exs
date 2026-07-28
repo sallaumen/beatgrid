@@ -159,6 +159,30 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert Sets.entry_after(set.id, b.id).track.id == c.id
   end
 
+  test "transition_cancelled rewinds the pointer and re-arms the original hint", %{conn: conn} do
+    {set, [a, b, _c]} =
+      set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}, {"Tres", 108.0}])
+
+    view = open_console(conn, set)
+    render_click(view, "play_set", %{})
+    assert_push_event(view, "dj_hint", %{track: %{title: "Dois"}})
+
+    render_hook(view, "transition_started", %{
+      "from_track_id" => a.id,
+      "to_track_id" => b.id,
+      "type" => "crossfade",
+      "deck" => "b"
+    })
+
+    assert_push_event(view, "dj_hint", %{track: %{title: "Tres"}})
+
+    html = render_hook(view, "transition_cancelled", %{"track_id" => a.id, "deck" => "a"})
+
+    # the rescued track is the pointer again and Dois is the armed hint once more
+    assert html =~ "Fila 1/3"
+    assert_push_event(view, "dj_hint", %{track: %{title: "Dois"}})
+  end
+
   test "editing the set live refreshes the queue rendering", %{conn: conn} do
     {set, [_a, _b]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}])
     view = open_console(conn, set)
