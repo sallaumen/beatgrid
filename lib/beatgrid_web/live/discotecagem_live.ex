@@ -625,6 +625,15 @@ defmodule BeatgridWeb.DiscotecagemLive do
           data-rail-tab={@rail_tab}
           class="mt-3 -mb-20"
         >
+          <%!-- Resposta visual dos atalhos: pílula temporária sobre o console
+          (o hook escreve e esconde sozinho — o servidor nunca toca aqui). --%>
+          <div
+            id="dj-toast"
+            phx-update="ignore"
+            data-show="false"
+            class="pointer-events-none fixed left-1/2 top-14 z-50 -translate-x-1/2 rounded-full border border-white/10 bg-[#15171f]/95 px-4 py-2 text-[12px] font-semibold text-ink shadow-lg shadow-black/50 backdrop-blur transition-all duration-200 data-[show=false]:-translate-y-3 data-[show=false]:opacity-0"
+          >
+          </div>
           <div
             id="dj-waves"
             phx-update="ignore"
@@ -1065,11 +1074,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
                   })
                   const tag = mode === "manual" ? " (manual)" : ""
                   this.log(`transição ${type.toUpperCase()}${tag} → deck ${deck.toUpperCase()}`)
+                  this.toast(`${mode === "auto" ? "AUTO: " : "▶ "}${type.toUpperCase()} → deck ${deck.toUpperCase()}`)
                   window.dispatchEvent(new CustomEvent("beatgrid:playing", {detail: {source: "dj-console"}}))
                 },
                 transitionCancelled: ({trackId, deck}) => {
                   this.pushEvent("transition_cancelled", {track_id: trackId, deck})
-                  this.log(`✕ transição cancelada — deck ${deck.toUpperCase()} de volta ao ar`)
+                  this.notice(`✕ transição cancelada — deck ${deck.toUpperCase()} de volta ao ar`)
                 },
                 trackEnded: ({trackId}) => {
                   this.hint = null
@@ -1269,6 +1279,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
             this.handleEvent("dj_auto", ({on}) => {
               this.engine.setAuto(on)
               this.log(on ? "AUTO ligado" : "AUTO desligado")
+              // O toast confirma o estado REAL só quando foi a tecla A que
+              // pediu — o dj_auto do mount/resync não vira aviso fantasma.
+              if (this._autoKeyAt && performance.now() - this._autoKeyAt < 2500) {
+                this._autoKeyAt = null
+                this.toast(on ? "AUTO ligado" : "AUTO desligado")
+              }
             })
             this.handleEvent("dj_stop", () => {
               this.engine.stopAll()
@@ -1487,13 +1503,22 @@ defmodule BeatgridWeb.DiscotecagemLive do
               const k = e.key.toLowerCase()
               if (k === "t") {
                 const res = this.engine.fireHint()
-                if (res.ok) this.log(`T → ${res.type.toUpperCase()} disparada`)
-                else this.log(res.reason === "no_hint" ? "sem próxima armada para disparar" : FIRE_ERRORS[res.reason] || "transição indisponível")
+                // Sucesso já vira toast no transitionStarted — só a recusa avisa aqui.
+                if (!res.ok) this.notice(res.reason === "no_hint" ? "sem próxima armada para disparar" : FIRE_ERRORS[res.reason] || "transição indisponível")
               } else if (k === "w") {
-                this.log(this.engine.postponeFire(15_000) != null ? "transição adiada +15s" : "sem próxima armada para adiar")
+                const fp = this.engine.postponeFire(15_000)
+                if (fp == null) {
+                  this.notice("sem próxima armada para adiar")
+                } else {
+                  const snap = this.engine.snapshot()
+                  const rem = snap.activeDeck ? fp - snap[snap.activeDeck].posMs : 0
+                  this.notice(`⏳ adiada +15s${rem > 0 ? ` — dispara em ${fmt(rem)}` : ""}`)
+                }
               } else if (k === "x") {
-                if (!this.engine.cancelTransition().ok) this.log("nada para cancelar")
+                // Sucesso vira toast no transitionCancelled — só o vazio avisa aqui.
+                if (!this.engine.cancelTransition().ok) this.notice("nada para cancelar")
               } else if (k === "a") {
+                this._autoKeyAt = performance.now()
                 this.pushEvent("toggle_auto", {})
               } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
                 const pos = this.engine.snapshot().xfadePos
@@ -1549,6 +1574,24 @@ defmodule BeatgridWeb.DiscotecagemLive do
             if (this._padWinUp) window.removeEventListener("mouseup", this._padWinUp)
             if (window.__djEngine === this.engine) window.__djEngine = null
             this.engine.destroy()
+          },
+
+          // A pílula de notificação sobre o console: um aviso por vez, some
+          // sozinha — a resposta imediata dos atalhos (o log guarda a história).
+          toast(msg) {
+            const el = byId("dj-toast")
+            if (!el) return
+            el.textContent = msg
+            el.dataset.show = "true"
+            clearTimeout(this._toastTimer)
+            this._toastTimer = setTimeout(() => {
+              el.dataset.show = "false"
+            }, 2800)
+          },
+
+          notice(msg) {
+            this.log(msg)
+            this.toast(msg)
           },
 
           log(msg) {
