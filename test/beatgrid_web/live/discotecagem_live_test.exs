@@ -113,6 +113,9 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert html =~ "dj-wave-a"
     assert html =~ "dj-wave-b"
 
+    # the shortcut-feedback toast pill (hook-owned, hidden by default)
+    assert html =~ "dj-toast"
+
     # AUTO starts on; toggling flips the panel's guidance and tells the engine
     assert html =~ "AUTO ligado"
     html = render_click(view, "toggle_auto", %{})
