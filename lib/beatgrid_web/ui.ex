@@ -439,6 +439,13 @@ defmodule BeatgridWeb.UI do
             icon: "hero-document-duplicate",
             href: "/dedup"
           },
+          %{
+            key: :resgate,
+            label: "Resgate",
+            short: "RSG",
+            icon: "hero-lifebuoy",
+            href: "/resgate"
+          },
           %{key: :generos, label: "Gêneros", short: "GEN", icon: "hero-tag", href: "/generos"},
           %{
             key: :mixes,

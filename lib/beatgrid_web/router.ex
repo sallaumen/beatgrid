@@ -28,6 +28,7 @@ defmodule BeatgridWeb.Router do
       live "/track/:id", TrackLive, :show
       live "/revisao", ReviewLive, :index
       live "/dedup", DedupLive, :index
+      live "/resgate", RescueLive, :index
       live "/painel", DashboardLive, :index
       live "/set", RecSetLive, :index
       live "/set/:id", RecSetLive, :show
