@@ -752,7 +752,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 <p class="px-3 pb-2 text-[9px] leading-relaxed text-ink-faint">
                   Teclado: <b>T</b>
                   dispara a próxima · <b>W</b>
-                  adia 15s · <b>X</b>
+                  adia +1s (segure) · <b>X</b>
                   cancela · <b>A</b>
                   auto · <b>←→</b>
                   crossfader
@@ -1506,13 +1506,16 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 // Sucesso já vira toast no transitionStarted — só a recusa avisa aqui.
                 if (!res.ok) this.notice(res.reason === "no_hint" ? "sem próxima armada para disparar" : FIRE_ERRORS[res.reason] || "transição indisponível")
               } else if (k === "w") {
-                const fp = this.engine.postponeFire(15_000)
+                // +1s por toque; SEGURAR acumula pelo repeat do teclado. Só
+                // toast (sem log): o repeat inundaria o histórico em segundos.
+                const fp = this.engine.postponeFire(1_000)
                 if (fp == null) {
-                  this.notice("sem próxima armada para adiar")
+                  this.toast("sem próxima armada para adiar")
                 } else {
                   const snap = this.engine.snapshot()
                   const rem = snap.activeDeck ? fp - snap[snap.activeDeck].posMs : 0
-                  this.notice(`⏳ adiada +15s${rem > 0 ? ` — dispara em ${fmt(rem)}` : ""}`)
+                  const total = Math.round(snap.postponeMs / 1000)
+                  this.toast(`⏳ adiada +${total}s${rem > 0 ? ` — dispara em ${fmt(rem)}` : ""}`)
                 }
               } else if (k === "x") {
                 // Sucesso vira toast no transitionCancelled — só o vazio avisa aqui.
