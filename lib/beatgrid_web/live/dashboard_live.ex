@@ -98,6 +98,10 @@ defmodule BeatgridWeb.DashboardLive do
     {:noreply, apply_dashboard_result(socket, Dashboard.refresh(:loudness_tick))}
   end
 
+  def handle_info({:markers_tick}, socket) do
+    {:noreply, apply_dashboard_result(socket, Dashboard.refresh(:markers_tick))}
+  end
+
   def handle_info({:youtube_tick}, socket) do
     {:noreply, apply_dashboard_result(socket, Dashboard.refresh(:youtube_tick))}
   end
@@ -322,30 +326,42 @@ defmodule BeatgridWeb.DashboardLive do
               <div class="mt-3 rounded-lg border border-white/6 bg-base/45 p-2 sm:p-3">
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                   <div class="min-w-0 flex-1">
-                    <span class="text-body-sm text-ink-secondary">Mapear marcadores da biblioteca</span>
-                    <p class="mt-1 text-caption text-ink-muted">
-                      Detecta intro/saída e seções (análise de áudio) nas faixas que ainda não têm
-                      marcadores automáticos — deixa tudo pronto pra planejar e tocar sets.
+                    <div class="flex flex-col gap-1 text-body-sm sm:flex-row sm:items-center sm:justify-between">
+                      <span class="text-ink-secondary">Marcadores (saída/entrada/seções)</span>
+                      <span class="font-mono text-ink-muted">
+                        {@markers.mapped}/{@markers.total} com marcadores
+                      </span>
+                    </div>
+                    <div class="mt-1.5 h-[7px] rounded-full bg-white/5">
+                      <div
+                        class="h-full rounded-full bg-primary transition-all"
+                        style={"width:#{pct(@markers.mapped, @markers.total)}%"}
+                      >
+                      </div>
+                    </div>
+                    <p :if={@markers_queue > 0} class="mt-1.5 text-caption text-primary">
+                      Analisando: {@markers_queue} na fila — os sets pegam os pontos novos sozinhos.
                     </p>
                     <p :if={@markers_note} class="mt-1.5 text-caption text-ink-muted">
                       {@markers_note}
                     </p>
                   </div>
-                  <div class="flex w-full shrink-0 flex-col gap-1.5 sm:w-auto">
+                  <div class="flex w-full shrink-0 flex-col gap-1.5 sm:w-auto sm:min-w-max">
                     <button
                       phx-click="map_markers"
                       disabled={@markers_unmapped == 0}
                       class="w-full whitespace-normal break-words rounded-md bg-primary/15 px-2 py-1.5 text-center text-body-sm font-semibold text-primary disabled:opacity-40 sm:w-auto sm:px-3.5"
                     >
-                      Mapear marcadores ({@markers_unmapped})
+                      Mapear faltantes ({@markers_unmapped})
                     </button>
                     <button
                       phx-click="remap_markers"
+                      disabled={@markers_queue > 0}
                       data-confirm="Re-analisar TODAS as faixas com o detector novo? Marcadores manuais são preservados; os automáticos serão recalculados em background."
                       title="Rollout de um detector novo: recalcula intro/saída/seções de toda a biblioteca"
-                      class="w-full whitespace-normal break-words rounded-md border border-white/10 px-2 py-1.5 text-center text-body-sm font-semibold text-ink-secondary hover:text-ink sm:w-auto sm:px-3.5"
+                      class="w-full whitespace-normal break-words rounded-md border border-white/10 px-2 py-1.5 text-center text-body-sm font-semibold text-ink-secondary hover:text-ink disabled:opacity-40 sm:w-auto sm:px-3.5"
                     >
-                      Re-mapear tudo
+                      {if @markers_queue > 0, do: "Re-mapeando…", else: "Re-mapear tudo"}
                     </button>
                   </div>
                 </div>

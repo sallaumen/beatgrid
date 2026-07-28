@@ -149,10 +149,23 @@ defmodule Beatgrid.Sets do
   defp hint_transition(%{"enabled" => false}, _outgoing, _incoming), do: nil
 
   defp hint_transition(transition, outgoing, incoming) do
+    timing = derived_timing(outgoing, incoming)
+
     transition
-    |> Map.put("from_ms", derived_from_ms(outgoing))
-    |> Map.put("to_ms", derived_to_ms(incoming))
-    |> clamp_from(outgoing)
+    |> Map.put("from_ms", timing.from_ms)
+    |> Map.put("to_ms", timing.to_ms)
+  end
+
+  @doc """
+  The fire/entry points the console will derive RIGHT NOW for mixing
+  `outgoing` into `incoming` — current markers, clamped. What the set editor
+  shows with this is exactly what the deck will do.
+  """
+  @spec derived_timing(Library.Track.t(), Library.Track.t()) ::
+          %{from_ms: non_neg_integer() | nil, to_ms: non_neg_integer()}
+  def derived_timing(outgoing, incoming) do
+    %{"from_ms" => from} = clamp_from(%{"from_ms" => derived_from_ms(outgoing)}, outgoing)
+    %{from_ms: from, to_ms: derived_to_ms(incoming)}
   end
 
   defp derived_from_ms(outgoing) do

@@ -83,5 +83,16 @@ defmodule Beatgrid.MarkersTest do
       assert_enqueued(worker: MarkerAnalyzeWorker, args: %{track_id: fresh.id})
       assert_enqueued(worker: MarkerAnalyzeWorker, args: %{track_id: mapped.id})
     end
+
+    test "progress and queued_count feed the Painel's live bar" do
+      insert(:track, status: :present, rel_path: "done.mp3", cue_points: [auto(500)])
+      pending = insert(:track, status: :present, rel_path: "todo.mp3", cue_points: [])
+
+      assert Markers.progress() == %{mapped: 1, total: 2}
+      assert Markers.queued_count() == 0
+
+      {:ok, _job} = MarkerAnalyzeWorker.enqueue(pending.id)
+      assert Markers.queued_count() == 1
+    end
   end
 end

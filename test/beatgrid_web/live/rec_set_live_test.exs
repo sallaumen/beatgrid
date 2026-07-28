@@ -569,7 +569,12 @@ defmodule BeatgridWeb.RecSetLiveTest do
     entry_b = Enum.find(Sets.entries(set), &(&1.track.id == b.id))
     assert entry_b.transition["type"] == "crossfade"
     refute Map.has_key?(entry_b.transition, "from_ms")
-    assert render(view) =~ "xfade"
+
+    # the pair row shows the DERIVED mix points (a's outro, b's intro)
+    html = render(view)
+    assert html =~ "xfade"
+    assert html =~ "sai 1:40"
+    assert html =~ "entra 0:04"
   end
 
   test "hostile move/weight payloads are ignored, never crash the view", %{conn: conn} do

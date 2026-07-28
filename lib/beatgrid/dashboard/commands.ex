@@ -33,14 +33,14 @@ defmodule Beatgrid.Dashboard.Commands do
         do: "Tudo já mapeado — nenhuma faixa sem marcadores.",
         else: "Mapeando marcadores de #{count} faixa(s) em background — acompanhe em Jobs."
 
-    {:ok, %{markers_unmapped: Markers.unmapped_count(), markers_note: note}}
+    {:ok, Map.put(markers_patch(), :markers_note, note)}
   end
 
   def run(:remap_markers, _opts) do
     {:ok, count} = Markers.enqueue_all()
 
     note = "Re-mapeando #{count} faixa(s) com o detector novo — acompanhe em Jobs."
-    {:ok, %{markers_unmapped: Markers.unmapped_count(), markers_note: note}}
+    {:ok, Map.put(markers_patch(), :markers_note, note)}
   end
 
   def run(:analyze_loudness, _opts) do
@@ -144,6 +144,14 @@ defmodule Beatgrid.Dashboard.Commands do
     end
 
     {:ok, ReadModel.gaps(folder)}
+  end
+
+  defp markers_patch do
+    %{
+      markers: Markers.progress(),
+      markers_queue: Markers.queued_count(),
+      markers_unmapped: Markers.unmapped_count()
+    }
   end
 
   defp enqueue_enrich(scope) do

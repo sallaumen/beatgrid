@@ -10,6 +10,7 @@ defmodule Beatgrid.Events do
   | ----------------- | --------------------------------- | --------------------------------------------------- | ------------------------------ |
   | `analysis`        | `Beatgrid.Analysis`               | `{:analysis_tick}`                                  | Painel                         |
   | `loudness`        | `Beatgrid.Loudness`               | `{:loudness_tick}`                                  | Painel                         |
+  | `markers`         | `Beatgrid.Markers`                | `{:markers_tick}`                                   | Painel                         |
   | `youtube`         | `Beatgrid.YouTube`                | `{:youtube_tick}`                                   | Painel                         |
   | `enrich`          | `Beatgrid.YouTube` (`_enrich`)    | `{:enrich_progress, enrich_progress()}`             | Painel, Detalhe da faixa       |
   | `reevaluate`      | `Beatgrid.Review`                 | `{:reevaluate_progress, reevaluate_progress()}`, `{:re_resolve_done, re_resolve_done()}`, `{:review_applied, batch_result()}` | Central de Revisão |

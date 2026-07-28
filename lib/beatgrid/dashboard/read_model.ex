@@ -13,6 +13,7 @@ defmodule Beatgrid.Dashboard.ReadModel do
   def subscribe do
     Analysis.subscribe()
     Loudness.subscribe()
+    Markers.subscribe()
     YouTube.subscribe()
     YouTube.subscribe_enrich()
     Repertoire.subscribe()
@@ -39,6 +40,8 @@ defmodule Beatgrid.Dashboard.ReadModel do
       gain_pending: Loudness.gain_pending_count(),
       gain_undo_batch: Loudness.latest_gain_batch(),
       loudness_note: nil,
+      markers: Markers.progress(),
+      markers_queue: Markers.queued_count(),
       markers_unmapped: Markers.unmapped_count(),
       markers_note: nil,
       youtube_pending: YouTube.pending_count(),
@@ -68,6 +71,15 @@ defmodule Beatgrid.Dashboard.ReadModel do
   @doc "Returns assign patches for PubSub progress events consumed by the dashboard."
   @spec refresh(term()) :: {:ok, map()} | :ignore
   def refresh(:analysis_tick), do: {:ok, %{analysis: Analysis.progress()}}
+
+  def refresh(:markers_tick) do
+    {:ok,
+     %{
+       markers: Markers.progress(),
+       markers_queue: Markers.queued_count(),
+       markers_unmapped: Markers.unmapped_count()
+     }}
+  end
 
   def refresh(:loudness_tick) do
     {:ok,

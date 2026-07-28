@@ -5,11 +5,24 @@ defmodule Beatgrid.Markers do
   its `cue_points` — replacing any prior auto markers but PRESERVING manual ones —
   then broadcasts so the player and the track page refresh.
   """
+  import Ecto.Query, only: [from: 2]
+
   alias Beatgrid.Audio.MarkerDetector
   alias Beatgrid.Library
   alias Beatgrid.Library.{Marker, Track, Tracks}
   alias Beatgrid.Playback
+  alias Beatgrid.Repo
   alias Beatgrid.Workers.MarkerAnalyzeWorker
+
+  @topic "markers"
+
+  @doc "Subscribe to marker-mapping progress (`{:markers_tick}` — contract: `Beatgrid.Events`)."
+  @spec subscribe() :: :ok | {:error, term()}
+  def subscribe, do: Phoenix.PubSub.subscribe(Beatgrid.PubSub, @topic)
+
+  @doc "Broadcast a progress tick so the Painel refreshes its marker counts."
+  @spec broadcast_tick() :: :ok
+  def broadcast_tick, do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @topic, {:markers_tick})
 
   @adapter Application.compile_env(
              :beatgrid,
@@ -23,6 +36,7 @@ defmodule Beatgrid.Markers do
     with {:ok, detection} <- @adapter.detect(abs_path(track)),
          {:ok, updated} <- Tracks.replace_auto_markers(track, auto_markers(detection)) do
       Playback.broadcast_markers_changed(updated.id)
+      broadcast_tick()
       {:ok, updated}
     end
   end
@@ -57,6 +71,25 @@ defmodule Beatgrid.Markers do
   @doc "How many `present` tracks still lack automatic markers."
   @spec unmapped_count() :: non_neg_integer()
   def unmapped_count, do: length(unmapped_ids())
+
+  @doc "Mapped-vs-total counts over present tracks (for the Painel's progress bar)."
+  @spec progress() :: %{mapped: non_neg_integer(), total: non_neg_integer()}
+  def progress do
+    tracks = Tracks.list_by(status: :present)
+    %{mapped: Enum.count(tracks, &mapped?/1), total: length(tracks)}
+  end
+
+  @doc "Marker-analysis jobs still in flight — the live feedback for a re-map."
+  @spec queued_count() :: non_neg_integer()
+  def queued_count do
+    Repo.aggregate(
+      from(j in Oban.Job,
+        where: j.worker == "Beatgrid.Workers.MarkerAnalyzeWorker",
+        where: j.state in ["available", "scheduled", "executing", "retryable"]
+      ),
+      :count
+    )
+  end
 
   @doc """
   Enqueues a `MarkerAnalyzeWorker` for every present track without auto markers
