@@ -100,7 +100,7 @@ defmodule BeatgridWeb.GenresLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <.app_shell active={:generos} socket={@socket}>
+    <.app_shell flash={@flash} active={:generos} socket={@socket}>
       <header class="border-b border-white/6 bg-rail px-6 py-3">
         <h2 class="text-[22px] font-semibold">Gêneros</h2>
         <p class="text-ink-muted text-body-sm">

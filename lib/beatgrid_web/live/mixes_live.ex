@@ -51,7 +51,7 @@ defmodule BeatgridWeb.MixesLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <.app_shell active={:mixes} socket={@socket}>
+    <.app_shell flash={@flash} active={:mixes} socket={@socket}>
       <div class="mx-auto max-w-[1600px] px-6 py-5">
         <header class="flex flex-col gap-1">
           <h1 class="text-[22px] font-semibold">Sets online</h1>

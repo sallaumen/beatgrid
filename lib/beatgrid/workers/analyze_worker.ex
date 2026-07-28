@@ -7,7 +7,7 @@ defmodule Beatgrid.Workers.AnalyzeWorker do
   use Oban.Worker,
     queue: :analysis,
     max_attempts: 2,
-    unique: [period: 300, fields: [:args], keys: [:track_id]]
+    unique: [period: 300, keys: [:track_id]]
 
   alias Beatgrid.Analysis
   alias Beatgrid.Library.Tracks

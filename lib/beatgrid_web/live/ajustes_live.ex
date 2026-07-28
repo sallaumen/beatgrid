@@ -60,7 +60,7 @@ defmodule BeatgridWeb.AjustesLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <.app_shell active={:ajustes} socket={@socket}>
+    <.app_shell flash={@flash} active={:ajustes} socket={@socket}>
       <header class="border-b border-white/6 bg-rail px-6 py-3">
         <h2 class="text-[22px] font-semibold">Ajustes</h2>
         <p class="text-ink-muted text-body-sm">

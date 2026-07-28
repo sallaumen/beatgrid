@@ -116,7 +116,7 @@ defmodule BeatgridWeb.ImportsLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <.app_shell active={:importados} socket={@socket}>
+    <.app_shell flash={@flash} active={:importados} socket={@socket}>
       <div class="px-6 py-5">
         <header class="mb-4 flex items-start justify-between gap-3">
           <div>

@@ -177,7 +177,7 @@ defmodule BeatgridWeb.DashboardLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <.app_shell active={:painel} socket={@socket}>
+    <.app_shell flash={@flash} active={:painel} socket={@socket}>
       <div class="h-[calc(100vh_-_5rem)] overflow-y-auto">
         <header class="border-b border-white/6 bg-rail px-5 py-3">
           <div class="mx-auto flex max-w-[1600px] flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">

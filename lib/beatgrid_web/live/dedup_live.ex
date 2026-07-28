@@ -206,7 +206,7 @@ defmodule BeatgridWeb.DedupLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <.app_shell active={:dedup} socket={@socket}>
+    <.app_shell flash={@flash} active={:dedup} socket={@socket}>
       <div class="flex h-[calc(100vh_-_5rem)] flex-col">
         <header class="flex items-center justify-between gap-4 border-b border-white/6 bg-rail px-5 py-3">
           <div class="flex items-baseline gap-3">

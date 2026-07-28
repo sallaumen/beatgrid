@@ -4,6 +4,7 @@ defmodule BeatgridWeb.MixLive do
 
   import BeatgridWeb.UI
 
+  alias Beatgrid.Library.GenreFolders
   alias Beatgrid.Mixes
   alias Beatgrid.Mixes.Transition
   alias Beatgrid.Workers.MixAnalyzeWorker
@@ -17,11 +18,31 @@ defmodule BeatgridWeb.MixLive do
 
       mix ->
         if connected?(socket), do: Mixes.subscribe()
-        {:ok, assign(socket, page_title: mix.title || "Set", mix: mix, progress: nil)}
+
+        {:ok,
+         assign(socket,
+           page_title: mix.title || "Set",
+           mix: mix,
+           progress: nil,
+           recorte: nil,
+           folders: GenreFolders.list()
+         )}
     end
   end
 
   @impl true
+  def handle_info(
+        {:mix_progress, %{stage: "cut_done", mix_id: id, title: title}},
+        %{assigns: %{mix: %{id: id}}} = socket
+      ) do
+    {:noreply,
+     put_flash(
+       socket,
+       :info,
+       "✂ Recorte pronto: “#{title}” já está na Biblioteca (analisando em background)."
+     )}
+  end
+
   def handle_info(
         {:mix_progress, %{mix_id: id} = payload},
         %{assigns: %{mix: %{id: id}}} = socket
@@ -220,10 +241,45 @@ defmodule BeatgridWeb.MixLive do
      |> assign(mix: Mixes.get_with_dj_parts(socket.assigns.mix.id))}
   end
 
+  def handle_event("open_recorte", params, socket) do
+    seg =
+      params["segment"] &&
+        Enum.find(socket.assigns.mix.segments, &(&1.id == params["segment"]))
+
+    {:noreply, assign(socket, recorte: recorte_prefill(socket.assigns.mix, seg))}
+  end
+
+  def handle_event("close_recorte", _params, socket),
+    do: {:noreply, assign(socket, recorte: nil)}
+
+  def handle_event("create_recorte", params, socket) do
+    attrs = %{
+      start_ms: parse_clock_ms(params["start"]),
+      end_ms: parse_clock_ms(params["end"]),
+      artist: params["artist"],
+      title: params["title"],
+      folder_key: if(params["folder"] == "", do: nil, else: params["folder"])
+    }
+
+    case Mixes.request_cut(socket.assigns.mix, attrs) do
+      {:ok, _job} ->
+        {:noreply,
+         socket
+         |> assign(recorte: nil)
+         |> put_flash(:info, "✂ Recorte na fila — a faixa aparece na Biblioteca em instantes.")}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(recorte: recorte_from_params(params))
+         |> put_flash(:error, recorte_error(reason))}
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
-    <.app_shell active={:mixes} socket={@socket}>
+    <.app_shell flash={@flash} active={:mixes} socket={@socket}>
       <div class="mx-auto max-w-[1100px] px-6 py-5">
         <.link navigate={~p"/sets-online"} class="text-body-sm text-ink-muted hover:text-ink">
           ← Sets online
@@ -440,6 +496,94 @@ defmodule BeatgridWeb.MixLive do
         </details>
 
         <%!-- Segment timeline --%>
+        <div :if={playable?(@mix) and is_nil(@recorte)} class="mt-5">
+          <button
+            type="button"
+            phx-click="open_recorte"
+            class="rounded-md border border-white/10 px-3 py-1.5 text-body-sm font-semibold text-ink-secondary hover:text-ink"
+          >
+            ✂ Recortar trecho
+          </button>
+        </div>
+
+        <div :if={@recorte} class="mt-5 rounded-xl border border-primary/25 bg-surface p-4">
+          <div class="flex items-center justify-between">
+            <h3 class="text-body-sm font-semibold">✂ Novo recorte</h3>
+            <button
+              type="button"
+              phx-click="close_recorte"
+              aria-label="Fechar"
+              class="text-ink-faint hover:text-ink"
+            >
+              ✕
+            </button>
+          </div>
+          <p class="mt-1 text-caption text-ink-muted">
+            O trecho vira uma faixa DE VERDADE na Biblioteca — MP3 próprio, com marca de
+            recorte e link de volta pra este set. Depois ela entra no fluxo normal
+            (BPM, loudness, marcadores). Tempos em h:mm:ss ou mm:ss.
+          </p>
+          <form phx-submit="create_recorte" class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-7">
+            <label class="text-caption text-ink-muted">
+              Início
+              <input
+                name="start"
+                value={@recorte.start}
+                placeholder="43:10"
+                class="mt-0.5 w-full rounded-md border border-white/10 bg-input px-2 py-1 font-mono text-body-sm text-ink focus:border-primary/50 focus:outline-none"
+              />
+            </label>
+            <label class="text-caption text-ink-muted">
+              Fim
+              <input
+                name="end"
+                value={@recorte.end}
+                placeholder="44:40"
+                class="mt-0.5 w-full rounded-md border border-white/10 bg-input px-2 py-1 font-mono text-body-sm text-ink focus:border-primary/50 focus:outline-none"
+              />
+            </label>
+            <label class="text-caption text-ink-muted sm:col-span-2">
+              Artista
+              <input
+                name="artist"
+                value={@recorte.artist}
+                placeholder="opcional"
+                class="mt-0.5 w-full rounded-md border border-white/10 bg-input px-2 py-1 text-body-sm text-ink focus:border-primary/50 focus:outline-none"
+              />
+            </label>
+            <label class="text-caption text-ink-muted sm:col-span-2">
+              Título
+              <input
+                name="title"
+                value={@recorte.title}
+                required
+                placeholder="Nome da música"
+                class="mt-0.5 w-full rounded-md border border-white/10 bg-input px-2 py-1 text-body-sm text-ink focus:border-primary/50 focus:outline-none"
+              />
+            </label>
+            <label class="text-caption text-ink-muted">
+              Pasta
+              <select
+                name="folder"
+                class="mt-0.5 w-full rounded-md border border-white/10 bg-input px-2 py-1 text-body-sm text-ink focus:border-primary/50 focus:outline-none"
+              >
+                <option value="">_Inbox</option>
+                <option :for={f <- @folders} value={f.key} selected={@recorte.folder == f.key}>
+                  {f.display_name}
+                </option>
+              </select>
+            </label>
+            <div class="col-span-2 flex items-end justify-end sm:col-span-7">
+              <button
+                type="submit"
+                class="rounded-md bg-primary px-3.5 py-1.5 text-body-sm font-semibold text-white"
+              >
+                Criar recorte
+              </button>
+            </div>
+          </form>
+        </div>
+
         <ol :if={@mix.segments != []} class="mt-5 space-y-1">
           <%= for {part, segs} <- Mixes.group_by_dj(@mix.segments, @mix.dj_parts) do %>
             <li :if={@mix.dj_parts != []} class="list-none">
@@ -534,6 +678,57 @@ defmodule BeatgridWeb.MixLive do
   end
 
   defp playable?(mix), do: is_nil(mix.audio_deleted_at) and is_binary(mix.audio_path)
+
+  # ── Recortes ────────────────────────────────────────────────────────────────
+
+  defp recorte_prefill(_mix, nil),
+    do: %{start: "", end: "", artist: "", title: "", folder: nil}
+
+  defp recorte_prefill(mix, seg) do
+    end_ms = seg.end_ms || min(seg.start_ms + 90_000, mix.duration_ms || seg.start_ms + 90_000)
+
+    %{
+      start: format_clock(seg.start_ms),
+      end: format_clock(end_ms),
+      artist: seg.artist || "",
+      title: seg.title || "",
+      folder: nil
+    }
+  end
+
+  defp recorte_from_params(params) do
+    %{
+      start: params["start"] || "",
+      end: params["end"] || "",
+      artist: params["artist"] || "",
+      title: params["title"] || "",
+      folder: if(params["folder"] == "", do: nil, else: params["folder"])
+    }
+  end
+
+  # "1:23:45", "43:10" or "90" → ms (nil when unparseable; validation catches it).
+  defp parse_clock_ms(value) do
+    parts = value |> to_string() |> String.trim() |> String.split(":")
+
+    if parts != [] and Enum.all?(parts, &Regex.match?(~r/^\d+$/, &1)) do
+      parts
+      |> Enum.map(&String.to_integer/1)
+      |> Enum.reduce(0, fn part, acc -> acc * 60 + part end)
+      |> Kernel.*(1000)
+    end
+  end
+
+  defp recorte_error(:no_audio),
+    do: "O áudio deste set foi limpo — re-baixe o áudio antes de recortar."
+
+  defp recorte_error(:title_required), do: "Dê um título pro recorte."
+
+  defp recorte_error(:invalid_range),
+    do: "Tempos inválidos — use h:mm:ss ou mm:ss, fim depois do início."
+
+  defp recorte_error(:too_short), do: "Recorte muito curto — mínimo de 5 segundos."
+  defp recorte_error(:too_long), do: "Recorte muito longo — máximo de 15 minutos."
+  defp recorte_error(_reason), do: "Não deu pra criar o recorte — veja os logs."
 
   defp segment_starts(segments) do
     segments
@@ -685,6 +880,16 @@ defmodule BeatgridWeb.MixLive do
           class="shrink-0 rounded px-2 py-0.5 text-[11px] text-ink-faint hover:text-ink"
         >✓</button>
       </form>
+      <button
+        :if={@playable}
+        type="button"
+        phx-click="open_recorte"
+        phx-value-segment={@seg.id}
+        title="Recortar este trecho como uma faixa da biblioteca"
+        class="shrink-0 rounded px-1 py-0.5 text-[12px] text-ink-muted hover:text-ink"
+      >
+        ✂
+      </button>
       <span :if={@seg.bpm_detected} class="shrink-0 text-body-sm text-primary">{round(
         @seg.bpm_detected
       )} BPM</span>

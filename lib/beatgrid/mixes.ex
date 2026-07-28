@@ -11,12 +11,16 @@ defmodule Beatgrid.Mixes do
 
   alias Beatgrid.Integrations
   alias Beatgrid.Library
-  alias Beatgrid.Library.{Normalize, TrackQuery}
+  alias Beatgrid.Library.{GenreFolders, NameSync, Normalize, TrackQuery, Tracks}
   alias Beatgrid.Mixes.{DjPart, DjTimestamps, Mix, MixQuery, Segment}
   alias Beatgrid.Repo
 
   alias Beatgrid.Workers.{
+    AnalyzeWorker,
+    LoudnessWorker,
+    MarkerAnalyzeWorker,
     MixAnalyzeWorker,
+    MixCutWorker,
     MixDjAudioWorker,
     MixDjVisionWorker,
     MixDownloadWorker,
@@ -28,6 +32,15 @@ defmodule Beatgrid.Mixes do
              [Beatgrid.Mixes.Source, :adapter],
              Beatgrid.Mixes.Source.YtDlp
            )
+
+  @cutter Application.compile_env(
+            :beatgrid,
+            [Beatgrid.Audio.MixCutter, :adapter],
+            Beatgrid.Audio.MixCutterCli
+          )
+
+  @min_cut_ms 5_000
+  @max_cut_ms 15 * 60 * 1000
   @topic "mixes"
 
   @spec subscribe() :: :ok | {:error, term()}
@@ -324,6 +337,144 @@ defmodule Beatgrid.Mixes do
     else
       {:error, :no_audio}
     end
+  end
+
+  # ── Recortes: a slice of the mix becomes a real library track ────────────────
+
+  @doc """
+  Validates and enqueues a recorte: the `[start_ms, end_ms]` slice of this
+  mix's audio becomes a standalone tagged MP3 in the library, marked with its
+  provenance (`source_playlist: "recorte"` + raw_tags pointing back at the
+  mix) — for the songs that exist nowhere outside a recorded set.
+  """
+  @spec request_cut(Mix.t(), map()) :: {:ok, Oban.Job.t()} | {:error, term()}
+  def request_cut(%Mix{} = mix, attrs) do
+    with :ok <- audio_available(mix),
+         {:ok, cut} <- validate_cut(mix, attrs) do
+      MixCutWorker.enqueue(mix.id, cut)
+    end
+  end
+
+  @doc "Executes a validated cut (the `MixCutWorker` body): file, track row, analysis."
+  @spec cut_to_track(Mix.t(), map()) :: {:ok, Library.Track.t()} | {:error, term()}
+  def cut_to_track(%Mix{} = mix, cut) do
+    with :ok <- audio_available(mix) do
+      rel = mix |> cut_rel_path(cut) |> Library.unique_rel_path()
+      abs = Path.join(Library.library_root(), rel)
+      File.mkdir_p!(Path.dirname(abs))
+
+      opts = [start_ms: cut.start_ms, end_ms: cut.end_ms, artist: cut.artist, title: cut.title]
+
+      with :ok <- @cutter.cut(mix.audio_path, abs, opts) do
+        register_recorte(mix, cut, rel, abs)
+      end
+    end
+  end
+
+  defp audio_available(%Mix{audio_path: path, audio_deleted_at: deleted}) do
+    if is_binary(path) and is_nil(deleted) and File.exists?(path),
+      do: :ok,
+      else: {:error, :no_audio}
+  end
+
+  defp validate_cut(mix, attrs) do
+    cut = %{
+      start_ms: attrs[:start_ms],
+      end_ms: attrs[:end_ms],
+      artist: attrs[:artist] |> to_string() |> String.trim(),
+      title: attrs[:title] |> to_string() |> String.trim(),
+      folder_key: known_folder_key(attrs[:folder_key])
+    }
+
+    with :ok <- validate_cut_name(cut), :ok <- validate_cut_range(mix, cut), do: {:ok, cut}
+  end
+
+  defp validate_cut_name(%{title: ""}), do: {:error, :title_required}
+  defp validate_cut_name(_cut), do: :ok
+
+  defp validate_cut_range(mix, %{start_ms: start_ms, end_ms: end_ms})
+       when is_integer(start_ms) and is_integer(end_ms) and start_ms >= 0 and end_ms > start_ms do
+    cond do
+      is_integer(mix.duration_ms) and end_ms > mix.duration_ms -> {:error, :invalid_range}
+      end_ms - start_ms < @min_cut_ms -> {:error, :too_short}
+      end_ms - start_ms > @max_cut_ms -> {:error, :too_long}
+      true -> :ok
+    end
+  end
+
+  defp validate_cut_range(_mix, _cut), do: {:error, :invalid_range}
+
+  defp known_folder_key(key), do: Enum.find_value(GenreFolders.list(), &(&1.key == key && key))
+
+  defp cut_rel_path(mix, cut) do
+    Path.join(
+      cut_dir(cut.folder_key),
+      NameSync.canonical_filename(credit(mix, cut), cut.title, ".mp3")
+    )
+  end
+
+  defp cut_dir(nil), do: "_Inbox"
+
+  defp cut_dir(key) do
+    case Enum.find(GenreFolders.list(), &(&1.key == key)) do
+      nil -> "_Inbox"
+      folder -> folder.dir_name
+    end
+  end
+
+  # Filename credit: the artist he typed, else the mix's DJ, else "Recorte".
+  defp credit(_mix, %{artist: artist}) when artist != "", do: artist
+  defp credit(%Mix{dj: dj}, _cut) when is_binary(dj) and dj != "", do: dj
+  defp credit(_mix, _cut), do: "Recorte"
+
+  defp register_recorte(mix, cut, rel, abs) do
+    with {:ok, track} <- Tracks.upsert_by_path(recorte_attrs(mix, cut, rel, abs)) do
+      enqueue_recorte_analysis(track)
+      broadcast(%{mix_id: mix.id, stage: "cut_done", track_id: track.id, title: cut.title})
+      {:ok, track}
+    end
+  end
+
+  # Facts we know exactly (duration = the range; format mp3 by construction);
+  # the periodic scan enriches the rest (bitrate/sample rate/sha) later.
+  defp recorte_attrs(mix, cut, rel, abs) do
+    %{
+      rel_path: rel,
+      filename: Path.basename(rel),
+      status: :present,
+      source_playlist: "recorte",
+      genre_folder: cut.folder_key,
+      duration_ms: cut.end_ms - cut.start_ms,
+      file_size_bytes: file_size(abs),
+      format: "mp3",
+      last_scanned_at: DateTime.truncate(DateTime.utc_now(), :second),
+      tag_artist: presence(cut.artist),
+      tag_title: cut.title,
+      raw_tags: %{
+        "recorte_mix_id" => mix.id,
+        "recorte_mix_title" => mix.title,
+        "recorte_source_url" => mix.source_url,
+        "recorte_start_ms" => cut.start_ms,
+        "recorte_end_ms" => cut.end_ms
+      }
+    }
+  end
+
+  defp file_size(abs) do
+    case File.stat(abs) do
+      {:ok, %{size: size}} -> size
+      _missing -> nil
+    end
+  end
+
+  defp presence(""), do: nil
+  defp presence(value), do: value
+
+  defp enqueue_recorte_analysis(track) do
+    {:ok, _} = AnalyzeWorker.enqueue(track.id)
+    {:ok, _} = LoudnessWorker.enqueue(track.id)
+    {:ok, _} = MarkerAnalyzeWorker.enqueue(track.id)
+    :ok
   end
 
   @spec detect_djs_by_audio(Mix.t()) :: {:ok, Oban.Job.t()} | {:error, term()}

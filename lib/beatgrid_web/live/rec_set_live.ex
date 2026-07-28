@@ -590,7 +590,7 @@ defmodule BeatgridWeb.RecSetLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <.app_shell active={:sets} socket={@socket}>
+    <.app_shell flash={@flash} active={:sets} socket={@socket}>
       <div class="flex h-[calc(100vh_-_5rem)]">
         <aside :if={@sets_open} class="flex w-60 shrink-0 flex-col border-r border-white/6 bg-rail">
           <div class="flex items-center justify-between px-4 py-3">

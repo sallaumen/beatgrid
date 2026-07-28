@@ -463,6 +463,10 @@ defmodule Beatgrid.Library do
 
   defp abs_path(rel), do: Path.join(library_root(), rel)
 
+  @doc "Returns `rel` untouched, or bumped with a numeric suffix until no file exists there."
+  @spec unique_rel_path(String.t()) :: String.t()
+  def unique_rel_path(rel), do: ensure_unique(rel)
+
   defp ensure_unique(rel) do
     if File.exists?(abs_path(rel)), do: ensure_unique(bump(rel)), else: rel
   end

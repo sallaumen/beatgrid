@@ -509,7 +509,7 @@ defmodule BeatgridWeb.TrackLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <.app_shell active={:biblioteca} socket={@socket}>
+    <.app_shell flash={@flash} active={:biblioteca} socket={@socket}>
       <div
         class="mx-auto w-full px-4 py-4 sm:px-5 lg:px-6 lg:py-5"
         style="max-width:min(80rem, max(320px, calc(100vw - 18rem)))"
@@ -1056,6 +1056,20 @@ defmodule BeatgridWeb.TrackLive do
                 >
                   <dt class="text-ink-faint">{k}</dt>
                   <dd class="truncate text-right text-ink-secondary">{v}</dd>
+                </div>
+                <div
+                  :if={is_binary((@track.raw_tags || %{})["recorte_mix_id"])}
+                  class="flex justify-between gap-4 text-body-sm"
+                >
+                  <dt class="text-ink-faint">✂ Recorte</dt>
+                  <dd class="truncate text-right">
+                    <.link
+                      navigate={"/sets-online/#{@track.raw_tags["recorte_mix_id"]}"}
+                      class="text-primary hover:underline"
+                    >
+                      do set: {@track.raw_tags["recorte_mix_title"] || "abrir"}
+                    </.link>
+                  </dd>
                 </div>
                 <div
                   :if={is_binary((@track.raw_tags || %{})["youtube_url"])}
