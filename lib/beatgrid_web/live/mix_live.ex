@@ -988,11 +988,6 @@ defmodule BeatgridWeb.MixLive do
     "#{format_clock(from)} → #{format_clock(to)} · #{format_clock(to - from)}"
   end
 
-  defp recorte_length_label(recorte) do
-    {from, to} = recorte_range(recorte)
-    format_clock(to - from)
-  end
-
   defp recorte_error(:no_audio),
     do: "O áudio deste set foi limpo — re-baixe o áudio antes de recortar."
 
