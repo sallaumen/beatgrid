@@ -34,6 +34,10 @@ defmodule BeatgridWeb.DashboardLive do
     {:noreply, apply_dashboard_result(socket, Dashboard.run(:remap_markers))}
   end
 
+  def handle_event("db_backup", _params, socket) do
+    {:noreply, apply_dashboard_result(socket, Dashboard.run(:db_backup))}
+  end
+
   def handle_event("analyze_loudness", _params, socket) do
     {:noreply, apply_dashboard_result(socket, Dashboard.run(:analyze_loudness))}
   end
@@ -102,6 +106,10 @@ defmodule BeatgridWeb.DashboardLive do
     {:noreply, apply_dashboard_result(socket, Dashboard.refresh(:markers_tick))}
   end
 
+  def handle_info({:backup_tick}, socket) do
+    {:noreply, apply_dashboard_result(socket, Dashboard.refresh(:backup_tick))}
+  end
+
   def handle_info({:youtube_tick}, socket) do
     {:noreply, apply_dashboard_result(socket, Dashboard.refresh(:youtube_tick))}
   end
@@ -139,6 +147,18 @@ defmodule BeatgridWeb.DashboardLive do
 
   defp pct(_value, 0), do: 0
   defp pct(value, max), do: max(round(value / max * 100), 2)
+
+  defp backup_label(nil), do: "nunca rodou"
+
+  defp backup_label(%{at: at, size: size}) do
+    hours = DateTime.diff(DateTime.utc_now(), at, :hour)
+    age = if hours < 1, do: "agora há pouco", else: "há #{hours}h"
+    "#{age} · #{Float.round(size / 1_048_576, 1)} MB"
+  end
+
+  # Never ran, or the daily cron silently stopped — either way, warn.
+  defp backup_stale?(nil), do: true
+  defp backup_stale?(%{at: at}), do: DateTime.diff(DateTime.utc_now(), at, :hour) > 48
 
   defp max_count([]), do: 0
   defp max_count(list), do: list |> Enum.map(fn {_k, v} -> v end) |> Enum.max()
@@ -364,6 +384,39 @@ defmodule BeatgridWeb.DashboardLive do
                       {if @markers_queue > 0, do: "Re-mapeando…", else: "Re-mapear tudo"}
                     </button>
                   </div>
+                </div>
+              </div>
+
+              <div class="mt-3 rounded-lg border border-white/6 bg-base/45 p-2 sm:p-3">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                  <div class="min-w-0 flex-1">
+                    <div class="flex flex-col gap-1 text-body-sm sm:flex-row sm:items-center sm:justify-between">
+                      <span class="text-ink-secondary">Backup da curadoria (banco)</span>
+                      <span class={[
+                        "font-mono",
+                        (backup_stale?(@backup) && "text-amber") || "text-ink-muted"
+                      ]}>
+                        {backup_label(@backup)}
+                      </span>
+                    </div>
+                    <p class="mt-1 text-caption text-ink-muted">
+                      Sets, marcadores manuais, ratings e decisões vivem só no banco — o dump
+                      diário (5h) guarda os 14 últimos em <span class="font-mono">_Backups/DB</span>.
+                      Restaurar é manual: passe o mouse no botão pra ver o comando.
+                    </p>
+                    <p :if={@backup_note} class="mt-1.5 text-caption text-ink-muted">
+                      {@backup_note}
+                    </p>
+                  </div>
+                  <button
+                    phx-click="db_backup"
+                    title={
+                      (@backup && Beatgrid.Backup.restore_command(@backup)) || "Nenhum backup ainda"
+                    }
+                    class="w-full shrink-0 whitespace-normal break-words rounded-md border border-white/10 px-2 py-1.5 text-center text-body-sm font-semibold text-ink-secondary hover:text-ink sm:w-auto sm:px-3.5"
+                  >
+                    Backup agora
+                  </button>
                 </div>
               </div>
             </.panel>

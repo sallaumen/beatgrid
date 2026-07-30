@@ -50,6 +50,8 @@ config :beatgrid, Beatgrid.Audio.Loudness, adapter: Beatgrid.Audio.LoudnessMock
 config :beatgrid, Beatgrid.Audio.GainApplier, adapter: Beatgrid.Audio.GainApplierMock
 
 config :beatgrid, Beatgrid.Audio.MixCutter, adapter: Beatgrid.Audio.MixCutterMock
+
+config :beatgrid, Beatgrid.Backup.Dumper, adapter: Beatgrid.Backup.DumperMock
 config :beatgrid, Beatgrid.YouTube.Downloader, adapter: Beatgrid.YouTube.DownloaderMock
 config :beatgrid, Beatgrid.Mixes.Source, adapter: Beatgrid.Mixes.SourceMock
 config :beatgrid, Beatgrid.Audio.SetSegmenter, adapter: Beatgrid.Audio.SetSegmenterMock

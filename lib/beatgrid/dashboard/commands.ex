@@ -8,7 +8,7 @@ defmodule Beatgrid.Dashboard.Commands do
 
   alias Beatgrid.{Analysis, Integrations, Loudness, Markers, Operations, Repertoire, YouTube}
   alias Beatgrid.Dashboard.ReadModel
-  alias Beatgrid.Workers.{EnrichWorker, RecommendWorker}
+  alias Beatgrid.Workers.{DbBackupWorker, EnrichWorker, RecommendWorker}
 
   @doc "Runs a dashboard command and returns either assign patches or a flash tuple."
   @spec run(term(), keyword()) :: {:ok, map()} | {:flash, atom(), String.t()}
@@ -34,6 +34,22 @@ defmodule Beatgrid.Dashboard.Commands do
         else: "Mapeando marcadores de #{count} faixa(s) em background — acompanhe em Jobs."
 
     {:ok, Map.put(markers_patch(), :markers_note, note)}
+  end
+
+  def run(:db_backup, _opts) do
+    note =
+      case DbBackupWorker.enqueue() do
+        {:ok, %Oban.Job{conflict?: true}} ->
+          "Já teve backup na última hora — o arquivo está em _Backups/DB."
+
+        {:ok, _job} ->
+          "Backup rodando em background — o card atualiza quando terminar."
+
+        {:error, _reason} ->
+          "Não consegui enfileirar o backup — veja os logs."
+      end
+
+    {:ok, %{backup_note: note}}
   end
 
   def run(:remap_markers, _opts) do
