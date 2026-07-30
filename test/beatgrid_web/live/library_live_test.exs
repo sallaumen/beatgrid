@@ -33,10 +33,20 @@ defmodule BeatgridWeb.LibraryLiveTest do
       norm_artist: "gonzaga"
     )
 
+    insert(:track,
+      status: :present,
+      tag_title: "Perdida no Set",
+      source_playlist: "recorte",
+      rel_path: "_Inbox/recorte.mp3"
+    )
+
     {:ok, view, html} = live(conn, ~p"/")
     assert html =~ "Biblioteca"
     assert html =~ "Sina"
     assert html =~ "Asa Branca"
+
+    # recortes carry their ✂ badge in the row
+    assert html =~ "Recorte — gravada por você"
 
     filtered = view |> element("button[phx-value-key='mpb']") |> render_click()
     assert filtered =~ "Sina"

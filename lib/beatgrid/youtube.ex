@@ -15,7 +15,15 @@ defmodule Beatgrid.YouTube do
   alias Beatgrid.Library.{FileInfo, NameSync, Track, Tracks}
   alias Beatgrid.Library.MetadataAI
   alias Beatgrid.Organization.ClassificationAI
-  alias Beatgrid.Workers.{AnalyzeWorker, DownloadWorker, ExpandWorker}
+
+  alias Beatgrid.Workers.{
+    AnalyzeWorker,
+    DownloadWorker,
+    ExpandWorker,
+    LoudnessWorker,
+    MarkerAnalyzeWorker
+  }
+
   alias Beatgrid.YouTube.TitleParser
 
   @adapter Application.compile_env(
@@ -330,9 +338,22 @@ defmodule Beatgrid.YouTube do
     file = FileInfo.read(path)
 
     case Tracks.upsert_by_path(ingest_attrs(file, parsed, item, playlist)) do
-      {:ok, track} -> Gold.maybe_mark_candidate(track)
-      error -> error
+      {:ok, track} ->
+        enqueue_track_analysis(track)
+        Gold.maybe_mark_candidate(track)
+
+      error ->
+        error
     end
+  end
+
+  # A fresh download is only playable once BPM/loudness/markers exist — queue
+  # the whole suite right away instead of waiting for a manual Painel sweep.
+  defp enqueue_track_analysis(track) do
+    {:ok, _} = AnalyzeWorker.enqueue(track.id)
+    {:ok, _} = LoudnessWorker.enqueue(track.id)
+    {:ok, _} = MarkerAnalyzeWorker.enqueue(track.id)
+    :ok
   end
 
   # Pure: merges the file facts, the parsed artist/title and the YouTube

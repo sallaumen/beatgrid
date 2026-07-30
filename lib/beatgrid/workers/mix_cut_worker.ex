@@ -19,7 +19,8 @@ defmodule Beatgrid.Workers.MixCutWorker do
       end_ms: cut.end_ms,
       artist: cut.artist,
       title: cut.title,
-      folder_key: cut.folder_key
+      folder_key: cut.folder_key,
+      segment_id: cut.segment_id
     }
     |> new()
     |> Oban.insert()
@@ -39,7 +40,8 @@ defmodule Beatgrid.Workers.MixCutWorker do
       end_ms: args["end_ms"],
       artist: args["artist"] || "",
       title: args["title"],
-      folder_key: args["folder_key"]
+      folder_key: args["folder_key"],
+      segment_id: args["segment_id"]
     }
 
     case Mixes.cut_to_track(mix, cut) do
