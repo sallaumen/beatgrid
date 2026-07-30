@@ -9,6 +9,7 @@ Mox.defmock(Beatgrid.Audio.MarkerDetectorMock, for: Beatgrid.Audio.MarkerDetecto
 Mox.defmock(Beatgrid.Audio.LoudnessMock, for: Beatgrid.Audio.Loudness)
 Mox.defmock(Beatgrid.Audio.GainApplierMock, for: Beatgrid.Audio.GainApplier)
 Mox.defmock(Beatgrid.Audio.MixCutterMock, for: Beatgrid.Audio.MixCutter)
+Mox.defmock(Beatgrid.Backup.DumperMock, for: Beatgrid.Backup.Dumper)
 Mox.defmock(Beatgrid.YouTube.DownloaderMock, for: Beatgrid.YouTube.Downloader)
 Mox.defmock(Beatgrid.Mixes.SourceMock, for: Beatgrid.Mixes.Source)
 Mox.defmock(Beatgrid.Audio.SetSegmenterMock, for: Beatgrid.Audio.SetSegmenter)

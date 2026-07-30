@@ -5,13 +5,14 @@ defmodule Beatgrid.Dashboard.ReadModel do
   enqueueing and mutations belong to `Beatgrid.Dashboard.Commands`.
   """
 
-  alias Beatgrid.{Analysis, Loudness, Markers, Repertoire, YouTube}
+  alias Beatgrid.{Analysis, Backup, Loudness, Markers, Repertoire, YouTube}
   alias Beatgrid.Library.GenreFolders
 
   @doc "Subscribes the caller to every topic that can change the dashboard snapshot."
   @spec subscribe() :: :ok
   def subscribe do
     Analysis.subscribe()
+    Backup.subscribe()
     Loudness.subscribe()
     Markers.subscribe()
     YouTube.subscribe()
@@ -44,6 +45,8 @@ defmodule Beatgrid.Dashboard.ReadModel do
       markers_queue: Markers.queued_count(),
       markers_unmapped: Markers.unmapped_count(),
       markers_note: nil,
+      backup: Backup.latest(),
+      backup_note: nil,
       youtube_pending: YouTube.pending_count(),
       youtube_failed: YouTube.failed_download_count(),
       youtube_note: nil,
@@ -71,6 +74,8 @@ defmodule Beatgrid.Dashboard.ReadModel do
   @doc "Returns assign patches for PubSub progress events consumed by the dashboard."
   @spec refresh(term()) :: {:ok, map()} | :ignore
   def refresh(:analysis_tick), do: {:ok, %{analysis: Analysis.progress()}}
+
+  def refresh(:backup_tick), do: {:ok, %{backup: Backup.latest(), backup_note: nil}}
 
   def refresh(:markers_tick) do
     {:ok,

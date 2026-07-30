@@ -55,7 +55,9 @@ config :beatgrid, Oban,
     # so a real orphan still recovers, just later. Even so, those jobs are idempotent
     # (transactional replace_segments/replace_dj_parts; schedule_cleanup cancels the
     # prior cleanup before scheduling a new one).
-    {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(90), interval: :timer.minutes(15)}
+    {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(90), interval: :timer.minutes(15)},
+    # Daily dump of the curation database into _Backups/DB (see Beatgrid.Backup).
+    {Oban.Plugins.Cron, crontab: [{"0 5 * * *", Beatgrid.Workers.DbBackupWorker}]}
   ]
 
 config :beatgrid, Beatgrid.Playback.QuietMode,
