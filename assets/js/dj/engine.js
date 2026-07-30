@@ -627,7 +627,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     emit("fxReset", {deck: to.id})
 
     const run = TRANSITIONS()[type] || cut
-    state.fireScale = fitScale(from)
+    // Manual fires are the DJ's hand — only the runway cap applies; AUTO also
+    // respects the incoming track's structure (state.hint is still set here).
+    state.fireScale = fitScale(from, mode === "auto" ? state.hint : null, toMs)
     if (state.fireScale < 0.95) {
       emit("transitionSqueezed", {type, factor: state.fireScale})
     }
@@ -641,14 +643,34 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     to._seekGuard = false
   }
 
-  // How much of the knob's length actually FITS before the outgoing track ends.
-  // Coarse on purpose (REF_LEN_S approximates every type's longest ramp): the
-  // goal is "the blend completes before the deck dies", not exact bookkeeping.
-  function fitScale(from) {
+  // How much of the knob's length actually FITS this pair. Two caps, Mixxx
+  // style (duration comes from the pair, the knob is only the ceiling):
+  // - the outgoing track's remaining runway (the blend completes before it dies)
+  // - on AUTO, the incoming track's first section change: the blend should be
+  //   over before its vocals/drop enter, not burying them under the old track.
+  // Coarse on purpose (REF_LEN_S approximates every type's longest ramp).
+  function fitScale(from, hint, toMs) {
+    const caps = []
     const durS = from.el.duration
-    if (!durS || from.trackId == null) return 1
-    const remainingS = Math.max(durS - from.el.currentTime - 0.3, 0.4)
-    return Math.min(1, remainingS / (REF_LEN_S * state.transitionScale))
+    if (durS && from.trackId != null) {
+      caps.push(Math.max(durS - from.el.currentTime - 0.3, 0.4))
+    }
+    const introS = introWindowS(hint, toMs)
+    if (introS != null) caps.push(Math.max(introS, 2))
+    if (caps.length === 0) return 1
+    return Math.min(1, Math.min(...caps) / (REF_LEN_S * state.transitionScale))
+  }
+
+  // Seconds from the incoming track's entry point to its first section cue —
+  // the v2 detector's structural boundaries double as "the music changes here".
+  function introWindowS(hint, toMs) {
+    if (!hint || !hint.track || !Array.isArray(hint.track.markers)) return null
+    const startMs = toMs ?? 0
+    const next = hint.track.markers
+      .filter((m) => m.type === "cue" && m.ms > startMs + 1000)
+      .map((m) => m.ms)
+      .sort((a, b) => a - b)[0]
+    return next == null ? null : (next - startMs) / 1000
   }
 
   function settleTransitionParams(deck) {
