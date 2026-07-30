@@ -1081,6 +1081,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
                   this.pushEvent("transition_cancelled", {track_id: trackId, deck})
                   this.notice(`✕ transição cancelada — deck ${deck.toUpperCase()} de volta ao ar`)
                 },
+                transitionSqueezed: ({type, factor}) => {
+                  this.toast(`${type.toUpperCase()} encurtada pra caber no fim da faixa (${Math.round(factor * 100)}%)`)
+                },
+                planDowngraded: ({planned}) => {
+                  this.notice(`⚠ ${planned.toUpperCase()} não coube — a faixa acabou antes: corte seco`)
+                },
                 trackEnded: ({trackId}) => {
                   this.hint = null
                   this.pushEvent("track_ended", {track_id: trackId})
@@ -1905,15 +1911,30 @@ defmodule BeatgridWeb.DiscotecagemLive do
             const hint = this.hint
             const snap = this.engine.snapshot()
             const active = snap.activeDeck
-            if (!hint || !hint.transition || !active || !snap[active].playing) {
+            if (!hint || !active || !snap[active].playing) {
               el.textContent = "—"
               el.style.color = ""
+              return
+            }
+            // Entrada SEQ: não há blend planejado — a faixa toca até o fim e
+            // corta. Dizer QUANDO, em vez do antigo "—" mudo.
+            if (!hint.transition) {
+              const left = snap[active].durMs - snap[active].posMs
+              el.textContent = left > 0 ? `fim → corte em ${fmt(left)}` : "fim → corte"
+              el.style.color = left <= 10_000 ? "#ffb020" : ""
               return
             }
             // Com AUTO desligado ninguém vai disparar sozinho — não prometa.
             if (!snap.auto) {
               el.textContent = "manual"
               el.style.color = ""
+              return
+            }
+            // O deck da próxima ainda não está pronto: o AUTO não vai disparar
+            // o blend — avisar em vez de prometer um countdown que não vale.
+            if (!snap.hintReady) {
+              el.textContent = "⚠ carregando o outro deck…"
+              el.style.color = "#ffb020"
               return
             }
             // A verdade do ENGINE (re-clamp + adiamentos), não o número do

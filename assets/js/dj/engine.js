@@ -451,13 +451,16 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // User "comprimento" knob: scales every transition's timings around the
     // reference length (REF_LEN_S = the default crossfade). 1.0 = as designed.
     transitionScale: 1,
+    // Per-fire squeeze: when the outgoing track has less runway than the knob
+    // asks for, THIS run shrinks to fit instead of truncating mid-blend.
+    fireScale: 1,
   }
 
   const REF_LEN_S = RAMP.crossfadeS // 8s — the seconds shown on the length control
 
   // Scale a base duration by the user's length knob (never below a tiny floor,
   // so a "cut" stays a cut and no ramp collapses to an instant click).
-  const dur = (v) => Math.max(v * state.transitionScale, 0.05)
+  const dur = (v) => Math.max(v * state.transitionScale * state.fireScale, 0.05)
 
   const emit = (name, payload) => callbacks[name] && callbacks[name](payload)
 
@@ -507,6 +510,11 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         // The outgoing deck is ALREADY silent here — running the marked
         // transition (an 8s crossfade from a dead deck…) would be seconds of
         // near-silence. End of track always advances with a cut.
+        const planned = hint.transition && hint.transition["type"]
+        if (planned && planned !== "cut") {
+          // The DJ planned a blend and got a dry cut — say it, don't hide it.
+          emit("planDowngraded", {planned})
+        }
         boundaryOnce(deck.trackId, () =>
           fireTransition(
             deck,
@@ -619,13 +627,28 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     emit("fxReset", {deck: to.id})
 
     const run = TRANSITIONS()[type] || cut
+    state.fireScale = fitScale(from)
+    if (state.fireScale < 0.95) {
+      emit("transitionSqueezed", {type, factor: state.fireScale})
+    }
     run(from, to, toMs, token)
+    state.fireScale = 1
     state.activeDeck = to.id
     state.hint = null
     state.firedForTrack = null
     state.postponeMs = 0
     from._seekGuard = false
     to._seekGuard = false
+  }
+
+  // How much of the knob's length actually FITS before the outgoing track ends.
+  // Coarse on purpose (REF_LEN_S approximates every type's longest ramp): the
+  // goal is "the blend completes before the deck dies", not exact bookkeeping.
+  function fitScale(from) {
+    const durS = from.el.duration
+    if (!durS || from.trackId == null) return 1
+    const remainingS = Math.max(durS - from.el.currentTime - 0.3, 0.4)
+    return Math.min(1, remainingS / (REF_LEN_S * state.transitionScale))
   }
 
   function settleTransitionParams(deck) {
@@ -1847,14 +1870,22 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     },
 
     snapshot() {
+      const deckSnap = (deck) => ({
+        trackId: deck.trackId,
+        posMs: deck.positionMs(),
+        durMs: (deck.el.duration || 0) * 1000,
+        playing: deck.audible(),
+      })
+
       return {
         activeDeck: state.activeDeck,
         audibleDeck: audibleDeckId(),
         auto: state.autoOn,
         xfadePos: xfade.pos,
         postponeMs: state.postponeMs,
-        a: {trackId: decks.a.trackId, posMs: decks.a.positionMs(), playing: decks.a.audible()},
-        b: {trackId: decks.b.trackId, posMs: decks.b.positionMs(), playing: decks.b.audible()},
+        hintReady: hintFireable(state.hint),
+        a: deckSnap(decks.a),
+        b: deckSnap(decks.b),
       }
     },
 
