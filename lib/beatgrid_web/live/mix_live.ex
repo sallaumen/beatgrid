@@ -258,9 +258,7 @@ defmodule BeatgridWeb.MixLive do
   # Every keystroke keeps the assign in sync so the preview players (and the
   # nudge buttons) always point at the range currently on screen.
   def handle_event("recorte_change", params, socket),
-    do:
-      {:noreply,
-       assign(socket, recorte: recorte_from_params(params, socket.assigns.recorte.mode))}
+    do: {:noreply, assign(socket, recorte: recorte_from_params(params, socket.assigns.recorte))}
 
   def handle_event("nudge_recorte", %{"field" => field, "delta" => delta}, socket)
       when field in ~w(start end),
@@ -279,7 +277,8 @@ defmodule BeatgridWeb.MixLive do
       end_ms: to,
       artist: params["artist"],
       title: params["title"],
-      folder_key: if(params["folder"] == "", do: nil, else: params["folder"])
+      folder_key: if(params["folder"] == "", do: nil, else: params["folder"]),
+      segment_id: socket.assigns.recorte.segment_id
     }
 
     case Mixes.request_cut(socket.assigns.mix, attrs) do
@@ -292,7 +291,7 @@ defmodule BeatgridWeb.MixLive do
       {:error, reason} ->
         {:noreply,
          socket
-         |> assign(recorte: recorte_from_params(params))
+         |> assign(recorte: recorte_from_params(params, socket.assigns.recorte))
          |> put_flash(:error, recorte_error(reason))}
     end
   end
@@ -880,7 +879,7 @@ defmodule BeatgridWeb.MixLive do
   # ── Recortes ────────────────────────────────────────────────────────────────
 
   defp recorte_prefill(_mix, nil),
-    do: %{range: "", artist: "", title: "", folder: nil, mode: "context"}
+    do: %{range: "", artist: "", title: "", folder: nil, mode: "context", segment_id: nil}
 
   defp recorte_prefill(mix, seg) do
     end_ms = seg.end_ms || min(seg.start_ms + 90_000, mix.duration_ms || seg.start_ms + 90_000)
@@ -890,17 +889,23 @@ defmodule BeatgridWeb.MixLive do
       artist: seg.artist || "",
       title: seg.title || "",
       folder: nil,
-      mode: "context"
+      mode: "context",
+      # Remembered so the cut LINKS BACK: the segment gets matched to the new
+      # track (and named by it) instead of staying "não tenho" forever.
+      segment_id: seg.id
     }
   end
 
-  defp recorte_from_params(params, mode \\ "context") do
+  # Form params carry the typed fields; mode and segment origin live only in
+  # the assign, so they ride along from the previous state.
+  defp recorte_from_params(params, previous) do
     %{
       range: params["range"] || "",
       artist: params["artist"] || "",
       title: params["title"] || "",
       folder: if(params["folder"] == "", do: nil, else: params["folder"]),
-      mode: mode
+      mode: previous.mode,
+      segment_id: previous.segment_id
     }
   end
 

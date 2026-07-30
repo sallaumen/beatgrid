@@ -7,6 +7,7 @@ defmodule Beatgrid.MixesCutTest do
 
   alias Beatgrid.Library.Tracks
   alias Beatgrid.Mixes
+  alias Beatgrid.Repo
   alias Beatgrid.Workers.{AnalyzeWorker, LoudnessWorker, MarkerAnalyzeWorker, MixCutWorker}
 
   @moduletag :tmp_dir
@@ -79,6 +80,55 @@ defmodule Beatgrid.MixesCutTest do
       assert_enqueued(worker: LoudnessWorker, args: %{track_id: track.id})
       assert_enqueued(worker: MarkerAnalyzeWorker, args: %{track_id: track.id})
       assert_receive {:mix_progress, %{stage: "cut_done", track_id: _}}
+    end
+
+    test "a cut born from a segment matches and names it", %{mix: mix} do
+      seg =
+        insert(:mix_segment,
+          mix: mix,
+          position: 0,
+          start_ms: 43_000,
+          end_ms: 90_000,
+          artist: nil,
+          title: nil
+        )
+
+      expect(Beatgrid.Audio.MixCutterMock, :cut, fn _src, dest, _opts ->
+        File.write!(dest, "cut-bytes")
+        :ok
+      end)
+
+      assert {:ok, track} = Mixes.cut_to_track(mix, cut_attrs(%{segment_id: seg.id}))
+
+      reloaded = Repo.get!(Beatgrid.Mixes.Segment, seg.id)
+      assert reloaded.matched_track_id == track.id
+      assert reloaded.match_confidence == :high
+      assert reloaded.title == "Perdida no Set"
+      assert reloaded.artist == "Zé"
+      assert reloaded.name_source == :manual
+    end
+
+    test "a segment that already has a name keeps it, gaining only the match", %{mix: mix} do
+      seg =
+        insert(:mix_segment,
+          mix: mix,
+          position: 0,
+          start_ms: 43_000,
+          end_ms: 90_000,
+          artist: "Original",
+          title: "Nome do Tracklist"
+        )
+
+      expect(Beatgrid.Audio.MixCutterMock, :cut, fn _src, dest, _opts ->
+        File.write!(dest, "cut-bytes")
+        :ok
+      end)
+
+      assert {:ok, track} = Mixes.cut_to_track(mix, cut_attrs(%{segment_id: seg.id}))
+
+      reloaded = Repo.get!(Beatgrid.Mixes.Segment, seg.id)
+      assert reloaded.matched_track_id == track.id
+      assert reloaded.title == "Nome do Tracklist"
     end
 
     test "a name collision bumps the filename instead of overwriting", %{mix: mix} do

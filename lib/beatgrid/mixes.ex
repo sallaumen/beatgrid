@@ -418,7 +418,8 @@ defmodule Beatgrid.Mixes do
       end_ms: attrs[:end_ms],
       artist: attrs[:artist] |> to_string() |> String.trim(),
       title: attrs[:title] |> to_string() |> String.trim(),
-      folder_key: known_folder_key(attrs[:folder_key])
+      folder_key: known_folder_key(attrs[:folder_key]),
+      segment_id: attrs[:segment_id]
     }
 
     with :ok <- validate_cut_name(cut), :ok <- validate_cut_range(mix, cut), do: {:ok, cut}
@@ -465,10 +466,39 @@ defmodule Beatgrid.Mixes do
   defp register_recorte(mix, cut, rel, abs) do
     with {:ok, track} <- Tracks.upsert_by_path(recorte_attrs(mix, cut, rel, abs)) do
       enqueue_recorte_analysis(track)
+      link_segment(mix, cut, track)
       broadcast(%{mix_id: mix.id, stage: "cut_done", track_id: track.id, title: cut.title})
       {:ok, track}
     end
   end
+
+  # A cut born from a detected segment closes the loop: the segment matches the
+  # new track (coverage goes up, "não tenho" becomes "tenho") and inherits the
+  # name the DJ just typed when it had none.
+  defp link_segment(%Mix{id: mix_id}, %{segment_id: seg_id} = cut, track)
+       when is_binary(seg_id) do
+    case Repo.get_by(Segment, id: seg_id, mix_id: mix_id) do
+      nil ->
+        :ok
+
+      seg ->
+        {:ok, _} =
+          update_segment(seg, %{matched_track_id: track.id, match_confidence: :high})
+
+        if is_nil(seg.title) do
+          {:ok, _} =
+            update_segment(seg, %{
+              artist: presence(cut.artist),
+              title: cut.title,
+              name_source: :manual
+            })
+        end
+
+        :ok
+    end
+  end
+
+  defp link_segment(_mix, _cut, _track), do: :ok
 
   # Facts we know exactly (duration = the range; format mp3 by construction);
   # the periodic scan enriches the rest (bitrate/sample rate/sha) later.

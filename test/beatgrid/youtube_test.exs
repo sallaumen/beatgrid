@@ -61,6 +61,11 @@ defmodule Beatgrid.YouTubeTest do
     assert t.source_playlist == "youtube"
     assert t.status == :present
     assert t.raw_tags["youtube_url"] == "https://y/abc"
+
+    # a fresh download queues its whole analysis suite — no manual Painel sweep
+    assert_enqueued(worker: Beatgrid.Workers.AnalyzeWorker, args: %{track_id: t.id})
+    assert_enqueued(worker: Beatgrid.Workers.LoudnessWorker, args: %{track_id: t.id})
+    assert_enqueued(worker: Beatgrid.Workers.MarkerAnalyzeWorker, args: %{track_id: t.id})
   end
 
   @tag :tmp_dir

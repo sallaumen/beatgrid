@@ -898,6 +898,13 @@ defmodule BeatgridWeb.LibraryLive do
               {track.tag_title || track.filename}
             </.link>
             <.ouro_badge track={track} />
+            <span
+              :if={track.source_playlist == "recorte"}
+              title="Recorte — gravada por você a partir de um set importado"
+              class="shrink-0 rounded-full bg-primary/15 px-1.5 py-px text-[10px] font-semibold text-primary/90"
+            >
+              ✂
+            </span>
           </div>
           <p class="truncate text-caption text-ink-muted">{track.tag_artist || "—"}</p>
         </div>
