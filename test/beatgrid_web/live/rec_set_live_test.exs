@@ -85,6 +85,17 @@ defmodule BeatgridWeb.RecSetLiveTest do
   end
 
   @tag :tmp_dir
+  test "a set holding a track that left the library wears the ⚠ badge in the list", %{conn: conn} do
+    {:ok, sick} = Sets.create("Festa do interior")
+    gone = insert(:track, status: :quarantined, tag_title: "Sumida")
+    {:ok, _} = Sets.append(sick, gone)
+
+    {:ok, _view, html} = live(conn, ~p"/set")
+
+    assert html =~ "⚠ 1"
+    assert html =~ "fora da biblioteca"
+  end
+
   test "choosing a target style anchors the set", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/set")
     new_set(view)
