@@ -11,6 +11,7 @@ defmodule Beatgrid.Backup do
   require Logger
 
   alias Beatgrid.Library
+  alias Beatgrid.Workers.DbBackupWorker
 
   @dumper Application.compile_env(
             :beatgrid,
@@ -99,7 +100,7 @@ defmodule Beatgrid.Backup do
   end
 
   defp enqueue_catch_up do
-    Beatgrid.Workers.DbBackupWorker.enqueue()
+    DbBackupWorker.enqueue()
     :ok
   end
 
