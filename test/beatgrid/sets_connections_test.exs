@@ -353,6 +353,20 @@ defmodule Beatgrid.SetsConnectionsTest do
       keeper = insert(:track, status: :present)
       assert {:ok, 0} = Sets.adopt_memberships(loose.id, keeper.id)
     end
+
+    test "set_health/0 counts seats pointing at tracks that left the library" do
+      {:ok, healthy} = Sets.create("Sã")
+      {:ok, sick} = Sets.create("Doente")
+      ok_track = insert(:track, status: :present)
+      gone = insert(:track, status: :quarantined)
+      {:ok, _} = Sets.append(healthy, ok_track)
+      {:ok, _} = Sets.append(sick, ok_track)
+      {:ok, _} = Sets.append(sick, gone)
+
+      health = Sets.set_health()
+      assert health[sick.id] == 1
+      refute Map.has_key?(health, healthy.id)
+    end
   end
 
   describe "learn_fire_point/4 (the console learns real fires)" do

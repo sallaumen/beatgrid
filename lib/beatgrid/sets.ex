@@ -54,6 +54,14 @@ defmodule Beatgrid.Sets do
   @spec list() :: [RecSet.t()]
   defdelegate list, to: RecSetQuery
 
+  @doc """
+  Light health for set LISTS (no file I/O): how many seats of each set point at
+  a track that left the library — the silent party-breaker class. The full
+  pre-trip check (files, markers, BPM) stays in `preflight/1`.
+  """
+  @spec set_health() :: %{Ecto.UUID.t() => non_neg_integer()}
+  defdelegate set_health, to: RecSetQuery, as: :broken_seat_counts
+
   @spec get(Ecto.UUID.t()) :: RecSet.t() | nil
   defdelegate get(id), to: RecSetQuery
 

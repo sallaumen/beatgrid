@@ -41,6 +41,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
      |> assign(
        page_title: "Discotecagem",
        sets: Sets.list(),
+       set_health: Sets.set_health(),
        set: nil,
        entries: [],
        subscribed: MapSet.new(),
@@ -657,7 +658,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               >
                 <option value="">Escolher set…</option>
                 <option :for={s <- @sets} value={s.id} selected={@set && @set.id == s.id}>
-                  {s.name}
+                  {s.name}{if @set_health[s.id], do: " ⚠"}
                 </option>
               </select>
             </form>

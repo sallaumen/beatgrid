@@ -43,7 +43,7 @@ defmodule BeatgridWeb.RecSetLive do
        plan_prefill: Sets.preset_fields("custom"),
        planning?: false
      )
-     |> assign(sets: sets)
+     |> assign(sets: sets, set_health: Sets.set_health())
      |> load_set(List.first(sets))}
   end
 
@@ -188,7 +188,9 @@ defmodule BeatgridWeb.RecSetLive do
   @impl true
   def handle_event("new_set", _params, socket) do
     {:ok, set} = Sets.create("Novo set")
-    {:noreply, socket |> assign(sets: Sets.list()) |> load_set(set)}
+
+    {:noreply,
+     socket |> assign(sets: Sets.list(), set_health: Sets.set_health()) |> load_set(set)}
   end
 
   def handle_event("select_set", %{"id" => id}, socket) do
@@ -197,7 +199,7 @@ defmodule BeatgridWeb.RecSetLive do
 
   def handle_event("rename", %{"name" => name}, socket) do
     {:ok, set} = Sets.rename(socket.assigns.set, name)
-    {:noreply, assign(socket, set: set, sets: Sets.list())}
+    {:noreply, assign(socket, set: set, sets: Sets.list(), set_health: Sets.set_health())}
   end
 
   def handle_event("set_target_style", %{"style" => style}, socket) do
@@ -212,7 +214,7 @@ defmodule BeatgridWeb.RecSetLive do
 
     {:noreply,
      socket
-     |> assign(sets: Sets.list())
+     |> assign(sets: Sets.list(), set_health: Sets.set_health())
      |> load_set(copy)
      |> put_flash(:info, "Cópia criada: “#{copy.name}”. Você está editando a cópia.")}
   end
@@ -220,7 +222,11 @@ defmodule BeatgridWeb.RecSetLive do
   def handle_event("delete_set", _params, socket) do
     {:ok, _} = Sets.delete(socket.assigns.set)
     sets = Sets.list()
-    {:noreply, socket |> assign(sets: sets) |> load_set(List.first(sets))}
+
+    {:noreply,
+     socket
+     |> assign(sets: sets, set_health: Sets.set_health())
+     |> load_set(List.first(sets))}
   end
 
   # --- members ---
@@ -626,12 +632,19 @@ defmodule BeatgridWeb.RecSetLive do
               phx-click="select_set"
               phx-value-id={s.id}
               class={[
-                "block w-full truncate rounded-md px-2.5 py-2 text-left text-body-sm",
+                "flex w-full items-center gap-1.5 rounded-md px-2.5 py-2 text-left text-body-sm",
                 @set && @set.id == s.id && "bg-primary/15 text-primary",
                 !(@set && @set.id == s.id) && "text-ink-secondary hover:bg-white/5"
               ]}
             >
-              {s.name}
+              <span class="min-w-0 flex-1 truncate">{s.name}</span>
+              <span
+                :if={@set_health[s.id]}
+                class="shrink-0 rounded bg-amber/15 px-1 text-[10px] font-bold text-amber"
+                title={"#{@set_health[s.id]} faixa(s) fora da biblioteca — abra o set para trocar, ou rode o ✈ Checar na Discotecagem"}
+              >
+                ⚠ {@set_health[s.id]}
+              </span>
             </button>
             <p :if={@sets == []} class="px-2.5 py-2 text-body-sm text-ink-faint">Nenhum set ainda.</p>
           </div>

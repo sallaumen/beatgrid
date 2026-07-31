@@ -105,4 +105,16 @@ defmodule Beatgrid.Sets.RecSetQuery do
   @spec rows_for_track(Ecto.UUID.t()) :: [SetTrack.t()]
   def rows_for_track(track_id),
     do: SetTrack |> where([st], st.track_id == ^track_id) |> Repo.all()
+
+  @doc "Sets holding seats that point at non-present tracks: `%{rec_set_id => count}`."
+  @spec broken_seat_counts() :: %{Ecto.UUID.t() => non_neg_integer()}
+  def broken_seat_counts do
+    SetTrack
+    |> join(:inner, [st], t in assoc(st, :track))
+    |> where([_st, t], t.status != :present)
+    |> group_by([st], st.rec_set_id)
+    |> select([st], {st.rec_set_id, count()})
+    |> Repo.all()
+    |> Map.new()
+  end
 end
