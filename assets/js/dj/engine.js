@@ -450,6 +450,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // "Ainda não!": offset added to the AUTO fire point for the CURRENT
     // boundary only — cleared whenever the boundary advances or changes hands.
     postponeMs: 0,
+    // Respiro em curso: o silêncio do agradecimento entre a música que acabou
+    // e a próxima ({token, deck, deadline, timer, start}). null fora dele.
+    breatherGap: null,
     // User "comprimento" knob: scales every transition's timings around the
     // reference length (REF_LEN_S = the default crossfade). 1.0 = as designed.
     transitionScale: 1,
@@ -613,6 +616,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // null → the incoming deck starts wherever it is cued (manual fire); armed
     // hints resolved their to_ms into the pending seek at load time.
     const toMs = transition["to_ms"] ?? null
+    const breather = transition["breather"] === true
 
     emit("transitionStarted", {
       fromTrackId: from.trackId,
@@ -636,10 +640,14 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // sliders don't lie over transparent audio.
     emit("fxReset", {deck: to.id})
 
-    const run = TRANSITIONS()[type] || cut
+    // Um respiro não é blend: o runner dele deixa a música ACABAR, estica o
+    // eco e segura o silêncio do agradecimento — nada de squeeze/escala.
+    const run = breather
+      ? (f, t, m, k) => breatherOut(f, t, m, k, transition)
+      : TRANSITIONS()[type] || cut
     // Manual fires are the DJ's hand — only the runway cap applies; AUTO also
     // respects the incoming track's structure (state.hint is still set here).
-    state.fireScale = fitScale(from, mode === "auto" ? state.hint : null, toMs)
+    state.fireScale = breather ? 1 : fitScale(from, mode === "auto" ? state.hint : null, toMs)
     if (state.fireScale < 0.95) {
       emit("transitionSqueezed", {type, factor: state.fireScale})
     }
@@ -1102,6 +1110,70 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       }
       if (p >= 1) drop()
     }, 16)
+  }
+
+  // Respiro do salão: a música que sai toca até o FIM DE VERDADE — o eco
+  // estica a última frase, a pista fica em silêncio para agradecer e trocar
+  // de par, e só então a próxima entra. A regra do forró, não do rádio.
+  function breatherOut(from, to, toMs, token, transition) {
+    const gapS = Math.max((transition["gap_ms"] ?? 8000) / 1000, 0)
+    const style = transition["type"] || "echo"
+    const now = ctx.currentTime
+
+    if (style === "echo") {
+      // Eco na voz do fim, sincronizado na semínima da faixa que sai; o
+      // feedback sobe um pouco para a cauda atravessar o começo do silêncio.
+      from.delay.delayTime.setTargetAtTime(Math.min(60 / (from.bpm || 120), 1.2), now, 0.03)
+      from.settleGain(from.echoSend)
+      from.echoSend.gain.linearRampToValueAtTime(RAMP.echoWetLevel, now + 0.5)
+      from.settleParam(from.feedback.gain)
+      from.feedback.gain.linearRampToValueAtTime(0.72, now + 0.8)
+    } else if (style === "fade") {
+      const restS = Math.max((from.el.duration || 0) - from.el.currentTime, 0.5)
+      from.gain.gain.linearRampToValueAtTime(0, now + restS)
+    }
+    // qualquer outro estilo: a música simplesmente acaba, seca — também é lindo
+
+    const startNext = () => {
+      if (token !== state.transitionToken) return
+      state.breatherGap = null
+      resetChain(from)
+      riseIncoming(to, 0.4)
+      startIncoming(to, toMs)
+      setXfadeTo(sideOf(to.id), 0.3)
+      emit("deckFreed", {deck: from.id})
+    }
+
+    let armed = false
+
+    const armGap = () => {
+      if (armed || token !== state.transitionToken) return
+      armed = true
+      state.breatherGap = {
+        token,
+        deck: to.id,
+        deadline: performance.now() + gapS * 1000,
+        timer: setTimeout(startNext, gapS * 1000),
+        start: startNext,
+      }
+    }
+
+    // A faixa morre sozinha (o `ended` do deck ativo é ignorado pelo listener
+    // global porque activeDeck já é o destino); o relógio cobre o caso de um
+    // seek/erro engolir o evento.
+    const onEnded = () => armGap()
+    from.el.addEventListener("ended", onEnded, {once: true})
+    const restS = Math.max((from.el.duration || 0) - from.el.currentTime + 0.5, 1)
+    after(restS, () => {
+      from.el.removeEventListener("ended", onEnded)
+      armGap()
+    })
+  }
+
+  // O respiro em curso desta geração de transição, ou null.
+  function activeBreatherGap() {
+    const gap = state.breatherGap
+    return gap && gap.token === state.transitionToken ? gap : null
   }
 
   // Return a silenced deck to a neutral chain: unity gain, open filter, flat
@@ -1696,7 +1768,16 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
     // "Ainda não!" — push the AUTO fire point forward for this boundary only.
     // Postponed past the end of the track, the `ended` fallback still advances.
+    // Durante um respiro, W ESTICA o silêncio (a pista ainda está agradecendo)
+    // e devolve o novo restante em ms.
     postponeFire(ms) {
+      const gap = activeBreatherGap()
+      if (gap) {
+        clearTimeout(gap.timer)
+        gap.deadline += ms
+        gap.timer = setTimeout(gap.start, Math.max(gap.deadline - performance.now(), 0))
+        return Math.max(gap.deadline - performance.now(), 0)
+      }
       if (this.firePointMs() == null) return null
       state.postponeMs += ms
       return this.firePointMs()
@@ -1704,7 +1785,14 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
     // "Agora!" — fire the armed hint immediately with its planned type/to_ms
     // (the keyboard cousin of AUTO's own fire; works with AUTO off too).
+    // Durante um respiro, T PULA o resto do silêncio: a próxima entra já.
     fireHint() {
+      const gap = activeBreatherGap()
+      if (gap) {
+        clearTimeout(gap.timer)
+        gap.start()
+        return {ok: true, type: "respiro"}
+      }
       const hint = state.hint
       const active = state.activeDeck
       if (state.lastFireAt && performance.now() - state.lastFireAt < 400) {
@@ -1999,6 +2087,10 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         xfadePos: xfade.pos,
         postponeMs: state.postponeMs,
         hintReady: hintFireable(state.hint),
+        breather: (() => {
+          const gap = activeBreatherGap()
+          return gap ? {remainingMs: Math.max(gap.deadline - performance.now(), 0)} : null
+        })(),
         a: deckSnap(decks.a),
         b: deckSnap(decks.b),
       }

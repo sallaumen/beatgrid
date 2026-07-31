@@ -1813,6 +1813,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
           },
 
           actPostpone(ms) {
+            // No silêncio do respiro, W estende o agradecimento da pista.
+            if (this.engine.snapshot().breather) {
+              const rem = this.engine.postponeFire(ms)
+              if (rem != null) this.toast(`🤝 respiro esticado — próxima em ${Math.ceil(rem / 1000)}s`)
+              return
+            }
             const fp = this.engine.postponeFire(ms)
             if (fp == null) {
               this.toast("sem próxima armada para adiar")
@@ -2153,6 +2159,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
           countdownState() {
             const hint = this.hint
             const snap = this.engine.snapshot()
+            // O silêncio do agradecimento vem ANTES de tudo: não há hint nem
+            // deck tocando aqui — e é exatamente isso que a tela deve dizer.
+            if (snap.breather) {
+              const s = Math.ceil(snap.breather.remainingMs / 1000)
+              return {text: `🤝 pista agradece — próxima em ${s}s`, color: "#ffb020"}
+            }
             const active = snap.activeDeck
             if (!hint || !active || !snap[active].playing) return {text: "—", color: ""}
             // Entrada SEQ: não há blend planejado — a faixa toca até o fim e
@@ -2173,6 +2185,14 @@ defmodule BeatgridWeb.DiscotecagemLive do
             // servidor — os dois divergem em arquivos com duração VBR mentirosa.
             const fireMs = this.engine.firePointMs()
             const remaining = (fireMs != null ? fireMs : 0) - snap[active].posMs
+            // Fronteira de respiro: a música vai até o FIM e a pista agradece —
+            // o countdown avisa o caráter da chegada, não só o quando.
+            if (hint.transition["breather"]) {
+              return {
+                text: remaining > 0 ? `🤝 respiro em ${fmt(remaining)}` : "🤝 respiro",
+                color: "#ffb020",
+              }
+            }
             return {
               text: remaining > 0 ? `em ${fmt(remaining)}` : "agora",
               color: remaining <= 10_000 ? "#ff5d6c" : remaining <= 30_000 ? "#ffb020" : "",
@@ -3181,7 +3201,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
       <div :if={@hint} class="mt-2 rounded-lg border border-amber/25 bg-amber/8 p-2">
         <div class="flex items-center justify-between gap-2">
           <span class="text-[9px] font-bold uppercase tracking-[0.16em] text-amber">
-            Próxima · {t_label(@hint.transition && @hint.transition["type"])}{if @hint_deck,
+            Próxima · {if @hint.transition && @hint.transition["breather"],
+              do: "🤝 "}{t_label(@hint.transition && @hint.transition["type"])}{if @hint_deck,
               do: " · deck #{String.upcase(@hint_deck)}"}
           </span>
           <span id="dj-countdown-wrap" phx-update="ignore" class="font-mono text-[10px] text-amber">
@@ -3316,7 +3337,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             ]}
             title={e.transition["reason"] || "Transição de entrada desta faixa"}
           >
-            {t_label(e.transition["type"])}
+            {if e.transition["breather"], do: "🤝 "}{t_label(e.transition["type"])}
           </span>
           <.load_buttons track_id={e.track.id} />
         </li>

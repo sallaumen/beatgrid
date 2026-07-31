@@ -66,6 +66,9 @@ defmodule Beatgrid.Library.Track do
     field :integrity_error, :string
     field :integrity_checked_at, :utc_datetime
 
+    # Curadoria humana: final clássico que o salão espera — nunca cortar cedo.
+    field :sacred_ending, :boolean, default: false
+
     field :bpm_detected, :float
     field :camelot_detected, :string
     field :analyzed_at, :utc_datetime
@@ -103,7 +106,7 @@ defmodule Beatgrid.Library.Track do
                tag_title tag_artist tag_album tag_album_artist tag_year
                tag_track_no tag_isrc tag_genre tag_comment raw_tags
                source_playlist genre_folder status quality_issues
-               integrity_status integrity_error integrity_checked_at
+               integrity_status integrity_error integrity_checked_at sacred_ending
                rating personal_note tags cue_points last_scanned_at sc_match_confidence
                sc_art_trusted bpm_detected camelot_detected analyzed_at
                loudness_lufs true_peak_dbtp loudness_attempted_at

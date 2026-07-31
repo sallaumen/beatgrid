@@ -313,6 +313,110 @@ defmodule Beatgrid.SetsConnectionsTest do
     assert_receive {:set_changed, _}
   end
 
+  describe "respiro (the salão breathes every N songs)" do
+    defp eight_track_set do
+      {:ok, set} = Sets.create("Baile")
+
+      tracks =
+        for i <- 1..8 do
+          track =
+            insert(:track,
+              status: :present,
+              bpm_detected: 100.0,
+              duration_ms: 200_000,
+              cue_points: [%{"ms" => 180_000, "type" => "outro", "source" => "auto"}]
+            )
+
+          {:ok, _} = Sets.append(set, track)
+          {i, track}
+        end
+
+      {set, Map.new(tracks)}
+    end
+
+    test "connect_all marks every 4th boundary as a breather (echo treatment, cultural reason)" do
+      {set, _tracks} = eight_track_set()
+
+      {:ok, 7} = Sets.connect_all(set)
+
+      breathers =
+        for {e, idx} <- Enum.with_index(Sets.entries(set)),
+            idx > 0,
+            e.transition["breather"] == true,
+            do: idx
+
+      # boundaries are 1-based between positions: 4th boundary = entry index 4
+      assert breathers == [4]
+      breather = Enum.at(Sets.entries(set), 4).transition
+      assert breather["type"] == "echo"
+      assert breather["reason"] =~ "Respiro"
+    end
+
+    test "breather_every option changes the cadence; nil disables it" do
+      {set, _tracks} = eight_track_set()
+
+      {:ok, 7} = Sets.connect_all(set, breather_every: 3)
+      idxs = for {e, i} <- Enum.with_index(Sets.entries(set)), e.transition["breather"], do: i
+      assert idxs == [3, 6]
+
+      {:ok, 7} = Sets.connect_all(set, breather_every: nil)
+      assert Enum.all?(Sets.entries(set), &(&1.transition["breather"] != true))
+    end
+
+    test "a breather hint plays to the REAL end (outro marker ignored) and carries the gap" do
+      {set, tracks} = eight_track_set()
+      {:ok, 7} = Sets.connect_all(set)
+
+      # boundary 4 = from track 4 into track 5; outro at 180s would normally win
+      hint = Sets.entry_after(set.id, tracks[4].id)
+
+      assert hint.transition["breather"] == true
+      assert hint.transition["from_ms"] == 196_000
+      assert hint.transition["gap_ms"] == 8_000
+    end
+
+    test "set_breather toggles the flag on one boundary, surviving normalize" do
+      {set, tracks} = eight_track_set()
+      {:ok, 7} = Sets.connect_all(set)
+
+      {:ok, _} = Sets.set_breather(set, tracks[2], true)
+      assert Enum.at(Sets.entries(set), 1).transition["breather"] == true
+
+      {:ok, _} = Sets.set_breather(set, tracks[2], false)
+      refute Map.has_key?(Enum.at(Sets.entries(set), 1).transition, "breather")
+    end
+
+    test "a breather boundary never learns a fire point" do
+      {set, tracks} = eight_track_set()
+      {:ok, 7} = Sets.connect_all(set)
+
+      assert :ignored = Sets.learn_fire_point(set.id, tracks[5].id, tracks[4].id, 120_000)
+    end
+
+    test "a sacred ending fires only at the very end, beating markers (human hand still wins)" do
+      {:ok, set} = Sets.create("S")
+
+      a =
+        insert(:track,
+          status: :present,
+          sacred_ending: true,
+          duration_ms: 200_000,
+          cue_points: [%{"ms" => 180_000, "type" => "outro", "source" => "auto"}]
+        )
+
+      b = insert(:track, status: :present)
+      {:ok, _} = Sets.append(set, a)
+      {:ok, _} = Sets.append(set, b)
+      {:ok, _} = Sets.connect(set, b, %{"type" => "cut"})
+
+      assert Sets.entry_after(set.id, a.id).transition["from_ms"] == 198_500
+
+      # a REAL fire the DJ performed still beats the sacred flag
+      {:ok, _} = Sets.learn_fire_point(set.id, b.id, a.id, 120_000)
+      assert Sets.entry_after(set.id, a.id).transition["from_ms"] == 120_000
+    end
+  end
+
   describe "adopt_memberships/2 (dedup hands set seats to the keeper)" do
     test "a duplicate's seat moves to the keeper, keeping order and transition" do
       {:ok, set} = Sets.create("S")

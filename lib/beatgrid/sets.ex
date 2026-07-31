@@ -38,6 +38,18 @@ defmodule Beatgrid.Sets do
   # console would already do — anything closer is noise, not a lesson.
   @learn_min_delta_ms 5_000
 
+  # Respiro do salão (a regra do forró, não do rádio): a cada N músicas a
+  # fronteira NÃO emenda — a que sai toca até o fim de verdade, o tratamento
+  # (eco na voz) abre na última frase, e o console segura um silêncio para o
+  # casal agradecer e trocar antes da próxima.
+  @breather_every_default 4
+  @breather_lead_ms 4_000
+  @breather_gap_ms 8_000
+
+  # Final de verdade: o salão espera o passo do fim — dispara só no talo
+  # (1.5s casa com o clamp mínimo de cauda do engine).
+  @sacred_tail_ms 1_500
+
   @doc "The transition-type vocabulary, in UI order — screens mirror the engine."
   @spec transition_types() :: [String.t()]
   def transition_types, do: @transition_types
@@ -149,21 +161,29 @@ defmodule Beatgrid.Sets do
   def preflight(%RecSet{id: id}) do
     entries = RecSetQuery.ordered_entries(id)
     last = length(entries)
+    # The boundary OUT of each track is the NEXT entry's incoming transition —
+    # a respiro there means the track plays to its real end (no outro needed).
+    exits = entries |> Enum.map(& &1.transition) |> Enum.drop(1) |> Kernel.++([nil])
 
     issues =
       entries
+      |> Enum.zip(exits)
       |> Enum.with_index(1)
-      |> Enum.map(fn {entry, pos} -> entry_issues(entry.track, pos, last) end)
+      |> Enum.map(fn {{entry, exit_transition}, pos} ->
+        entry_issues(entry.track, pos, last, exit_transition)
+      end)
       |> Enum.reject(&(&1.problems == []))
 
     %{total: last, issues: issues}
   end
 
-  defp entry_issues(track, pos, last) do
+  defp entry_issues(track, pos, last, exit_transition) do
+    breather_out? = is_map(exit_transition) and exit_transition["breather"] == true
+
     checks = [
       arquivo_sumido: not File.exists?(Path.join(Library.library_root(), track.rel_path)),
       fora_da_biblioteca: track.status != :present,
-      sem_saida: pos != last and is_nil(Marker.outro(track)),
+      sem_saida: pos != last and not breather_out? and is_nil(Marker.outro(track)),
       sem_bpm: is_nil(Library.effective(track).bpm)
     ]
 
@@ -194,13 +214,37 @@ defmodule Beatgrid.Sets do
   defp hint_transition(nil, _outgoing, _incoming), do: nil
   defp hint_transition(%{"enabled" => false}, _outgoing, _incoming), do: nil
 
+  # Respiro: a música que sai toca até o FIM DE VERDADE (o outro marker é
+  # irrelevante aqui); o console recebe o gap do agradecimento junto.
+  defp hint_transition(%{"breather" => true} = transition, outgoing, incoming) do
+    transition
+    |> Map.put("from_ms", breather_from(outgoing))
+    |> Map.put("to_ms", derived_to_ms(incoming))
+    |> Map.put("gap_ms", @breather_gap_ms)
+  end
+
   defp hint_transition(transition, outgoing, incoming) do
     timing = derived_timing(outgoing, incoming)
 
+    from =
+      learned_from(transition, outgoing) || sacred_from(outgoing) || timing.from_ms
+
     transition
-    |> Map.put("from_ms", learned_from(transition, outgoing) || timing.from_ms)
+    |> Map.put("from_ms", from)
     |> Map.put("to_ms", timing.to_ms)
   end
+
+  defp breather_from(%{duration_ms: dur}) when is_integer(dur) and dur > 0,
+    do: max(dur - @breather_lead_ms, 0)
+
+  defp breather_from(_outgoing), do: nil
+
+  # Curadoria de final: matar esta música cedo é crime — o corte só no talo.
+  # O aprendizado humano (um disparo real) ainda vence: ao vivo, a mão manda.
+  defp sacred_from(%{sacred_ending: true, duration_ms: dur}) when is_integer(dur) and dur > 0,
+    do: max(dur - @sacred_tail_ms, 0)
+
+  defp sacred_from(_outgoing), do: nil
 
   # O ponto que o DJ ensinou (um disparo real) vence o derivado dos marcadores;
   # só o clamp de cauda se aplica — o piso dos 70% protege contra marcador
@@ -616,6 +660,11 @@ defmodule Beatgrid.Sets do
     end
   end
 
+  # Uma fronteira de respiro não aprende: o ponto dela é o FIM da música por
+  # definição — um disparo manual ali é o DJ pulando o respiro, não uma
+  # correção de timing.
+  defp learnable?(_at_ms, %{"breather" => true}, _outgoing), do: false
+
   defp learnable?(at_ms, transition, %{duration_ms: dur} = outgoing)
        when is_integer(dur) and dur > 0 do
     current = learned_from(transition, outgoing) || clamped_derived_from(outgoing)
@@ -638,29 +687,81 @@ defmodule Beatgrid.Sets do
     end
   end
 
-  @doc "Auto-connects every consecutive pair (suggest + persist); returns `{:ok, count}`."
-  @spec connect_all(RecSet.t()) :: {:ok, non_neg_integer()}
-  def connect_all(%RecSet{id: id} = set) do
-    {:ok, count} = connect_all_quiet(set)
+  @doc """
+  Auto-connects every consecutive pair (suggest + persist) and marks a RESPIRO
+  every `:breather_every` boundaries (default #{@breather_every_default};
+  `nil` disables) — the salão rule: after a bloco of songs the floor thanks,
+  says goodbye and swaps partners before the next one. Returns `{:ok, count}`.
+  """
+  @spec connect_all(RecSet.t(), keyword()) :: {:ok, non_neg_integer()}
+  def connect_all(%RecSet{id: id} = set, opts \\ []) do
+    {:ok, count} = connect_all_quiet(set, opts)
     broadcast_set_changed(id)
     {:ok, count}
   end
 
-  @doc "`connect_all/1` without the broadcast — for batch owners that notify once at the end."
-  @spec connect_all_quiet(RecSet.t()) :: {:ok, non_neg_integer()}
-  def connect_all_quiet(%RecSet{} = set), do: {:ok, connect_pairs_quiet(set)}
+  @doc "`connect_all/2` without the broadcast — for batch owners that notify once at the end."
+  @spec connect_all_quiet(RecSet.t(), keyword()) :: {:ok, non_neg_integer()}
+  def connect_all_quiet(%RecSet{} = set, opts \\ []), do: {:ok, connect_pairs_quiet(set, opts)}
 
-  defp connect_pairs_quiet(set) do
+  defp connect_pairs_quiet(set, opts) do
+    every = Keyword.get(opts, :breather_every, @breather_every_default)
+
     pairs =
       set
       |> tracks()
       |> Enum.chunk_every(2, 1, :discard)
 
-    Enum.each(pairs, fn [prev, this] ->
-      {:ok, _} = connect_quiet(set, this, suggest_transition(prev, this))
+    pairs
+    |> Enum.with_index(1)
+    |> Enum.each(fn {[prev, this], idx} ->
+      {:ok, _} = connect_quiet(set, this, boundary_suggestion(prev, this, idx, every))
     end)
 
     length(pairs)
+  end
+
+  # Boundary N, 2N, … breathes; the others blend as usual. A respiro is not a
+  # blend, so the suggestion engine is bypassed: eco esticando o fim é o
+  # tratamento clássico do forró.
+  defp boundary_suggestion(prev, this, idx, every) do
+    if breather_boundary?(idx, every) do
+      %{
+        "enabled" => true,
+        "type" => "echo",
+        "reason" =>
+          "Respiro do salão: a música acaba de verdade, o eco estica a voz e " <>
+            "a pista agradece antes da próxima.",
+        "breather" => true
+      }
+    else
+      suggest_transition(prev, this)
+    end
+  end
+
+  defp breather_boundary?(_idx, nil), do: false
+
+  defp breather_boundary?(idx, every) when is_integer(every) and every > 0,
+    do: rem(idx, every) == 0
+
+  defp breather_boundary?(_idx, _invalid), do: false
+
+  @doc """
+  Marks/unmarks this entry's incoming boundary as a respiro, keeping the rest
+  of the decision. Marking an unconnected entry starts from the respiro
+  default (echo treatment).
+  """
+  @spec set_breather(RecSet.t(), Library.Track.t(), boolean()) ::
+          {:ok, SetTrack.t()} | {:error, :not_a_member | Ecto.Changeset.t()}
+  def set_breather(%RecSet{id: set_id} = set, track, on?) do
+    with {:ok, row} <- RecSetQuery.fetch_row(set_id, track.id) do
+      decision = row.transition || %{"enabled" => true, "type" => "echo", "reason" => nil}
+
+      attrs =
+        if on?, do: Map.put(decision, "breather", true), else: Map.delete(decision, "breather")
+
+      connect(set, track, attrs)
+    end
   end
 
   # Only the DECISION persists (enabled/type/reason); timing keys are dropped —
@@ -672,7 +773,7 @@ defmodule Beatgrid.Sets do
     type = attrs["type"] || attrs[:type]
     reason = attrs["reason"] || attrs[:reason]
 
-    %{
+    decision = %{
       "enabled" => Map.get(attrs, "enabled", Map.get(attrs, :enabled, true)) != false,
       # An unknown type degrades to the SAFEST behavior (plain cut), never to an
       # overlap the engine would then execute with bogus parameters.
@@ -680,6 +781,14 @@ defmodule Beatgrid.Sets do
       # Preserved when the console suggested it; nil for a hand-set transition.
       "reason" => reason
     }
+
+    # O respiro é DECISÃO (a fronteira não emenda — o salão agradece), então
+    # sobrevive à normalização como enabled/type/reason.
+    if Map.get(attrs, "breather", Map.get(attrs, :breather)) == true do
+      Map.put(decision, "breather", true)
+    else
+      decision
+    end
   end
 
   @doc """
@@ -807,7 +916,7 @@ defmodule Beatgrid.Sets do
           |> Repo.update!()
         end)
 
-        connect_pairs_quiet(set)
+        connect_pairs_quiet(set, [])
         {:ok, set}
       end)
 
