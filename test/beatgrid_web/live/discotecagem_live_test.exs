@@ -180,6 +180,44 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert Sets.entry_after(set.id, b.id).track.id == c.id
   end
 
+  test "a hand fire (T/viagem) teaches the pair its REAL point; palette and ended don't",
+       %{conn: conn} do
+    {set, [a, b, c]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}, {"Tres", 108.0}])
+    view = open_console(conn, set)
+    render_click(view, "play_set", %{})
+
+    # derived from = 150s (the outro); firing at 120s is a 30s human correction
+    html =
+      render_hook(view, "transition_started", %{
+        "from_track_id" => a.id,
+        "to_track_id" => b.id,
+        "type" => "echo",
+        "deck" => "b",
+        "origin" => "hint",
+        "at_ms" => 120_000
+      })
+
+    assert html =~ "Ponto aprendido"
+    entry_b = Enum.find(Sets.entries(set), &(&1.track.id == b.id))
+    assert entry_b.transition["learned_from_ms"] == 120_000
+
+    # a palette fire has no pair intent; a dry "ended" cut is the track dying,
+    # not a choice — neither may overwrite the pair's timing
+    for origin <- ["palette", "ended"] do
+      render_hook(view, "transition_started", %{
+        "from_track_id" => b.id,
+        "to_track_id" => c.id,
+        "type" => "cut",
+        "deck" => "a",
+        "origin" => origin,
+        "at_ms" => 120_000
+      })
+    end
+
+    entry_c = Enum.find(Sets.entries(set), &(&1.track.id == c.id))
+    refute Map.has_key?(entry_c.transition, "learned_from_ms")
+  end
+
   test "transition_cancelled rewinds the pointer and re-arms the original hint", %{conn: conn} do
     {set, [a, b, _c]} =
       set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}, {"Tres", 108.0}])

@@ -312,4 +312,96 @@ defmodule Beatgrid.SetsConnectionsTest do
     :ok = Sets.remove(set, b)
     assert_receive {:set_changed, _}
   end
+
+  describe "learn_fire_point/4 (the console learns real fires)" do
+    # 200s outgoing with a trusted outro at 180s (90%) → derived from = 180_000.
+    defp connected_pair do
+      {:ok, set} = Sets.create("S")
+
+      a =
+        insert(:track,
+          status: :present,
+          duration_ms: 200_000,
+          cue_points: [%{"ms" => 180_000, "type" => "outro", "source" => "auto"}]
+        )
+
+      b =
+        insert(:track,
+          status: :present,
+          cue_points: [%{"ms" => 4_000, "type" => "intro", "source" => "auto"}]
+        )
+
+      {:ok, _} = Sets.append(set, a)
+      {:ok, _} = Sets.append(set, b)
+      {:ok, _} = Sets.connect(set, b, %{"type" => "crossfade"})
+      {set, a, b}
+    end
+
+    test "a real fire far from the derived point persists, broadcasts, and wins the hint" do
+      {set, a, b} = connected_pair()
+      Sets.subscribe_set(set.id)
+
+      # 120s is under the 70% trust floor (140s) — a MARKER there would be
+      # distrusted, but the human fired there, so the hint honors it.
+      assert {:ok, 120_000} = Sets.learn_fire_point(set.id, b.id, a.id, 120_000)
+      assert_receive {:set_changed, _}
+
+      entry_b = Enum.find(Sets.entries(set), &(&1.track.id == b.id))
+      assert entry_b.transition["learned_from_ms"] == 120_000
+
+      hint = Sets.entry_after(set.id, a.id)
+      assert hint.transition["from_ms"] == 120_000
+      assert hint.transition["to_ms"] == 4_000
+    end
+
+    test "a fire within 5s of what the console would already do is noise, not a lesson" do
+      {set, a, b} = connected_pair()
+
+      assert :ignored = Sets.learn_fire_point(set.id, b.id, a.id, 182_000)
+      assert Sets.entry_after(set.id, a.id).transition["from_ms"] == 180_000
+    end
+
+    test "front-half fires, wrong predecessors, and disabled pairs teach nothing" do
+      {set, a, b} = connected_pair()
+
+      # front half = a skip, not a mix-out
+      assert :ignored = Sets.learn_fire_point(set.id, b.id, a.id, 80_000)
+      # b does not precede a; a stranger in the from slot is stale UI
+      assert :ignored = Sets.learn_fire_point(set.id, a.id, b.id, 120_000)
+      stranger = insert(:track, status: :present)
+      assert :ignored = Sets.learn_fire_point(set.id, b.id, stranger.id, 120_000)
+
+      {:ok, _} = Sets.connect(set, b, %{"enabled" => false, "type" => "cut"})
+      assert :ignored = Sets.learn_fire_point(set.id, b.id, a.id, 120_000)
+    end
+
+    test "a learned point hugging the end is clamped to keep the minimum tail" do
+      {set, a, b} = connected_pair()
+
+      assert {:ok, 199_000} = Sets.learn_fire_point(set.id, b.id, a.id, 199_000)
+      assert Sets.entry_after(set.id, a.id).transition["from_ms"] == 197_000
+    end
+
+    test "re-deciding the pair wipes the learning — a fresh decision restarts from markers" do
+      {set, a, b} = connected_pair()
+      {:ok, _} = Sets.learn_fire_point(set.id, b.id, a.id, 120_000)
+
+      {:ok, _} = Sets.connect(set, b, %{"type" => "cut"})
+
+      entry_b = Enum.find(Sets.entries(set), &(&1.track.id == b.id))
+      refute Map.has_key?(entry_b.transition, "learned_from_ms")
+      assert Sets.entry_after(set.id, a.id).transition["from_ms"] == 180_000
+    end
+
+    test "pair_timing exposes the learned point with the learned? badge" do
+      {set, a, b} = connected_pair()
+
+      entry_b = Enum.find(Sets.entries(set), &(&1.track.id == b.id))
+      assert Sets.pair_timing(a, entry_b) == %{from_ms: 180_000, to_ms: 4_000, learned?: false}
+
+      {:ok, _} = Sets.learn_fire_point(set.id, b.id, a.id, 120_000)
+      entry_b = Enum.find(Sets.entries(set), &(&1.track.id == b.id))
+      assert Sets.pair_timing(a, entry_b) == %{from_ms: 120_000, to_ms: 4_000, learned?: true}
+    end
+  end
 end

@@ -17,9 +17,11 @@ defmodule Beatgrid.Sets.SetTrack do
     field :position, :integer
     field :role, :string
     # Incoming transition from the previous track — the DECISION only:
-    # %{"enabled","type","reason"}. Fire timing is derived from current markers
-    # at hint time (Sets.entry_after); legacy rows may still carry stale
-    # from_ms/to_ms keys, which every reader ignores.
+    # %{"enabled","type","reason"}, plus optional "learned_from_ms" (where the
+    # DJ actually fired this pair — Sets.learn_fire_point). Fire timing is
+    # otherwise derived from current markers at hint time (Sets.entry_after);
+    # legacy rows may still carry stale from_ms/to_ms keys, which every reader
+    # ignores.
     field :transition, :map
 
     belongs_to :rec_set, RecSet

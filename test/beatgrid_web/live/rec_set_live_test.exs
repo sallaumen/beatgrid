@@ -577,6 +577,26 @@ defmodule BeatgridWeb.RecSetLiveTest do
     assert html =~ "entra 0:04"
   end
 
+  test "a pair the DJ taught shows the learned exit with the 📌 badge", %{conn: conn} do
+    {:ok, set} = Sets.create("S")
+
+    a =
+      track_with("8A", 128.0,
+        tag_title: "A",
+        duration_ms: 200_000,
+        cue_points: [%{"ms" => 180_000, "type" => "outro", "source" => "auto"}]
+      )
+
+    b = track_with("8A", 129.0, tag_title: "B", cue_points: [])
+    Sets.append(set, a)
+    Sets.append(set, b)
+    {:ok, _} = Sets.connect(set, b, %{"type" => "crossfade"})
+    {:ok, _} = Sets.learn_fire_point(set.id, b.id, a.id, 120_000)
+
+    {:ok, _view, html} = live(conn, ~p"/set/#{set.id}")
+    assert html =~ "sai 2:00 📌"
+  end
+
   test "hostile move/weight payloads are ignored, never crash the view", %{conn: conn} do
     {:ok, set} = Sets.create("Blindado")
     track = track_with("8A", 120.0, tag_title: "Firme")

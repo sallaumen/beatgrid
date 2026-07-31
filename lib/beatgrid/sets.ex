@@ -34,6 +34,10 @@ defmodule Beatgrid.Sets do
   @min_tail_ms 3_000
   @max_intro_skip_ms 10_000
 
+  # A hand fire is only a CORRECTION when it departs this far from what the
+  # console would already do — anything closer is noise, not a lesson.
+  @learn_min_delta_ms 5_000
+
   @doc "The transition-type vocabulary, in UI order — screens mirror the engine."
   @spec transition_types() :: [String.t()]
   def transition_types, do: @transition_types
@@ -186,9 +190,18 @@ defmodule Beatgrid.Sets do
     timing = derived_timing(outgoing, incoming)
 
     transition
-    |> Map.put("from_ms", timing.from_ms)
+    |> Map.put("from_ms", learned_from(transition, outgoing) || timing.from_ms)
     |> Map.put("to_ms", timing.to_ms)
   end
+
+  # O ponto que o DJ ensinou (um disparo real) vence o derivado dos marcadores;
+  # só o clamp de cauda se aplica — o piso dos 70% protege contra marcador
+  # automático ruim, não contra escolha humana.
+  defp learned_from(%{"learned_from_ms" => ms}, %{duration_ms: dur})
+       when is_integer(ms) and is_integer(dur) and dur > 0,
+       do: ms |> min(dur - @min_tail_ms) |> max(0)
+
+  defp learned_from(_transition, _outgoing), do: nil
 
   @doc """
   The fire/entry points the console will derive RIGHT NOW for mixing
@@ -198,8 +211,28 @@ defmodule Beatgrid.Sets do
   @spec derived_timing(Library.Track.t(), Library.Track.t()) ::
           %{from_ms: non_neg_integer() | nil, to_ms: non_neg_integer()}
   def derived_timing(outgoing, incoming) do
+    %{from_ms: clamped_derived_from(outgoing), to_ms: derived_to_ms(incoming)}
+  end
+
+  @doc """
+  What the console will actually do for this pair RIGHT NOW: marker-derived
+  timing, with the DJ-taught point (when the receiving entry carries one)
+  winning on the exit side. `learned?` lets the editor badge the pair.
+  """
+  @spec pair_timing(Library.Track.t(), %{track: Library.Track.t(), transition: map() | nil}) ::
+          %{from_ms: non_neg_integer() | nil, to_ms: non_neg_integer(), learned?: boolean()}
+  def pair_timing(outgoing, %{track: incoming, transition: transition}) do
+    timing = derived_timing(outgoing, incoming)
+
+    case learned_from(transition || %{}, outgoing) do
+      nil -> Map.put(timing, :learned?, false)
+      ms -> %{from_ms: ms, to_ms: timing.to_ms, learned?: true}
+    end
+  end
+
+  defp clamped_derived_from(outgoing) do
     %{"from_ms" => from} = clamp_from(%{"from_ms" => derived_from_ms(outgoing)}, outgoing)
-    %{from_ms: from, to_ms: derived_to_ms(incoming)}
+    from
   end
 
   defp derived_from_ms(outgoing) do
@@ -513,6 +546,55 @@ defmodule Beatgrid.Sets do
     end
   end
 
+  @doc """
+  Records where the DJ ACTUALLY fired `from_track` into `receiving_track` (the T
+  key, or the AUTO window after postponing): the point persists as
+  `"learned_from_ms"` on the receiving entry and wins over marker-derived timing
+  from then on. Returns `:ignored` when the pair isn't consecutive in the
+  CURRENT order, the connection is off, the fire landed in the front half of
+  the outgoing track (that's a skip, not a mix-out), or it's within 5s of what
+  the console would already do. Re-suggesting or re-typing the pair wipes the
+  learning — a fresh decision restarts from markers.
+  """
+  @spec learn_fire_point(Ecto.UUID.t(), Ecto.UUID.t(), Ecto.UUID.t(), integer()) ::
+          {:ok, non_neg_integer()} | :ignored
+  def learn_fire_point(set_id, receiving_track_id, from_track_id, at_ms)
+      when is_binary(set_id) and is_integer(at_ms) do
+    entries = RecSetQuery.ordered_entries(set_id)
+    idx = Enum.find_index(entries, &(&1.track.id == receiving_track_id))
+
+    with true <- is_integer(idx) and idx > 0,
+         %{track: %{id: ^from_track_id} = outgoing} <- Enum.at(entries, idx - 1),
+         %{transition: %{"enabled" => true} = transition} <- Enum.at(entries, idx),
+         true <- learnable?(at_ms, transition, outgoing) do
+      persist_learned(set_id, receiving_track_id, transition, at_ms)
+    else
+      _not_learnable -> :ignored
+    end
+  end
+
+  defp learnable?(at_ms, transition, %{duration_ms: dur} = outgoing)
+       when is_integer(dur) and dur > 0 do
+    current = learned_from(transition, outgoing) || clamped_derived_from(outgoing)
+
+    at_ms * 2 >= dur and at_ms < dur and abs(at_ms - current) >= @learn_min_delta_ms
+  end
+
+  defp learnable?(_at_ms, _transition, _outgoing), do: false
+
+  defp persist_learned(set_id, track_id, transition, at_ms) do
+    with {:ok, row} <- RecSetQuery.fetch_row(set_id, track_id),
+         {:ok, _row} <-
+           row
+           |> SetTrack.changeset(%{transition: Map.put(transition, "learned_from_ms", at_ms)})
+           |> Repo.update() do
+      broadcast_set_changed(set_id)
+      {:ok, at_ms}
+    else
+      _gone -> :ignored
+    end
+  end
+
   @doc "Auto-connects every consecutive pair (suggest + persist); returns `{:ok, count}`."
   @spec connect_all(RecSet.t()) :: {:ok, non_neg_integer()}
   def connect_all(%RecSet{id: id} = set) do
@@ -541,6 +623,8 @@ defmodule Beatgrid.Sets do
   # Only the DECISION persists (enabled/type/reason); timing keys are dropped —
   # they froze marker positions from plan day and went stale (the "Tramontina"
   # root cause). Legacy rows may still carry them; hints always overwrite.
+  # "learned_from_ms" (a REAL fire the DJ performed) is the one exception, and
+  # even it is wiped here: re-deciding a pair restarts from markers.
   defp normalize_transition(attrs) do
     type = attrs["type"] || attrs[:type]
     reason = attrs["reason"] || attrs[:reason]

@@ -236,12 +236,17 @@ defmodule BeatgridWeb.DiscotecagemLive do
     end
   end
 
-  def handle_event("transition_started", %{"to_track_id" => to_id, "deck" => deck}, socket) do
+  def handle_event(
+        "transition_started",
+        %{"to_track_id" => to_id, "deck" => deck} = params,
+        socket
+      ) do
     socket =
       socket
       |> assign(active_deck: deck, playing?: true)
       |> assign_deck_by_id(deck, to_id)
       |> mark_played(to_id)
+      |> maybe_learn_fire_point(params)
 
     # Só faixa que PERTENCE ao set vira ponteiro do set — transicionar para uma
     # faixa avulsa da Biblioteca não pode carimbar o set no now-playing.
@@ -470,6 +475,25 @@ defmodule BeatgridWeb.DiscotecagemLive do
     do: assign(socket, played: MapSet.put(socket.assigns.played, id))
 
   defp mark_played(socket, _id), do: socket
+
+  # O DJ disparou a dica com a própria mão (tecla T / botão da viagem) ou deixou
+  # a janela AUTO disparar depois de adiar — os dois são decisões humanas sobre
+  # O PONTO, então o par aprende. "ended" (a faixa morreu) e "palette" (disparo
+  # avulso da paleta, sem par do set) não ensinam nada.
+  defp maybe_learn_fire_point(
+         socket,
+         %{"origin" => origin, "from_track_id" => from_id, "to_track_id" => to_id, "at_ms" => at}
+       )
+       when origin in ["hint", "window"] and is_binary(from_id) and is_integer(at) do
+    with %{id: set_id} <- socket.assigns.set,
+         {:ok, ms} <- Sets.learn_fire_point(set_id, to_id, from_id, at) do
+      put_flash(socket, :info, "📌 Ponto aprendido — este par agora sai em #{format_ms(ms)}.")
+    else
+      _nothing_learned -> socket
+    end
+  end
+
+  defp maybe_learn_fire_point(socket, _params), do: socket
 
   defp assign_deck(socket, "a", track), do: assign(socket, deck_a: track)
   defp assign_deck(socket, "b", track), do: assign(socket, deck_b: track)
@@ -1193,10 +1217,11 @@ defmodule BeatgridWeb.DiscotecagemLive do
                   this.pushEvent("deck_started", {deck, track_id: trackId})
                   window.dispatchEvent(new CustomEvent("beatgrid:playing", {detail: {source: "dj-console"}}))
                 },
-                transitionStarted: ({fromTrackId, toTrackId, type, deck, mode}) => {
+                transitionStarted: ({fromTrackId, toTrackId, type, deck, mode, origin, atMs}) => {
                   this.hint = null
                   this.pushEvent("transition_started", {
                     from_track_id: fromTrackId, to_track_id: toTrackId, type, deck,
+                    origin, at_ms: atMs,
                   })
                   const tag = mode === "manual" ? " (manual)" : ""
                   this.log(`transição ${type.toUpperCase()}${tag} → deck ${deck.toUpperCase()}`)

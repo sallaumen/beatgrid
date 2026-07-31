@@ -520,7 +520,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
             deck,
             decks[hint.deck],
             {type: "cut", to_ms: (hint.transition && hint.transition["to_ms"]) ?? 0},
-            "auto"
+            "auto",
+            "ended"
           )
         )
       } else if (other.audible()) {
@@ -569,7 +570,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // an instant transition — the ended fallback covers the overshoot.
     if (pos < fromMs || pos > fromMs + RAMP.autoFireSlackMs) return
 
-    boundaryOnce(deck.trackId, () => fireTransition(deck, decks[hint.deck], hint.transition, "auto"))
+    boundaryOnce(deck.trackId, () => fireTransition(deck, decks[hint.deck], hint.transition, "auto", "window"))
   }
 
   // The server already clamped against its known duration; re-clamp against the
@@ -596,7 +597,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     spinback: (from, to, toMs, token) => scratchDrop(from, to, toMs, token, "rebobina"),
   })
 
-  function fireTransition(from, to, transition, mode) {
+  function fireTransition(from, to, transition, mode, origin) {
     const token = ++state.transitionToken
     state.lastFireAt = performance.now()
     // A transition owns both decks and the crossfader now — abandon any scratch
@@ -614,6 +615,10 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       type,
       deck: to.id,
       mode,
+      // Who pulled the trigger (window|ended|hint|palette) and where the
+      // outgoing deck REALLY was — the server learns fire points from these.
+      origin,
+      atMs: Math.round(from.positionMs()),
     })
 
     // A transition interrupted by this one must not keep steering either deck:
@@ -1587,7 +1592,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       if (to.el.error) return {ok: false, reason: "target_error"}
       if (!to.audible() && !to.ready()) return {ok: false, reason: "target_loading"}
       this.resume()
-      fireTransition(decks[fromId], to, {type: type, to_ms: null}, "manual")
+      fireTransition(decks[fromId], to, {type: type, to_ms: null}, "manual", "palette")
       return {ok: true, from: fromId, to: to.id, type}
     },
 
@@ -1624,7 +1629,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       const from = decks[active]
       if (state.firedForTrack === from.trackId) return {ok: false, reason: "too_fast"}
       this.resume()
-      boundaryOnce(from.trackId, () => fireTransition(from, decks[hint.deck], hint.transition, "manual"))
+      boundaryOnce(from.trackId, () => fireTransition(from, decks[hint.deck], hint.transition, "manual", "hint"))
       return {ok: true, type: hint.transition["type"] || "cut"}
     },
 
