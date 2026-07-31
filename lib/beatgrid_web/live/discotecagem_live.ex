@@ -55,6 +55,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
        played: MapSet.new(),
        hint: nil,
        hint_deck: nil,
+       preflight: nil,
        rail_tab: "fila",
        lib_query: "",
        lib_tracks: [],
@@ -86,7 +87,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           socket
           |> subscribe_once(set.id)
           # Trocar de set zera o rastro de "já tocada" — as regras recomeçam.
-          |> assign(set: set, entries: Sets.entries(set), played: MapSet.new())
+          |> assign(set: set, entries: Sets.entries(set), played: MapSet.new(), preflight: nil)
           |> push_event("dj_set", %{id: set.id})
 
         # Trocar de set no meio da música: a dica armada do set antigo é
@@ -260,6 +261,17 @@ defmodule BeatgridWeb.DiscotecagemLive do
          |> push_hint(Sets.entry_after(set.id, to_id))}
     end
   end
+
+  # Checagem pré-viagem: o que quebraria o set no meio da estrada, ANTES de sair.
+  def handle_event("preflight", _params, socket) do
+    case socket.assigns.set do
+      nil -> {:noreply, put_flash(socket, :error, "Escolha um set primeiro.")}
+      set -> {:noreply, assign(socket, preflight: Sets.preflight(set))}
+    end
+  end
+
+  def handle_event("close_preflight", _params, socket),
+    do: {:noreply, assign(socket, preflight: nil)}
 
   # O DJ cancelou a transição que acabou de disparar (tecla X): a faixa
   # resgatada volta a ser o ponteiro do set e a dica seguinte é re-armada — o
@@ -475,6 +487,11 @@ defmodule BeatgridWeb.DiscotecagemLive do
   defp other_deck("a"), do: "b"
   defp other_deck("b"), do: "a"
 
+  defp preflight_label(:arquivo_sumido), do: "arquivo sumido do disco"
+  defp preflight_label(:fora_da_biblioteca), do: "fora da biblioteca"
+  defp preflight_label(:sem_saida), do: "sem marcador de saída"
+  defp preflight_label(:sem_bpm), do: "sem BPM"
+
   defp transition_to_ms(%{"to_ms" => ms}) when is_integer(ms) and ms > 0, do: ms
   defp transition_to_ms(_transition), do: 0
 
@@ -593,6 +610,23 @@ defmodule BeatgridWeb.DiscotecagemLive do
               ▶ Tocar set
             </button>
             <button
+              :if={@set}
+              type="button"
+              phx-click="preflight"
+              title="Checagem pré-viagem: arquivos, marcadores e BPM de cada faixa do set"
+              class="flex h-9 items-center gap-1.5 rounded-lg border border-white/10 px-3 text-[12px] font-semibold text-ink-secondary hover:text-ink"
+            >
+              ✈ Checar
+            </button>
+            <button
+              id="dj-trip-toggle"
+              type="button"
+              title="Modo Viagem: tela limpa com o essencial gigante (mouse e teclado)"
+              class="flex h-9 items-center gap-1.5 rounded-lg border border-white/10 px-3 text-[12px] font-semibold text-ink-secondary hover:text-ink"
+            >
+              🚐 Viagem
+            </button>
+            <button
               type="button"
               phx-click="toggle_auto"
               aria-pressed={to_string(@auto?)}
@@ -616,6 +650,37 @@ defmodule BeatgridWeb.DiscotecagemLive do
           </div>
         </div>
 
+        <div
+          :if={@preflight}
+          class={[
+            "mt-3 rounded-xl border p-3",
+            (@preflight.issues == [] && "border-green/30 bg-green/5") || "border-amber/30 bg-amber/5"
+          ]}
+        >
+          <div class="flex items-center justify-between">
+            <p class="text-body-sm font-semibold">
+              {if @preflight.issues == [],
+                do: "✈ Tudo pronto: #{@preflight.total} faixas checadas, nenhum problema.",
+                else: "✈ #{length(@preflight.issues)} de #{@preflight.total} faixas com pendência:"}
+            </p>
+            <button
+              type="button"
+              phx-click="close_preflight"
+              aria-label="Fechar checagem"
+              class="text-ink-faint hover:text-ink"
+            >
+              ✕
+            </button>
+          </div>
+          <ul :if={@preflight.issues != []} class="mt-1.5 space-y-0.5">
+            <li :for={issue <- @preflight.issues} class="text-caption text-ink-secondary">
+              <span class="font-mono text-ink-faint">#{issue.position}</span>
+              <span class="font-medium">{issue.title}</span>
+              — {Enum.map_join(issue.problems, " · ", &preflight_label/1)}
+            </li>
+          </ul>
+        </div>
+
         <%!-- -mb-20 cancels the app shell's pb-20 so the console fills to the very
         bottom (no wasted 80px); the lists reclaim it and the page fits the fold. --%>
         <div
@@ -625,6 +690,67 @@ defmodule BeatgridWeb.DiscotecagemLive do
           data-rail-tab={@rail_tab}
           class="mt-3 -mb-20"
         >
+          <%!-- Modo Viagem: overlay em tela cheia com o essencial GIGANTE,
+          dirigido pelo mesmo engine (o hook pinta; o servidor nunca toca). --%>
+          <div
+            id="dj-trip"
+            phx-update="ignore"
+            data-on="false"
+            class="fixed inset-0 z-40 hidden flex-col items-center justify-center gap-6 bg-base px-8 data-[on=true]:flex"
+          >
+            <div class="text-center">
+              <p class="text-caption uppercase tracking-[0.2em] text-ink-faint">tocando agora</p>
+              <p id="trip-title" class="mt-2 max-w-4xl text-5xl font-bold leading-tight">—</p>
+              <p id="trip-artist" class="mt-1 text-2xl text-ink-muted"></p>
+              <p id="trip-pos" class="mt-2 font-mono text-lg tabular-nums text-ink-faint"></p>
+            </div>
+            <div class="text-center">
+              <p class="text-caption uppercase tracking-[0.2em] text-ink-faint">próxima</p>
+              <p id="trip-next" class="mt-1 max-w-3xl truncate text-xl text-ink-secondary">—</p>
+              <p id="trip-countdown" class="mt-1 font-mono text-3xl tabular-nums text-amber">—</p>
+            </div>
+            <div class="flex w-full max-w-3xl flex-col gap-3 sm:flex-row">
+              <button
+                type="button"
+                data-trip="postpone"
+                class="h-16 flex-1 rounded-xl border border-white/15 text-lg font-bold text-ink hover:border-primary/50"
+              >
+                ⏳ Adiar +15s <span class="text-ink-faint">(W)</span>
+              </button>
+              <button
+                type="button"
+                data-trip="fire"
+                class="h-16 flex-1 rounded-xl bg-primary text-lg font-bold text-white hover:bg-primary/90"
+              >
+                ▶ Disparar <span class="opacity-60">(T)</span>
+              </button>
+              <button
+                type="button"
+                data-trip="cancel"
+                class="h-16 flex-1 rounded-xl border border-coral/40 text-lg font-bold text-coral hover:bg-coral/10"
+              >
+                ✕ Cancelar <span class="opacity-60">(X)</span>
+              </button>
+            </div>
+            <div class="flex items-center gap-4">
+              <button
+                type="button"
+                data-trip="auto"
+                id="trip-auto"
+                class="rounded-lg border border-white/15 px-4 py-2 text-body-sm font-semibold text-ink-secondary hover:text-ink"
+              >
+                AUTO
+              </button>
+              <button
+                type="button"
+                data-trip="off"
+                class="rounded-lg border border-white/15 px-4 py-2 text-body-sm font-semibold text-ink-secondary hover:text-ink"
+              >
+                Sair do modo viagem
+              </button>
+            </div>
+          </div>
+
           <%!-- Resposta visual dos atalhos: pílula temporária sobre o console
           (o hook escreve e esconde sozinho — o servidor nunca toca aqui). --%>
           <div
@@ -1508,27 +1634,14 @@ defmodule BeatgridWeb.DiscotecagemLive do
               if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return
               const k = e.key.toLowerCase()
               if (k === "t") {
-                const res = this.engine.fireHint()
-                // Sucesso já vira toast no transitionStarted — só a recusa avisa aqui.
-                if (!res.ok) this.notice(res.reason === "no_hint" ? "sem próxima armada para disparar" : FIRE_ERRORS[res.reason] || "transição indisponível")
+                this.actFire()
               } else if (k === "w") {
-                // +1s por toque; SEGURAR acumula pelo repeat do teclado. Só
-                // toast (sem log): o repeat inundaria o histórico em segundos.
-                const fp = this.engine.postponeFire(1_000)
-                if (fp == null) {
-                  this.toast("sem próxima armada para adiar")
-                } else {
-                  const snap = this.engine.snapshot()
-                  const rem = snap.activeDeck ? fp - snap[snap.activeDeck].posMs : 0
-                  const total = Math.round(snap.postponeMs / 1000)
-                  this.toast(`⏳ adiada +${total}s${rem > 0 ? ` — dispara em ${fmt(rem)}` : ""}`)
-                }
+                // +1s por toque; SEGURAR acumula pelo repeat do teclado.
+                this.actPostpone(1_000)
               } else if (k === "x") {
-                // Sucesso vira toast no transitionCancelled — só o vazio avisa aqui.
-                if (!this.engine.cancelTransition().ok) this.notice("nada para cancelar")
+                this.actCancel()
               } else if (k === "a") {
-                this._autoKeyAt = performance.now()
-                this.pushEvent("toggle_auto", {})
+                this.actAuto()
               } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
                 const pos = this.engine.snapshot().xfadePos
                 this.engine.setCrossfader(Math.min(1, Math.max(0, pos + (e.key === "ArrowRight" ? 0.06 : -0.06))))
@@ -1538,6 +1651,28 @@ defmodule BeatgridWeb.DiscotecagemLive do
               e.preventDefault()
             }
             window.addEventListener("keydown", this.onKeys)
+
+            // Modo Viagem: mesmo engine, tela limpa — os botões gigantes chamam
+            // as MESMAS ações do teclado (o botão de adiar salta 15s; a tecla W
+            // continua fina, +1s). Delegado no document: o toggle vive em DOM
+            // do LiveView e um patch derrubaria um listener direto.
+            this.onTripClick = (e) => {
+              const trip = byId("dj-trip")
+              if (!trip) return
+              if (e.target.closest("#dj-trip-toggle")) {
+                trip.dataset.on = "true"
+                return
+              }
+              const btn = e.target.closest("[data-trip]")
+              if (!btn) return
+              const act = btn.dataset.trip
+              if (act === "off") trip.dataset.on = "false"
+              else if (act === "fire") this.actFire()
+              else if (act === "postpone") this.actPostpone(15_000)
+              else if (act === "cancel") this.actCancel()
+              else if (act === "auto") this.actAuto()
+            }
+            document.addEventListener("click", this.onTripClick)
 
             // O seletor de set e os sliders não podem sequestrar o teclado:
             // escolher o set (o último clique antes de tocar!) e soltar um
@@ -1564,6 +1699,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               this.paintDeck("b")
               this.paintWaves()
               this.paintCountdown()
+              this.paintTrip()
               this.paintTransitions()
               this.paintScratchTarget()
               if (this.pendingHint) this.armHint(this.pendingHint)
@@ -1591,6 +1727,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             window.removeEventListener("dj:pfl-sync", this.onPflSync)
             window.removeEventListener("beatgrid:playing", this.onForeignPlay)
             window.removeEventListener("keydown", this.onKeys)
+            document.removeEventListener("click", this.onTripClick)
             document.removeEventListener("change", this.onSetPicked)
             document.removeEventListener("pointerup", this.onSliderDone)
             // End a scratch drag in flight and drop the pad's global listener so
@@ -1599,6 +1736,36 @@ defmodule BeatgridWeb.DiscotecagemLive do
             if (this._padWinUp) window.removeEventListener("mouseup", this._padWinUp)
             if (window.__djEngine === this.engine) window.__djEngine = null
             this.engine.destroy()
+          },
+
+          // Ações compartilhadas entre o teclado e os botões do modo viagem.
+          // Sucesso de fire/cancel vira toast nos callbacks do engine — aqui
+          // só as recusas avisam.
+          actFire() {
+            const res = this.engine.fireHint()
+            if (!res.ok) this.notice(res.reason === "no_hint" ? "sem próxima armada para disparar" : FIRE_ERRORS[res.reason] || "transição indisponível")
+          },
+
+          actPostpone(ms) {
+            const fp = this.engine.postponeFire(ms)
+            if (fp == null) {
+              this.toast("sem próxima armada para adiar")
+              return
+            }
+            // Só toast (sem log): o repeat do teclado inundaria o histórico.
+            const snap = this.engine.snapshot()
+            const rem = snap.activeDeck ? fp - snap[snap.activeDeck].posMs : 0
+            const total = Math.round(snap.postponeMs / 1000)
+            this.toast(`⏳ adiada +${total}s${rem > 0 ? ` — dispara em ${fmt(rem)}` : ""}`)
+          },
+
+          actCancel() {
+            if (!this.engine.cancelTransition().ok) this.notice("nada para cancelar")
+          },
+
+          actAuto() {
+            this._autoKeyAt = performance.now()
+            this.pushEvent("toggle_auto", {})
           },
 
           // A pílula de notificação sobre o console: um aviso por vez, some
@@ -1905,44 +2072,78 @@ defmodule BeatgridWeb.DiscotecagemLive do
             for (const btn of this.fireBtns || []) btn.disabled = !ready
           },
 
+          // O mesmo texto vale pro card do mixer e pro overlay da viagem.
           paintCountdown() {
-            const el = byId("dj-countdown")
-            if (!el) return
+            const {text, color} = this.countdownState()
+            for (const id of ["dj-countdown", "trip-countdown"]) {
+              const el = byId(id)
+              if (el) {
+                el.textContent = text
+                el.style.color = color
+              }
+            }
+          },
+
+          countdownState() {
             const hint = this.hint
             const snap = this.engine.snapshot()
             const active = snap.activeDeck
-            if (!hint || !active || !snap[active].playing) {
-              el.textContent = "—"
-              el.style.color = ""
-              return
-            }
+            if (!hint || !active || !snap[active].playing) return {text: "—", color: ""}
             // Entrada SEQ: não há blend planejado — a faixa toca até o fim e
-            // corta. Dizer QUANDO, em vez do antigo "—" mudo.
+            // corta. Dizer QUANDO, em vez de um "—" mudo.
             if (!hint.transition) {
               const left = snap[active].durMs - snap[active].posMs
-              el.textContent = left > 0 ? `fim → corte em ${fmt(left)}` : "fim → corte"
-              el.style.color = left <= 10_000 ? "#ffb020" : ""
-              return
+              return {
+                text: left > 0 ? `fim → corte em ${fmt(left)}` : "fim → corte",
+                color: left <= 10_000 ? "#ffb020" : "",
+              }
             }
             // Com AUTO desligado ninguém vai disparar sozinho — não prometa.
-            if (!snap.auto) {
-              el.textContent = "manual"
-              el.style.color = ""
-              return
-            }
+            if (!snap.auto) return {text: "manual", color: ""}
             // O deck da próxima ainda não está pronto: o AUTO não vai disparar
             // o blend — avisar em vez de prometer um countdown que não vale.
-            if (!snap.hintReady) {
-              el.textContent = "⚠ carregando o outro deck…"
-              el.style.color = "#ffb020"
-              return
-            }
+            if (!snap.hintReady) return {text: "⚠ carregando o outro deck…", color: "#ffb020"}
             // A verdade do ENGINE (re-clamp + adiamentos), não o número do
             // servidor — os dois divergem em arquivos com duração VBR mentirosa.
             const fireMs = this.engine.firePointMs()
             const remaining = (fireMs != null ? fireMs : 0) - snap[active].posMs
-            el.textContent = remaining > 0 ? `em ${fmt(remaining)}` : "agora"
-            el.style.color = remaining <= 10_000 ? "#ff5d6c" : remaining <= 30_000 ? "#ffb020" : ""
+            return {
+              text: remaining > 0 ? `em ${fmt(remaining)}` : "agora",
+              color: remaining <= 10_000 ? "#ff5d6c" : remaining <= 30_000 ? "#ffb020" : "",
+            }
+          },
+
+          paintTrip() {
+            const trip = byId("dj-trip")
+            if (!trip || trip.dataset.on !== "true") return
+            const snap = this.engine.snapshot()
+            const active = snap.activeDeck
+            const track = active && this.tracks[active]
+            this.setTripText("trip-title", track ? track.title : "—")
+            this.setTripText("trip-artist", (track && track.artist) || "")
+            this.setTripText(
+              "trip-pos",
+              active && snap[active].durMs
+                ? `${fmt(snap[active].posMs)} / ${fmt(snap[active].durMs)}`
+                : ""
+            )
+            const next = this.hint && this.hint.track
+            const label = next
+              ? `${next.title}${this.hint.transition ? " · " + (this.hint.transition["type"] || "").toUpperCase() : " · direto (fim seco)"}`
+              : "última da fila"
+            this.setTripText("trip-next", label)
+            const auto = byId("trip-auto")
+            if (auto) {
+              const text = snap.auto ? "AUTO: ligado" : "AUTO: desligado"
+              if (auto.textContent !== text) auto.textContent = text
+              auto.style.color = snap.auto ? "#ffb020" : ""
+            }
+          },
+
+          // textContent num rAF: só escreve quando muda (evita relayout à toa).
+          setTripText(id, text) {
+            const el = byId(id)
+            if (el && el.textContent !== text) el.textContent = text
           },
 
           applyMidi(a) {
