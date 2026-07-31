@@ -72,8 +72,17 @@ defmodule Beatgrid.Rescue do
   @doc "Quarantined tracks with the original path a restore would return them to."
   @spec quarantined() :: [%{track: Track.t(), restore_rel: String.t() | nil}]
   def quarantined do
+    root = Library.library_root()
+
     for track <- Tracks.list_by(status: :quarantined) do
-      %{track: track, restore_rel: quarantine_origin(track)}
+      %{
+        track: track,
+        restore_rel: quarantine_origin(track),
+        # A ghost: the DB row survived but the file left _Quarantine (deleted
+        # by hand or by dump retention) — restoring is impossible; the screen
+        # must say so instead of offering a button that fails.
+        file?: File.exists?(Path.join(root, track.rel_path))
+      }
     end
   end
 

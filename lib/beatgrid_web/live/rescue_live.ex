@@ -200,13 +200,20 @@ defmodule BeatgridWeb.RescueLive do
                 </p>
               </div>
               <button
-                :if={q.restore_rel}
+                :if={q.restore_rel && q.file?}
                 phx-click="unquarantine"
                 phx-value-track={q.track.id}
                 class="shrink-0 rounded-lg bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary hover:bg-primary/25"
               >
                 Restaurar
               </button>
+              <span
+                :if={!q.file?}
+                class="shrink-0 rounded-lg bg-amber/10 px-2.5 py-1 text-[11px] font-semibold text-amber"
+                title="O registro sobrou, mas o arquivo sumiu da _Quarantine (apagado à mão ou pela retenção) — não há o que restaurar. Se uma gêmea existe na biblioteca, os sets já foram repontados para ela."
+              >
+                👻 arquivo sumiu
+              </span>
             </li>
           </ul>
         </section>

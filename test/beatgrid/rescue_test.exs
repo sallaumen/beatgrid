@@ -171,6 +171,12 @@ defmodule Beatgrid.RescueTest do
   end
 
   describe "quarantine" do
+    test "a row whose file left _Quarantine is flagged as a ghost" do
+      insert(:track, status: :quarantined, rel_path: "_Quarantine/sumida.mp3")
+
+      assert [%{file?: false}] = Rescue.quarantined()
+    end
+
     test "quarantined/0 exposes the original path; restore returns the file and the row" do
       track = insert(:track, status: :quarantined, rel_path: "_Quarantine/dupla.mp3")
       write_file(track.rel_path, "quarantined-audio")
