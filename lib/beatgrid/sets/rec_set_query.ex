@@ -100,4 +100,9 @@ defmodule Beatgrid.Sets.RecSetQuery do
       row -> {:ok, row}
     end
   end
+
+  @doc "Every membership row pointing at `track_id`, across all sets."
+  @spec rows_for_track(Ecto.UUID.t()) :: [SetTrack.t()]
+  def rows_for_track(track_id),
+    do: SetTrack |> where([st], st.track_id == ^track_id) |> Repo.all()
 end

@@ -313,6 +313,48 @@ defmodule Beatgrid.SetsConnectionsTest do
     assert_receive {:set_changed, _}
   end
 
+  describe "adopt_memberships/2 (dedup hands set seats to the keeper)" do
+    test "a duplicate's seat moves to the keeper, keeping order and transition" do
+      {:ok, set} = Sets.create("S")
+      loser = insert(:track, status: :present)
+      keeper = insert(:track, status: :present)
+      other = insert(:track, status: :present)
+      {:ok, _} = Sets.append(set, loser)
+      {:ok, _} = Sets.append(set, other)
+      {:ok, _} = Sets.connect(set, other, %{"type" => "echo"})
+      Sets.subscribe_set(set.id)
+
+      assert {:ok, 1} = Sets.adopt_memberships(loser.id, keeper.id)
+      assert_receive {:set_changed, _}
+
+      entries = Sets.entries(set)
+      assert Enum.map(entries, & &1.track.id) == [keeper.id, other.id]
+      assert Enum.at(entries, 1).transition["type"] == "echo"
+    end
+
+    test "keeper already in the set → the duplicate's row is dropped and the order closes" do
+      {:ok, set} = Sets.create("S")
+      keeper = insert(:track, status: :present)
+      loser = insert(:track, status: :present)
+      last = insert(:track, status: :present)
+      {:ok, _} = Sets.append(set, keeper)
+      {:ok, _} = Sets.append(set, loser)
+      {:ok, _} = Sets.append(set, last)
+
+      assert {:ok, 1} = Sets.adopt_memberships(loser.id, keeper.id)
+
+      entries = Sets.entries(set)
+      assert Enum.map(entries, & &1.track.id) == [keeper.id, last.id]
+      assert Enum.map(entries, & &1.position) == [1, 2]
+    end
+
+    test "a track in no set is a quiet no-op" do
+      loose = insert(:track, status: :present)
+      keeper = insert(:track, status: :present)
+      assert {:ok, 0} = Sets.adopt_memberships(loose.id, keeper.id)
+    end
+  end
+
   describe "learn_fire_point/4 (the console learns real fires)" do
     # 200s outgoing with a trusted outro at 180s (90%) → derived from = 180_000.
     defp connected_pair do

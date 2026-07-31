@@ -13,7 +13,7 @@ defmodule Beatgrid.Dedup do
   import Ecto.Query, only: [where: 3]
 
   alias Beatgrid.Dedup.{DedupQuery, DuplicateGroup, DuplicateMember}
-  alias Beatgrid.{Library, Operations, Repo}
+  alias Beatgrid.{Library, Operations, Repo, Sets}
   alias Beatgrid.Library.{Track, Tracks, Version}
 
   @topic "dedup"
@@ -68,7 +68,7 @@ defmodule Beatgrid.Dedup do
       quarantined =
         group.members
         |> Enum.reject(&spared?(&1, keeper_track_id, keeper_isrc))
-        |> Enum.count(&quarantine_member(&1, batch_id))
+        |> Enum.count(&quarantine_member(&1, batch_id, keeper_track_id))
 
       finalize_resolution(group, keeper_track_id)
       {:ok, %{quarantined: quarantined, batch_id: batch_id}}
@@ -151,7 +151,7 @@ defmodule Beatgrid.Dedup do
   # Quarantine one member's track (reversible move) and log a :quarantine op with
   # the ORIGINAL rel_path captured BEFORE the move, so the undo can restore it.
   # A vanished track (deleted since the group was built) just doesn't count.
-  defp quarantine_member(member, batch_id) do
+  defp quarantine_member(member, batch_id, keeper_track_id) do
     with %Track{} = track <- Tracks.get(member.track_id),
          orig = track.rel_path,
          {:ok, _moved} <- Library.quarantine(track) do
@@ -163,6 +163,10 @@ defmodule Beatgrid.Dedup do
         batch_id: batch_id,
         suggestion_id: nil
       })
+
+      # The copy leaving the library must not stay referenced by any set —
+      # the keeper adopts its seats (the silent party-breaker fix).
+      Sets.adopt_memberships(track.id, keeper_track_id)
 
       true
     else

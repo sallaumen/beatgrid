@@ -477,6 +477,41 @@ defmodule Beatgrid.Sets do
     :ok
   end
 
+  @doc """
+  Hands every set seat of `loser_track_id` to `keeper_track_id` — the dedup
+  calls this when it quarantines a duplicate, so no set keeps pointing at the
+  copy that left the library (the silent party-breaker: the entry looked fine
+  until the pre-trip check flagged a ghost). When the keeper already sits in
+  the same set, the duplicate's row is dropped and the order reindexed. The
+  pair's transition decision rides along (same song; timing re-derives from
+  the keeper's markers at hint time). Undoing the dedup batch does NOT undo
+  the adoption — both copies are the same recording, the seat stays valid.
+  """
+  @spec adopt_memberships(Ecto.UUID.t(), Ecto.UUID.t()) :: {:ok, non_neg_integer()}
+  def adopt_memberships(loser_track_id, keeper_track_id) do
+    rows = RecSetQuery.rows_for_track(loser_track_id)
+
+    affected =
+      Enum.map(rows, fn row ->
+        adopt_row(row, keeper_track_id)
+        row.rec_set_id
+      end)
+
+    affected |> Enum.uniq() |> Enum.each(&broadcast_set_changed/1)
+    {:ok, length(rows)}
+  end
+
+  defp adopt_row(row, keeper_track_id) do
+    case RecSetQuery.fetch_row(row.rec_set_id, keeper_track_id) do
+      {:ok, _already_member} ->
+        Repo.delete(row)
+        reindex(%RecSet{id: row.rec_set_id})
+
+      {:error, :not_a_member} ->
+        row |> SetTrack.changeset(%{track_id: keeper_track_id}) |> Repo.update()
+    end
+  end
+
   # ── Connections (transition INTO an entry, from the previous track) ──────────
 
   @doc """
