@@ -579,6 +579,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
   defp t_label("brake"), do: "FREIO"
   defp t_label("lowpass"), do: "AFUNDA"
   defp t_label("scratch_cut"), do: "RASGO"
+  defp t_label("chirp"), do: "CHIRP"
+  defp t_label("transform"), do: "TRANSF"
+  defp t_label("scribble"), do: "RISCA"
   defp t_label("spinback"), do: "REBOBINA"
   defp t_label(_type), do: "SEQ"
 
@@ -593,8 +596,11 @@ defmodule BeatgridWeb.DiscotecagemLive do
       {"lowpass", "Afunda", "some embaixo d'água", "#6c5ce7"},
       {"bass_swap", "Grave", "graves trocam de mão", "#ff5d6c"},
       {"brake", "Freio", "o prato para, o outro entra", "#e08e00"},
-      {"scratch_cut", "Rasgo", "scratcheia e dropa", "#ff8c42"},
-      {"spinback", "Rebobina", "rebobina e cai no drop", "#e84dc4"}
+      {"scratch_cut", "Rasgo", "baby scratch no tempo e dropa", "#ff8c42"},
+      {"spinback", "Rebobina", "rebobina e cai no drop", "#e84dc4"},
+      {"chirp", "Chirp", "fader corta nas viradas do prato", "#ff6b9d"},
+      {"transform", "Transforma", "fader picota o rastejo em 1/8", "#48dbfb"},
+      {"scribble", "Riscada", "rabisco cresce até o drop", "#feca57"}
     ]
   end
 

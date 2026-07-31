@@ -74,7 +74,7 @@ defmodule Beatgrid.SetsConnectionsTest do
 
     test "the transition vocabulary includes the console classics + scratch drops, in UI order" do
       assert Sets.transition_types() ==
-               ~w(cut fade crossfade echo filter bass_swap brake lowpass scratch_cut spinback)
+               ~w(cut fade crossfade echo filter bass_swap brake lowpass scratch_cut spinback chirp transform scribble)
     end
   end
 

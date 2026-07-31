@@ -27,7 +27,7 @@ defmodule Beatgrid.Sets do
     TransitionChooser
   }
 
-  @transition_types ~w(cut fade crossfade echo filter bass_swap brake lowpass scratch_cut spinback)
+  @transition_types ~w(cut fade crossfade echo filter bass_swap brake lowpass scratch_cut spinback chirp transform scribble)
 
   # Console hint clamps (never-again #4: from_ms is never trusted blindly).
   @default_outro_window_ms 8_000
