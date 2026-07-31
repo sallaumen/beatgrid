@@ -30,6 +30,33 @@ defmodule Beatgrid.BackupTest do
     assert_receive {:backup_tick}
   end
 
+  describe "catch_up/0 (the boot backup for a machine that naps)" do
+    test "no dump yet → enqueues one" do
+      assert :ok = Backup.catch_up()
+      assert_enqueued(worker: DbBackupWorker)
+    end
+
+    test "a dump from yesterday → enqueues one" do
+      dir = Path.join(Beatgrid.Library.library_root(), "_Backups/DB")
+      File.mkdir_p!(dir)
+      old = Path.join(dir, "beatgrid-old.dump")
+      File.write!(old, "x")
+      File.touch!(old, System.os_time(:second) - 26 * 3600)
+
+      assert :ok = Backup.catch_up()
+      assert_enqueued(worker: DbBackupWorker)
+    end
+
+    test "a fresh dump → nothing to do" do
+      dir = Path.join(Beatgrid.Library.library_root(), "_Backups/DB")
+      File.mkdir_p!(dir)
+      File.write!(Path.join(dir, "beatgrid-fresh.dump"), "x")
+
+      assert :ok = Backup.catch_up()
+      refute_enqueued(worker: DbBackupWorker)
+    end
+  end
+
   test "a failed dump leaves no file behind" do
     expect(Beatgrid.Backup.DumperMock, :dump, fn _cfg, tmp ->
       File.write!(tmp, "partial")

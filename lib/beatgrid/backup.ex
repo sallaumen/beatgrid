@@ -77,6 +77,32 @@ defmodule Beatgrid.Backup do
   @spec latest() :: map() | nil
   def latest, do: List.first(list())
 
+  # A dump younger than this needs no catch-up.
+  @catch_up_after_h 24
+
+  @doc """
+  Enqueues a dump when the newest one is older than a day (or none exists).
+  The daily 05:00 cron assumes an always-on server — this app runs when the
+  DJ does; the boot catch-up is what makes the backup real on his machine.
+  """
+  @spec catch_up() :: :ok
+  def catch_up do
+    case latest() do
+      %{at: at} ->
+        if DateTime.diff(DateTime.utc_now(), at, :hour) >= @catch_up_after_h,
+          do: enqueue_catch_up(),
+          else: :ok
+
+      nil ->
+        enqueue_catch_up()
+    end
+  end
+
+  defp enqueue_catch_up do
+    Beatgrid.Workers.DbBackupWorker.enqueue()
+    :ok
+  end
+
   @doc "The exact command to restore a dump — shown in the UI, run by a human."
   @spec restore_command(map()) :: String.t()
   def restore_command(%{path: path}) do

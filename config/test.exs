@@ -70,3 +70,6 @@ config :beatgrid, Beatgrid.Workers.MixRecognizeWorker, throttle_ms: 0, retry_bac
 config :beatgrid, Beatgrid.Soundcharts.Http,
   req_options: [plug: {Req.Test, Beatgrid.Soundcharts.Http}],
   accounts: [%{id: "1", app_id: "test-app-id", api_key: "test-api-key"}]
+
+# The boot catch-up backup would enqueue a job on every test-suite start.
+config :beatgrid, backup_catch_up_on_boot: false
