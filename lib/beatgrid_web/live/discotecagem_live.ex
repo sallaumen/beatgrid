@@ -599,13 +599,14 @@ defmodule BeatgridWeb.DiscotecagemLive do
     ]
   end
 
+  # Short chip labels — the full name + behavior live in the tooltip.
   defp transition_buttons(:scratch) do
     [
-      {"scratch_cut", "Rasgo", "baby scratch no tempo e dropa", "#ff8c42"},
-      {"spinback", "Rebobina", "rebobina e cai no drop", "#e84dc4"},
-      {"chirp", "Chirp", "picota nas viradas, eco ressoa", "#ff6b9d"},
-      {"transform", "Transforma", "picota o rastejo em 1/8 com eco", "#48dbfb"},
-      {"scribble", "Riscada", "rabisco cresce até o drop", "#feca57"}
+      {"scratch_cut", "Rasgo", "Rasgo — baby scratch no tempo e dropa", "#ff8c42"},
+      {"spinback", "Rebob", "Rebobina — rebobina e cai no drop", "#e84dc4"},
+      {"chirp", "Chirp", "Chirp — picota nas viradas, eco ressoa", "#ff6b9d"},
+      {"transform", "Transf", "Transforma — picota o rastejo em 1/8 com eco", "#48dbfb"},
+      {"scribble", "Risca", "Riscada — rabisco cresce até o drop", "#feca57"}
     ]
   end
 
@@ -613,6 +614,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
   attr :label, :string, required: true
   attr :desc, :string, required: true
   attr :color, :string, required: true
+  attr :compact, :boolean, default: false
 
   defp fire_chip(assigns) do
     ~H"""
@@ -621,7 +623,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
       data-dj-fire={@key}
       title={@desc}
       disabled
-      class="rounded-lg border border-white/8 bg-[#101218] px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-all disabled:opacity-35"
+      class={[
+        "rounded-lg border border-white/8 bg-[#101218] font-bold uppercase transition-all disabled:opacity-35",
+        (@compact && "px-1 py-1 text-[8px] tracking-normal") || "px-2 py-1 text-[9px] tracking-wider"
+      ]}
       style={"--tc:#{@color};color:#{@color}"}
     >
       {@label}
@@ -866,7 +871,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
               >
                 <summary class="flex cursor-pointer list-none flex-col gap-1 px-3 py-2">
                   <div class="flex items-center justify-between gap-2">
-                    <span class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
+                    <span
+                      class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary"
+                      title="Teclado: T dispara a próxima · W adia +1s (segure) · X cancela · A auto · ←→ crossfader"
+                    >
                       Transições
                     </span>
                     <span
@@ -916,7 +924,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 <div
                   id="dj-transitions"
                   phx-update="ignore"
-                  class="grid grid-cols-2 gap-1.5 px-3 pb-3"
+                  class="grid grid-cols-2 gap-1 px-3 pb-2"
                 >
                   <.fire_chip
                     :for={{key, label, desc, color} <- transition_buttons(:classicas)}
@@ -925,25 +933,20 @@ defmodule BeatgridWeb.DiscotecagemLive do
                     desc={desc}
                     color={color}
                   />
-                  <div class="col-span-2 mt-0.5 border-t border-white/8 pt-1 text-[8px] font-bold uppercase tracking-[0.18em] text-ink-faint">
+                  <div class="col-span-2 mt-0.5 border-t border-white/8 pt-0.5 text-[7px] font-bold uppercase tracking-[0.18em] text-ink-faint">
                     Scratch
                   </div>
-                  <.fire_chip
-                    :for={{key, label, desc, color} <- transition_buttons(:scratch)}
-                    key={key}
-                    label={label}
-                    desc={desc}
-                    color={color}
-                  />
+                  <div class="col-span-2 grid grid-cols-5 gap-1">
+                    <.fire_chip
+                      :for={{key, label, desc, color} <- transition_buttons(:scratch)}
+                      key={key}
+                      label={label}
+                      desc={desc}
+                      color={color}
+                      compact
+                    />
+                  </div>
                 </div>
-                <p class="px-3 pb-2 text-[9px] leading-relaxed text-ink-faint">
-                  Teclado: <b>T</b>
-                  dispara a próxima · <b>W</b>
-                  adia +1s (segure) · <b>X</b>
-                  cancela · <b>A</b>
-                  auto · <b>←→</b>
-                  crossfader
-                </p>
               </details>
             </div>
 
