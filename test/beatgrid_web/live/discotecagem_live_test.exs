@@ -113,7 +113,12 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
           {"filter", "Filtro"},
           {"lowpass", "Afunda"},
           {"bass_swap", "Grave"},
-          {"brake", "Freio"}
+          {"brake", "Freio"},
+          {"scratch_cut", "Rasgo"},
+          {"spinback", "Rebobina"},
+          {"chirp", "Chirp"},
+          {"transform", "Transforma"},
+          {"scribble", "Riscada"}
         ] do
       assert html =~ ~s(data-dj-fire="#{key}")
       assert html =~ label

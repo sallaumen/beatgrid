@@ -67,14 +67,14 @@ const RAMP = Object.freeze({
   scratchDepthS: 0.16,
   scratchGain: 1.5, // the scratched deck sits ~3.5 dB above its own music (Lucas mixes at max on the crossfader)
   toneMaxDb: 9, // "Tom" tilt EQ: full turn tilts each shelf ±9 dB
-  // Scratch DROP transitions — deliberately abrupt, NOT scaled by the length
-  // knob. "rasgo": a quick baby-scratch flourish then a hard drop. "rebobina":
-  // a reverse spin-back (rewind whoosh) then the drop.
-  rasgoS: 0.5,
+  // Scratch DROP transitions — runs last WHOLE beats of the outgoing track
+  // (knob-scaled), so a fire on the count drops on a count. Stroke depths are
+  // seconds of record travel; the gate retard matches tickAutoScratch's (the
+  // heard audio lags the commanded head by ~20ms of smoothing).
   rasgoDepthS: 0.1,
-  rasgoStrokes: 3,
-  spinbackS: 0.55,
-  spinbackBackS: 1.15, // rewinds ~2.1x the run in reverse — a clear "rewinnnd", not an aliased blur
+  chirpDepthS: 0.14,
+  transformDuty: 0.55, // fraction of each 1/8-note chop the fader stays open
+  dropGateRetardS: 0.02,
 })
 
 const SYNC_RATE_CLAMP = 0.08 // ±8%, matching the set-builder's bpm_close? band
@@ -595,6 +595,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     lowpass,
     scratch_cut: (from, to, toMs, token) => scratchDrop(from, to, toMs, token, "rasgo"),
     spinback: (from, to, toMs, token) => scratchDrop(from, to, toMs, token, "rebobina"),
+    chirp: (from, to, toMs, token) => scratchDrop(from, to, toMs, token, "chirp"),
+    transform: (from, to, toMs, token) => scratchDrop(from, to, toMs, token, "transform"),
+    scribble: (from, to, toMs, token) => scratchDrop(from, to, toMs, token, "scribble"),
   })
 
   function fireTransition(from, to, transition, mode, origin) {
@@ -955,8 +958,53 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   // Scratch DROP transitions: scratch the OUTGOING track (real worklet audio)
-  // then slam the incoming in at its cued point. "rasgo" = a baby-scratch
-  // flourish; "rebobina" = a reverse spin-back rewind. Abrupt on purpose.
+  // then slam the incoming in at its cued point. Each kind is a spec — a base
+  // run length in OUTGOING BEATS (fired on the count, the drop lands on a
+  // count), a read-head path, and an optional crossfader gate (in transform/
+  // chirp cuts the FADER is the instrument). All paths run at beat-locked
+  // rates, so the scratch pitch never changes with the length knob — the knob
+  // only buys more beats of scratch.
+  const SCRATCH_DROPS = {
+    // baby-scratch flourish: two strokes per beat, then the hard drop.
+    rasgo: {
+      beats: 2,
+      pos: (p, run) =>
+        run.center + RAMP.rasgoDepthS * sr * Math.sin(2 * Math.PI * 2 * run.beats * p),
+    },
+    // reverse spin-back: a steady ~2x rewind the WHOLE run (no silent
+    // accelerate-from-zero start, no aliased over-fast blur), capped at the
+    // track head so the platter never pins silent at 0.
+    rebobina: {
+      beats: 2,
+      pos: (p, run) => run.center - run.backSamples * p,
+    },
+    // chirp: one full stroke per beat with the fader closing on every
+    // turnaround — the crisp "bird" cuts (open mid-stroke, shut at the flips,
+    // where the head reverses and would smear).
+    chirp: {
+      beats: 2,
+      pos: (p, run) =>
+        run.center + RAMP.chirpDepthS * sr * Math.sin(2 * Math.PI * run.beats * p),
+      gate: (p, run) => {
+        const ph = (p * run.beats * 2) % 1
+        return ph > 0.12 && ph < 0.88 ? 1 : 0
+      },
+    },
+    // transform: the record crawls forward at half speed while the fader
+    // picota in 1/8 notes — the classic rhythmic chop.
+    transform: {
+      beats: 4,
+      pos: (p, run) => run.center + 0.5 * run.runS * p * sr,
+      gate: (p, run) => ((p * run.beats * 2) % 1 < RAMP.transformDuty ? 1 : 0),
+    },
+    // scribble: fast tiny wiggles that GROW into the drop — a tension riser.
+    scribble: {
+      beats: 2,
+      pos: (p, run) =>
+        run.center + (0.025 + 0.045 * p) * sr * Math.sin(2 * Math.PI * 6 * run.beats * p),
+    },
+  }
+
   // Falls back to a plain cut when the outgoing has no decoded PCM/worklet.
   function scratchDrop(from, to, toMs, token, kind) {
     if (!scratchArm(from.id)) {
@@ -967,6 +1015,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       cut(from, to, toMs)
       return
     }
+    const spec = SCRATCH_DROPS[kind]
     const s = scratch[from.id]
     const center = from.el.currentTime * sr
     from.el.pause()
@@ -975,14 +1024,16 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     scratchScrub(from.id, center)
     setXfadeTo(sideOf(from.id), 0.04) // hear only the scratch of the outgoing
 
-    // Respect the length knob: a longer setting = MORE scratch (more strokes / a
-    // longer, further rewind) at the SAME speed. The rasgo runs at a fixed rate
-    // (rasgoStrokes/rasgoS Hz) so the scratch pitch never changes with the knob;
-    // the rewind is capped at the headroom so it can't run off the track start.
-    const scale = state.transitionScale
-    const runS = dur(kind === "rebobina" ? RAMP.spinbackS : RAMP.rasgoS)
-    const rasgoCycles = RAMP.rasgoStrokes * (runS / RAMP.rasgoS) // constant Hz over the run
-    const backSamples = Math.min(RAMP.spinbackBackS * scale * sr, center)
+    // Whole beats, knob- and squeeze-scaled: beatMs tracks the live rate and
+    // falls back to 500ms when the BPM is unknown.
+    const beats = Math.min(
+      Math.max(Math.round(spec.beats * state.transitionScale * state.fireScale), 1),
+      16
+    )
+    const runS = beats * (beatMs(from) / 1000)
+    const run = {center, beats, runS, backSamples: Math.min(2 * runS * sr, center)}
+    const heard = sideOf(from.id)
+    const away = sideOf(to.id)
     const t0 = performance.now()
 
     const drop = () => {
@@ -997,6 +1048,11 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       startIncoming(to, toMs)
       setXfadeTo(sideOf(to.id), 0.06)
       after(0.2, () => token === state.transitionToken && resetChain(from))
+      // The outgoing deck is free the moment the drop lands — announce it, so
+      // a hint parked during the run re-arms EVENT-driven. drop() pauses an
+      // already-paused element (no `pause` event fires), and the rAF retry
+      // freezes in background tabs: audio flow must never ride on rAF.
+      emit("deckFreed", {deck: from.id})
     }
 
     const iv = setInterval(() => {
@@ -1018,15 +1074,16 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         drop()
         return
       }
-      const p = Math.min((performance.now() - t0) / (runS * 1000), 1)
-      const pos =
-        kind === "rebobina"
-          ? // steady reverse at ~2x — audible the WHOLE rewind (no silent
-            // accelerate-from-zero start, no silent decelerate-to-zero tail, no
-            // aliased-to-nothing over-fast blur), then the drop cuts it.
-            center - backSamples * p
-          : center + RAMP.rasgoDepthS * sr * Math.sin(2 * Math.PI * rasgoCycles * p)
-      scratchScrub(from.id, pos)
+      const elapsed = (performance.now() - t0) / 1000
+      const p = Math.min(elapsed / runS, 1)
+      scratchScrub(from.id, spec.pos(p, run))
+      if (spec.gate) {
+        // Gate from a RETARDED clock (same rule as tickAutoScratch): the heard
+        // audio lags the commanded head by ~20ms of smoothing, so the chops
+        // must lag too or they land between the strokes the ear hears.
+        const pGate = Math.min(Math.max((elapsed - RAMP.dropGateRetardS) / runS, 0), 1)
+        scratchCrossfade(away + (heard - away) * spec.gate(pGate, run))
+      }
       if (p >= 1) drop()
     }, 16)
   }
