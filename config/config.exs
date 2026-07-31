@@ -46,7 +46,10 @@ config :beatgrid, Oban,
     mixes: 2
   ],
   plugins: [
-    {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7, interval: :timer.hours(6)},
+    # interval 30min, not hours: this app runs in short desktop sessions — a
+    # 6h interval meant the pruner NEVER fired and month-old discarded jobs
+    # haunted the Jobs page forever.
+    {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7, interval: :timer.minutes(30)},
     # Rescue jobs orphaned in :executing (e.g. node crash / dev recompile) back to
     # :available for retry. rescue_after is 90min (not 15) because a multi-hour set's
     # analyze/vision/OCR job legitimately runs many minutes — at 15min Lifeline would

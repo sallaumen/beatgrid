@@ -28,6 +28,15 @@ defmodule Beatgrid.Application do
       BeatgridWeb.Endpoint
     ]
 
+    # Upkeep that assumes an always-on server never fires on a machine that
+    # naps: catch up on boot — a day-less backup gets one now. (Off in test.)
+    children =
+      if Application.get_env(:beatgrid, :backup_catch_up_on_boot, true) do
+        children ++ [{Task, &Beatgrid.Backup.catch_up/0}]
+      else
+        children
+      end
+
     # See https://elixir.hexdocs.pm/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: Beatgrid.Supervisor]
