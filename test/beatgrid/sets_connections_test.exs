@@ -273,18 +273,18 @@ defmodule Beatgrid.SetsConnectionsTest do
       stale = Map.merge(row.transition, %{"from_ms" => from_ms, "to_ms" => to_ms})
       {:ok, _} = row |> Ecto.Changeset.change(transition: stale) |> Repo.update()
     end
+  end
 
-    test "nil for the last track, an unknown track, and sequential (no transition) entries" do
-      {:ok, set} = Sets.create("S")
-      a = insert(:track, status: :present)
-      b = insert(:track, status: :present)
-      {:ok, _} = Sets.append(set, a)
-      {:ok, _} = Sets.append(set, b)
+  test "nil for the last track, an unknown track, and sequential (no transition) entries" do
+    {:ok, set} = Sets.create("S")
+    a = insert(:track, status: :present)
+    b = insert(:track, status: :present)
+    {:ok, _} = Sets.append(set, a)
+    {:ok, _} = Sets.append(set, b)
 
-      assert Sets.entry_after(set.id, b.id) == nil
-      assert Sets.entry_after(set.id, Ecto.UUID.generate()) == nil
-      assert Sets.entry_after(set.id, a.id).transition == nil
-    end
+    assert Sets.entry_after(set.id, b.id) == nil
+    assert Sets.entry_after(set.id, Ecto.UUID.generate()) == nil
+    assert Sets.entry_after(set.id, a.id).transition == nil
   end
 
   test "structural mutations broadcast {:set_changed, id} for hint revalidation" do

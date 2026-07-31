@@ -128,6 +128,40 @@ defmodule Beatgrid.Sets do
     end
   end
 
+  @doc """
+  Pre-trip check: walks the set's CURRENT entries and reports what would bite
+  mid-set — missing files, tracks out of the library, no mix-out marker, no
+  BPM. The console shows the list BEFORE the DJ leaves home.
+  """
+  @spec preflight(RecSet.t()) :: %{total: non_neg_integer(), issues: [map()]}
+  def preflight(%RecSet{id: id}) do
+    entries = RecSetQuery.ordered_entries(id)
+    last = length(entries)
+
+    issues =
+      entries
+      |> Enum.with_index(1)
+      |> Enum.map(fn {entry, pos} -> entry_issues(entry.track, pos, last) end)
+      |> Enum.reject(&(&1.problems == []))
+
+    %{total: last, issues: issues}
+  end
+
+  defp entry_issues(track, pos, last) do
+    checks = [
+      arquivo_sumido: not File.exists?(Path.join(Library.library_root(), track.rel_path)),
+      fora_da_biblioteca: track.status != :present,
+      sem_saida: pos != last and is_nil(Marker.outro(track)),
+      sem_bpm: is_nil(Library.effective(track).bpm)
+    ]
+
+    %{
+      position: pos,
+      title: track.tag_title || track.filename,
+      problems: for({key, true} <- checks, do: key)
+    }
+  end
+
   defp build_hint(outgoing, %{track: track} = entry) do
     %{
       track: track,

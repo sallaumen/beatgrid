@@ -82,6 +82,24 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
 
     # the crossfader curve toggle (Suave ↔ Seco cut) the hook binds for clean cuts
     assert html =~ ~s(id="dj-xfader-curve"), "missing the crossfader curve toggle"
+
+    # trip-mode overlay + toggle: the hook paints and drives these by id
+    for id <- ~w(dj-trip dj-trip-toggle trip-title trip-next trip-countdown trip-auto) do
+      assert html =~ ~s(id="#{id}"), "missing trip element ##{id} — the DjConsole hook drives it"
+    end
+  end
+
+  test "✈ Checar runs the pre-trip check and the report can be dismissed", %{conn: conn} do
+    {set, [_a, _b]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}])
+    view = open_console(conn, set)
+
+    html = render_click(view, "preflight", %{})
+    # fixture tracks have no files on disk, so the check flags them
+    assert html =~ "faixas com pendência"
+    assert html =~ "arquivo sumido do disco"
+
+    html = render_click(view, "close_preflight", %{})
+    refute html =~ "faixas com pendência"
   end
 
   test "the transitions palette lists the classics and follows the AUTO switch", %{conn: conn} do
