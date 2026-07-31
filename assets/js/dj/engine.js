@@ -73,8 +73,10 @@ const RAMP = Object.freeze({
   // heard audio lags the commanded head by ~20ms of smoothing).
   rasgoDepthS: 0.1,
   chirpDepthS: 0.14,
-  transformDuty: 0.55, // fraction of each 1/8-note chop the fader stays open
+  transformDuty: 0.55, // fraction of each 1/8-note chop the dry path stays open
   dropGateRetardS: 0.02,
+  dropEchoSend: 0.3, // chop kinds ring into the deck's delay — subtler than a full echo-out
+  dropTailFadeS: 0.35, // echoTail kinds: the last chop's tail bleeds under the incoming
 })
 
 const SYNC_RATE_CLAMP = 0.08 // ±8%, matching the set-builder's bpm_close? band
@@ -978,11 +980,12 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       beats: 2,
       pos: (p, run) => run.center - run.backSamples * p,
     },
-    // chirp: one full stroke per beat with the fader closing on every
+    // chirp: one full stroke per beat with the dry path closing on every
     // turnaround — the crisp "bird" cuts (open mid-stroke, shut at the flips,
-    // where the head reverses and would smear).
+    // where the head reverses and would smear). Each cut rings in the delay.
     chirp: {
       beats: 2,
+      echoTail: true,
       pos: (p, run) =>
         run.center + RAMP.chirpDepthS * sr * Math.sin(2 * Math.PI * run.beats * p),
       gate: (p, run) => {
@@ -990,10 +993,11 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         return ph > 0.12 && ph < 0.88 ? 1 : 0
       },
     },
-    // transform: the record crawls forward at half speed while the fader
-    // picota in 1/8 notes — the classic rhythmic chop.
+    // transform: the record crawls forward at half speed while the dry path
+    // picota in 1/8 notes — the classic rhythmic chop, echoes filling the gaps.
     transform: {
       beats: 4,
+      echoTail: true,
       pos: (p, run) => run.center + 0.5 * run.runS * p * sr,
       gate: (p, run) => ((p * run.beats * 2) % 1 < RAMP.transformDuty ? 1 : 0),
     },
@@ -1032,9 +1036,18 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     )
     const runS = beats * (beatMs(from) / 1000)
     const run = {center, beats, runS, backSamples: Math.min(2 * runS * sr, center)}
-    const heard = sideOf(from.id)
-    const away = sideOf(to.id)
     const t0 = performance.now()
+
+    // Chop kinds ring: the delay is tuned to the outgoing's quarter note and
+    // the send opens for the run. The gate chops the DRY path only — the echo
+    // keeps sounding through the still-open channel, and the crossfader stays
+    // where the DJ left it (the fader is HIS instrument, never the gate's).
+    if (spec.echoTail) {
+      const now = ctx.currentTime
+      from.delay.delayTime.setTargetAtTime(Math.min(60 / (from.bpm || 120), 1.2), now, 0.03)
+      from.settleGain(from.echoSend)
+      from.echoSend.gain.setValueAtTime(RAMP.dropEchoSend, now)
+    }
 
     const drop = () => {
       clearInterval(iv)
@@ -1046,7 +1059,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       from.pause()
       riseIncoming(to, 0.03) // hard drop — near-instant, just declicked
       startIncoming(to, toMs)
-      setXfadeTo(sideOf(to.id), 0.06)
+      // Echo kinds let the last chop's tail bleed under the incoming for a
+      // breath; the dry kinds slam. Either way the incoming is already at full.
+      setXfadeTo(sideOf(to.id), spec.echoTail ? RAMP.dropTailFadeS : 0.06)
       after(0.2, () => token === state.transitionToken && resetChain(from))
       // The outgoing deck is free the moment the drop lands — announce it, so
       // a hint parked during the run re-arms EVENT-driven. drop() pauses an
@@ -1080,9 +1095,10 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       if (spec.gate) {
         // Gate from a RETARDED clock (same rule as tickAutoScratch): the heard
         // audio lags the commanded head by ~20ms of smoothing, so the chops
-        // must lag too or they land between the strokes the ear hears.
+        // must lag too or they land between the strokes the ear hears. The
+        // gate drives the DRY gain — resetChain restores it to 1 afterwards.
         const pGate = Math.min(Math.max((elapsed - RAMP.dropGateRetardS) / runS, 0), 1)
-        scratchCrossfade(away + (heard - away) * spec.gate(pGate, run))
+        from.dry.gain.setTargetAtTime(spec.gate(pGate, run), ctx.currentTime, 0.004)
       }
       if (p >= 1) drop()
     }, 16)
