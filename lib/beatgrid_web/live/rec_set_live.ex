@@ -96,23 +96,31 @@ defmodule BeatgridWeb.RecSetLive do
     |> assign_candidates()
   end
 
-  # What the console will actually DO at each boundary, derived from the
-  # CURRENT markers — the editor shows the mix points, not just the type.
+  # What the console will actually DO at each boundary — current markers, with
+  # the DJ-taught point winning when the pair has one (📌).
   defp pair_timings(entries) do
     entries
     |> Enum.chunk_every(2, 1, :discard)
     |> Map.new(fn [prev, this] ->
-      timing = Sets.derived_timing(prev.track, this.track)
+      timing = Sets.pair_timing(prev.track, this)
       {this.track.id, Map.put(timing, :has_outro?, Marker.outro(prev.track) != nil)}
     end)
   end
 
-  defp pair_summary(%{from_ms: from, to_ms: to, has_outro?: has_outro?}) do
-    exit_label = if has_outro?, do: "sai #{format_ms(from)}", else: "sai ~fim"
+  defp pair_summary(%{from_ms: from, to_ms: to} = timing) do
+    exit_label =
+      cond do
+        timing.learned? -> "sai #{format_ms(from)} 📌"
+        timing.has_outro? -> "sai #{format_ms(from)}"
+        true -> "sai ~fim"
+      end
+
     "#{exit_label} · entra #{format_ms(to)}"
   end
 
-  defp pair_warns?(%{has_outro?: has_outro?}), do: not has_outro?
+  # A pair with no outro normally exits blind (~fim) — unless the DJ already
+  # taught it a real exit point.
+  defp pair_warns?(timing), do: not (timing.has_outro? or timing.learned?)
 
   defp reload(socket), do: load_set(socket, Sets.get(socket.assigns.set.id))
 
