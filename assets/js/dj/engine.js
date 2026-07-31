@@ -1001,10 +1001,17 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
     const iv = setInterval(() => {
       if (s.token !== from.loadToken) {
-        // The DJ loaded a new track over the outgoing deck mid-run: the load's
-        // resetScratch already silenced the worklet — just die, don't re-scrub
-        // the OLD track's PCM under the new one, and don't fire the drop.
+        // Something loaded over the outgoing deck mid-run (the load's
+        // resetScratch already silenced the worklet). The scratch is gone, but
+        // the HANDOFF must still land: die without starting the incoming and
+        // the room gets dead air with a stuck crossfader. Never touch `from`
+        // here — its new owner drives it now.
         clearInterval(iv)
+        if (token === state.transitionToken) {
+          riseIncoming(to, 0.03)
+          startIncoming(to, toMs)
+          setXfadeTo(sideOf(to.id), 0.06)
+        }
         return
       }
       if (token !== state.transitionToken) {
@@ -1555,9 +1562,17 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     armHint(hint) {
       const idle = state.activeDeck === "a" ? "b" : "a"
       const deck = decks[idle]
-      // A jog-held or auto-scratching deck is IN THE DJ'S HANDS — loading over it
-      // would make the release play a different track than the one scratching.
-      if (deck.audible() || jog[idle].held || autoScratch[idle]) return false
+      // A jog-held, auto-scratching or scratch-DROP-owned deck is IN THE DJ'S
+      // HANDS — loading over it would make the release play a different track
+      // than the one scratching. The scratch[].active case is the palette
+      // Rasgo/Rebobina killer: right after those fire, the server's next hint
+      // arrives while the outgoing deck is still mid-scratch (it looks idle —
+      // paused, not audible); loading over it aborted the deferred drop and
+      // the incoming deck never started. Dead air, stuck crossfader, frozen
+      // scratch visuals. The hint parks as pending and re-arms after the drop.
+      if (deck.audible() || jog[idle].held || autoScratch[idle] || scratch[idle].active) {
+        return false
+      }
       resetChain(deck)
       deck.load(hint.track, hint.transition ? hint.transition["to_ms"] || 0 : 0)
       state.hint = {...hint, deck: idle}
