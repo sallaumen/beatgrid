@@ -53,6 +53,37 @@ defmodule Beatgrid.SetsPreflightTest do
     assert :sem_bpm in problems
   end
 
+  test "a track without an outro is FINE when its exit boundary is a respiro" do
+    {:ok, set} = Sets.create("Baile")
+    root = Library.library_root()
+    File.mkdir_p!(Path.join(root, "F"))
+
+    no_outro =
+      insert(:track,
+        status: :present,
+        rel_path: "F/semfim.mp3",
+        tag_title: "Sem Saída",
+        bpm_detected: 100.0,
+        duration_ms: 180_000,
+        cue_points: []
+      )
+
+    File.write!(Path.join(root, "F/semfim.mp3"), "x")
+    next = insert(:track, status: :present, rel_path: "F/prox.mp3", bpm_detected: 100.0)
+    File.write!(Path.join(root, "F/prox.mp3"), "x")
+
+    {:ok, _} = Sets.append(set, no_outro)
+    {:ok, _} = Sets.append(set, next)
+
+    # sem respiro: falta de outro é problema
+    {:ok, _} = Sets.connect(set, next, %{"type" => "cut"})
+    assert [%{problems: [:sem_saida]}] = Sets.preflight(set).issues
+
+    # com respiro na saída: a faixa toca até o fim de verdade — outro é irrelevante
+    {:ok, _} = Sets.set_breather(set, next, true)
+    assert Sets.preflight(set).issues == []
+  end
+
   test "a clean set reports zero issues" do
     {:ok, set} = Sets.create("Limpa")
     root = Library.library_root()
