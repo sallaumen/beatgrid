@@ -72,6 +72,32 @@ defmodule BeatgridWeb.RescueLiveTest do
     assert html =~ "Restaurar todas com backup (1)"
     assert html =~ "Dupla Esquecida"
     assert html =~ "Forró/dupla.mp3"
+
+    # this quarantined row has NO file on disk — a ghost gets the truth, not a
+    # Restaurar button that would fail
+    assert html =~ "👻 arquivo sumiu"
+  end
+
+  test "a quarantined row WITH its file keeps the Restaurar button", %{conn: conn} do
+    track = insert(:track, status: :quarantined, rel_path: "_Quarantine/viva.mp3")
+    path = Path.join(Library.library_root(), track.rel_path)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, "x")
+
+    {:ok, _op} =
+      Operations.record(%{
+        track_id: track.id,
+        kind: :quarantine,
+        status: :applied,
+        from: "Forró/viva.mp3",
+        to: track.rel_path,
+        batch_id: Uniq.UUID.uuid7()
+      })
+
+    {:ok, _view, html} = live(conn, ~p"/resgate")
+
+    assert html =~ "Restaurar"
+    refute html =~ "👻"
   end
 
   test "check_all reports how many tracks went to the queue", %{conn: conn} do
