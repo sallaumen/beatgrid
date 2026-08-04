@@ -3337,7 +3337,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             ]}
             title={e.transition["reason"] || "Transição de entrada desta faixa"}
           >
-            {if e.transition["breather"], do: "🤝 "}{t_label(e.transition["type"])}
+            {if Sets.breather?(e), do: "🤝 "}{t_label(e.transition["type"])}
           </span>
           <.load_buttons track_id={e.track.id} />
         </li>

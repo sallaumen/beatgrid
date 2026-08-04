@@ -303,8 +303,11 @@ defmodule BeatgridWeb.RecSetLive do
     {:noreply,
      with_track(socket, id, fn track ->
        entry = Enum.find(Sets.entries(socket.assigns.set), &(&1.track.id == track.id))
-       on? = not breather?(entry)
-       connected(socket, Sets.set_breather(socket.assigns.set, track, on?))
+       wanted = not Sets.breather?(entry)
+       # An override that just repeats the cadence is noise — store nil and the
+       # boundary follows /ajustes again.
+       state = if wanted == cadence_breather?(entry), do: nil, else: wanted
+       connected(socket, Sets.set_breather(socket.assigns.set, track, state))
      end)}
   end
 
@@ -578,8 +581,31 @@ defmodule BeatgridWeb.RecSetLive do
   defp transition_on?(%{transition: %{"enabled" => true}}), do: true
   defp transition_on?(_entry), do: false
 
-  defp breather?(%{transition: %{"breather" => true}}), do: true
-  defp breather?(_entry), do: false
+  # What the positional cadence alone would say, ignoring any hand override.
+  defp cadence_breather?(%{transition: transition} = entry) do
+    Sets.breather?(%{entry | transition: Map.delete(transition || %{}, "breather")})
+  end
+
+  defp breather_override(%{transition: %{"breather" => value}}) when is_boolean(value), do: value
+  defp breather_override(_entry), do: nil
+
+  defp breather_title(entry) do
+    gap = Sets.breather_gap_s()
+
+    case {Sets.breather?(entry), breather_override(entry)} do
+      {true, nil} ->
+        "Respiro da cadência (a cada #{Sets.breather_every()} — /ajustes): fim real + eco na voz + #{gap}s de silêncio. Clique para DESLIGAR só esta fronteira."
+
+      {true, true} ->
+        "Respiro FIXADO À MÃO nesta fronteira (fica aqui mesmo reordenando): fim real + eco na voz + #{gap}s de silêncio. Clique para desligar."
+
+      {false, false} ->
+        "Respiro DESLIGADO À MÃO nesta fronteira (a cadência pulará ela). Clique para ligar."
+
+      {false, _} ->
+        "Ligar respiro nesta fronteira: fim real + eco na voz + #{gap}s de silêncio pro abraço."
+    end
+  end
 
   defp transition_abbrev("cut"), do: "corte"
   defp transition_abbrev("fade"), do: "fade"
@@ -801,13 +827,11 @@ defmodule BeatgridWeb.RecSetLive do
                     phx-value-track={e.track.id}
                     class={[
                       "rounded px-1 py-px text-[10px]",
-                      (breather?(e) && "bg-emerald-500/20") || "opacity-30 grayscale hover:opacity-70"
+                      (Sets.breather?(e) && "bg-emerald-500/20") ||
+                        "opacity-30 grayscale hover:opacity-70",
+                      is_boolean(breather_override(e)) && "ring-1 ring-emerald-400/50"
                     ]}
-                    title={
-                      (breather?(e) &&
-                         "Respiro do salão LIGADO: a música anterior toca até o fim de verdade, o eco estica a voz e a pista ganha #{Sets.breather_gap_s()}s de silêncio pro abraço antes desta faixa (ajustável em /ajustes). Clique para desligar.") ||
-                        "Ligar respiro nesta fronteira: fim real + eco na voz + #{Sets.breather_gap_s()}s de silêncio pro abraço."
-                    }
+                    title={breather_title(e)}
                   >
                     🤝
                   </button>

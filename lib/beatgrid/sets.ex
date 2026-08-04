@@ -61,9 +61,34 @@ defmodule Beatgrid.Sets do
   @spec breather_gap_s() :: float()
   def breather_gap_s, do: Settings.get(:breather_gap_s, @breather_gap_s_default)
 
-  @doc "A breather lands every N boundaries when connecting a set (Ajustes)."
+  @doc "A breather lands every N boundaries by POSITION (Ajustes)."
   @spec breather_every() :: pos_integer()
   def breather_every, do: Settings.get(:breather_every, @breather_every_default)
+
+  @doc """
+  Whether this boundary breathes. A hand override stored on the pair
+  (`"breather"` true/false) wins; without one, the salão cadence decides BY
+  POSITION — every Nth boundary — so reordering the set never drags a pause
+  around with a track. Disabled pairs (plain sequential) never breathe.
+  """
+  @spec breather?(%{
+          required(:position) => pos_integer(),
+          required(:transition) => map() | nil,
+          optional(any()) => any()
+        }) :: boolean()
+  def breather?(%{position: pos, transition: transition}) do
+    t = transition || %{}
+
+    case t["breather"] do
+      value when is_boolean(value) ->
+        value
+
+      _cadence ->
+        # The first entry has no incoming boundary (its stale transition row can
+        # survive a reorder) — only positions 2+ can breathe by cadence.
+        pos > 1 and t["enabled"] == true and breather_boundary?(pos - 1, breather_every())
+    end
+  end
 
   @doc "Subscribe to one set's structural changes (membership/order/transitions)."
   @spec subscribe_set(Ecto.UUID.t()) :: :ok | {:error, term()}
@@ -189,7 +214,8 @@ defmodule Beatgrid.Sets do
   end
 
   defp entry_issues(track, pos, last, exit_transition) do
-    breather_out? = is_map(exit_transition) and exit_transition["breather"] == true
+    breather_out? =
+      is_map(exit_transition) and breather?(%{position: pos + 1, transition: exit_transition})
 
     checks = [
       arquivo_sumido: not File.exists?(Path.join(Library.library_root(), track.rel_path)),
@@ -210,7 +236,7 @@ defmodule Beatgrid.Sets do
       track: track,
       position: entry.position,
       role: entry.role,
-      transition: hint_transition(entry.transition, outgoing, track),
+      transition: entry |> effective_transition() |> hint_transition(outgoing, track),
       bpm: Library.effective(track).bpm,
       outgoing_bpm: Library.effective(outgoing).bpm,
       duration_ms: track.duration_ms,
@@ -222,6 +248,22 @@ defmodule Beatgrid.Sets do
   # re-analysis and hand edits reach the console instantly, and a reordered set
   # can't fire on a predecessor that no longer precedes it. A disabled row plays
   # as plain sequential. The client still re-clamps against real media duration.
+  # The hint carries the EFFECTIVE breather (override or positional cadence),
+  # so the engine and every 🤝 chip read one truth. A positional breather over
+  # a blend decision still ends the forró way — eco esticando a voz (fade/cut
+  # endings keep their own character).
+  defp effective_transition(%{transition: nil}), do: nil
+
+  defp effective_transition(%{transition: transition} = entry) do
+    if breather?(entry) do
+      transition
+      |> Map.put("breather", true)
+      |> Map.update("type", "echo", &if(&1 in ["fade", "cut"], do: &1, else: "echo"))
+    else
+      Map.delete(transition, "breather")
+    end
+  end
+
   defp hint_transition(nil, _outgoing, _incoming), do: nil
   defp hint_transition(%{"enabled" => false}, _outgoing, _incoming), do: nil
 
@@ -663,7 +705,8 @@ defmodule Beatgrid.Sets do
 
     with true <- is_integer(idx) and idx > 0,
          %{track: %{id: ^from_track_id} = outgoing} <- Enum.at(entries, idx - 1),
-         %{transition: %{"enabled" => true} = transition} <- Enum.at(entries, idx),
+         %{transition: %{"enabled" => true} = transition} = entry <- Enum.at(entries, idx),
+         false <- breather?(entry),
          true <- learnable?(at_ms, transition, outgoing) do
       persist_learned(set_id, receiving_track_id, transition, at_ms)
     else
@@ -699,58 +742,48 @@ defmodule Beatgrid.Sets do
   end
 
   @doc """
-  Auto-connects every consecutive pair (suggest + persist) and marks a RESPIRO
-  every `:breather_every` boundaries (default #{@breather_every_default};
-  `nil` disables) — the salão rule: after a bloco of songs the floor thanks,
-  says goodbye and swaps partners before the next one. Returns `{:ok, count}`.
+  Auto-connects every consecutive pair (suggest + persist). Breathers are NOT
+  stamped here: the salão cadence is decided by POSITION at read time (see
+  `breather?/1`), so a reorder never drags a pause around — only hand
+  overrides on a pair ride along, and they are preserved. `{:ok, count}`.
   """
-  @spec connect_all(RecSet.t(), keyword()) :: {:ok, non_neg_integer()}
-  def connect_all(%RecSet{id: id} = set, opts \\ []) do
-    {:ok, count} = connect_all_quiet(set, opts)
+  @spec connect_all(RecSet.t()) :: {:ok, non_neg_integer()}
+  def connect_all(%RecSet{id: id} = set) do
+    {:ok, count} = connect_all_quiet(set)
     broadcast_set_changed(id)
     {:ok, count}
   end
 
-  @doc "`connect_all/2` without the broadcast — for batch owners that notify once at the end."
-  @spec connect_all_quiet(RecSet.t(), keyword()) :: {:ok, non_neg_integer()}
-  def connect_all_quiet(%RecSet{} = set, opts \\ []), do: {:ok, connect_pairs_quiet(set, opts)}
+  @doc "`connect_all/1` without the broadcast — for batch owners that notify once at the end."
+  @spec connect_all_quiet(RecSet.t()) :: {:ok, non_neg_integer()}
+  def connect_all_quiet(%RecSet{} = set), do: {:ok, connect_pairs_quiet(set)}
 
-  defp connect_pairs_quiet(set, opts) do
-    every = Keyword.get(opts, :breather_every, breather_every())
+  defp connect_pairs_quiet(set) do
+    overrides =
+      set
+      |> entries()
+      |> Map.new(fn e -> {e.track.id, (e.transition || %{})["breather"]} end)
 
     pairs =
       set
       |> tracks()
       |> Enum.chunk_every(2, 1, :discard)
 
-    pairs
-    |> Enum.with_index(1)
-    |> Enum.each(fn {[prev, this], idx} ->
-      {:ok, _} = connect_quiet(set, this, boundary_suggestion(prev, this, idx, every))
+    Enum.each(pairs, fn [prev, this] ->
+      suggestion =
+        case overrides[this.id] do
+          value when is_boolean(value) ->
+            Map.put(suggest_transition(prev, this), "breather", value)
+
+          _cadence ->
+            suggest_transition(prev, this)
+        end
+
+      {:ok, _} = connect_quiet(set, this, suggestion)
     end)
 
     length(pairs)
   end
-
-  # Boundary N, 2N, … breathes; the others blend as usual. A respiro is not a
-  # blend, so the suggestion engine is bypassed: eco esticando o fim é o
-  # tratamento clássico do forró.
-  defp boundary_suggestion(prev, this, idx, every) do
-    if breather_boundary?(idx, every) do
-      %{
-        "enabled" => true,
-        "type" => "echo",
-        "reason" =>
-          "Respiro do salão: a música acaba de verdade, o eco estica a voz e " <>
-            "a pista agradece antes da próxima.",
-        "breather" => true
-      }
-    else
-      suggest_transition(prev, this)
-    end
-  end
-
-  defp breather_boundary?(_idx, nil), do: false
 
   defp breather_boundary?(idx, every) when is_integer(every) and every > 0,
     do: rem(idx, every) == 0
@@ -764,12 +797,16 @@ defmodule Beatgrid.Sets do
   """
   @spec set_breather(RecSet.t(), Library.Track.t(), boolean()) ::
           {:ok, SetTrack.t()} | {:error, :not_a_member | Ecto.Changeset.t()}
-  def set_breather(%RecSet{id: set_id} = set, track, on?) do
+  def set_breather(%RecSet{id: set_id} = set, track, state)
+      when is_boolean(state) or is_nil(state) do
     with {:ok, row} <- RecSetQuery.fetch_row(set_id, track.id) do
       decision = row.transition || %{"enabled" => true, "type" => "echo", "reason" => nil}
 
+      # true/false pin the boundary against the cadence; nil hands it back.
       attrs =
-        if on?, do: Map.put(decision, "breather", true), else: Map.delete(decision, "breather")
+        if is_nil(state),
+          do: Map.delete(decision, "breather"),
+          else: Map.put(decision, "breather", state)
 
       connect(set, track, attrs)
     end
@@ -793,12 +830,11 @@ defmodule Beatgrid.Sets do
       "reason" => reason
     }
 
-    # O respiro é DECISÃO (a fronteira não emenda — o salão agradece), então
-    # sobrevive à normalização como enabled/type/reason.
-    if Map.get(attrs, "breather", Map.get(attrs, :breather)) == true do
-      Map.put(decision, "breather", true)
-    else
-      decision
+    # O override de respiro é DECISÃO (true fixa, false desliga, ausente segue
+    # a cadência posicional), então sobrevive à normalização.
+    case Map.get(attrs, "breather", Map.get(attrs, :breather)) do
+      value when is_boolean(value) -> Map.put(decision, "breather", value)
+      _cadence -> decision
     end
   end
 
@@ -927,7 +963,7 @@ defmodule Beatgrid.Sets do
           |> Repo.update!()
         end)
 
-        connect_pairs_quiet(set, [])
+        connect_pairs_quiet(set)
         {:ok, set}
       end)
 
