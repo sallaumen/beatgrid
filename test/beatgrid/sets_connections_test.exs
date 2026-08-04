@@ -334,33 +334,32 @@ defmodule Beatgrid.SetsConnectionsTest do
       {set, Map.new(tracks)}
     end
 
-    test "connect_all marks every 4th boundary as a breather (echo treatment, cultural reason)" do
+    test "the cadence is POSITIONAL: nothing stamped, every 4th boundary computes as breather" do
       {set, _tracks} = eight_track_set()
 
       {:ok, 7} = Sets.connect_all(set)
 
-      breathers =
-        for {e, idx} <- Enum.with_index(Sets.entries(set)),
-            idx > 0,
-            e.transition["breather"] == true,
-            do: idx
+      entries = Sets.entries(set)
+      refute Enum.any?(entries, &Map.has_key?(&1.transition || %{}, "breather"))
 
-      # boundaries are 1-based between positions: 4th boundary = entry index 4
-      assert breathers == [4]
-      breather = Enum.at(Sets.entries(set), 4).transition
-      assert breather["type"] == "echo"
-      assert breather["reason"] =~ "Respiro"
+      breathers = for e <- entries, Sets.breather?(e), do: e.position
+      assert breathers == [5]
     end
 
-    test "breather_every option changes the cadence; nil disables it" do
-      {set, _tracks} = eight_track_set()
+    test "reordering moves songs, never the pause: the breather stays at position 5" do
+      {set, tracks} = eight_track_set()
+      {:ok, 7} = Sets.connect_all(set)
 
-      {:ok, 7} = Sets.connect_all(set, breather_every: 3)
-      idxs = for {e, i} <- Enum.with_index(Sets.entries(set)), e.transition["breather"], do: i
-      assert idxs == [3, 6]
+      before = Enum.find(Sets.entries(set), &Sets.breather?/1)
+      assert before.position == 5
 
-      {:ok, 7} = Sets.connect_all(set, breather_every: nil)
-      assert Enum.all?(Sets.entries(set), &(&1.transition["breather"] != true))
+      # the song that HELD the breather goes first; the pause must not follow it
+      Sets.move(set, tracks[5], :top)
+      {:ok, _} = Sets.connect_all(set)
+
+      after_move = Enum.find(Sets.entries(set), &Sets.breather?/1)
+      assert after_move.position == 5
+      refute after_move.track.id == before.track.id
     end
 
     test "a breather hint plays to the REAL end (outro marker ignored) and carries the gap" do
@@ -375,15 +374,28 @@ defmodule Beatgrid.SetsConnectionsTest do
       assert hint.transition["gap_ms"] == 5_000
     end
 
-    test "set_breather toggles the flag on one boundary, surviving normalize" do
+    test "hand overrides pin a boundary against the cadence, and nil hands it back" do
       {set, tracks} = eight_track_set()
       {:ok, 7} = Sets.connect_all(set)
 
+      # boundary 1 (position 2) is cadence-off — pin it ON
       {:ok, _} = Sets.set_breather(set, tracks[2], true)
-      assert Enum.at(Sets.entries(set), 1).transition["breather"] == true
+      assert Sets.breather?(Enum.at(Sets.entries(set), 1))
 
-      {:ok, _} = Sets.set_breather(set, tracks[2], false)
-      refute Map.has_key?(Enum.at(Sets.entries(set), 1).transition, "breather")
+      # cadence-on boundary (position 5) pinned OFF
+      {:ok, _} = Sets.set_breather(set, tracks[5], false)
+      refute Sets.breather?(Enum.at(Sets.entries(set), 4))
+
+      # overrides survive a re-suggest, unlike learned points
+      {:ok, 7} = Sets.connect_all(set)
+      assert Sets.breather?(Enum.at(Sets.entries(set), 1))
+      refute Sets.breather?(Enum.at(Sets.entries(set), 4))
+
+      # nil returns both to the cadence
+      {:ok, _} = Sets.set_breather(set, tracks[2], nil)
+      {:ok, _} = Sets.set_breather(set, tracks[5], nil)
+      refute Sets.breather?(Enum.at(Sets.entries(set), 1))
+      assert Sets.breather?(Enum.at(Sets.entries(set), 4))
     end
 
     test "a breather boundary never learns a fire point" do
