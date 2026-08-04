@@ -1,6 +1,10 @@
 services:
   db:
     image: postgres:16-alpine
+    # The library lives here and this is a desktop machine: bring the database
+    # back with Docker Desktop instead of making every session start with a
+    # manual `compose up`. "unless-stopped" still honours a deliberate stop.
+    restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres

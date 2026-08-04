@@ -73,3 +73,7 @@ config :beatgrid, Beatgrid.Soundcharts.Http,
 
 # The boot catch-up backup would enqueue a job on every test-suite start.
 config :beatgrid, backup_catch_up_on_boot: false
+
+# The boot database probe is redundant in test (the suite cannot run without a
+# database anyway) and would add a connection per run.
+config :beatgrid, db_preflight: false
