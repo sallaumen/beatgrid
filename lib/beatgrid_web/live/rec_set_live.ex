@@ -299,6 +299,15 @@ defmodule BeatgridWeb.RecSetLive do
     end
   end
 
+  def handle_event("toggle_breather", %{"track" => id}, socket) do
+    {:noreply,
+     with_track(socket, id, fn track ->
+       entry = Enum.find(Sets.entries(socket.assigns.set), &(&1.track.id == track.id))
+       on? = not breather?(entry)
+       connected(socket, Sets.set_breather(socket.assigns.set, track, on?))
+     end)}
+  end
+
   def handle_event("connect_all", _params, socket) do
     {:ok, n} = Sets.connect_all(socket.assigns.set)
     {:noreply, socket |> reload() |> put_flash(:info, "#{n} transições conectadas.")}
@@ -569,6 +578,9 @@ defmodule BeatgridWeb.RecSetLive do
   defp transition_on?(%{transition: %{"enabled" => true}}), do: true
   defp transition_on?(_entry), do: false
 
+  defp breather?(%{transition: %{"breather" => true}}), do: true
+  defp breather?(_entry), do: false
+
   defp transition_abbrev("cut"), do: "corte"
   defp transition_abbrev("fade"), do: "fade"
   defp transition_abbrev("echo"), do: "eco"
@@ -782,6 +794,23 @@ defmodule BeatgridWeb.RecSetLive do
                   </span>
                 </div>
                 <div :if={i > 1} class="flex items-center justify-center gap-2 py-0">
+                  <button
+                    :if={transition_on?(e)}
+                    type="button"
+                    phx-click="toggle_breather"
+                    phx-value-track={e.track.id}
+                    class={[
+                      "rounded px-1 py-px text-[10px]",
+                      (breather?(e) && "bg-emerald-500/20") || "opacity-30 grayscale hover:opacity-70"
+                    ]}
+                    title={
+                      (breather?(e) &&
+                         "Respiro do salão LIGADO: a música anterior toca até o fim de verdade, o eco estica a voz e a pista ganha ~2,5s de silêncio pro abraço antes desta faixa. Clique para desligar.") ||
+                        "Ligar respiro nesta fronteira: fim real + eco na voz + ~2,5s de silêncio pro abraço."
+                    }
+                  >
+                    🤝
+                  </button>
                   <div
                     :if={transition_on?(e)}
                     class="flex overflow-hidden rounded border border-primary/30"

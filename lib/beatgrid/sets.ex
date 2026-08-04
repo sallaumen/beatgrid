@@ -44,7 +44,9 @@ defmodule Beatgrid.Sets do
   # casal agradecer e trocar antes da próxima.
   @breather_every_default 4
   @breather_lead_ms 4_000
-  @breather_gap_ms 8_000
+  # Lucas tuned this for the floor (2026-08-04, gig day): the hug-and-switch
+  # moment, not a full applause break — the room barely feels the stop.
+  @breather_gap_ms 2_500
 
   # Final de verdade: o salão espera o passo do fim — dispara só no talo
   # (1.5s casa com o clamp mínimo de cauda do engine).

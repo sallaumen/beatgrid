@@ -1116,7 +1116,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // estica a última frase, a pista fica em silêncio para agradecer e trocar
   // de par, e só então a próxima entra. A regra do forró, não do rádio.
   function breatherOut(from, to, toMs, token, transition) {
-    const gapS = Math.max((transition["gap_ms"] ?? 8000) / 1000, 0)
+    const gapS = Math.max((transition["gap_ms"] ?? 2500) / 1000, 0)
     const style = transition["type"] || "echo"
     const now = ctx.currentTime
 

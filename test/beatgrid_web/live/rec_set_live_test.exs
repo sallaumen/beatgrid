@@ -588,6 +588,26 @@ defmodule BeatgridWeb.RecSetLiveTest do
     assert html =~ "entra 0:04"
   end
 
+  test "the 🤝 toggle turns a boundary into a breather and back", %{conn: conn} do
+    {:ok, set} = Sets.create("S")
+    a = track_with("8A", 128.0, tag_title: "A", cue_points: [])
+    b = track_with("8A", 129.0, tag_title: "B", cue_points: [])
+    Sets.append(set, a)
+    Sets.append(set, b)
+    {:ok, _} = Sets.connect(set, b, %{"type" => "echo"})
+
+    {:ok, view, html} = live(conn, ~p"/set/#{set.id}")
+    assert html =~ "toggle_breather"
+
+    view |> element("button[phx-click=toggle_breather]") |> render_click()
+    entry_b = Enum.find(Sets.entries(set), &(&1.track.id == b.id))
+    assert entry_b.transition["breather"] == true
+
+    view |> element("button[phx-click=toggle_breather]") |> render_click()
+    entry_b = Enum.find(Sets.entries(set), &(&1.track.id == b.id))
+    refute Map.has_key?(entry_b.transition, "breather")
+  end
+
   test "a pair the DJ taught shows the learned exit with the 📌 badge", %{conn: conn} do
     {:ok, set} = Sets.create("S")
 
