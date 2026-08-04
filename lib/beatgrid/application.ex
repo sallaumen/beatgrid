@@ -6,7 +6,24 @@ defmodule Beatgrid.Application do
   use Application
 
   @impl true
-  def start(_type, _args) do
+  def start(type, args) do
+    # A sleeping Postgres used to surface as a wall of Oban supervisor crashes.
+    # Probe it first and say the one useful thing instead.
+    if Application.get_env(:beatgrid, :db_preflight, true) do
+      case Beatgrid.Preflight.database() do
+        :ok ->
+          boot(type, args)
+
+        {:error, reason} ->
+          Beatgrid.Preflight.log_unavailable(reason)
+          {:error, :database_unavailable}
+      end
+    else
+      boot(type, args)
+    end
+  end
+
+  defp boot(_type, _args) do
     # Structured logs for every Oban job (start/stop/exception, with worker, queue,
     # duration and the full error + stacktrace on failure). Without this, failed or
     # crashed background jobs are invisible. Idempotent — safe across hot restarts.
