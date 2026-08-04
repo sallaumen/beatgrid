@@ -21,6 +21,9 @@ defmodule Beatgrid.Settings.RegistryTest do
 
   test "the catalog covers exactly the runtime tunables" do
     assert Enum.map(Registry.all(), & &1.key) == [
+             :breather_gap_s,
+             :breather_every,
+             :backup_keep,
              :target_lufs,
              :gain_tolerance_db,
              :gold_view_threshold,

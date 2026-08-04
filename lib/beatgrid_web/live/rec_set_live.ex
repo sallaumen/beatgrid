@@ -805,8 +805,8 @@ defmodule BeatgridWeb.RecSetLive do
                     ]}
                     title={
                       (breather?(e) &&
-                         "Respiro do salão LIGADO: a música anterior toca até o fim de verdade, o eco estica a voz e a pista ganha ~2,5s de silêncio pro abraço antes desta faixa. Clique para desligar.") ||
-                        "Ligar respiro nesta fronteira: fim real + eco na voz + ~2,5s de silêncio pro abraço."
+                         "Respiro do salão LIGADO: a música anterior toca até o fim de verdade, o eco estica a voz e a pista ganha #{Sets.breather_gap_s()}s de silêncio pro abraço antes desta faixa (ajustável em /ajustes). Clique para desligar.") ||
+                        "Ligar respiro nesta fronteira: fim real + eco na voz + #{Sets.breather_gap_s()}s de silêncio pro abraço."
                     }
                   >
                     🤝

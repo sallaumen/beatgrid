@@ -9,10 +9,12 @@ defmodule Beatgrid.Settings.Registry do
   set — the one guard against the two drifting apart.
   """
 
+  alias Beatgrid.Backup
   alias Beatgrid.Gold
   alias Beatgrid.Library.TrackQuery
   alias Beatgrid.Loudness
   alias Beatgrid.Organization.ClassificationAI
+  alias Beatgrid.Sets
   alias Beatgrid.Settings
 
   @type entry :: %{
@@ -31,6 +33,42 @@ defmodule Beatgrid.Settings.Registry do
   @spec all() :: [entry()]
   def all do
     [
+      %{
+        key: :breather_gap_s,
+        label: "Respiro: silêncio entre as músicas",
+        description:
+          "Segundos de silêncio real que o respiro 🤝 deixa entre o fim da música e a próxima — o momento do abraço e da troca de par.",
+        type: :float,
+        min: 1.0,
+        max: 20.0,
+        default: 5.0,
+        unit: "s",
+        effective: &Sets.breather_gap_s/0
+      },
+      %{
+        key: :breather_every,
+        label: "Respiro: cadência",
+        description:
+          "Conectar/Remixar/Planejar marcam um respiro 🤝 a cada N músicas. No editor dá pra mover fronteira a fronteira depois.",
+        type: :integer,
+        min: 2,
+        max: 10,
+        default: 4,
+        unit: "músicas",
+        effective: &Sets.breather_every/0
+      },
+      %{
+        key: :backup_keep,
+        label: "Backups do banco guardados",
+        description:
+          "Quantos dumps diários ficam em _Backups/DB antes da retenção apagar os mais antigos.",
+        type: :integer,
+        min: 3,
+        max: 60,
+        default: 14,
+        unit: "dumps",
+        effective: &Backup.keep/0
+      },
       %{
         key: :target_lufs,
         label: "Alvo de loudness",
