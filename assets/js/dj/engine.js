@@ -75,6 +75,9 @@ const RAMP = Object.freeze({
   chirpDepthS: 0.14,
   transformDuty: 0.55, // fraction of each 1/8-note chop the dry path stays open
   dropGateRetardS: 0.02,
+  // An early-fired breather rides the echo over the CURRENT phrase this long
+  // before dissolving into the gap (mirrors the server's 4s fire lead).
+  breatherMaxTailS: 4,
   dropEchoSend: 0.3, // chop kinds ring into the deck's delay — subtler than a full echo-out
   dropTailFadeS: 0.35, // echoTail kinds: the last chop's tail bleeds under the incoming
 })
@@ -1160,12 +1163,29 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
     // A faixa morre sozinha (o `ended` do deck ativo é ignorado pelo listener
     // global porque activeDeck já é o destino); o relógio cobre o caso de um
-    // seek/erro engolir o evento.
+    // seek/erro engolir o evento. Disparado LONGE do fim (tecla T no meio da
+    // música — é assim que se testa e que se encurta um set ao vivo), esperar
+    // o `ended` real deixava o eco aberto por MINUTOS sem próxima faixa: um
+    // disparo antecipado agora DEFINE o fim — o eco monta na frase atual por
+    // alguns tempos, o dry dissolve e o respiro segue.
+    const remainS = Math.max((from.el.duration || 0) - from.el.currentTime, 0)
+    const early = remainS > RAMP.breatherMaxTailS + 1
+    const restS = early ? RAMP.breatherMaxTailS : Math.max(remainS + 0.5, 1)
+
     const onEnded = () => armGap()
     from.el.addEventListener("ended", onEnded, {once: true})
-    const restS = Math.max((from.el.duration || 0) - from.el.currentTime + 0.5, 1)
     after(restS, () => {
       from.el.removeEventListener("ended", onEnded)
+      if (token !== state.transitionToken) return
+      if (early && !from.el.ended && !from.el.paused) {
+        // Dissolve, never a mid-phrase chop; the delay tail rings into the gap.
+        from.dry.gain.setTargetAtTime(0, ctx.currentTime, 0.08)
+        after(0.35, () => {
+          if (token === state.transitionToken) from.pause()
+          armGap()
+        })
+        return
+      }
       armGap()
     })
   }
