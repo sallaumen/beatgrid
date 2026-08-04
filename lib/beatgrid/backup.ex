@@ -3,7 +3,7 @@ defmodule Beatgrid.Backup do
   Database backups of the CURATION — sets, manual markers, ratings, dedup
   decisions and recorte provenance all live only in Postgres, so one docker
   mishap would erase months of work. Dumps land in `library_root/_Backups/DB`
-  (the folder the DJ already keeps safe), pruned to the newest `@keep`.
+  (the folder the DJ already keeps safe), pruned to the newest `keep/0` dumps.
 
   Restoring intentionally stays a guided MANUAL step (`restore_command/1`):
   dropping the live database from inside the running app is a footgun.
@@ -19,7 +19,11 @@ defmodule Beatgrid.Backup do
             Beatgrid.Backup.DumperCli
           )
 
-  @keep 14
+  @keep_default 14
+
+  @doc "How many dumps the retention keeps — the safety-net depth (Ajustes)."
+  @spec keep() :: pos_integer()
+  def keep, do: Beatgrid.Settings.get(:backup_keep, @keep_default)
   @topic "backup"
 
   @doc "Subscribe to backup completions (`{:backup_tick}` — contract: `Beatgrid.Events`)."
@@ -32,7 +36,7 @@ defmodule Beatgrid.Backup do
 
   @doc """
   Dumps the database into a timestamped file (tmp + rename, so a killed dump
-  never leaves a half-written "backup") and prunes to the newest #{@keep}.
+  never leaves a half-written "backup") and prunes to the newest `keep/0`.
   """
   @spec dump() :: {:ok, String.t()} | {:error, term()}
   def dump do
@@ -115,7 +119,7 @@ defmodule Beatgrid.Backup do
 
   defp prune do
     list()
-    |> Enum.drop(@keep)
+    |> Enum.drop(keep())
     |> Enum.each(&File.rm(&1.path))
   end
 

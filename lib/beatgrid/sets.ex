@@ -14,6 +14,7 @@ defmodule Beatgrid.Sets do
   alias Beatgrid.Library.{Marker, TrackQuery}
   alias Beatgrid.Mixing
   alias Beatgrid.Repo
+  alias Beatgrid.Settings
 
   alias Beatgrid.Sets.{
     M3u,
@@ -44,9 +45,9 @@ defmodule Beatgrid.Sets do
   # casal agradecer e trocar antes da próxima.
   @breather_every_default 4
   @breather_lead_ms 4_000
-  # Lucas tuned this for the floor (2026-08-04, gig day): the hug-and-switch
-  # moment, not a full applause break — the room barely feels the stop.
-  @breather_gap_ms 2_500
+  # Floor-tuned in /ajustes (2.5s measured "ainda meio curto" at a real gig);
+  # this is the code fallback when no override is stored.
+  @breather_gap_s_default 5.0
 
   # Final de verdade: o salão espera o passo do fim — dispara só no talo
   # (1.5s casa com o clamp mínimo de cauda do engine).
@@ -55,6 +56,14 @@ defmodule Beatgrid.Sets do
   @doc "The transition-type vocabulary, in UI order — screens mirror the engine."
   @spec transition_types() :: [String.t()]
   def transition_types, do: @transition_types
+
+  @doc "Seconds of true silence a breather leaves — the hug-and-switch moment (Ajustes)."
+  @spec breather_gap_s() :: float()
+  def breather_gap_s, do: Settings.get(:breather_gap_s, @breather_gap_s_default)
+
+  @doc "A breather lands every N boundaries when connecting a set (Ajustes)."
+  @spec breather_every() :: pos_integer()
+  def breather_every, do: Settings.get(:breather_every, @breather_every_default)
 
   @doc "Subscribe to one set's structural changes (membership/order/transitions)."
   @spec subscribe_set(Ecto.UUID.t()) :: :ok | {:error, term()}
@@ -222,7 +231,7 @@ defmodule Beatgrid.Sets do
     transition
     |> Map.put("from_ms", breather_from(outgoing))
     |> Map.put("to_ms", derived_to_ms(incoming))
-    |> Map.put("gap_ms", @breather_gap_ms)
+    |> Map.put("gap_ms", round(breather_gap_s() * 1000))
   end
 
   defp hint_transition(transition, outgoing, incoming) do
@@ -707,7 +716,7 @@ defmodule Beatgrid.Sets do
   def connect_all_quiet(%RecSet{} = set, opts \\ []), do: {:ok, connect_pairs_quiet(set, opts)}
 
   defp connect_pairs_quiet(set, opts) do
-    every = Keyword.get(opts, :breather_every, @breather_every_default)
+    every = Keyword.get(opts, :breather_every, breather_every())
 
     pairs =
       set

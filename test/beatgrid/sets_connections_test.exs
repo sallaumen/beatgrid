@@ -372,7 +372,7 @@ defmodule Beatgrid.SetsConnectionsTest do
 
       assert hint.transition["breather"] == true
       assert hint.transition["from_ms"] == 196_000
-      assert hint.transition["gap_ms"] == 2_500
+      assert hint.transition["gap_ms"] == 5_000
     end
 
     test "set_breather toggles the flag on one boundary, surviving normalize" do
