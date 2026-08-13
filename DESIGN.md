@@ -198,13 +198,13 @@ brand/active/excellent, gold = rare). Never decorate with a semantic color; the
 Format helpers (`folder_color/1`, `rating_color/1`, `confidence_color/1`,
 `dimension_color/1`) are the palette's meaning in code — reach for them first.
 
-**The Always-Dark Rule.** There is no light theme, and no longer any way to
-reach one: `<html data-theme="dark">` is pinned in `root.html.heex` and daisyUI
-ships a single dark theme. It used to follow the OS through a toggle no screen
-ever rendered, so a Mac in light mode restyled the flash toasts inside an
-otherwise dark app. The flash toast (`toast`/`alert`) is the last surface
-daisyUI styles; everything else is the Beatgrid palette, and new work should
-not add daisyUI classes.
+**The Always-Dark Rule.** There is no light theme, and nothing left that could
+produce one: daisyUI is gone, and `color-scheme: dark` on `html, body` keeps
+even native chrome (scrollbars, form controls, caret) in the booth. The theme
+used to follow the OS through a toggle no screen ever rendered, so a Mac in
+light mode restyled the flash toasts inside an otherwise dark app. Every pixel
+is now the Beatgrid palette — there is no second design language to fall back
+to, and none should be added.
 
 **The No-Near-Miss Rule.** A color that is *almost* a token is drift, not a
 shade. `#7a7a85` shadowed `neutral-none` and `#8b5cf6` (Tailwind's violet)
@@ -361,6 +361,17 @@ flips to near-black or white. Tint is the resting state; solid is the act.
   `ring-2 ring-primary/40` instead. (Buttons often remove outline without a
   replacement — an accessibility debt to settle, not a pattern to copy.)
 - **Select / Checkbox:** same recipe; checkbox is 4px radius, `input` bg.
+
+### Flash toast
+- **Character:** the app clearing its throat — brief, quiet, never modal.
+- **Placement:** the group is fixed top-right (`right-4 top-4`, 320px → 384px at
+  `sm`) and stacks its toasts in a column with an 8px gap. Positioning lives on
+  the *group*, never on the individual toast, or two flashes land on each other.
+- **Style:** `surface` bg, `lg` radius, `elevated` shadow (it floats), and a
+  hairline border in the semantic accent — green/30 for `:info`, coral/35 for
+  `:error`. Icon in the accent, title in `ink`, message in `ink-secondary`, both
+  at Body (12px).
+- **Copy:** pt-BR, like every other user-facing string.
 
 ### Navigation
 - Rail items: 13px medium, `lg` radius, `ink-muted`; hover white/5 bg + `ink`
