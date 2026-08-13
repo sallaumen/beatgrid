@@ -227,6 +227,7 @@
       { "name": "The Always-Dark Rule", "body": "There is no light theme. The daisyUI light/dark theme scaffolding in app.css is vestigial; html, body force the Beatgrid palette. Do not build against daisyUI theme tokens.", "section": "colors" },
       { "name": "The Mono-Data Rule", "body": "If it is a measurement, it is mono. No exceptions: a BPM in Space Grotesk is a defect.", "section": "typography" },
       { "name": "The Cockpit-Type Rule", "body": "Interface text lives in the 8–13px band. Sizes ≥15px are identity moments only: the wordmark (15px), headings (18px), page titles (22px), KPI numerals (25px), the track hero (24/28px). Nothing else earns them.", "section": "typography" },
+      { "name": "The Named-Step Rule", "body": "A semantic type class only exists if @theme defines it. Tailwind compiles an undefined token to nothing — no error, the element just inherits — which is how text-body*/text-caption shipped dead for ~313 uses and text-h2 for one. test/beatgrid_web/design_tokens_test.exs now fails on any text-* class that resolves to nothing.", "section": "typography" },
       { "name": "The Hairline Rule", "body": "Separation is a hairline or a surface-tone step, never a drop shadow. A shadow appears only as elevation (modal), amplification (primary glow), or recess (console) — if it isn't one of those three, remove it.", "section": "elevation" },
       { "name": "The Pill-or-Tight Rule", "body": "Rectangles stay ≤14px radius. If a shape wants to be rounder, it becomes a full pill or a circle — there is nothing in between.", "section": "shapes" },
       { "name": "The Commitment Rule", "body": "A control fills with its full accent only at the moment of commitment (selected, confirmed, destructive-armed) — and its text flips to near-black or white. Tint is the resting state; solid is the act.", "section": "components" }
@@ -242,7 +243,7 @@
     "donts": [
       "Don't introduce a light theme or build on the vestigial daisyUI theme tokens — the booth is always dark.",
       "Don't use drop shadows for separation; the only shadows are Elevated, Primary glow, Logo glow, and Console recess.",
-      "Don't use the ghost classes text-body, text-body-sm, text-body-lg, text-caption in new code — they are undefined and render 16px. Use the ramp literals until the utilities exist.",
+      "Don't invent a semantic type class without adding its step to @theme — an undefined token compiles to nothing and the element silently inherits.",
       "Don't add font families beyond Space Grotesk and IBM Plex Mono.",
       "Don't use gradient text, decorative emoji, or cutesy microcopy — glyphs (★ ▶ ✕ ♪) are instruments, not decoration.",
       "Don't round a rectangle past 14px — pill or circle, nothing in between.",
