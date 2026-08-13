@@ -1,0 +1,252 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-13T12:59:45Z",
+  "title": "Design System: Beatgrid",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Ultravioleta da Cabine",
+        "canonical": "#8b7bf0",
+        "tonalRamp": ["oklch(15% 0.17 285)", "oklch(26% 0.17 285)", "oklch(38% 0.17 285)", "oklch(49% 0.17 285)", "oklch(60% 0.17 285)", "oklch(72% 0.17 285)", "oklch(83% 0.12 285)", "oklch(95% 0.05 285)"]
+      },
+      "amber": {
+        "role": "secondary",
+        "displayName": "Âmbar de Palco",
+        "canonical": "#ffb020",
+        "tonalRamp": ["oklch(15% 0.08 75)", "oklch(26% 0.10 75)", "oklch(38% 0.12 75)", "oklch(49% 0.14 75)", "oklch(60% 0.16 75)", "oklch(72% 0.16 75)", "oklch(83% 0.14 75)", "oklch(95% 0.06 75)"]
+      },
+      "green": {
+        "role": "tertiary",
+        "displayName": "Verde VU",
+        "canonical": "#5ad1a0",
+        "tonalRamp": ["oklch(15% 0.06 165)", "oklch(26% 0.08 165)", "oklch(38% 0.10 165)", "oklch(49% 0.11 165)", "oklch(60% 0.11 165)", "oklch(72% 0.11 165)", "oklch(83% 0.10 165)", "oklch(95% 0.04 165)"]
+      },
+      "coral": {
+        "role": "tertiary",
+        "displayName": "Coral de Clip",
+        "canonical": "#ff5d6c",
+        "tonalRamp": ["oklch(15% 0.09 15)", "oklch(26% 0.12 15)", "oklch(38% 0.15 15)", "oklch(49% 0.17 15)", "oklch(60% 0.19 15)", "oklch(72% 0.16 15)", "oklch(83% 0.11 15)", "oklch(95% 0.04 15)"]
+      },
+      "blue": {
+        "role": "tertiary",
+        "displayName": "Azul de Monitor",
+        "canonical": "#2d9cff",
+        "tonalRamp": ["oklch(15% 0.09 250)", "oklch(26% 0.12 250)", "oklch(38% 0.14 250)", "oklch(49% 0.16 250)", "oklch(60% 0.17 250)", "oklch(72% 0.14 250)", "oklch(83% 0.10 250)", "oklch(95% 0.04 250)"]
+      },
+      "gold": {
+        "role": "tertiary",
+        "displayName": "Ouro de Crate",
+        "canonical": "#f5c518",
+        "tonalRamp": ["oklch(15% 0.07 95)", "oklch(26% 0.09 95)", "oklch(38% 0.11 95)", "oklch(49% 0.13 95)", "oklch(60% 0.15 95)", "oklch(72% 0.17 95)", "oklch(84% 0.17 95)", "oklch(95% 0.08 95)"]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Tinta da Cabine",
+        "canonical": "#eef0f5",
+        "tonalRamp": ["#0b0c10", "#15171f", "#3a3d48", "#5f636f", "#7d818c", "#9498a6", "#c4c7d0", "#eef0f5"]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Metal da Mesa",
+        "canonical": "#11131a",
+        "tonalRamp": ["#0b0c10", "#0d0e14", "#0e0f15", "#11131a", "#131520", "#15171f", "#1b1d26", "#242733"]
+      },
+      "console-key": {
+        "role": "material",
+        "displayName": "Tecla do Console (material da Mesa)",
+        "canonical": "#101218"
+      },
+      "deck-face": {
+        "role": "material",
+        "displayName": "Face do Deck (gradiente 135deg → rail)",
+        "canonical": "#1a1c24"
+      },
+      "disc-groove": {
+        "role": "material",
+        "displayName": "Ranhura do Disco (radial repetido)",
+        "canonical": "#14161d"
+      },
+      "vinyl-dark": {
+        "role": "material",
+        "displayName": "Vinil — sulco escuro",
+        "canonical": "#0c0c0f"
+      },
+      "vinyl-light": {
+        "role": "material",
+        "displayName": "Vinil — sulco claro",
+        "canonical": "#3a3a44"
+      },
+      "scratch-cut": {
+        "role": "categorical",
+        "displayName": "Scratch — Corte (conjunto categórico do console)",
+        "canonical": "#e6e9f2"
+      },
+      "scratch-rasgo": {
+        "role": "categorical",
+        "displayName": "Scratch — Rasgo",
+        "canonical": "#ff8c42"
+      },
+      "scratch-rebob": {
+        "role": "categorical",
+        "displayName": "Scratch — Rebob",
+        "canonical": "#e84dc4"
+      },
+      "scratch-chirp": {
+        "role": "categorical",
+        "displayName": "Scratch — Chirp",
+        "canonical": "#ff6b9d"
+      },
+      "scratch-transform": {
+        "role": "categorical",
+        "displayName": "Scratch — Transforma",
+        "canonical": "#48dbfb"
+      },
+      "scratch-risca": {
+        "role": "categorical",
+        "displayName": "Scratch — Risca",
+        "canonical": "#feca57"
+      }
+    },
+    "typographyMeta": {
+      "hero": { "displayName": "Hero", "purpose": "Track page title only — 24px, 28px at sm. The one name that gets stage lighting." },
+      "title": { "displayName": "Título de Página", "purpose": "Every page header (Biblioteca, Painel) — 22px semibold." },
+      "heading": { "displayName": "Heading", "purpose": "Modal and section titles — 18px semibold." },
+      "body": { "displayName": "Body", "purpose": "Row text workhorse: 12px default, 13px emphasized, 11px secondary." },
+      "caption": { "displayName": "Caption", "purpose": "Metadata under titles, KPI sublines — 10–10.5px." },
+      "label": { "displayName": "Label", "purpose": "Uppercase tracked micro-labels 9–10px (chips at 9.5px); wider tracking as size shrinks (0.025–0.18em)." },
+      "numeral": { "displayName": "Numeral", "purpose": "KPI values, 25px mono. All measurements are IBM Plex Mono at their context's size, tabular-nums in columns." }
+    },
+    "shadows": [
+      { "name": "elevated", "value": "0 12px 32px rgba(0,0,0,.5)", "purpose": "Modals and popovers — the only floating surfaces." },
+      { "name": "primary-glow", "value": "0 4px 14px rgba(139,123,240,.35)", "purpose": "The single amplified CTA per page (track play pill)." },
+      { "name": "logo-glow", "value": "0 6px 18px rgba(108,92,231,.45)", "purpose": "The brand tile in the nav rail. Not a general-purpose glow." },
+      { "name": "console-recess", "value": "inset 0 1px 3px rgba(0,0,0,.6)", "purpose": "Inside of physical console controls (fader channels). Inset only." }
+    ],
+    "motion": [
+      { "name": "ease-standard", "value": "150ms cubic-bezier(0.4, 0, 0.2, 1)", "purpose": "Default for color/state transitions (Tailwind transition-colors)." },
+      { "name": "rail-collapse", "value": "200ms ease-out", "purpose": "Nav rail width collapse/expand." },
+      { "name": "camelot-hover", "value": "140ms ease", "purpose": "Camelot wheel wedge opacity/stroke." },
+      { "name": "vinyl-spin", "value": "1s linear infinite", "purpose": "Now-playing disc; play-state gated by body[data-playing] — motion means audio." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "lg", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one loud control per view (Importar, Salvar, Aplicar): solid primary, white text.",
+      "html": "<button class=\"ds-btn-primary\">Importar</button>",
+      "css": ".ds-btn-primary { background: #8b7bf0; color: #ffffff; padding: 6px 12px; border: none; border-radius: 9px; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 150ms cubic-bezier(0.4,0,0.2,1); } .ds-btn-primary:hover { background: #6c5ce7; } .ds-btn-primary:focus-visible { outline: 2px solid rgba(139,123,240,.5); outline-offset: 2px; }"
+    },
+    {
+      "name": "Quiet Button",
+      "kind": "button",
+      "refersTo": "button-quiet",
+      "description": "The resting control: input-tone bg, hairline border; hover brightens the text, not the surface.",
+      "html": "<button class=\"ds-btn-quiet\">Editar</button>",
+      "css": ".ds-btn-quiet { background: #15171f; color: #9498a6; padding: 6px 10px; border: 1px solid rgba(255,255,255,.08); border-radius: 9px; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 12px; font-weight: 500; cursor: pointer; transition: color 150ms cubic-bezier(0.4,0,0.2,1); } .ds-btn-quiet:hover { color: #eef0f5; } .ds-btn-quiet:focus-visible { outline: 2px solid rgba(139,123,240,.5); outline-offset: 2px; }"
+    },
+    {
+      "name": "Confirm Button (Marcar)",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The Commitment Rule live: green tint at rest, solid green + near-black text when selected.",
+      "html": "<button class=\"ds-btn-confirm\"><span class=\"ds-confirm-box\"></span>Marcar</button> <button class=\"ds-btn-confirm ds-btn-confirm--on\"><span class=\"ds-confirm-box\">✓</span>Marcada</button>",
+      "css": ".ds-btn-confirm { display: inline-flex; align-items: center; gap: 6px; background: rgba(90,209,160,.12); color: #5ad1a0; padding: 6px 8px; border: 1px solid rgba(90,209,160,.3); border-radius: 9px; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 150ms cubic-bezier(0.4,0,0.2,1); } .ds-btn-confirm:hover { background: rgba(90,209,160,.2); } .ds-btn-confirm--on { background: #5ad1a0; color: #0b0c10; border-color: #5ad1a0; } .ds-btn-confirm--on:hover { background: #5ad1a0; } .ds-confirm-box { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border: 1px solid rgba(90,209,160,.45); border-radius: 4px; font-size: 10px; line-height: 1; } .ds-btn-confirm--on .ds-confirm-box { border-color: #0b0c10; background: #0b0c10; color: #5ad1a0; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Recessed field: input-tone bg, hairline border; focus shifts the border to primary/50.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"nomear (Enter salva)…\" />",
+      "css": ".ds-input { background: #15171f; color: #eef0f5; padding: 8px 12px; border: 1px solid rgba(255,255,255,.08); border-radius: 9px; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 12px; width: 100%; box-sizing: border-box; transition: border-color 150ms cubic-bezier(0.4,0,0.2,1); } .ds-input::placeholder { color: #5f636f; } .ds-input:focus { border-color: rgba(139,123,240,.5); outline: none; }"
+    },
+    {
+      "name": "Confidence Chip",
+      "kind": "chip",
+      "description": "The --c color-mix recipe: semantic color as text, 11% fill, 30% border. 9.5px bold uppercase.",
+      "html": "<span class=\"ds-chip\" style=\"--c:#5ad1a0\">ALTA</span> <span class=\"ds-chip\" style=\"--c:#ffb020\">MÉDIA</span> <span class=\"ds-chip\" style=\"--c:#ff5d6c\">BAIXA</span> <span class=\"ds-chip\" style=\"--c:#7d818c\">SEM MATCH</span>",
+      "css": ".ds-chip { display: inline-flex; align-items: center; color: var(--c); background: color-mix(in srgb, var(--c) 11%, transparent); border: 1px solid color-mix(in srgb, var(--c) 30%, transparent); border-radius: 5px; padding: 2px 7px; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.025em; }"
+    },
+    {
+      "name": "Folder Badge",
+      "kind": "chip",
+      "description": "Genre-folder badge: softer tint (9% fill, 23% border), 10px semibold, 7px radius.",
+      "html": "<span class=\"ds-folder\" style=\"--c:#8b7bf0\">MPB</span> <span class=\"ds-folder\" style=\"--c:#ffb020\">Forró</span> <span class=\"ds-folder\" style=\"--c:#5ad1a0\">Forró Psicodélico</span>",
+      "css": ".ds-folder { display: inline-flex; align-items: center; color: var(--c); background: color-mix(in srgb, var(--c) 9%, transparent); border: 1px solid color-mix(in srgb, var(--c) 23%, transparent); border-radius: 7px; padding: 2px 8px; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 10px; font-weight: 600; }"
+    },
+    {
+      "name": "Camelot Seal",
+      "kind": "chip",
+      "description": "Harmonic key pill in mono: amber = major (B), amber-deep = minor (A).",
+      "html": "<span class=\"ds-camelot\" style=\"--c:#ffb020\">8B</span> <span class=\"ds-camelot\" style=\"--c:#e08e00\">8A</span>",
+      "css": ".ds-camelot { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 21px; padding: 0 6px; color: var(--c); background: color-mix(in srgb, var(--c) 11%, transparent); border: 1px solid color-mix(in srgb, var(--c) 30%, transparent); border-radius: 9999px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; }"
+    },
+    {
+      "name": "KPI Card",
+      "kind": "card",
+      "refersTo": "kpi-card",
+      "description": "Dashboard stat: uppercase label over a 25px mono numeral in a semantic color.",
+      "html": "<div class=\"ds-kpi\"><p class=\"ds-kpi-label\">Faixas na biblioteca</p><p class=\"ds-kpi-value\">1.284</p><p class=\"ds-kpi-sub\">+12 esta semana</p></div>",
+      "css": ".ds-kpi { background: #11131a; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 13px 15px; max-width: 220px; } .ds-kpi-label { margin: 0; color: #5f636f; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; } .ds-kpi-value { margin: 4px 0 0; color: #eef0f5; font-family: 'IBM Plex Mono', monospace; font-size: 25px; font-weight: 600; line-height: 1; } .ds-kpi-sub { margin: 4px 0 0; color: #5f636f; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 10.5px; }"
+    },
+    {
+      "name": "Nav Item",
+      "kind": "nav",
+      "refersTo": "nav-item-active",
+      "description": "Rail navigation: quiet at rest, primary tint + 3px left spine when active.",
+      "html": "<nav class=\"ds-rail\"><p class=\"ds-rail-label\">Coleção</p><a class=\"ds-nav ds-nav--active\" href=\"#\"><span class=\"ds-nav-spine\"></span>♪ Biblioteca</a><a class=\"ds-nav\" href=\"#\">≡ Sets</a><a class=\"ds-nav\" href=\"#\">▦ Painel</a></nav>",
+      "css": ".ds-rail { background: #0e0f15; padding: 12px; width: 216px; display: flex; flex-direction: column; gap: 4px; border-right: 1px solid rgba(255,255,255,.06); border-radius: 12px; } .ds-rail-label { margin: 0 0 2px; padding: 0 8px; color: #5f636f; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; } .ds-nav { position: relative; display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 11px; color: #9498a6; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 13px; font-weight: 500; text-decoration: none; transition: color 150ms cubic-bezier(0.4,0,0.2,1), background 150ms cubic-bezier(0.4,0,0.2,1); } .ds-nav:hover { background: rgba(255,255,255,.05); color: #eef0f5; } .ds-nav--active { background: rgba(139,123,240,.12); color: #8b7bf0; } .ds-nav-spine { position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: 20px; border-radius: 0 9999px 9999px 0; background: #8b7bf0; }"
+    },
+    {
+      "name": "Vinyl Disc",
+      "kind": "custom",
+      "description": "Now-playing indicator: radial groove rings with a primary label dot. In the app the spin is gated by body[data-playing] — motion means audio.",
+      "html": "<span class=\"ds-vinyl\"><span class=\"ds-vinyl-label\"></span></span>",
+      "css": ".ds-vinyl { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 9999px; background: radial-gradient(circle, #0c0c0f 30%, #3a3a44 33%, #0c0c0f 37%, #3a3a44 46%, #0c0c0f 50%); animation: ds-spin 1s linear infinite; } .ds-vinyl-label { display: block; width: 34%; height: 34%; border-radius: 9999px; background: #8b7bf0; } @keyframes ds-spin { to { transform: rotate(360deg); } }"
+    }
+  ],
+  "narrative": {
+    "northStar": "A Cabine",
+    "overview": "Beatgrid is the DJ's booth in the middle of a set: a dark room, an instrument panel, meters glowing. Every screen is lit the same way — near-black surfaces (base → rail → surface), hairline separations, and small pools of colored light where information lives. The library is the record crate in that half-dark; the Discotecagem console is the mixing desk itself. There is no daytime mode and no neutral corporate skin: the app is always the booth.\n\nThe voice is technical with warmth. Precision comes from cockpit density — micro-typography from 8 to 13px, monospaced numerals, chips that read at a glance — and the warmth comes from the palette itself: the amber, coral, and gold of the forró world glowing against ultraviolet. This is a professional tool for a working DJ, adult and exact, but it is not cold; the colors carry the music's temperature.\n\nControls are instrumental and recessed: they serve the data, never compete with it.",
+    "keyCharacteristics": [
+      "Always dark; depth by surface tone and hairline, almost never by shadow",
+      "Cockpit-dense micro-typography (8–13px core) with mono for every measurement",
+      "Accents are semantic booth lights, tinted low (9–15%) until the moment of commitment",
+      "One committed world across screens; the console (Discotecagem) is its most physical expression"
+    ],
+    "rules": [
+      { "name": "The Booth-Light Rule", "body": "An accent is a lamp on a dark desk: fills at 9–15% alpha (color-mix or /10–/15), borders at 23–50%, full color only for text/glyphs and moments of commitment. The .bg-token-chip / .bg-folder-badge helpers (--c + color-mix) are the canonical recipe — new chips reuse them instead of inventing bg/border pairs.", "section": "colors" },
+      { "name": "The One-Meaning Rule", "body": "Every accent already carries semantics (green = confirm/high, amber = attention/harmonic, coral = danger/low, primary = brand/active/excellent, gold = rare). Never decorate with a semantic color; the Format helpers (folder_color/1, rating_color/1, confidence_color/1, dimension_color/1) are the palette's meaning in code — reach for them first.", "section": "colors" },
+      { "name": "The Always-Dark Rule", "body": "There is no light theme. The daisyUI light/dark theme scaffolding in app.css is vestigial; html, body force the Beatgrid palette. Do not build against daisyUI theme tokens.", "section": "colors" },
+      { "name": "The Mono-Data Rule", "body": "If it is a measurement, it is mono. No exceptions: a BPM in Space Grotesk is a defect.", "section": "typography" },
+      { "name": "The Cockpit-Type Rule", "body": "Interface text lives in the 8–13px band. Sizes ≥15px are identity moments only: the wordmark (15px), headings (18px), page titles (22px), KPI numerals (25px), the track hero (24/28px). Nothing else earns them.", "section": "typography" },
+      { "name": "The Hairline Rule", "body": "Separation is a hairline or a surface-tone step, never a drop shadow. A shadow appears only as elevation (modal), amplification (primary glow), or recess (console) — if it isn't one of those three, remove it.", "section": "elevation" },
+      { "name": "The Pill-or-Tight Rule", "body": "Rectangles stay ≤14px radius. If a shape wants to be rounder, it becomes a full pill or a circle — there is nothing in between.", "section": "shapes" },
+      { "name": "The Commitment Rule", "body": "A control fills with its full accent only at the moment of commitment (selected, confirmed, destructive-armed) — and its text flips to near-black or white. Tint is the resting state; solid is the act.", "section": "components" }
+    ],
+    "dos": [
+      "Do build new chips and badges with the --c + color-mix recipe (.bg-token-chip / .bg-folder-badge) — 9–15% fills, 23–50% borders.",
+      "Do set every measurement in IBM Plex Mono (tabular-nums in columns).",
+      "Do reach for the Format helpers (folder_color/1, rating_color/1, confidence_color/1, camelot_color/1, dimension_color/1) — the palette's semantics live there, not in per-screen hexes.",
+      "Do keep controls tinted ≤15% at rest and spend full accent only on the Commitment moment or the single primary action per view.",
+      "Do separate with hairlines (white/6–10) or one surface-ramp step.",
+      "Do write microcopy in adult pt-BR — direct and calm, like \"Nenhum marcador ainda — toque a faixa e use ＋ para marcar.\""
+    ],
+    "donts": [
+      "Don't introduce a light theme or build on the vestigial daisyUI theme tokens — the booth is always dark.",
+      "Don't use drop shadows for separation; the only shadows are Elevated, Primary glow, Logo glow, and Console recess.",
+      "Don't use the ghost classes text-body, text-body-sm, text-body-lg, text-caption in new code — they are undefined and render 16px. Use the ramp literals until the utilities exist.",
+      "Don't add font families beyond Space Grotesk and IBM Plex Mono.",
+      "Don't use gradient text, decorative emoji, or cutesy microcopy — glyphs (★ ▶ ✕ ♪) are instruments, not decoration.",
+      "Don't round a rectangle past 14px — pill or circle, nothing in between.",
+      "Don't invent new accent colors inside features; anchor meaning to the existing semantic set first (the console's scratch set is the one categorical exception, and it stays in the console)."
+    ]
+  }
+}
