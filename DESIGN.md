@@ -297,9 +297,12 @@ the workhorse for buttons, inputs, and row containers; `xl` (12px) for cards;
 seals, badges, toggle chips) or a true circle (play button, vinyl disc). Tiny
 inline elements (checkbox, marker-type switch) sit at 4–5px.
 
-A recurring silhouette: the **left color spine** — a 2–3px colored left edge
-that codes a row's meaning (marker rows in their marker color, the AI rationale
-quote in primary, the active nav item's 3px `rounded-r-full` bar).
+**The One-Spine Rule.** Exactly one element in the app wears a colored left
+edge: the active nav item's 3px `rounded-r-full` bar, and it means *you are
+here*. Cards, rows, and quotes never get one — a left rule on a container is
+the most recognizable tell of generated UI, and the information it would carry
+is always already in the row (the marker's own color on its timestamp and type
+chip; the `IA:` label on the rationale block).
 
 **The Pill-or-Tight Rule.** Rectangles stay ≤14px radius. If a shape wants to
 be rounder, it becomes a full pill or a circle — there is nothing in between.
@@ -400,6 +403,8 @@ semantic color, optional 10.5px subline; `alert` swaps the hairline for coral/25
 - **Don't** use gradient text, decorative emoji, or cutesy microcopy — glyphs
   (★ ▶ ✕ ♪) are instruments, not decoration.
 - **Don't** round a rectangle past 14px — pill or circle, nothing in between.
+- **Don't** put a colored left edge on a card, row, or quote — the nav's
+  "you are here" bar is the app's only spine.
 - **Don't** invent new accent colors inside features; anchor meaning to the
   existing semantic set first (the console's scratch set is the one categorical
   exception, and it stays in the console).

@@ -231,6 +231,7 @@
       { "name": "The Named-Step Rule", "body": "A semantic type class only exists if @theme defines it. Tailwind compiles an undefined token to nothing — no error, the element just inherits — which is how text-body*/text-caption shipped dead for ~313 uses and text-h2 for one. test/beatgrid_web/design_tokens_test.exs now fails on any text-* class that resolves to nothing.", "section": "typography" },
       { "name": "The Hairline Rule", "body": "Separation is a hairline or a surface-tone step, never a drop shadow. A shadow appears only as elevation (modal), amplification (primary glow), or recess (console) — if it isn't one of those three, remove it.", "section": "elevation" },
       { "name": "The Pill-or-Tight Rule", "body": "Rectangles stay ≤14px radius. If a shape wants to be rounder, it becomes a full pill or a circle — there is nothing in between.", "section": "shapes" },
+      { "name": "The One-Spine Rule", "body": "Exactly one element in the app wears a colored left edge: the active nav item's 3px rounded-r-full bar, and it means you are here. Cards, rows, and quotes never get one — a left rule on a container is the most recognizable tell of generated UI, and the information it would carry is always already in the row.", "section": "shapes" },
       { "name": "The Commitment Rule", "body": "A control fills with its full accent only at the moment of commitment (selected, confirmed, destructive-armed) — and its text flips to near-black or white. Tint is the resting state; solid is the act.", "section": "components" }
     ],
     "dos": [
@@ -248,6 +249,7 @@
       "Don't add font families beyond Space Grotesk and IBM Plex Mono.",
       "Don't use gradient text, decorative emoji, or cutesy microcopy — glyphs (★ ▶ ✕ ♪) are instruments, not decoration.",
       "Don't round a rectangle past 14px — pill or circle, nothing in between.",
+      "Don't put a colored left edge on a card, row, or quote — the nav's \"you are here\" bar is the app's only spine.",
       "Don't invent new accent colors inside features; anchor meaning to the existing semantic set first (the console's scratch set is the one categorical exception, and it stays in the console)."
     ]
   }
