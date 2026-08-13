@@ -1,0 +1,56 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'f=\"$HOME/.claude/skills/impeccable/scripts/hook.mjs\"; [ -f \"$f\" ] && exec node \"$f\" || exit 0'",
+            "timeout": 5,
+            "statusMessage": "Checking UI changes"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'f=\"$HOME/.claude/skills/impeccable/scripts/hook.mjs\"; [ -f \"$f\" ] && exec node \"$f\" || exit 0'",
+            "timeout": 30,
+            "statusMessage": "Design deep pass"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(mix compile*)",
+      "Bash(mix test*)",
+      "Bash(mix format*)",
+      "Bash(mix lint*)",
+      "Bash(mix deps.get)",
+      "Bash(git status*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git show*)",
+      "Bash(git fetch*)",
+      "Bash(git branch*)",
+      "Bash(git ls-files*)",
+      "Bash(grep*)",
+      "Bash(rg*)",
+      "Bash(ls*)",
+      "Bash(wc*)",
+      "Bash(sed -n*)",
+      "Bash(docker compose up -d db)",
+      "Bash(docker compose ps)",
+      "Bash(curl -s http://localhost:4003/*)",
+      "Bash(node ~/.claude/skills/impeccable/scripts/detect.mjs*)",
+      "Bash(node ~/.claude/skills/impeccable/scripts/hook-admin.mjs status)",
+      "Read(//Users/*/.claude/skills/impeccable/**)"
+    ]
+  }
+}
