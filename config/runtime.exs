@@ -21,8 +21,11 @@ if System.get_env("PHX_SERVER") do
   config :beatgrid, BeatgridWeb.Endpoint, server: true
 end
 
+# 4003 is Beatgrid's reserved port on this machine — other local apps own 4000-4002
+# and 4004+. Always open Beatgrid here (`mix phx.server` with no PORT set does),
+# so two systems never fight over a socket.
 config :beatgrid, BeatgridWeb.Endpoint,
-  http: [port: String.to_integer(System.get_env("PORT", "4000"))]
+  http: [port: String.to_integer(System.get_env("PORT", "4003"))]
 
 # Soundcharts HTTP adapter credentials, loaded from the (gitignored) .env via Dotenvy
 # so no manual `source .env` is needed. `source!/1` is lenient: the .env file does not

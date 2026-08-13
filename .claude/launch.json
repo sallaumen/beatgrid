@@ -5,7 +5,13 @@
       "name": "beatgrid",
       "runtimeExecutable": "mix",
       "runtimeArgs": ["phx.server"],
-      "port": 4000
+      "port": 4003,
+      "autoPort": false
+    },
+    {
+      "name": "beatgrid-attach",
+      "url": "http://localhost:4003",
+      "port": 4003
     }
   ]
 }
