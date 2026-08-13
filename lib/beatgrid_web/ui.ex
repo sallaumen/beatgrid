@@ -250,8 +250,7 @@ defmodule BeatgridWeb.UI do
       <p :if={@markers == []} class="text-caption text-ink-faint">{@empty_hint}</p>
       <div
         :for={m <- @markers}
-        class="flex items-center gap-2 rounded-md border border-l-2 border-white/8 bg-white/3 px-2 py-1"
-        style={"border-left-color:#{Marker.color(m)}"}
+        class="flex items-center gap-2 rounded-md border border-white/8 bg-white/3 px-2 py-1"
       >
         <button
           type="button"
@@ -884,7 +883,7 @@ defmodule BeatgridWeb.UI do
 
         <div
           :if={@rationale}
-          class="text-ink-muted mt-2 rounded-r-[7px] border-l-2 border-primary/60 bg-[#0d0e14] px-2.5 py-1.5 text-[12px]"
+          class="text-ink-muted mt-2 rounded-sm bg-deep px-2.5 py-1.5 text-[12px]"
         >
           <span class="font-semibold text-primary">IA:</span> {@rationale}
         </div>
