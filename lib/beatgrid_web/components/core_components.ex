@@ -11,7 +11,6 @@ defmodule BeatgridWeb.CoreComponents do
   light-theme surface survived.
   """
   use Phoenix.Component
-  use Gettext, backend: BeatgridWeb.Gettext
 
   alias Phoenix.LiveView.JS
 
@@ -39,25 +38,29 @@ defmodule BeatgridWeb.CoreComponents do
       id={@id}
       phx-click={JS.push("lv:clear-flash", value: %{key: @kind}) |> hide("##{@id}")}
       role="alert"
-      class="toast toast-top toast-end z-50"
+      class={[
+        "pointer-events-auto flex cursor-pointer items-start gap-2.5 rounded-lg border",
+        "bg-surface px-3 py-2.5 shadow-[var(--shadow-elevated)]",
+        @kind == :info && "border-green/30",
+        @kind == :error && "border-coral/35"
+      ]}
       {@rest}
     >
-      <div class={[
-        "alert w-80 sm:w-96 max-w-80 sm:max-w-96 text-wrap",
-        @kind == :info && "alert-info",
-        @kind == :error && "alert-error"
-      ]}>
-        <.icon :if={@kind == :info} name="hero-information-circle" class="size-5 shrink-0" />
-        <.icon :if={@kind == :error} name="hero-exclamation-circle" class="size-5 shrink-0" />
-        <div>
-          <p :if={@title} class="font-semibold">{@title}</p>
-          <p>{msg}</p>
-        </div>
-        <div class="flex-1" />
-        <button type="button" class="group self-start cursor-pointer" aria-label={gettext("close")}>
-          <.icon name="hero-x-mark" class="size-5 opacity-40 group-hover:opacity-70" />
-        </button>
+      <.icon
+        name={if @kind == :error, do: "hero-exclamation-circle", else: "hero-information-circle"}
+        class={["mt-px size-4 shrink-0", (@kind == :error && "text-coral") || "text-green"]}
+      />
+      <div class="min-w-0 flex-1">
+        <p :if={@title} class="text-body font-semibold text-ink">{@title}</p>
+        <p class="text-body text-ink-secondary">{msg}</p>
       </div>
+      <button
+        type="button"
+        class="text-ink-faint hover:text-ink shrink-0 transition-colors"
+        aria-label="Fechar"
+      >
+        <.icon name="hero-x-mark" class="size-4" />
+      </button>
     </div>
     """
   end
