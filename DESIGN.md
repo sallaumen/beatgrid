@@ -279,6 +279,16 @@ between row elements, 13–15px card padding, `px-2 py-1` – `px-3 py-2` contro
 padding. Desktop-first: the app is built for the DJ's laptop; `sm:`/`lg:`
 adjustments are refinements, not a mobile redesign.
 
+**The Title-Never-Yields Rule.** In a data table, the flexible column is the one
+you actually read, so it gets a floor and the *expendable* columns leave first.
+The library grid (`.lib-grid` in `app.css`, shared by header and rows) keeps the
+track title at `minmax(160px, 1fr)` and drops the energy bar and the gain hint
+below 1400px, where the wide template's 872px no longer fits beside the rail and
+filters (511px of fixed chrome). The breakpoint is a custom `wide` variant, not
+Tailwind's `xl` — 1280px is 100px too eager and pushes the last column off
+screen. Do not reach for `overflow-x` on a table wrapper: it forces
+`overflow-y: auto` on the same box and clips every row popover inside it.
+
 ## Elevation & Depth
 
 Flat plus hairline. Depth is conveyed by the surface ramp (one tonal step per

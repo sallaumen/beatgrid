@@ -835,33 +835,37 @@ defmodule BeatgridWeb.LibraryLive do
   defp track_table(assigns) do
     ~H"""
     <div class="space-y-1">
-      <div
-        class="grid items-center gap-2 px-1.5 pb-2 text-[10px] font-semibold uppercase tracking-wider text-ink-faint"
-        style={grid_cols(@selecting?)}
-      >
+      <div class={[
+        "lib-grid grid items-center gap-2 px-1.5 pb-2 text-[10px] font-semibold uppercase tracking-wider text-ink-faint",
+        @selecting? && "is-selecting"
+      ]}>
         <span :if={@selecting?}></span>
         <span></span>
         <.sort_header field={:artist} label="Faixa" sort={@sort} />
         <.sort_header field={:folder} label="Pasta" sort={@sort} />
         <.sort_header field={:bpm} label="BPM" sort={@sort} align="right" />
         <.sort_header field={:key} label="Tom" sort={@sort} />
-        <.sort_header field={:energy} label="Energia" sort={@sort} />
+        <span class="hidden wide:block">
+          <.sort_header field={:energy} label="Energia" sort={@sort} />
+        </span>
         <.sort_header field={:rating} label="Nota" sort={@sort} align="right" />
-        <.sort_header field={:loudness} label="Vol." sort={@sort} align="right" />
+        <span class="hidden wide:block">
+          <.sort_header field={:loudness} label="Vol." sort={@sort} align="right" />
+        </span>
         <.sort_header field={:confidence} label="Sinal" sort={@sort} align="right" />
         <span></span>
       </div>
       <div
         :for={track <- @tracks}
         class={[
-          "grid items-center gap-2 rounded-lg px-1.5 py-1.5",
+          "lib-grid grid items-center gap-2 rounded-lg px-1.5 py-1.5",
+          @selecting? && "is-selecting",
           cond do
             track.id == @playing_id -> "bg-primary/15 ring-1 ring-primary/40"
             row_selected?(@selected, track.id) -> "bg-primary/10"
             true -> "hover:bg-surface-2"
           end
         ]}
-        style={grid_cols(@selecting?)}
       >
         <button
           :if={@selecting?}
@@ -911,11 +915,11 @@ defmodule BeatgridWeb.LibraryLive do
         <.folder_cell track={track} open?={@folder_menu == track.id} folders={@folders} />
         <span class="text-right font-mono text-body text-primary">{bpm(track)}</span>
         <.camelot_seal value={camelot(track)} />
-        <div class="h-[5px] w-full rounded-full bg-white/5">
+        <div class="hidden h-[5px] w-full rounded-full bg-white/5 wide:block">
           <div class="h-full rounded-full bg-green" style={"width:#{energy_pct(track)}%"} />
         </div>
         <div class="text-right"><.rating_badge value={track.rating} /></div>
-        <div class="text-right">
+        <div class="hidden text-right wide:block">
           <span
             :if={track.loudness_lufs}
             class="text-ink-secondary font-mono text-caption"
@@ -1398,11 +1402,6 @@ defmodule BeatgridWeb.LibraryLive do
 
   # The row grid: an optional leading checkbox column in select mode, the cover,
   # the data columns, and a trailing ⋯ action column.
-  defp grid_cols(selecting?) do
-    lead = if selecting?, do: "24px ", else: ""
-    "grid-template-columns:#{lead}38px 1fr 130px 52px 56px 80px 52px 64px 100px 28px"
-  end
-
   defp row_selected?(selected, id), do: MapSet.member?(selected, id)
 
   defp bpm(track), do: effective_bpm(track)

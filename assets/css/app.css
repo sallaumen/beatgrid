@@ -19,6 +19,11 @@
 @custom-variant phx-submit-loading (.phx-submit-loading&, .phx-submit-loading &);
 @custom-variant phx-change-loading (.phx-change-loading&, .phx-change-loading &);
 
+/* The library table's wide layout needs 872px for its columns, and the rail plus
+   filters column eat 511px — so it only fits from 1400px up. Tailwind's `xl`
+   (1280px) is 100px too eager and pushes the last column off screen. */
+@custom-variant wide (@media (min-width: 1400px));
+
 /* Sidebar collapsed state — driven by `data-nav=collapsed` on <html> (set before
    paint in root.html.heex). Descendant-only: every nav-collapsed:* utility lives
    inside the rail, never on the host element. Keeps the nav markup declarative. */
@@ -103,6 +108,22 @@ html, body { color-scheme: dark; background: var(--bg-base); color: var(--text-p
    carry their own focus treatment (`focus:border-primary/50` and friends) win
    on specificity and keep it. */
 :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* Library table columns, shared by the header row and every track row. The title
+   is the one thing you actually read, so it never collapses: it keeps a floor
+   (minmax) and, below 1400px, the two most expendable columns leave instead —
+   the energy bar and the gain hint, both marked `hidden wide:block` in the
+   markup so the grid item disappears with the column. Two earlier one-line attempts
+   were measured and rejected: `overflow-x` here forces `overflow-y: auto` and
+   clips the row menu, and a minmax alone pushes the last column past a
+   clipping ancestor. */
+.lib-grid { grid-template-columns: 38px minmax(160px, 1fr) 118px 46px 52px 46px 92px 28px; }
+.lib-grid.is-selecting { grid-template-columns: 24px 38px minmax(160px, 1fr) 118px 46px 52px 46px 92px 28px; }
+
+@media (min-width: 1400px) {
+  .lib-grid { grid-template-columns: 38px minmax(200px, 1fr) 130px 52px 56px 80px 52px 64px 100px 28px; }
+  .lib-grid.is-selecting { grid-template-columns: 24px 38px minmax(200px, 1fr) 130px 52px 56px 80px 52px 64px 100px 28px; }
+}
 
 /* Now-playing disc: uses Tailwind's `animate-spin`, but only actually spins while
    the global player is playing. The Player hook toggles `body[data-playing]`. */
