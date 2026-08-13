@@ -598,7 +598,7 @@ defmodule BeatgridWeb.TrackLive do
                           detail: %{src: ~p"/audio/#{@track.id}", id: @track.id, preview: false}
                         )
                   }
-                  class="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-4 py-2 text-[14px] font-semibold text-white shadow-lg shadow-primary/25 hover:bg-primary/90"
+                  class="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-4 py-2 text-[13px] font-semibold text-white shadow-lg shadow-primary/25 hover:bg-primary/90"
                   title="Tocar no player global"
                 >
                   <.vinyl :if={@track.id == @playing_track_id} size={17} />

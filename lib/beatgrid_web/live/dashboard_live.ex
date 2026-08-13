@@ -655,7 +655,7 @@ defmodule BeatgridWeb.DashboardLive do
     ~H"""
     <div class={["rounded-lg border px-3 py-2", status_pill_class(@tone)]}>
       <p class="truncate text-[10px] font-semibold uppercase text-ink-faint">{@label}</p>
-      <p class="mt-0.5 font-mono text-[16px] font-semibold text-ink">{@value}</p>
+      <p class="mt-0.5 font-mono text-[18px] font-semibold text-ink">{@value}</p>
     </div>
     """
   end
