@@ -645,7 +645,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
       <div class="mx-auto max-w-7xl px-4 py-3">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div class="flex items-baseline gap-3">
-            <h1 class="text-[17px] font-semibold tracking-tight">Discotecagem</h1>
+            <h1 class="text-[22px] font-semibold tracking-tight">Discotecagem</h1>
             <p class="hidden text-[11px] text-ink-muted xl:block">
               Dois decks, transições visíveis — na tela e na controladora.
             </p>
@@ -934,7 +934,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                     desc={desc}
                     color={color}
                   />
-                  <div class="col-span-2 mt-0.5 border-t border-white/8 pt-0.5 text-[7px] font-bold uppercase tracking-[0.18em] text-ink-faint">
+                  <div class="col-span-2 mt-0.5 border-t border-white/8 pt-0.5 text-[8px] font-bold uppercase tracking-[0.18em] text-ink-faint">
                     Scratch
                   </div>
                   <div class="col-span-2 grid grid-cols-5 gap-1">
@@ -2972,7 +2972,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 id={"dj-play-#{@d}"}
                 type="button"
                 title="Tocar / pausar"
-                class="flex h-9 w-14 items-center justify-center rounded-lg border text-[14px] font-semibold transition-colors"
+                class="flex h-9 w-14 items-center justify-center rounded-lg border text-[13px] font-semibold transition-colors"
                 style={"border-color:#{@accent}55;background:#{@accent}1a;color:#{@accent}"}
               >
                 <span id={"dj-playicon-#{@d}"}>▶</span>

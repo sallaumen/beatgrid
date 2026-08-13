@@ -202,10 +202,10 @@ Format helpers (`folder_color/1`, `rating_color/1`, `confidence_color/1`,
 scaffolding in `app.css` is vestigial; `html, body` force the Beatgrid palette.
 Do not build against daisyUI theme tokens.
 
-Known drift (2026-08-13): `.seg-playing` in `app.css` uses fallback `#8b5cf6`,
-which is not `primary`; `#7a7a85` (energy-arc neutral) is a near-duplicate of
-`neutral-none` #7d818c. Both are left undocumented on purpose so the detector
-keeps them lit until fixed.
+**The No-Near-Miss Rule.** A color that is *almost* a token is drift, not a
+shade. `#7a7a85` shadowed `neutral-none` and `#8b5cf6` (Tailwind's violet)
+posed as `primary` in a `var()` fallback — both are gone. When a value needs to
+be near an existing token, use the token.
 
 ## Typography
 
@@ -248,9 +248,9 @@ just inherits — which is how `text-body*`/`text-caption` shipped dead for ~313
 uses and `text-h2` for one. `test/beatgrid_web/design_tokens_test.exs` now
 fails on any `text-*` class that resolves to nothing.
 
-Known drift (2026-08-13): two page h1s at 17px (Resgate, Discotecagem) vs the
-22px standard, one 18px page title ("Sets"), scattered `text-[14px]`/
-`text-[16px]`, and a lone `text-[7px]`. The detector keeps these lit.
+Every page title is the Title step (22px) — Resgate and Discotecagem were 17px
+until they were normalized. 18px covers both section/panel headers and compact
+stat numerals (the Painel's status pills).
 
 ## Layout
 

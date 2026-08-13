@@ -99,7 +99,7 @@ defmodule BeatgridWeb.RescueLive do
       <div class="mx-auto max-w-5xl px-4 py-4">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 class="text-[17px] font-semibold tracking-tight">Resgate</h1>
+            <h1 class="text-[22px] font-semibold tracking-tight">Resgate</h1>
             <p class="text-[11px] text-ink-muted">
               Censo de integridade: arquivos sumidos ou que não decodificam mais, com restauração
               a partir dos backups de ganho e da quarentena.

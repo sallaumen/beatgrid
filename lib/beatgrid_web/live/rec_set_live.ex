@@ -1379,7 +1379,7 @@ defmodule BeatgridWeb.RecSetLive do
             <span class="inline-block size-2 rounded-full" style="background:#5ad1a0"></span>respiro
           </span>
           <span class="flex items-center gap-1">
-            <span class="inline-block size-2 rounded-full" style="background:#7a7a85"></span>abertura/queda
+            <span class="inline-block size-2 rounded-full" style="background:#7d818c"></span>abertura/queda
           </span>
         </div>
       </div>
@@ -1473,7 +1473,7 @@ defmodule BeatgridWeb.RecSetLive do
 
   defp arc_color("pico"), do: "#6c5ce7"
   defp arc_color("respiro"), do: "#5ad1a0"
-  defp arc_color(_), do: "#7a7a85"
+  defp arc_color(_), do: "#7d818c"
 
   defp arc_role("pico"), do: "Pico"
   defp arc_role("respiro"), do: "Respiro"
