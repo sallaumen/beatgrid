@@ -97,6 +97,13 @@
    from the daisyUI theme. */
 html, body { color-scheme: dark; background: var(--bg-base); color: var(--text-primary); font-family: var(--font-sans); }
 
+/* Keyboard focus. The browser's own ring is a light blue that belongs to no
+   part of this palette, so the booth draws its own. `:focus-visible` means a
+   mouse click stays silent and only keyboard travel lights up. Controls that
+   carry their own focus treatment (`focus:border-primary/50` and friends) win
+   on specificity and keep it. */
+:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
 /* Now-playing disc: uses Tailwind's `animate-spin`, but only actually spins while
    the global player is playing. The Player hook toggles `body[data-playing]`. */
 .now-playing-disc { animation-play-state: paused; }

@@ -913,7 +913,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                         step="0.1"
                         value="8"
                         aria-label="Comprimento em segundos"
-                        class="w-8 border-0 bg-transparent p-0 text-right font-mono text-[10px] text-ink-secondary focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                        class="w-8 border-0 bg-transparent p-0 text-right font-mono text-[10px] text-ink-secondary [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
                       />
                       <span class="text-[9px] text-ink-faint">s</span>
                     </span>
