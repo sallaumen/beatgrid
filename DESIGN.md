@@ -297,6 +297,14 @@ are reserved and named:
   instrument feel.
 
 ### Named Rules
+**The Keyboard-Leaves-a-Mark Rule.** `:focus-visible` draws a 2px ring in
+`focus-ring` (rgba(139,123,240,.50)) at 2px offset, declared once in `app.css`.
+A mouse click stays silent; keyboard travel always shows. Never write
+`focus:outline-none` without putting something visible in its place — that
+class fires on mouse *and* keyboard, so it erases the only cue a keyboard user
+has. The browser's own ring is a light blue that belongs to no part of this
+palette, which is why the app draws its own.
+
 **The Hairline Rule.** Separation is a hairline or a surface-tone step, never a
 drop shadow. A shadow appears only as elevation (modal), amplification (primary
 glow), or recess (console) — if it isn't one of those three, remove it.
@@ -358,8 +366,8 @@ flips to near-black or white. Tint is the resting state; solid is the act.
 - **Style:** `input` bg, 1px white/8 border, `md` radius, 11–12px text (mono when
   numeric), `ink-faint` placeholder; dense variants `px-2 py-1`.
 - **Focus:** border shifts to primary/50, outline removed; some controls use
-  `ring-2 ring-primary/40` instead. (Buttons often remove outline without a
-  replacement — an accessibility debt to settle, not a pattern to copy.)
+  `ring-2 ring-primary/40` instead. Everything that does *not* style its own
+  focus falls back to the global ring (see The Keyboard-Leaves-a-Mark Rule).
 - **Select / Checkbox:** same recipe; checkbox is 4px radius, `input` bg.
 
 ### Flash toast

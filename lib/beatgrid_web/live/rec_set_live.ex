@@ -719,7 +719,7 @@ defmodule BeatgridWeb.RecSetLive do
                   name="name"
                   value={@set.name}
                   phx-debounce="500"
-                  class="w-full bg-transparent text-[22px] font-semibold focus:outline-none"
+                  class="w-full bg-transparent text-[22px] font-semibold"
                 />
               </form>
               <div class="flex shrink-0 items-center gap-2">

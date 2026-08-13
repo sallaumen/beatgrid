@@ -1214,7 +1214,7 @@ defmodule BeatgridWeb.TrackLive do
           phx-mounted={JS.focus()}
           phx-keydown="cancel_edit"
           phx-key="Escape"
-          class="min-w-0 flex-1 rounded-md border border-primary/50 bg-input px-2 py-1 text-body-sm focus:outline-none"
+          class="min-w-0 flex-1 rounded-md border border-primary/50 bg-input px-2 py-1 text-body-sm"
         />
         <button class="text-green text-[13px]" title="Salvar" aria-label="Salvar">✓</button>
         <button
