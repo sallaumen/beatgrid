@@ -221,7 +221,9 @@ together they read like a well-labeled instrument panel.
   the one place a name gets stage lighting.
 - **Title** (600, 22px): every page header ("Biblioteca", "Painel").
 - **Heading** (600, 18px): modal and section titles ("Critérios de montagem").
-- **Body** (400–500, 11–13px): the workhorse band. 12px is the default row text;
+- **Body** (400–500, 11–13px): the workhorse band, and the one band with named
+  utilities — `text-caption` (10px), `text-body-sm` (11px), `text-body` (12px),
+  `text-body-lg` (13px), defined in `@theme`. 12px is the default row text;
   13px for emphasized rows and nav items; 11px for secondary row text.
 - **Caption** (400, 10–10.5px): metadata under titles, KPI sublines.
 - **Label** (600–700, 9–10px, uppercase, tracked 0.025–0.18em): section labels,
@@ -240,14 +242,15 @@ BPM in Space Grotesk is a defect.
 are identity moments only: the wordmark (15px), headings (18px), page titles
 (22px), KPI numerals (25px), the track hero (24/28px). Nothing else earns them.
 
-Known drift (2026-08-13): the classes `text-body`, `text-body-sm`,
-`text-body-lg`, and `text-caption` (~313 uses) are **not defined anywhere** —
-they silently inherit 16px. Do not use them in new code; write the ramp
-literals (`text-[12px]`, `text-[11px]`, `text-[10px]`) until the utilities are
-defined in `@theme` in a dedicated PR. Also drifting: two page h1s at 17px
-(Resgate, Discotecagem) vs the 22px standard, one 18px page title ("Sets"),
-scattered `text-[14px]`/`text-[16px]`, and a lone `text-[7px]`. The detector
-keeps these lit.
+**The Named-Step Rule.** A semantic type class only exists if `@theme` defines
+it. Tailwind compiles an undefined token to *nothing* — no error, the element
+just inherits — which is how `text-body*`/`text-caption` shipped dead for ~313
+uses and `text-h2` for one. `test/beatgrid_web/design_tokens_test.exs` now
+fails on any `text-*` class that resolves to nothing.
+
+Known drift (2026-08-13): two page h1s at 17px (Resgate, Discotecagem) vs the
+22px standard, one 18px page title ("Sets"), scattered `text-[14px]`/
+`text-[16px]`, and a lone `text-[7px]`. The detector keeps these lit.
 
 ## Layout
 
@@ -391,9 +394,8 @@ semantic color, optional 10.5px subline; `alert` swaps the hairline for coral/25
   tokens — the booth is always dark.
 - **Don't** use drop shadows for separation; the only shadows are Elevated,
   Primary glow, Logo glow, and Console recess.
-- **Don't** use the ghost classes `text-body`, `text-body-sm`, `text-body-lg`,
-  `text-caption` in new code — they are undefined and render 16px. Use the ramp
-  literals until the utilities exist.
+- **Don't** invent a semantic type class without adding its step to `@theme` —
+  an undefined token compiles to nothing and the element silently inherits.
 - **Don't** add font families beyond Space Grotesk and IBM Plex Mono.
 - **Don't** use gradient text, decorative emoji, or cutesy microcopy — glyphs
   (★ ▶ ✕ ♪) are instruments, not decoration.

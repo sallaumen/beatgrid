@@ -120,7 +120,7 @@ defmodule BeatgridWeb.ImportsLive do
       <div class="px-6 py-5">
         <header class="mb-4 flex items-start justify-between gap-3">
           <div>
-            <h1 class="text-h2 font-semibold">Importados do YouTube</h1>
+            <h1 class="text-[22px] font-semibold">Importados do YouTube</h1>
             <p class="text-body-sm text-ink-muted">
               Agrupados pela playlist de origem — expanda para ver as faixas, ou crie um set direto.
             </p>
