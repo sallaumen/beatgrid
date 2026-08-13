@@ -140,3 +140,53 @@ mocks — those two files are the ground truth). The current ports:
 - **Never:** commit secrets; `String.to_atom/1` on user input; raise for control
   flow; delete a failing test to green CI; delete audio files implicitly;
   re-fetch a cached Soundcharts response; spend API quota in tests.
+
+## Skills routing (Claude Code)
+
+Skills live in `~/.claude/skills` (machine-global). Invoke BEFORE starting the
+work, not after it is already done the old way:
+
+- **impeccable**: any task touching UI (.heex, `~H` components, CSS, screens).
+  A new surface goes through `shape` before code; reviews use `audit`/`critique`.
+- **ui-ux-pro-max**: UX pattern decisions (which component, which flow, which
+  layout) and usability review.
+- **huashu-design**: throwaway HTML prototypes to discuss direction before
+  touching the app. Prototypes are not committed.
+- **tdd**: every feature and every bugfix.
+- **elixir-antipatterns** (+ elixir, elixir-ecto-patterns): Elixir review and
+  refactors.
+
+Design posture: generator-default UI is a defect even when the detector stays
+quiet. Side-tab accent borders, glow, gradient text, flat hierarchy, timid
+spacing, emoji as decoration, toy-like rounded corners, cutesy microcopy: none
+of it ships. This is a tool for working DJs; keep it adult and precise. The
+impeccable hook (`.impeccable/config.json`, committed on purpose) is the
+mechanical floor, not the ceiling.
+
+[`DESIGN.md`](DESIGN.md) is the visual contract ("A Cabine") and
+[`PRODUCT.md`](PRODUCT.md) the product one. DESIGN.md's frontmatter arms the
+`design-system-*` drift rules, so a colour, radius or type size outside the
+system trips the hook. Read it before touching UI — it carries the named rules
+(Booth-Light, Mono-Data, Cockpit-Type, Hairline, One-Spine, No-Near-Miss,
+Keyboard-Leaves-a-Mark, Title-Never-Yields) that no detector can check.
+
+Two traps it exists to prevent, both of which shipped for months:
+
+- **A Tailwind class whose token is missing from `@theme` compiles to nothing** —
+  no error, no warning, the element just inherits. That is how `text-body*` and
+  `text-caption` rendered 16px across ~313 elements in a UI whose core band is
+  8-13px. `test/beatgrid_web/design_tokens_test.exs` fails on any `text-*` class
+  that resolves to nothing; keep it that way.
+- **The detector reads source, the browser reads computed.** `text-[11px]` is
+  greppable; a stock `text-sm`, an inherited size, or a theme coming from the
+  OS is not. When the dev server is up, measure with `getComputedStyle` before
+  concluding a screen is clean.
+
+## Local ports
+
+Beatgrid owns **4003** — the default in `config/runtime.exs`, so plain
+`mix phx.server` lands there and never fights the other local apps. Postgres is
+on **5434**. Never start a second Beatgrid on another port to dodge a
+collision: attach to the running one (`.claude/launch.json` has a
+`beatgrid-attach` entry) — two servers on one dev database means two Oban
+schedulers working the real library.

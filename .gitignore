@@ -40,3 +40,11 @@ graphify-out/
 
 # subagent-driven-development scratch
 .superpowers/
+
+# Impeccable: per-machine runtime. config.json stays committed on purpose —
+# it carries the shared detector config (which extensions to scan) and the
+# shared ignores. Only the machine-local state below is ignored.
+/.impeccable/config.local.json
+/.impeccable/hook.cache.json
+/.impeccable/hook.pending.json
+.claude/settings.local.json
