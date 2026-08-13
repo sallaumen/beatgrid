@@ -158,6 +158,15 @@
   --font-sans: "Space Grotesk", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", monospace;
 
+  /* Semantic type ramp. These four names were used from the first UI commit but
+     never defined, so every `text-body*`/`text-caption` element silently
+     inherited 16px — wide enough to wrap the 64px "Vol." column. The steps are
+     the four dominant literal sizes in the app, in order. */
+  --text-caption: 10px;
+  --text-body-sm: 11px;
+  --text-body: 12px;
+  --text-body-lg: 13px;
+
   --radius-xs: 5px;
   --radius-sm: 7px;
   --radius-md: 9px;
