@@ -198,9 +198,13 @@ brand/active/excellent, gold = rare). Never decorate with a semantic color; the
 Format helpers (`folder_color/1`, `rating_color/1`, `confidence_color/1`,
 `dimension_color/1`) are the palette's meaning in code — reach for them first.
 
-**The Always-Dark Rule.** There is no light theme. The daisyUI light/dark theme
-scaffolding in `app.css` is vestigial; `html, body` force the Beatgrid palette.
-Do not build against daisyUI theme tokens.
+**The Always-Dark Rule.** There is no light theme, and no longer any way to
+reach one: `<html data-theme="dark">` is pinned in `root.html.heex` and daisyUI
+ships a single dark theme. It used to follow the OS through a toggle no screen
+ever rendered, so a Mac in light mode restyled the flash toasts inside an
+otherwise dark app. The flash toast (`toast`/`alert`) is the last surface
+daisyUI styles; everything else is the Beatgrid palette, and new work should
+not add daisyUI classes.
 
 **The No-Near-Miss Rule.** A color that is *almost* a token is drift, not a
 shade. `#7a7a85` shadowed `neutral-none` and `#8b5cf6` (Tailwind's violet)
@@ -241,6 +245,14 @@ BPM in Space Grotesk is a defect.
 **The Cockpit-Type Rule.** Interface text lives in the 8–13px band. Sizes ≥15px
 are identity moments only: the wordmark (15px), headings (18px), page titles
 (22px), KPI numerals (25px), the track hero (24/28px). Nothing else earns them.
+
+**The Reading-Distance Exception.** One surface is not read at desk distance:
+Modo Viagem, the fullscreen overlay the DJ glances at from across the booth. It
+runs its own display tier — 48px now-playing title, 24px artist, 30px mono
+countdown, 20px next track, 18px action keys — using Tailwind's stock steps
+(`text-5xl`, `text-3xl`, …). That is deliberate, not drift: judge it by whether
+it reads at three metres, and do not normalize it into the cockpit band. No
+other screen may borrow this tier.
 
 **The Named-Step Rule.** A semantic type class only exists if `@theme` defines
 it. Tailwind compiles an undefined token to *nothing* — no error, the element
