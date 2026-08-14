@@ -650,7 +650,7 @@ defmodule BeatgridWeb.RecSetLive do
             <div class="flex items-center gap-1.5">
               <button
                 phx-click="new_set"
-                class="rounded-md bg-primary px-2.5 py-1 text-[12px] font-semibold text-white"
+                class="rounded-md bg-primary-deep px-2.5 py-1 text-[12px] font-semibold text-white"
               >
                 + Novo
               </button>
@@ -760,7 +760,7 @@ defmodule BeatgridWeb.RecSetLive do
                 <button
                   phx-click="export"
                   disabled={@entries == []}
-                  class="rounded-md bg-primary px-3 py-1.5 text-body-sm font-semibold text-white disabled:opacity-40"
+                  class="rounded-md bg-primary-deep px-3 py-1.5 text-body-sm font-semibold text-white disabled:opacity-40"
                 >
                   Exportar M3U
                 </button>
@@ -1324,7 +1324,7 @@ defmodule BeatgridWeb.RecSetLive do
           name="fill_mode"
           value="replace"
           disabled={@planning?}
-          class="flex-1 rounded-md bg-primary px-3 py-1.5 text-body-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-40"
+          class="flex-1 rounded-md bg-primary-deep px-3 py-1.5 text-body-sm font-semibold text-white hover:bg-primary-deep/90 disabled:opacity-40"
         >
           {if @planning?, do: "Planejando…", else: "Refazer"}
         </button>
@@ -1514,7 +1514,7 @@ defmodule BeatgridWeb.RecSetLive do
         max="20"
         class="w-16 rounded-md border border-white/8 bg-input px-2 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
       />
-      <button class="rounded-md bg-primary px-3 py-1.5 text-body-sm font-semibold text-white">
+      <button class="rounded-md bg-primary-deep px-3 py-1.5 text-body-sm font-semibold text-white">
         Preencher
       </button>
       <span class="text-caption text-ink-faint">

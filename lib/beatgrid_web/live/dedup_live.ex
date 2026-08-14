@@ -216,7 +216,7 @@ defmodule BeatgridWeb.DedupLive do
           <button
             phx-click="scan"
             disabled={@scanning?}
-            class="flex items-center gap-2 rounded-md bg-primary px-3.5 py-1.5 text-body-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            class="flex items-center gap-2 rounded-md bg-primary-deep px-3.5 py-1.5 text-body-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
             <span
               :if={@scanning?}

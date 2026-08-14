@@ -281,7 +281,7 @@ defmodule BeatgridWeb.DashboardLive do
                   <button
                     phx-click="analyze_library"
                     disabled={@analysis.analyzed >= @analysis.total}
-                    class="w-full shrink-0 whitespace-normal break-words rounded-md bg-primary px-2 py-1.5 text-center text-body-sm font-semibold text-white disabled:opacity-40 sm:w-auto sm:px-3.5"
+                    class="w-full shrink-0 whitespace-normal break-words rounded-md bg-primary-deep px-2 py-1.5 text-center text-body-sm font-semibold text-white disabled:opacity-40 sm:w-auto sm:px-3.5"
                   >
                     Analisar faltantes ({max(@analysis.total - @analysis.analyzed, 0)})
                   </button>
@@ -430,7 +430,7 @@ defmodule BeatgridWeb.DashboardLive do
                   class="w-full rounded-md border border-white/8 bg-input px-3 py-2 text-body-sm focus:border-primary/50 focus:outline-none"
                 ></textarea>
                 <div class="flex justify-end">
-                  <button class="rounded-md bg-primary px-3.5 py-1.5 text-body-sm font-semibold text-white">
+                  <button class="rounded-md bg-primary-deep px-3.5 py-1.5 text-body-sm font-semibold text-white">
                     Baixar
                   </button>
                 </div>
@@ -607,7 +607,7 @@ defmodule BeatgridWeb.DashboardLive do
                 type="button"
                 phx-click="fetch_gaps"
                 disabled={@recommending? or is_nil(@gaps_folder)}
-                class="inline-flex shrink-0 items-center gap-2 rounded-md bg-primary px-3.5 py-1.5 text-body-sm font-semibold text-white transition-opacity disabled:opacity-50"
+                class="inline-flex shrink-0 items-center gap-2 rounded-md bg-primary-deep px-3.5 py-1.5 text-body-sm font-semibold text-white transition-opacity disabled:opacity-50"
               >
                 <span
                   :if={@recommending?}

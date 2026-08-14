@@ -598,7 +598,7 @@ defmodule BeatgridWeb.TrackLive do
                           detail: %{src: ~p"/audio/#{@track.id}", id: @track.id, preview: false}
                         )
                   }
-                  class="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-4 py-2 text-[13px] font-semibold text-white shadow-lg shadow-primary/25 hover:bg-primary/90"
+                  class="inline-flex items-center justify-center gap-2 rounded-full bg-primary-deep px-4 py-2 text-[13px] font-semibold text-white shadow-lg shadow-primary/25 hover:bg-primary-deep/90"
                   title="Tocar no player global"
                 >
                   <.vinyl :if={@track.id == @playing_track_id} size={17} />
@@ -832,7 +832,7 @@ defmodule BeatgridWeb.TrackLive do
                   type="button"
                   phx-click="fetch_matches"
                   disabled={@recommending?}
-                  class="inline-flex shrink-0 items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-[12px] font-semibold text-white transition-opacity disabled:opacity-50"
+                  class="inline-flex shrink-0 items-center gap-2 rounded-md bg-primary-deep px-3 py-1.5 text-[12px] font-semibold text-white transition-opacity disabled:opacity-50"
                 >
                   <span
                     :if={@recommending?}
@@ -990,7 +990,7 @@ defmodule BeatgridWeb.TrackLive do
                   <datalist id="tag-suggestions">
                     <option :for={t <- @all_tags} value={t} />
                   </datalist>
-                  <button class="rounded-md bg-primary px-3 py-1.5 text-body-sm font-semibold text-white">Adicionar</button>
+                  <button class="rounded-md bg-primary-deep px-3 py-1.5 text-body-sm font-semibold text-white">Adicionar</button>
                 </form>
               </div>
 

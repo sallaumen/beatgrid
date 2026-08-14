@@ -127,7 +127,7 @@ defmodule BeatgridWeb.ImportsLive do
           </div>
           <button
             phx-click="toggle_import"
-            class="shrink-0 rounded-md bg-primary px-3.5 py-1.5 text-body-sm font-semibold text-white hover:bg-primary/90"
+            class="shrink-0 rounded-md bg-primary-deep px-3.5 py-1.5 text-body-sm font-semibold text-white hover:bg-primary-deep/90"
           >
             + Importar playlist
           </button>
@@ -143,7 +143,7 @@ defmodule BeatgridWeb.ImportsLive do
             />
             <button
               type="submit"
-              class="shrink-0 rounded-md bg-primary px-3.5 py-1.5 text-body-sm font-semibold text-white hover:bg-primary/90"
+              class="shrink-0 rounded-md bg-primary-deep px-3.5 py-1.5 text-body-sm font-semibold text-white hover:bg-primary-deep/90"
             >
               Baixar
             </button>

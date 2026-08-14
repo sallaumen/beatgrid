@@ -781,7 +781,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               <button
                 type="button"
                 data-trip="fire"
-                class="h-16 flex-1 rounded-xl bg-primary text-lg font-bold text-white hover:bg-primary/90"
+                class="h-16 flex-1 rounded-xl bg-primary-deep text-lg font-bold text-white hover:bg-primary-deep/90"
               >
                 ▶ Disparar <span class="opacity-60">(T)</span>
               </button>

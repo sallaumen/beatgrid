@@ -715,7 +715,7 @@ defmodule BeatgridWeb.MixLive do
                 <button
                   type="submit"
                   disabled={is_nil(recorte_range(@recorte))}
-                  class="h-10 rounded-lg bg-primary px-4 text-body-sm font-semibold text-white hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-40 sm:col-span-2"
+                  class="h-10 rounded-lg bg-primary-deep px-4 text-body-sm font-semibold text-white hover:bg-primary-deep/90 focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-40 sm:col-span-2"
                 >
                   ✂ Criar
                 </button>

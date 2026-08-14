@@ -12,7 +12,7 @@ colors:
   ink: "#eef0f5"
   ink-secondary: "#c4c7d0"
   ink-muted: "#9498a6"
-  ink-faint: "#5f636f"
+  ink-faint: "#7d818c"
   ink-disabled: "#3a3d48"
   border-subtle: "rgba(255,255,255,.06)"
   border-soft: "rgba(255,255,255,.08)"
@@ -90,7 +90,7 @@ rounded:
   full: "9999px"
 components:
   button-primary:
-    backgroundColor: "{colors.primary}"
+    backgroundColor: "{colors.primary-deep}"
     textColor: "{colors.white}"
     rounded: "{rounded.md}"
     padding: "6px 12px"
@@ -177,7 +177,7 @@ forró — amber, coral, gold — doing the semantic work.
 - **Violeta-rosa** (`violet-pink` #c08bf0): the Forró MPB folder blend.
 
 ### Neutral
-- **Ink ramp** (#eef0f5 → #c4c7d0 → #9498a6 → #5f636f → #3a3d48): text
+- **Ink ramp** (#eef0f5 → #c4c7d0 → #9498a6 → #7d818c → #3a3d48): text
   hierarchy, from primary copy down to disabled.
 - **Surface ramp** (#0b0c10 base → #0e0f15 rail → #11131a surface → #131520
   surface-2 → #15171f input → #1b1d26 pill; #0d0e14 deep for recesses): layering
@@ -186,6 +186,20 @@ forró — amber, coral, gold — doing the semantic work.
   (`neutral-none` #7d818c): the "no data" chip tone. Scrims are black at 40–55%.
 
 ### Named Rules
+**The Readable-In-The-Dark Rule.** Every text tone clears WCAG AA (4.5:1) on
+the surfaces it lands on: `ink` 15.7, `ink-secondary` 11.0, `ink-muted` 6.5,
+`ink-faint` 4.8. `ink-faint` was `#5f636f` and measured 3.09 — it is the tone
+of the labels that orient the eye ("COLEÇÃO", column headers), so in a dark
+booth at 10px it was the first thing to disappear. It now shares its value with
+`neutral-none` on purpose: one fewer near-duplicate grey. `ink-disabled`
+(#3a3d48, 1.7) is the one exception, and only because WCAG exempts inactive
+controls — never use it for text a working DJ has to read.
+
+**The Loud-Button Rule.** A filled primary button is `primary-deep` with white
+text (4.86:1), never `primary` (3.39:1 — the loudest action was the least
+legible text on the screen). Tinted and outlined controls keep `primary` for
+borders and glyphs, where contrast is carried by the text colour itself.
+
 **The Booth-Light Rule.** An accent is a lamp on a dark desk: fills at 9–15%
 alpha (`color-mix` or `/10`–`/15`), borders at 23–50%, full color only for
 text/glyphs and moments of commitment. The `.bg-token-chip` / `.bg-folder-badge`
@@ -342,7 +356,7 @@ be rounder, it becomes a full pill or a circle — there is nothing in between.
 ### Buttons
 - **Character:** instrumental and recessed — quiet until the moment of commitment.
 - **Shape:** gently rounded (`md`, 9px); the amplified CTA is a pill.
-- **Primary:** solid `primary` bg, white text, 12px semibold, `px-3 py-1.5`.
+- **Primary:** solid `primary-deep` bg, white text, 12px semibold, `px-3 py-1.5`.
   One per view ("Importar", "Salvar", "Aplicar").
 - **Quiet:** `input` bg + hairline border (white/8–10), `ink-muted`/`ink-secondary`
   text; hover brightens the text to `ink`, background stays.
