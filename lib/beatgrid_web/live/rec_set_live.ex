@@ -719,6 +719,7 @@ defmodule BeatgridWeb.RecSetLive do
                   name="name"
                   value={@set.name}
                   phx-debounce="500"
+                  aria-label="Nome do set"
                   class="w-full bg-transparent text-[22px] font-semibold"
                 />
               </form>
@@ -1373,13 +1374,13 @@ defmodule BeatgridWeb.RecSetLive do
         </h3>
         <div class="flex items-center gap-3 text-[10px] text-ink-faint">
           <span class="flex items-center gap-1">
-            <span class="inline-block size-2 rounded-full" style="background:#6c5ce7"></span>pico
+            <span class="inline-block size-2 rounded-full bg-primary-deep"></span>pico
           </span>
           <span class="flex items-center gap-1">
-            <span class="inline-block size-2 rounded-full" style="background:#5ad1a0"></span>respiro
+            <span class="inline-block size-2 rounded-full bg-green"></span>respiro
           </span>
           <span class="flex items-center gap-1">
-            <span class="inline-block size-2 rounded-full" style="background:#7d818c"></span>abertura/queda
+            <span class="inline-block size-2 rounded-full bg-ink-faint"></span>abertura/queda
           </span>
         </div>
       </div>
@@ -1396,11 +1397,11 @@ defmodule BeatgridWeb.RecSetLive do
             <polyline
               points={arc_poly(@energy_pts)}
               fill="none"
-              stroke="#6c5ce7"
+              class="stroke-primary-deep"
               stroke-width="1.5"
               stroke-linejoin="round"
             />
-            <circle :for={d <- @energy_pts} cx={d.x} cy={d.y} r="2.4" fill={arc_color(d.role)}>
+            <circle :for={d <- @energy_pts} cx={d.x} cy={d.y} r="2.4" class={arc_color(d.role)}>
               <title>{d.label}</title>
             </circle>
           </svg>
@@ -1417,11 +1418,11 @@ defmodule BeatgridWeb.RecSetLive do
             <polyline
               points={arc_poly(@bpm_pts)}
               fill="none"
-              stroke="#5ad1a0"
+              class="stroke-green"
               stroke-width="1.5"
               stroke-linejoin="round"
             />
-            <circle :for={d <- @bpm_pts} cx={d.x} cy={d.y} r="2.4" fill={arc_color(d.role)}>
+            <circle :for={d <- @bpm_pts} cx={d.x} cy={d.y} r="2.4" class={arc_color(d.role)}>
               <title>{d.label}</title>
             </circle>
           </svg>
@@ -1471,9 +1472,11 @@ defmodule BeatgridWeb.RecSetLive do
 
   defp arc_poly(pts), do: Enum.map_join(pts, " ", &"#{&1.x},#{&1.y}")
 
-  defp arc_color("pico"), do: "#6c5ce7"
-  defp arc_color("respiro"), do: "#5ad1a0"
-  defp arc_color(_), do: "#7d818c"
+  # The arc's semantics in palette tokens, as `fill-*` utilities: the hand-written
+  # hexes were exactly `primary-deep`, `green` and `ink-faint`.
+  defp arc_color("pico"), do: "fill-primary-deep"
+  defp arc_color("respiro"), do: "fill-green"
+  defp arc_color(_), do: "fill-ink-faint"
 
   defp arc_role("pico"), do: "Pico"
   defp arc_role("respiro"), do: "Respiro"
@@ -1499,6 +1502,7 @@ defmodule BeatgridWeb.RecSetLive do
       </label>
       <select
         name="role"
+        aria-label="Seção a preencher"
         class="rounded-md border border-white/8 bg-input px-2 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
       >
         <option value="" selected={is_nil(@active)}>Automático (harmonia + estilo)</option>
@@ -1512,6 +1516,7 @@ defmodule BeatgridWeb.RecSetLive do
         value="4"
         min="1"
         max="20"
+        aria-label="Quantas faixas preencher"
         class="w-16 rounded-md border border-white/8 bg-input px-2 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
       />
       <button class="rounded-md bg-primary-deep px-3 py-1.5 text-body-sm font-semibold text-white">
@@ -1574,6 +1579,7 @@ defmodule BeatgridWeb.RecSetLive do
               min="0"
               placeholder="min"
               phx-debounce="300"
+              aria-label="BPM mínimo dos candidatos"
               class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
             />
             <span class="text-ink-faint">–</span>
@@ -1584,6 +1590,7 @@ defmodule BeatgridWeb.RecSetLive do
               min="0"
               placeholder="max"
               phx-debounce="300"
+              aria-label="BPM máximo dos candidatos"
               class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
             />
           </label>
@@ -1712,6 +1719,7 @@ defmodule BeatgridWeb.RecSetLive do
           value={@query}
           phx-debounce="250"
           placeholder="Buscar faixa por título ou artista…"
+          aria-label="Buscar faixa por título ou artista"
           class="w-full rounded-md border border-white/8 bg-input px-3 py-2 text-body focus:border-primary/50 focus:outline-none"
         />
       </form>
