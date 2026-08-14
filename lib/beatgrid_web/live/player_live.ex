@@ -264,6 +264,7 @@ defmodule BeatgridWeb.PlayerLive do
               @show_markers && "bg-amber/25 text-amber",
               !@show_markers && "bg-amber/10 text-amber hover:bg-amber/20"
             ]}
+            aria-label="Marcadores"
             title="Marcadores"
           >
             <span aria-hidden="true">🚩</span>
@@ -300,9 +301,10 @@ defmodule BeatgridWeb.PlayerLive do
             type="button"
             phx-click={JS.dispatch("beatgrid:toggle", to: "#player-audio")}
             class="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary hover:bg-primary/25"
+            aria-label="Tocar ou pausar"
             title="Tocar / pausar"
           >
-            <span id="player-toggle-icon">▶</span>
+            <span id="player-toggle-icon" aria-hidden="true">▶</span>
           </button>
           <span id="player-elapsed" class="text-ink-faint w-9 text-right font-mono text-[11px]">0:00</span>
           <div class="relative flex-1">
@@ -314,25 +316,28 @@ defmodule BeatgridWeb.PlayerLive do
               min="0"
               max="100"
               value="0"
+              aria-label="Posição na faixa"
               class="h-1 w-full"
-              style="accent-color:#8b7bf0"
+              style="accent-color:var(--color-primary)"
             />
           </div>
           <span id="player-duration" class="text-ink-faint w-9 font-mono text-[11px]">0:00</span>
-          <span class="text-ink-faint ml-2 text-[13px]">🔊</span>
+          <span class="text-ink-faint ml-2 text-[13px]" aria-hidden="true">🔊</span>
           <input
             id="player-volume"
             type="range"
             min="0"
             max="100"
             value="100"
+            aria-label="Volume"
             class="h-1 w-20"
-            style="accent-color:#8b7bf0"
+            style="accent-color:var(--color-primary)"
           />
           <button
             type="button"
             phx-click={JS.push("close") |> JS.dispatch("beatgrid:stop", to: "#player-audio")}
             class="text-ink-muted hover:text-ink flex size-7 items-center justify-center rounded-full"
+            aria-label="Fechar"
             title="Fechar"
           >
             ✕
