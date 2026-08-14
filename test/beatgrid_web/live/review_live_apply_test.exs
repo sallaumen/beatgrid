@@ -79,7 +79,7 @@ defmodule BeatgridWeb.ReviewLiveApplyTest do
     assert Operations.count(status: :applied) == 3
 
     # undo from the toast: same enqueue → run → broadcast cycle
-    view |> element("button[phx-click=undo]") |> render_click()
+    view |> element("#review-toast button[phx-click=undo]") |> render_click()
 
     assert [undo_job] = all_enqueued(worker: Beatgrid.Workers.UndoBatchWorker)
     assert :ok = perform_job(Beatgrid.Workers.UndoBatchWorker, undo_job.args)

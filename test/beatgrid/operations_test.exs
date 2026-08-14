@@ -43,6 +43,48 @@ defmodule Beatgrid.OperationsTest do
     end
   end
 
+  describe "recent_batches/1" do
+    test "groups the disk writes into batches a DJ can still undo" do
+      track = insert(:track)
+      older = Uniq.UUID.uuid7()
+      newer = Uniq.UUID.uuid7()
+
+      for {batch, kind} <- [{older, :rename}, {newer, :move}, {newer, :tag}] do
+        {:ok, _} =
+          Operations.record(%{track_id: track.id, kind: kind, batch_id: batch, to: "x"})
+      end
+
+      assert [first, second] = Operations.recent_batches(limit: 5)
+
+      # Newest first: the DJ undoes what he just did, not what he did an hour ago.
+      assert first.batch_id == newer
+      assert first.count == 2
+      assert first.undoable?
+      assert second.batch_id == older
+      assert second.count == 1
+    end
+
+    test "a batch already undone is listed but no longer offers an undo" do
+      track = insert(:track)
+      batch = Uniq.UUID.uuid7()
+      {:ok, op} = Operations.record(%{track_id: track.id, kind: :rename, batch_id: batch})
+      {:ok, _} = op |> Ecto.Changeset.change(status: :undone) |> Beatgrid.Repo.update()
+
+      assert [only] = Operations.recent_batches(limit: 5)
+      assert only.batch_id == batch
+      refute only.undoable?
+    end
+
+    test "gain batches stay out: the Painel owns those, with their own restore" do
+      track = insert(:track)
+
+      {:ok, _} =
+        Operations.record(%{track_id: track.id, kind: :gain, batch_id: Uniq.UUID.uuid7()})
+
+      assert Operations.recent_batches(limit: 5) == []
+    end
+  end
+
   describe "undo_batch/1" do
     @tag :tmp_dir
     test "reverts an applied rename and an applied move in one batch", %{tmp_dir: root} do
