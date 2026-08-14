@@ -215,8 +215,14 @@ defmodule BeatgridWeb.ReviewLive do
   defp current_items(:classifications, _renames, classifications), do: classifications
   defp current_items(tab, renames, _classifications), do: rename_items(tab, renames)
 
-  defp tab_items(assigns),
-    do: current_items(assigns.tab, assigns.renames, assigns.classifications)
+  # What the "Marcar…" buttons may select. A rejected card renders no checkbox,
+  # so including it here would put an invisible, undeselectable item in the
+  # count — and the domain refuses to apply it anyway.
+  defp tab_items(assigns) do
+    assigns.tab
+    |> current_items(assigns.renames, assigns.classifications)
+    |> Enum.reject(&(&1.status == :rejected))
+  end
 
   defp toggle(set, id) do
     if MapSet.member?(set, id), do: MapSet.delete(set, id), else: MapSet.put(set, id)
