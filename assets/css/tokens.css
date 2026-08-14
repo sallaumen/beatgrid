@@ -22,7 +22,7 @@
   --border-subtle: rgba(255,255,255,.06);
   --border-soft: rgba(255,255,255,.08);
   --border-strong: rgba(255,255,255,.10);
-  --focus-ring: rgba(139,123,240,.50);
+  --focus-ring: #8b7bf0;
 
   /* marca */
   --primary: #8b7bf0;
