@@ -37,7 +37,8 @@ defmodule BeatgridWeb.ReviewLive do
   defp load(socket) do
     assign(socket,
       renames: Review.queue_renames(),
-      classifications: Review.queue_classifications()
+      classifications: Review.queue_classifications(),
+      recent_batches: Operations.recent_batches(limit: 5)
     )
   end
 
@@ -359,6 +360,8 @@ defmodule BeatgridWeb.ReviewLive do
         <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           <.toast :if={@toast} toast={@toast} />
 
+          <.applied_batches :if={@recent_batches != []} batches={@recent_batches} />
+
           <p class="mb-3 text-caption text-ink-faint">
             {count_summary(@items, @selected)}
           </p>
@@ -518,6 +521,37 @@ defmodule BeatgridWeb.ReviewLive do
     """
   end
 
+  attr :batches, :list, required: true
+
+  # The undo used to live and die inside a toast: reload the page, navigate away
+  # or dismiss it, and the only way back from 200 moved files was gone. The last
+  # batches stay listed here so the reversal outlives the message.
+  defp applied_batches(assigns) do
+    ~H"""
+    <section class="mb-4 rounded-lg border border-white/8 bg-surface px-4 py-3">
+      <h2 class="text-caption font-semibold uppercase tracking-wider text-ink-faint">
+        Últimos lotes aplicados
+      </h2>
+      <ul class="mt-2 divide-y divide-white/5">
+        <li :for={b <- @batches} class="flex items-center justify-between gap-3 py-1.5">
+          <p class="text-body-sm text-ink-secondary">
+            {b.count} {if b.count == 1, do: "alteração", else: "alterações"} · {format_batch_at(b.at)}
+          </p>
+          <button
+            :if={b.undoable?}
+            phx-click="undo"
+            phx-value-batch={b.batch_id}
+            class="text-body-sm font-semibold text-primary hover:underline"
+          >
+            Desfazer
+          </button>
+          <span :if={not b.undoable?} class="text-caption text-ink-faint">desfeito</span>
+        </li>
+      </ul>
+    </section>
+    """
+  end
+
   attr :toast, :any, required: true
 
   defp toast(assigns) do
@@ -530,7 +564,9 @@ defmodule BeatgridWeb.ReviewLive do
       ]}
     >
       <p class="text-body-sm text-ink">{toast_message(@toast)}</p>
-      <div class="flex items-center gap-3">
+      <%!-- Desfazer sits well clear of ✕: they used to be 12px apart, and missing
+            the target dismissed the only reversal the screen offered. --%>
+      <div class="flex items-center gap-6">
         <button
           :if={match?({:applied, _}, @toast)}
           phx-click="undo"
@@ -574,6 +610,15 @@ defmodule BeatgridWeb.ReviewLive do
       :warn -> "text-amber"
       :error -> "text-coral"
       _ -> "text-green"
+    end
+  end
+
+  defp format_batch_at(%DateTime{} = at) do
+    case DateTime.diff(DateTime.utc_now(), at, :minute) do
+      m when m < 1 -> "agora há pouco"
+      m when m < 60 -> "há #{m} min"
+      m when m < 1440 -> "há #{div(m, 60)}h"
+      m -> "há #{div(m, 1440)}d"
     end
   end
 

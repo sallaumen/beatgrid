@@ -235,6 +235,28 @@ defmodule BeatgridWeb.ReviewLiveTest do
     assert render(view) =~ "Desfazer"
   end
 
+  test "the undo outlives the toast: applied batches are listed on load", %{conn: conn} do
+    track = insert(:track)
+    batch = Uniq.UUID.uuid7()
+
+    {:ok, _} =
+      Beatgrid.Operations.record(%{
+        track_id: track.id,
+        kind: :rename,
+        from: "Old.mp3",
+        to: "New.mp3",
+        batch_id: batch
+      })
+
+    # A fresh mount — no toast in sight, which is exactly the state that used to
+    # strand a DJ who had reloaded the page after applying.
+    {:ok, view, html} = live(conn, ~p"/revisao")
+
+    assert html =~ "Últimos lotes aplicados"
+    assert html =~ "1 alteração"
+    assert has_element?(view, "button[phx-click=undo][phx-value-batch=\"#{batch}\"]")
+  end
+
   test "a partial apply is not dressed as a success", %{conn: conn} do
     pending_rename()
     {:ok, view, _html} = live(conn, ~p"/revisao")
@@ -252,7 +274,7 @@ defmodule BeatgridWeb.ReviewLiveTest do
     {:ok, view, _html} = live(conn, ~p"/revisao")
 
     send(view.pid, {:review_applied, %{batch_id: "b1", applied: 1, failed: 0}})
-    view |> element("button[phx-click=undo]") |> render_click()
+    view |> element("#review-toast button[phx-click=undo]") |> render_click()
 
     assert [job] = all_enqueued(worker: Beatgrid.Workers.UndoBatchWorker)
     assert job.args["batch_id"] == "b1"
