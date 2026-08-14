@@ -128,7 +128,7 @@ defmodule BeatgridWeb.AjustesLive do
                 class="w-36 rounded-md border border-white/8 bg-input px-3 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
               />
               <span :if={e.unit} class="text-ink-faint text-caption">{e.unit}</span>
-              <button class="rounded-md bg-primary px-3 py-1.5 text-body-sm font-semibold text-white">
+              <button class="rounded-md bg-primary-deep px-3 py-1.5 text-body-sm font-semibold text-white">
                 Salvar
               </button>
               <button

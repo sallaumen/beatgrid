@@ -318,7 +318,7 @@ defmodule BeatgridWeb.ReviewLive do
               <button
                 phx-click="apply"
                 disabled={@applying? or MapSet.size(@selected) == 0}
-                class="rounded-md bg-primary px-3.5 py-1.5 text-body-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                class="rounded-md bg-primary-deep px-3.5 py-1.5 text-body-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {if @applying?,
                   do: "Aplicando…",

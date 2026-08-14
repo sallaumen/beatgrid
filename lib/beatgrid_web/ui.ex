@@ -107,6 +107,7 @@ defmodule BeatgridWeb.UI do
         src={@src}
         loading="lazy"
         onerror="this.remove()"
+        alt=""
         class="absolute inset-0 h-full w-full object-cover"
       />
     </div>
@@ -858,7 +859,7 @@ defmodule BeatgridWeb.UI do
             value={@to}
             class="flex-1 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-[12px] focus:border-primary/50 focus:outline-none"
           />
-          <button class="rounded-md bg-primary px-2.5 py-1 text-[12px] font-semibold text-white">
+          <button class="rounded-md bg-primary-deep px-2.5 py-1 text-[12px] font-semibold text-white">
             Salvar
           </button>
           <button

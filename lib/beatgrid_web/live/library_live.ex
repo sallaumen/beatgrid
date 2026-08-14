@@ -482,7 +482,7 @@ defmodule BeatgridWeb.LibraryLive do
             <span class="font-mono text-body-sm text-ink-muted">{@total} faixas</span>
             <button
               phx-click="show_import"
-              class="rounded-md bg-primary px-3 py-1.5 text-body-sm font-semibold text-white"
+              class="rounded-md bg-primary-deep px-3 py-1.5 text-body-sm font-semibold text-white"
             >
               Importar
             </button>
@@ -878,7 +878,7 @@ defmodule BeatgridWeb.LibraryLive do
         >
           <span class={[
             "flex size-[18px] items-center justify-center rounded-[5px] border text-[11px] leading-none transition-colors",
-            row_selected?(@selected, track.id) && "border-primary bg-primary text-white",
+            row_selected?(@selected, track.id) && "border-primary bg-primary-deep text-white",
             !row_selected?(@selected, track.id) && "border-white/20 hover:border-white/40"
           ]}>
             <span :if={row_selected?(@selected, track.id)}>✓</span>
@@ -1288,7 +1288,7 @@ defmodule BeatgridWeb.LibraryLive do
                 class="rounded border-white/20 bg-input"
               /> Resolver no Soundcharts depois (gasta cota)
             </label>
-            <button class="ml-auto rounded-md bg-primary px-3.5 py-1.5 text-body-sm font-semibold text-white">
+            <button class="ml-auto rounded-md bg-primary-deep px-3.5 py-1.5 text-body-sm font-semibold text-white">
               Pré-visualizar
             </button>
           </div>
@@ -1380,7 +1380,7 @@ defmodule BeatgridWeb.LibraryLive do
         </div>
 
         <div :if={@new_rows != []} class="flex justify-end pt-3">
-          <button class="rounded-md bg-primary px-4 py-2 text-body-sm font-semibold text-white">
+          <button class="rounded-md bg-primary-deep px-4 py-2 text-body-sm font-semibold text-white">
             Importar {length(@new_rows)} faixa(s){if @soundcharts, do: " + Soundcharts", else: ""}
           </button>
         </div>

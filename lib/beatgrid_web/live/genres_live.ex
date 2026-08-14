@@ -135,7 +135,7 @@ defmodule BeatgridWeb.GenresLive do
             class="size-9 shrink-0 cursor-pointer rounded-md border border-white/8 bg-input"
             title="Cor"
           />
-          <button class="rounded-md bg-primary px-3 py-2 text-body-sm font-semibold text-white">
+          <button class="rounded-md bg-primary-deep px-3 py-2 text-body-sm font-semibold text-white">
             Criar
           </button>
         </form>
@@ -188,7 +188,7 @@ defmodule BeatgridWeb.GenresLive do
               placeholder="Descreva o que define esta pasta (estilo, época, instrumentação)…"
             >{Map.get(@ai_fill, f.key, f.description)}</textarea>
             <div class="mt-2 flex justify-end">
-              <button class="rounded-md bg-primary px-3 py-1.5 text-body-sm font-semibold text-white">
+              <button class="rounded-md bg-primary-deep px-3 py-1.5 text-body-sm font-semibold text-white">
                 Salvar
               </button>
             </div>
