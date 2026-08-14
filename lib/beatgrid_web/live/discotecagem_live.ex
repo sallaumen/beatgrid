@@ -625,7 +625,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
       title={@desc}
       disabled
       class={[
-        "rounded-lg border border-white/8 bg-[#101218] font-bold uppercase transition-all disabled:opacity-35",
+        "min-h-6 rounded-lg border border-white/8 bg-[#101218] font-bold uppercase transition-all disabled:opacity-35",
         (@compact && "px-1 py-1 text-[8px] tracking-normal") || "px-2 py-1 text-[9px] tracking-wider"
       ]}
       style={"--tc:#{@color};color:#{@color}"}
@@ -654,6 +654,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             <form id="dj-set-picker" phx-change="select_set">
               <select
                 name="set_id"
+                aria-label="Escolher set"
                 class="h-9 rounded-lg border border-white/10 bg-input px-3 text-[12px] text-ink focus:border-primary/60 focus:outline-none"
               >
                 <option value="">Escolher set…</option>
@@ -728,7 +729,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               type="button"
               phx-click="close_preflight"
               aria-label="Fechar checagem"
-              class="text-ink-faint hover:text-ink"
+              class="inline-flex min-h-6 items-center text-ink-faint hover:text-ink"
             >
               ✕
             </button>
@@ -818,7 +819,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             id="dj-toast"
             phx-update="ignore"
             data-show="false"
-            class="pointer-events-none fixed left-1/2 top-14 z-50 -translate-x-1/2 rounded-full border border-white/10 bg-[#15171f]/95 px-4 py-2 text-[12px] font-semibold text-ink shadow-lg shadow-black/50 backdrop-blur transition-all duration-200 data-[show=false]:-translate-y-3 data-[show=false]:opacity-0"
+            class="pointer-events-none fixed left-1/2 top-14 z-50 -translate-x-1/2 rounded-full border border-white/10 bg-input/95 px-4 py-2 text-[12px] font-semibold text-ink shadow-lg shadow-black/50 backdrop-blur duration-200 motion-safe:transition-all data-[show=false]:-translate-y-3 data-[show=false]:opacity-0"
           >
           </div>
           <div
@@ -872,12 +873,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
               >
                 <summary class="flex cursor-pointer list-none flex-col gap-1 px-3 py-2">
                   <div class="flex items-center justify-between gap-2">
-                    <span
+                    <h2
                       class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary"
                       title="Teclado: T dispara a próxima · W adia +1s (segure) · X cancela · A auto · ←→ crossfader"
                     >
                       Transições
-                    </span>
+                    </h2>
                     <span
                       id="dj-tdir-wrap"
                       phx-update="ignore"
@@ -975,9 +976,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
               style="background:linear-gradient(180deg,#11131a,#0e0f15)"
             >
               <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-1.5">
-                <span class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
+                <h2 class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
                   Scratch
-                </span>
+                </h2>
                 <span
                   id="dj-scratch-target"
                   phx-update="ignore"
@@ -995,7 +996,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                     data-dj-scratch-pat={k}
                     data-on={to_string(k == "baby")}
                     title={"Padrão " <> lab}
-                    class="dj-scratch-pat rounded-md border border-white/8 bg-[#101218] px-1 py-1 text-[9px] font-bold uppercase tracking-wider text-ink-faint transition-colors"
+                    class="dj-scratch-pat min-h-6 rounded-md border border-white/8 bg-[#101218] px-1 py-1 text-[9px] font-bold uppercase tracking-wider text-ink-faint transition-colors"
                   >
                     {lab}
                   </button>
@@ -1005,7 +1006,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                   type="button"
                   data-on="false"
                   title="Segure para arranhar o disco parado — solte para voltar"
-                  class="flex h-11 select-none items-center justify-center rounded-lg border border-[#8b7bf0]/40 bg-[#8b7bf0]/10 text-[10px] font-bold uppercase tracking-[0.14em] text-[#8b7bf0] transition-all"
+                  class="flex h-11 select-none items-center justify-center rounded-lg border border-primary/40 bg-primary/10 text-[10px] font-bold uppercase tracking-[0.14em] text-primary transition-all"
                 >
                   Segurar p/ scratch
                 </button>
@@ -1066,9 +1067,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
               <div class="max-h-[220px] overflow-auto border-t border-white/6">
                 <.midi_panel midi={@midi} />
                 <div class="px-3 pb-3 pt-1">
-                  <span class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
+                  <h3 class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
                     Eventos
-                  </span>
+                  </h3>
                   <div
                     id="dj-log"
                     phx-update="ignore"
@@ -2829,12 +2830,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
       style={"background:linear-gradient(180deg,#11131a,#0e0f15);box-shadow:0 10px 30px rgba(0,0,0,.35);border-color:#{if @active, do: @accent <> "66", else: "rgba(255,255,255,.08)"}"}
     >
       <div class="flex items-center justify-between gap-1">
-        <span
+        <h2
           class="rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em]"
           style={"background:#{@accent}22;color:#{@accent}"}
         >
           Deck {String.upcase(@d)}
-        </span>
+        </h2>
         <div class="flex flex-wrap items-center justify-end gap-1">
           <span
             :if={@bpm}
@@ -2875,7 +2876,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           phx-click="eject_deck"
           phx-value-deck={@d}
           title="Ejetar o deck (só quando parado)"
-          class="ml-auto flex size-5 shrink-0 items-center justify-center rounded-md text-[10px] text-ink-faint transition-colors hover:bg-white/5 hover:text-coral"
+          class="ml-auto flex h-6 w-5 shrink-0 items-center justify-center rounded-md text-[10px] text-ink-faint transition-colors hover:bg-white/5 hover:text-coral"
         >
           ✕
         </button>
@@ -3000,6 +3001,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               <.knob
                 id={"dj-filter-#{@d}"}
                 label="Filtro"
+                aria_label={"Filtro do deck #{String.upcase(@d)}"}
                 accent={@accent}
                 min={-100}
                 max={100}
@@ -3011,6 +3013,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               <.knob
                 id={"dj-echofx-#{@d}"}
                 label="Eco"
+                aria_label={"Eco do deck #{String.upcase(@d)}"}
                 accent={@accent}
                 min={0}
                 max={100}
@@ -3021,6 +3024,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               <.knob
                 id={"dj-tom-#{@d}"}
                 label="Tom"
+                aria_label={"Tom do deck #{String.upcase(@d)}"}
                 accent={@accent}
                 min={-100}
                 max={100}
@@ -3063,7 +3067,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 type="button"
                 data-on="false"
                 title={"Loop de #{beats} #{if beats == 1, do: "tempo", else: "tempos"}"}
-                class="h-5 flex-1 rounded-md border border-white/8 bg-[#101218] font-mono text-[9px] font-bold text-ink-faint transition-colors hover:border-green/50 hover:text-green"
+                class="h-6 flex-1 rounded-md border border-white/8 bg-[#101218] font-mono text-[9px] font-bold text-ink-faint transition-colors hover:border-green/50 hover:text-green"
               >
                 {beats}
               </button>
@@ -3162,6 +3166,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           <.knob
             id="dj-punch"
             label="Punch"
+            aria_label="Punch do master"
             accent="#ff5d6c"
             min={0}
             max={100}
@@ -3179,7 +3184,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               type="button"
               data-on="false"
               title="Curva do crossfader — clique pra alternar: Suave (mixagem) ↔ Seco (corte pra scratch)"
-              class="rounded border border-white/10 bg-input px-1.5 py-px text-[8px] font-bold uppercase tracking-[0.12em] text-ink-faint transition-colors hover:text-ink"
+              class="min-h-6 rounded border border-white/10 bg-input px-1.5 py-px text-[8px] font-bold uppercase tracking-[0.12em] text-ink-faint transition-colors hover:text-ink"
             >
               curva: suave
             </button>
@@ -3261,23 +3266,25 @@ defmodule BeatgridWeb.DiscotecagemLive do
       @rail_tab != "fila" && "border-white/8"
     ]}>
       <div class="flex shrink-0 items-center justify-between gap-2">
-        <button
-          type="button"
-          phx-click="rail_tab"
-          phx-value-tab="fila"
-          title="Marcar a fila como a lista que o browse navega"
-          class="flex items-center gap-2"
-        >
-          <span class="text-[10px] font-bold uppercase tracking-[0.12em] text-ink-secondary">
-            {fila_tab_label(@entries, @pointer_id)}
-          </span>
-          <span
-            :if={@rail_tab == "fila"}
-            class="rounded bg-primary/15 px-1.5 py-px text-[8px] font-bold uppercase tracking-wider text-primary"
+        <h2 class="flex items-center">
+          <button
+            type="button"
+            phx-click="rail_tab"
+            phx-value-tab="fila"
+            title="Marcar a fila como a lista que o browse navega"
+            class="flex min-h-6 items-center gap-2"
           >
-            browse ▸
-          </span>
-        </button>
+            <span class="text-[10px] font-bold uppercase tracking-[0.12em] text-ink-secondary">
+              {fila_tab_label(@entries, @pointer_id)}
+            </span>
+            <span
+              :if={@rail_tab == "fila"}
+              class="rounded bg-primary/15 px-1.5 py-px text-[8px] font-bold uppercase tracking-wider text-primary"
+            >
+              browse ▸
+            </span>
+          </button>
+        </h2>
         <.link
           :if={@set}
           navigate={~p"/set/#{@set.id}"}
@@ -3361,23 +3368,25 @@ defmodule BeatgridWeb.DiscotecagemLive do
       @rail_tab == "biblioteca" && "border-primary/40",
       @rail_tab != "biblioteca" && "border-white/8"
     ]}>
-      <button
-        type="button"
-        phx-click="rail_tab"
-        phx-value-tab="biblioteca"
-        title="Marcar a biblioteca como a lista que o browse navega"
-        class="flex shrink-0 items-center gap-2"
-      >
-        <span class="text-[10px] font-bold uppercase tracking-[0.12em] text-ink-secondary">
-          Biblioteca
-        </span>
-        <span
-          :if={@rail_tab == "biblioteca"}
-          class="rounded bg-primary/15 px-1.5 py-px text-[8px] font-bold uppercase tracking-wider text-primary"
+      <h2 class="flex shrink-0">
+        <button
+          type="button"
+          phx-click="rail_tab"
+          phx-value-tab="biblioteca"
+          title="Marcar a biblioteca como a lista que o browse navega"
+          class="flex min-h-6 w-full items-center gap-2"
         >
-          browse ▸
-        </span>
-      </button>
+          <span class="text-[10px] font-bold uppercase tracking-[0.12em] text-ink-secondary">
+            Biblioteca
+          </span>
+          <span
+            :if={@rail_tab == "biblioteca"}
+            class="rounded bg-primary/15 px-1.5 py-px text-[8px] font-bold uppercase tracking-wider text-primary"
+          >
+            browse ▸
+          </span>
+        </button>
+      </h2>
 
       <form id="dj-lib-search" phx-change="search_library" class="mt-2 shrink-0">
         <input
@@ -3462,7 +3471,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
         phx-value-deck="a"
         phx-value-track_id={@track_id}
         title="Carregar no deck A"
-        class="flex size-6 items-center justify-center rounded-md border border-white/10 text-[10px] font-bold text-[#8b7bf0] transition-colors hover:border-[#8b7bf0] hover:bg-[#8b7bf0]/15"
+        class="flex size-6 items-center justify-center rounded-md border border-white/10 text-[10px] font-bold text-primary transition-colors hover:border-primary hover:bg-primary/15"
       >
         A
       </button>
@@ -3472,7 +3481,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
         phx-value-deck="b"
         phx-value-track_id={@track_id}
         title="Carregar no deck B"
-        class="flex size-6 items-center justify-center rounded-md border border-white/10 text-[10px] font-bold text-[#2d9cff] transition-colors hover:border-[#2d9cff] hover:bg-[#2d9cff]/15"
+        class="flex size-6 items-center justify-center rounded-md border border-white/10 text-[10px] font-bold text-info transition-colors hover:border-info hover:bg-info/15"
       >
         B
       </button>
@@ -3482,6 +3491,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
   attr :id, :string, required: true
   attr :label, :string, required: true
+  # The cap under the knob has room for one word ("Filtro"); the accessible name
+  # spells out which deck it belongs to, since every deck repeats the same three.
+  attr :aria_label, :string, default: nil
   attr :accent, :string, required: true
   attr :min, :integer, required: true
   attr :max, :integer, required: true
@@ -3525,7 +3537,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           max={@max}
           value={@value}
           step="1"
-          aria-label={@label}
+          aria-label={@aria_label || @label}
           class="dj-knob-native absolute inset-0 size-full cursor-ns-resize opacity-0"
         />
       </div>
@@ -3574,7 +3586,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           <button
             id="dj-cue-pick"
             type="button"
-            class="rounded-md border border-white/10 bg-input px-2 py-0.5 text-[10px] font-semibold text-ink-muted transition-colors hover:border-primary/50 hover:text-primary"
+            class="min-h-6 rounded-md border border-white/10 bg-input px-2 py-0.5 text-[10px] font-semibold text-ink-muted transition-colors hover:border-primary/50 hover:text-primary"
           >
             Listar saídas
           </button>
