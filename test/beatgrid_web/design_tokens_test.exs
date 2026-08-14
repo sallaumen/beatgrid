@@ -64,6 +64,83 @@ defmodule BeatgridWeb.DesignTokensTest do
     end
   end
 
+  describe "colour contrast" do
+    # The surfaces text and focus rings are actually drawn over, darkest first.
+    @surfaces %{"base" => "#0b0c10", "rail" => "#0e0f15", "surface" => "#11131a"}
+
+    test "every ink tone clears WCAG AA on the surfaces it lands on" do
+      # ink-disabled is exempt: WCAG excludes inactive controls, and it marks
+      # exactly that. Never use it for text a working DJ has to read.
+      for name <- ~w(ink ink-secondary ink-muted ink-faint),
+          {surface_name, surface} <- @surfaces do
+        colour = theme_colour(name)
+        ratio = contrast(colour, surface)
+
+        assert ratio >= 4.5,
+               "#{name} (#{colour}) over #{surface_name} is #{ratio}:1, below the 4.5:1 " <>
+                 "that WCAG 1.4.3 asks of body text"
+      end
+    end
+
+    test "the focus ring clears 3:1 against every surface it is drawn over" do
+      ring = css_var("assets/css/tokens.css", "focus-ring")
+
+      for {surface_name, surface} <- @surfaces do
+        ratio = contrast(ring, surface)
+
+        assert ratio >= 3.0,
+               "the focus ring (#{ring}) over #{surface_name} is #{ratio}:1, below the 3:1 " <>
+                 "that WCAG 1.4.11 asks of a non-text indicator. An alpha below ~0.8 composites " <>
+                 "toward the dark surface and fails here even when the hue itself is bright."
+      end
+    end
+  end
+
+  defp theme_colour(name), do: css_var(@app_css, "color-#{name}")
+
+  defp css_var(file, name) do
+    case Regex.run(~r/--#{Regex.escape(name)}:\s*([^;]+);/, File.read!(file)) do
+      [_, value] -> String.trim(value)
+      _ -> flunk("no --#{name} declared in #{file}")
+    end
+  end
+
+  # Composites `colour` over `background` when it carries alpha — which is what
+  # the browser does, and what makes a translucent ring fail against near-black.
+  defp contrast(colour, background) do
+    l1 = luminance(flatten(colour, background))
+    l2 = luminance(flatten(background, background))
+    Float.round((max(l1, l2) + 0.05) / (min(l1, l2) + 0.05), 2)
+  end
+
+  defp flatten("#" <> _ = hex, _background), do: rgb(hex)
+
+  defp flatten(rgba, background) do
+    [r, g, b, a] =
+      ~r/[\d.]+/
+      |> Regex.scan(rgba)
+      |> Enum.map(fn [n] ->
+        String.to_float(if String.contains?(n, "."), do: n, else: n <> ".0")
+      end)
+
+    bg = rgb(background)
+    Enum.zip_with([[r, g, b], bg], fn [fg, back] -> fg * a + back * (1 - a) end)
+  end
+
+  defp rgb("#" <> hex) do
+    hex |> String.to_charlist() |> Enum.chunk_every(2) |> Enum.map(&List.to_integer(&1, 16))
+  end
+
+  defp luminance(channels) do
+    [r, g, b] =
+      Enum.map(channels, fn c ->
+        c = c / 255
+        if c <= 0.03928, do: c / 12.92, else: :math.pow((c + 0.055) / 1.055, 2.4)
+      end)
+
+    0.2126 * r + 0.7152 * g + 0.0722 * b
+  end
+
   # `--color-ink-muted: …` / `--text-body: …` → "text-ink-muted" / "text-body":
   # the class name each @theme entry makes available to a `text-*` utility.
   defp theme_keys do

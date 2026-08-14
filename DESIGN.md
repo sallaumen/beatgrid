@@ -17,7 +17,7 @@ colors:
   border-subtle: "rgba(255,255,255,.06)"
   border-soft: "rgba(255,255,255,.08)"
   border-strong: "rgba(255,255,255,.10)"
-  focus-ring: "rgba(139,123,240,.50)"
+  focus-ring: "#8b7bf0"
   primary: "#8b7bf0"
   primary-deep: "#6c5ce7"
   primary-soft: "#a594f5"
@@ -330,7 +330,10 @@ are reserved and named:
 
 ### Named Rules
 **The Keyboard-Leaves-a-Mark Rule.** `:focus-visible` draws a 2px ring in
-`focus-ring` (rgba(139,123,240,.50)) at 2px offset, declared once in `app.css`.
+`focus-ring` (#8b7bf0, opaque) at 2px offset, declared once in `app.css`. The
+ring is opaque on purpose: at 50% alpha the same violet composites toward the
+near-black surface and measures 2.27:1, under the 3:1 WCAG 1.4.11 asks of a
+non-text indicator. Opaque it measures 5.5:1.
 A mouse click stays silent; keyboard travel always shows. Never write
 `focus:outline-none` without putting something visible in its place — that
 class fires on mouse *and* keyboard, so it erases the only cue a keyboard user
