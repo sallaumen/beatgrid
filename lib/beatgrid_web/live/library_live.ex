@@ -1474,7 +1474,7 @@ defmodule BeatgridWeb.LibraryLive do
         y="160"
         text-anchor="middle"
         font-size="11"
-        fill="#5f636f"
+        fill="#7d818c"
         class="pointer-events-none"
       >
         {wheel_caption(@selected, @compatible?)}

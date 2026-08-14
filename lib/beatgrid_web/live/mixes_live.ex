@@ -97,7 +97,7 @@ defmodule BeatgridWeb.MixesLive do
                   </span>
                 </div>
                 <p class="mt-1 truncate text-body-sm text-ink-muted">
-                  {mix.dj || "Unknown DJ"} · {source_host(mix.source_url)}
+                  {mix.dj || "DJ desconhecido"} · {source_host(mix.source_url)}
                 </p>
                 <a
                   href={mix.source_url}
@@ -113,10 +113,13 @@ defmodule BeatgridWeb.MixesLive do
               </div>
 
               <div class="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:w-[520px]">
-                <.mix_fact label="Duration" value={format_clock(mix.duration_ms)} />
-                <.mix_fact label="Tracks" value={"#{length(mix.segments)} tracks"} />
-                <.mix_fact label="Library" value={"#{library_coverage(mix.segments)}% library"} />
-                <.mix_fact label="Imported" value={format_date(mix.inserted_at)} />
+                <.mix_fact label="Duração" value={format_clock(mix.duration_ms)} />
+                <.mix_fact label="Faixas" value={"#{length(mix.segments)} faixas"} />
+                <.mix_fact
+                  label="Biblioteca"
+                  value={"#{library_coverage(mix.segments)}% na biblioteca"}
+                />
+                <.mix_fact label="Importado" value={format_date(mix.inserted_at)} />
               </div>
             </div>
           </article>
