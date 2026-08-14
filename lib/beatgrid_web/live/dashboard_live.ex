@@ -202,7 +202,7 @@ defmodule BeatgridWeb.DashboardLive do
         <header class="border-b border-white/6 bg-rail px-5 py-3">
           <div class="mx-auto flex max-w-[1600px] flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h2 class="text-[22px] font-semibold">Painel</h2>
+              <h1 class="text-[22px] font-semibold">Painel</h1>
               <p class="text-body-sm text-ink-muted">{@overview.total} faixas na biblioteca</p>
             </div>
             <div class="grid grid-cols-1 gap-2 sm:w-[520px] sm:grid-cols-3">
@@ -230,29 +230,29 @@ defmodule BeatgridWeb.DashboardLive do
             id="dashboard-kpis"
             class="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6"
           >
-            <.kpi_card label="Total" value={@overview.total} color="#8b7bf0" />
+            <.kpi_card label="Total" value={@overview.total} color="var(--color-primary)" />
             <.kpi_card
               label="Resolvidas"
               value={@overview.resolved}
               sub="com metadados"
-              color="#5ad1a0"
+              color="var(--color-green)"
             />
-            <.kpi_card label="Sem match" value={@overview.unresolved} color="#ffb020" />
+            <.kpi_card label="Sem match" value={@overview.unresolved} color="var(--color-amber)" />
             <.kpi_card
               label="Truncadas"
               value={@overview.truncated}
               alert={@overview.truncated > 0}
-              color={if @overview.truncated > 0, do: "#ff5d6c", else: "#eef0f5"}
+              color={if @overview.truncated > 0, do: "var(--color-coral)", else: "var(--color-ink)"}
             />
             <.kpi_card
               label="Conf. alta"
               value={conf(@overview.by_confidence, :high)}
-              color="#5ad1a0"
+              color="var(--color-green)"
             />
             <.kpi_card
               label="Conf. baixa"
               value={conf(@overview.by_confidence, :low)}
-              color="#ff5d6c"
+              color="var(--color-coral)"
             />
           </section>
 
@@ -426,6 +426,7 @@ defmodule BeatgridWeb.DashboardLive do
                 <textarea
                   name="urls"
                   rows="3"
+                  aria-label="URLs do YouTube para baixar"
                   placeholder="Cole URLs do YouTube (uma por linha) ou uma URL de playlist…"
                   class="w-full rounded-md border border-white/8 bg-input px-3 py-2 text-body-sm focus:border-primary/50 focus:outline-none"
                 ></textarea>
@@ -539,7 +540,7 @@ defmodule BeatgridWeb.DashboardLive do
                   label={artist}
                   value={n}
                   max={max_count(@artists)}
-                  color="#8b7bf0"
+                  color="var(--color-primary)"
                 />
               </div>
               <.empty :if={@artists == []} />
@@ -551,7 +552,7 @@ defmodule BeatgridWeb.DashboardLive do
                   <div
                     :for={{_b, n} <- @bpm}
                     class="flex-1 rounded-t-[4px]"
-                    style={"height:#{pct(n, max_count(@bpm))}%;min-height:6px;background:linear-gradient(180deg,#8b7bf0,#6c5ce7)"}
+                    style={"height:#{pct(n, max_count(@bpm))}%;min-height:6px;background:linear-gradient(180deg,var(--color-primary),var(--color-primary-deep))"}
                   >
                   </div>
                 </div>
@@ -571,7 +572,7 @@ defmodule BeatgridWeb.DashboardLive do
                   label={decade_label(d)}
                   value={n}
                   max={max_count(@decades)}
-                  color="#2d9cff"
+                  color="var(--color-info)"
                 />
               </div>
               <.empty :if={@decades == []} />
@@ -611,7 +612,7 @@ defmodule BeatgridWeb.DashboardLive do
               >
                 <span
                   :if={@recommending?}
-                  class="size-2 animate-pulse rounded-full bg-white/90"
+                  class="size-2 rounded-full bg-white/90 motion-safe:animate-pulse"
                   aria-hidden="true"
                 ></span>
                 {if @recommending?, do: "Gerando…", else: "Buscar lacunas (IA)"}
@@ -630,7 +631,10 @@ defmodule BeatgridWeb.DashboardLive do
               :if={@recs == [] and @recommending?}
               class="mt-3 flex items-center gap-2 rounded-lg border border-primary/25 bg-primary/8 px-3 py-3 text-body-sm text-ink-secondary"
             >
-              <span class="size-2.5 animate-pulse rounded-full bg-primary" aria-hidden="true"></span>
+              <span
+                class="size-2.5 rounded-full bg-primary motion-safe:animate-pulse"
+                aria-hidden="true"
+              ></span>
               Gerando sugestões com a IA… isso pode levar alguns segundos.
             </div>
 
@@ -703,7 +707,7 @@ defmodule BeatgridWeb.DashboardLive do
         <span
           :if={@rec.status == :imported}
           class="bg-token-chip inline-flex shrink-0 items-center gap-1 rounded-xs px-[7px] py-[2px] text-[9.5px] font-bold uppercase tracking-wide"
-          style="--c:#5ad1a0"
+          style="--c:var(--color-green)"
         >
           ✓ baixada
         </span>
@@ -742,7 +746,7 @@ defmodule BeatgridWeb.DashboardLive do
   attr :label, :string, required: true
   attr :value, :integer, required: true
   attr :max, :integer, required: true
-  attr :color, :string, default: "#8b7bf0"
+  attr :color, :string, default: "var(--color-primary)"
 
   defp bar_row(assigns) do
     ~H"""
