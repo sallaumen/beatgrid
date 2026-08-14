@@ -150,6 +150,10 @@ defmodule Beatgrid.Library.MetadataAI do
     exact recording by this performer; false when there is no match, or it's the original /
     another artist's version), artist (the performer of THIS recording), title, confidence
     0.0-1.0, rationale (one short phrase)}.
+
+    Write the rationale in Brazilian Portuguese. It is the only part of your answer the DJ
+    reads, on the card where he decides whether to rename the file. Artist and title are data
+    and stay exactly as they are.
     """
   end
 
