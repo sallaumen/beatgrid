@@ -62,7 +62,7 @@ defmodule BeatgridWeb.AjustesLive do
     ~H"""
     <.app_shell flash={@flash} active={:ajustes} socket={@socket}>
       <header class="border-b border-white/6 bg-rail px-6 py-3">
-        <h2 class="text-[22px] font-semibold">Ajustes</h2>
+        <h1 class="text-[22px] font-semibold">Ajustes</h1>
         <p class="text-ink-muted text-body-sm">
           Os parâmetros de runtime do app. Mudanças valem na hora, sem reiniciar — e
           “Restaurar padrão” desfaz qualquer uma com um clique.
@@ -95,7 +95,7 @@ defmodule BeatgridWeb.AjustesLive do
             class="flex flex-col rounded-xl border border-white/8 bg-surface p-4"
           >
             <div class="flex items-center justify-between gap-2">
-              <h3 class="text-body font-medium">{e.label}</h3>
+              <h2 class="text-body font-medium">{e.label}</h2>
               <span
                 :if={e.override?}
                 class="rounded-full bg-amber/15 px-2 py-px text-[10px] font-semibold text-amber"
@@ -122,6 +122,7 @@ defmodule BeatgridWeb.AjustesLive do
                 type="number"
                 name="value"
                 value={e.current}
+                aria-label={e.label}
                 step={if e.type == :integer, do: "1", else: "any"}
                 min={e.min}
                 max={e.max}

@@ -102,7 +102,7 @@ defmodule BeatgridWeb.GenresLive do
     ~H"""
     <.app_shell flash={@flash} active={:generos} socket={@socket}>
       <header class="border-b border-white/6 bg-rail px-6 py-3">
-        <h2 class="text-[22px] font-semibold">Gêneros</h2>
+        <h1 class="text-[22px] font-semibold">Gêneros</h1>
         <p class="text-ink-muted text-body-sm">
           A descrição de cada pasta é o contexto que a IA usa pra classificar e pra verificar os
           renomes. Quanto melhor a descrição, mais espertas as sugestões.
@@ -124,6 +124,7 @@ defmodule BeatgridWeb.GenresLive do
             <input
               name="display_name"
               required
+              aria-label="Nome do novo gênero"
               placeholder="Ex.: Forró Pé de Serra"
               class="w-full rounded-md border border-white/8 bg-input px-3 py-2 text-body-sm focus:border-primary/50 focus:outline-none"
             />
@@ -132,6 +133,7 @@ defmodule BeatgridWeb.GenresLive do
             type="color"
             name="color"
             value="#9498a6"
+            aria-label="Cor do novo gênero"
             class="size-9 shrink-0 cursor-pointer rounded-md border border-white/8 bg-input"
             title="Cor"
           />
@@ -184,6 +186,7 @@ defmodule BeatgridWeb.GenresLive do
             <textarea
               name="description"
               rows="4"
+              aria-label={"Descrição de #{f.display_name}"}
               class="w-full flex-1 rounded-md border border-white/8 bg-input px-3 py-2 text-body-sm focus:border-primary/50 focus:outline-none"
               placeholder="Descreva o que define esta pasta (estilo, época, instrumentação)…"
             >{Map.get(@ai_fill, f.key, f.description)}</textarea>
