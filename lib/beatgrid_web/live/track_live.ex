@@ -555,6 +555,7 @@ defmodule BeatgridWeb.TrackLive do
                     </span>
                     <select
                       name="folder"
+                      aria-label="Pasta da faixa"
                       class="max-w-[180px] rounded-md border border-white/10 bg-input px-2 py-1 text-body-sm text-ink focus:border-primary/50 focus:outline-none"
                       title="Mover a faixa para outra pasta (move o arquivo no disco)"
                     >
@@ -836,7 +837,7 @@ defmodule BeatgridWeb.TrackLive do
                 >
                   <span
                     :if={@recommending?}
-                    class="size-2 animate-pulse rounded-full bg-white/90"
+                    class="size-2 motion-safe:animate-pulse rounded-full bg-white/90"
                     aria-hidden="true"
                   ></span>
                   {if @recommending?, do: "Gerando…", else: "Buscar parecidas"}
@@ -851,7 +852,10 @@ defmodule BeatgridWeb.TrackLive do
                 :if={@recs == [] and @recommending?}
                 class="mt-3 flex items-center gap-2 rounded-lg border border-primary/25 bg-primary/8 px-3 py-3 text-body-sm text-ink-secondary"
               >
-                <span class="size-2.5 animate-pulse rounded-full bg-primary" aria-hidden="true"></span>
+                <span
+                  class="size-2.5 motion-safe:animate-pulse rounded-full bg-primary"
+                  aria-hidden="true"
+                ></span>
                 Gerando sugestões com a IA… isso pode levar alguns segundos.
               </div>
 
@@ -984,6 +988,7 @@ defmodule BeatgridWeb.TrackLive do
                     name="tag"
                     value={@tag_draft}
                     list="tag-suggestions"
+                    aria-label="Nova tag"
                     placeholder="+ nova tag"
                     class="min-w-0 flex-1 rounded-md border border-white/8 bg-input px-2.5 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
                   />
@@ -1000,6 +1005,7 @@ defmodule BeatgridWeb.TrackLive do
                   name="note"
                   rows="3"
                   phx-debounce="600"
+                  aria-label="Anotação pessoal"
                   placeholder="Observações suas sobre a faixa…"
                   class="mt-3 w-full resize-none rounded-md border border-white/8 bg-input px-3 py-2 text-body-sm focus:border-primary/50 focus:outline-none"
                 >{@track.personal_note}</textarea>
@@ -1136,7 +1142,7 @@ defmodule BeatgridWeb.TrackLive do
         <span
           :if={@rec.status == :imported}
           class="bg-token-chip inline-flex shrink-0 items-center gap-1 rounded-xs px-[7px] py-[2px] text-[9.5px] font-bold uppercase tracking-wide"
-          style="--c:#5ad1a0"
+          style="--c:var(--color-green)"
         >
           ✓ baixada
         </span>
@@ -1210,6 +1216,7 @@ defmodule BeatgridWeb.TrackLive do
           type={@type}
           name="value"
           value={@value}
+          aria-label={@label}
           placeholder={@placeholder}
           phx-mounted={JS.focus()}
           phx-keydown="cancel_edit"
