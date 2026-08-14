@@ -36,6 +36,12 @@ defmodule Beatgrid.Organization.ClassificationAITest do
 
       expect(Mock, :complete, fn prompt, schema, _opts ->
         assert is_binary(prompt)
+
+        # The rationale is the only part of the answer the DJ reads, and the
+        # product speaks pt-BR. It is generated text, not user data, so the
+        # "user data is never translated" rule does not shelter it.
+        assert prompt =~ "rationale in Brazilian Portuguese"
+
         enum = schema["properties"]["classifications"]["items"]["properties"]["folder"]["enum"]
         assert Enum.sort(enum) == ["forro_roots", "mpb"]
 

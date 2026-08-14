@@ -69,6 +69,11 @@ defmodule Beatgrid.Library.MetadataAITest do
         )
 
       expect(Beatgrid.AI.Mock, :complete, fn prompt, _schema, opts ->
+        # The rationale is the only part of the answer the DJ reads, and the
+        # product speaks pt-BR. It is generated text, not user data, so the
+        # "user data is never translated" rule does not shelter it.
+        assert prompt =~ "rationale in Brazilian Portuguese"
+
         assert prompt =~ "WebSearch"
         assert prompt =~ ~s(album="Forró do Rei")
         assert prompt =~ "year=1962"

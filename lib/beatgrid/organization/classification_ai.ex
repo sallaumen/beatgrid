@@ -199,6 +199,9 @@ defmodule Beatgrid.Organization.ClassificationAI do
 
     For each track return {index, folder (one of the keys above), confidence 0.0–1.0,
     rationale (one short phrase explaining the fit)}.
+
+    Write the rationale in Brazilian Portuguese. It is the only part of your answer the DJ
+    reads, on the card where he decides whether to move the file.
     """
   end
 
