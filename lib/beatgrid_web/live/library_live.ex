@@ -478,7 +478,7 @@ defmodule BeatgridWeb.LibraryLive do
       <div class="flex h-[calc(100vh_-_5rem)] flex-col">
         <header class="flex items-center justify-between gap-4 border-b border-white/6 bg-rail px-5 py-3">
           <div class="flex items-baseline gap-3">
-            <h2 class="text-[22px] font-semibold">Biblioteca</h2>
+            <h1 class="text-[22px] font-semibold">Biblioteca</h1>
             <span class="font-mono text-body-sm text-ink-muted">{@total} faixas</span>
             <button
               phx-click="show_import"
@@ -524,6 +524,7 @@ defmodule BeatgridWeb.LibraryLive do
                 name="search"
                 phx-debounce="250"
                 value={@filters[:search] || ""}
+                aria-label="Buscar artista ou título"
                 placeholder="Buscar artista ou título…"
                 class="w-full rounded-md border border-white/8 bg-input px-3 py-1.5 text-body placeholder:text-ink-faint focus:border-primary/50 focus:outline-none"
               />
@@ -682,7 +683,7 @@ defmodule BeatgridWeb.LibraryLive do
         class={chip_class(@filters[:genre_folder] == folder.key)}
         style={
           @filters[:genre_folder] == folder.key &&
-            "--c:#{folder_color(folder.key)};color:#eef0f5;background:color-mix(in srgb,#{folder_color(folder.key)} 22%,transparent);border-color:color-mix(in srgb,#{folder_color(folder.key)} 60%,transparent)"
+            "--c:#{folder_color(folder.key)};color:var(--color-ink);background:color-mix(in srgb,#{folder_color(folder.key)} 22%,transparent);border-color:color-mix(in srgb,#{folder_color(folder.key)} 60%,transparent)"
         }
       >
         {folder.display_name}
@@ -753,6 +754,7 @@ defmodule BeatgridWeb.LibraryLive do
             name="rating_min"
             min="0"
             max="10"
+            aria-label="Nota mínima"
             placeholder="min"
             value={@filters[:rating_min]}
             class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
@@ -763,6 +765,7 @@ defmodule BeatgridWeb.LibraryLive do
             name="rating_max"
             min="0"
             max="10"
+            aria-label="Nota máxima"
             placeholder="max"
             value={@filters[:rating_max]}
             class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
@@ -780,6 +783,7 @@ defmodule BeatgridWeb.LibraryLive do
             name="energy_min"
             min="0"
             max="100"
+            aria-label="Energia mínima"
             placeholder="min"
             value={@filters[:energy_min]}
             class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
@@ -790,6 +794,7 @@ defmodule BeatgridWeb.LibraryLive do
             name="energy_max"
             min="0"
             max="100"
+            aria-label="Energia máxima"
             placeholder="max"
             value={@filters[:energy_max]}
             class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
@@ -805,6 +810,7 @@ defmodule BeatgridWeb.LibraryLive do
           <input
             type="number"
             name="bpm_min"
+            aria-label="BPM mínimo"
             placeholder="min"
             value={@filters[:bpm_min]}
             class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
@@ -813,6 +819,7 @@ defmodule BeatgridWeb.LibraryLive do
           <input
             type="number"
             name="bpm_max"
+            aria-label="BPM máximo"
             placeholder="max"
             value={@filters[:bpm_max]}
             class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
@@ -1207,6 +1214,7 @@ defmodule BeatgridWeb.LibraryLive do
           <label class="text-body-sm text-ink-muted">Mover para</label>
           <select
             name="folder"
+            aria-label="Mover para a pasta"
             class="rounded-md border border-white/10 bg-input px-2 py-1 text-body-sm focus:border-primary/50 focus:outline-none"
           >
             <option value="">escolher…</option>
@@ -1255,7 +1263,7 @@ defmodule BeatgridWeb.LibraryLive do
       <div class="absolute inset-0 bg-black/60" phx-click="hide_import"></div>
       <div class="relative max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-white/10 bg-surface p-5">
         <div class="mb-4 flex items-center justify-between">
-          <h3 class="text-[18px] font-semibold">Importar pasta ou arquivo</h3>
+          <h2 class="text-[18px] font-semibold">Importar pasta ou arquivo</h2>
           <button
             phx-click="hide_import"
             aria-label="Fechar importação"
@@ -1268,6 +1276,7 @@ defmodule BeatgridWeb.LibraryLive do
             type="text"
             name="source"
             value={@import[:source]}
+            aria-label="Caminho da pasta ou arquivo"
             placeholder="Cole o caminho de uma pasta ou arquivo…"
             class="w-full rounded-md border border-white/8 bg-input px-3 py-2 text-body focus:border-primary/50 focus:outline-none"
           />
@@ -1305,7 +1314,8 @@ defmodule BeatgridWeb.LibraryLive do
           :if={@import[:loading]}
           class="mt-4 flex items-center gap-2 text-body-sm text-ink-muted"
         >
-          <span class="size-2.5 animate-pulse rounded-full bg-primary"></span> Pré-visualizando…
+          <span class="size-2.5 motion-safe:animate-pulse rounded-full bg-primary"></span>
+          Pré-visualizando…
         </div>
 
         <.preview_table :if={@import[:rows]} rows={@import.rows} soundcharts={@import[:soundcharts]} />
@@ -1348,6 +1358,7 @@ defmodule BeatgridWeb.LibraryLive do
               type="text"
               name={"items[#{i}][artist]"}
               value={row.artist}
+              aria-label={"Artista de #{row.filename}"}
               placeholder="Artista"
               class="w-full rounded-md border border-white/8 bg-input px-2 py-1 text-body-sm focus:border-primary/50 focus:outline-none"
             />
@@ -1355,6 +1366,7 @@ defmodule BeatgridWeb.LibraryLive do
               type="text"
               name={"items[#{i}][title]"}
               value={row.title}
+              aria-label={"Título de #{row.filename}"}
               placeholder="Título"
               class="w-full rounded-md border border-white/8 bg-input px-2 py-1 text-body-sm focus:border-primary/50 focus:outline-none"
             />
@@ -1453,8 +1465,7 @@ defmodule BeatgridWeb.LibraryLive do
         text-anchor="middle"
         dominant-baseline="central"
         font-size="26"
-        fill="#eef0f5"
-        class="pointer-events-none font-mono"
+        class="pointer-events-none fill-ink font-mono"
       >
         {@selected}
       </text>
