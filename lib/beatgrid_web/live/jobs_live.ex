@@ -131,7 +131,7 @@ defmodule BeatgridWeb.JobsLive do
     ~H"""
     <.app_shell flash={@flash} active={:jobs} socket={@socket}>
       <header class="border-b border-white/6 bg-rail px-6 py-3">
-        <h2 class="text-[22px] font-semibold">Jobs</h2>
+        <h1 class="text-[22px] font-semibold">Jobs</h1>
         <p class="text-ink-muted text-body-sm">
           Tarefas em segundo plano (downloads, análise, IA, Soundcharts). Atualiza sozinho.
         </p>

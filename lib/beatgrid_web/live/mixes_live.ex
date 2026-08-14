@@ -67,6 +67,7 @@ defmodule BeatgridWeb.MixesLive do
             type="text"
             name="url"
             value={@url}
+            aria-label="URL do set online"
             placeholder="Cole a URL do set (YouTube ou SoundCloud)…"
             class="min-w-0 flex-1 rounded-md border border-white/10 bg-surface px-3 py-2 text-body-sm"
           />
