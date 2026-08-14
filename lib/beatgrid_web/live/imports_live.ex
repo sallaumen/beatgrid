@@ -138,6 +138,7 @@ defmodule BeatgridWeb.ImportsLive do
             <input
               name="url"
               autocomplete="off"
+              aria-label="Link da playlist ou vídeo do YouTube"
               placeholder="Cole o link da playlist (ou vídeo) do YouTube"
               class="min-w-0 flex-1 rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary/60 focus:outline-none"
             />
@@ -203,6 +204,7 @@ defmodule BeatgridWeb.ImportsLive do
               phx-click="toggle_playlist"
               phx-value-key={pl.key}
               class="flex size-6 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-white/5 hover:text-ink"
+              aria-label={"Expandir/recolher #{pl.title}"}
               title="Expandir/recolher"
             >
               {if MapSet.member?(@expanded, pl.key), do: "▾", else: "▸"}
@@ -219,6 +221,7 @@ defmodule BeatgridWeb.ImportsLive do
               phx-click="create_set"
               phx-value-key={pl.key}
               class="shrink-0 rounded-md border border-primary/40 bg-primary/15 px-3 py-1.5 text-body-sm font-semibold text-primary hover:bg-primary/25"
+              aria-label={"Criar set com #{pl.title}"}
               title="Criar um set com estas faixas, na ordem, com transições sugeridas"
             >
               Criar set
@@ -281,6 +284,7 @@ defmodule BeatgridWeb.ImportsLive do
             href={(@track.raw_tags || %{})["youtube_url"]}
             target="_blank"
             rel="noopener"
+            aria-label={"Abrir o vídeo de #{track_title(@track)} no YouTube"}
             class="text-ink-muted hover:text-ink"
           >
             ↗ vídeo
@@ -292,6 +296,7 @@ defmodule BeatgridWeb.ImportsLive do
           phx-click="toggle_gold"
           phx-value-id={@track.id}
           class="rounded-md px-2 py-1 text-[12px] text-ink-muted hover:text-[#f5c518]"
+          aria-label={"Marcar/desmarcar Ouro em #{track_title(@track)}"}
           title="Marcar/desmarcar Ouro"
         >
           ★
@@ -301,6 +306,7 @@ defmodule BeatgridWeb.ImportsLive do
           phx-value-id={@track.id}
           data-confirm="Apagar este arquivo de vez? Isso não tem volta."
           class="rounded-md px-2 py-1 text-[12px] text-ink-muted hover:text-coral"
+          aria-label={"Apagar de vez #{track_title(@track)}"}
           title="Apagar de vez"
         >
           Apagar

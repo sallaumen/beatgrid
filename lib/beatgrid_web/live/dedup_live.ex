@@ -143,9 +143,9 @@ defmodule BeatgridWeb.DedupLive do
 
   # Exact-hash matches are certain (amber); fuzzy meta-matches are softer
   # (violet); near matches (base title + duration) are the softest (teal).
-  defp match_color(:exact_hash), do: "#ffb020"
-  defp match_color(:near_meta), do: "#5ad1a0"
-  defp match_color(_fuzzy), do: "#8b7bf0"
+  defp match_color(:exact_hash), do: "var(--color-amber)"
+  defp match_color(:near_meta), do: "var(--color-green)"
+  defp match_color(_fuzzy), do: "var(--color-primary)"
 
   defp artist_title(track) do
     artist =
@@ -153,6 +153,20 @@ defmodule BeatgridWeb.DedupLive do
 
     title = present_str(track.tag_title) || present_str(track.norm_title) || track.filename
     {artist, title}
+  end
+
+  # A group's members share artist and title by construction, so the first one
+  # names the whole group — what the repeated card buttons need to tell apart the
+  # group they act on (the signature can be a bare content hash).
+  defp group_label(members) do
+    case List.first(members) do
+      nil ->
+        "grupo sem faixas"
+
+      member ->
+        {artist, title} = artist_title(member.track)
+        "#{artist} — #{title}"
+    end
   end
 
   defp present_str(s) when is_binary(s) do
@@ -210,7 +224,7 @@ defmodule BeatgridWeb.DedupLive do
       <div class="flex h-[calc(100vh_-_5rem)] flex-col">
         <header class="flex items-center justify-between gap-4 border-b border-white/6 bg-rail px-5 py-3">
           <div class="flex items-baseline gap-3">
-            <h2 class="text-[22px] font-semibold">Duplicatas</h2>
+            <h1 class="text-[22px] font-semibold">Duplicatas</h1>
             <span class="font-mono text-body-sm text-ink-muted">{group_count(@groups)}</span>
           </div>
           <button
@@ -220,7 +234,7 @@ defmodule BeatgridWeb.DedupLive do
           >
             <span
               :if={@scanning?}
-              class="size-2 animate-pulse rounded-full bg-white"
+              class="size-2 motion-safe:animate-pulse rounded-full bg-white"
               aria-hidden="true"
             />
             <span class={[!@scanning? && "hero-magnifying-glass size-4"]} aria-hidden="true" />
@@ -270,7 +284,9 @@ defmodule BeatgridWeb.DedupLive do
       assign(assigns,
         keeper_id: keeper_id,
         keeper_isrc: Dedup.member_isrc(keeper),
-        members: assigns.group.members
+        members: assigns.group.members,
+        group_label: group_label(assigns.group.members),
+        quarantine_count: non_keeper_count(assigns.group, keeper_id)
       )
 
     ~H"""
@@ -306,6 +322,7 @@ defmodule BeatgridWeb.DedupLive do
         <button
           phx-click="ignore"
           phx-value-group={@group.id}
+          aria-label={"Ignorar (não são duplicatas) — #{@group_label}"}
           class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm text-ink-secondary hover:text-ink"
         >
           Ignorar (não são duplicatas)
@@ -313,9 +330,10 @@ defmodule BeatgridWeb.DedupLive do
         <button
           phx-click="resolve"
           phx-value-group={@group.id}
+          aria-label={"Manter selecionada + quarentenar #{@quarantine_count} — #{@group_label}"}
           class="rounded-md bg-green px-3.5 py-1.5 text-body-sm font-semibold text-[#0b0c10] hover:bg-green/90"
         >
-          Manter selecionada + quarentenar {non_keeper_count(@group, @keeper_id)}
+          Manter selecionada + quarentenar {@quarantine_count}
         </button>
       </div>
     </div>
@@ -348,6 +366,7 @@ defmodule BeatgridWeb.DedupLive do
           phx-value-group={@group_id}
           phx-value-track={@member.track_id}
           checked={@chosen}
+          aria-label={"Escolher cópia para manter: #{@member.track.filename}"}
           class="sr-only"
         />
         <span class={[
@@ -355,7 +374,7 @@ defmodule BeatgridWeb.DedupLive do
           @chosen && "border-green bg-green",
           !@chosen && "border-white/25"
         ]}>
-          <span :if={@chosen} class="size-2 rounded-full bg-[#0b0c10]" />
+          <span :if={@chosen} class="size-2 rounded-full bg-base" />
         </span>
       </label>
 
