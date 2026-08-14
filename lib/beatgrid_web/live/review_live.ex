@@ -263,7 +263,7 @@ defmodule BeatgridWeb.ReviewLive do
       <div class="flex h-[calc(100vh_-_5rem)] flex-col">
         <header class="border-b border-white/6 bg-rail px-5 pt-3">
           <div class="flex items-center justify-between gap-4">
-            <h2 class="text-[22px] font-semibold">Central de Revisão</h2>
+            <h1 class="text-[22px] font-semibold">Central de Revisão</h1>
             <div class="flex flex-wrap items-center justify-end gap-2">
               <button
                 :if={@tab != :auditoria}
@@ -301,6 +301,7 @@ defmodule BeatgridWeb.ReviewLive do
                 <form id="reeval-folder-form" phx-change="reevaluate_folder">
                   <select
                     name="folder"
+                    aria-label="Re-avaliar com IA por pasta"
                     class="rounded-md border border-white/8 bg-input px-2 py-1.5 text-[12px]"
                   >
                     <option value="">Por pasta…</option>
@@ -411,6 +412,7 @@ defmodule BeatgridWeb.ReviewLive do
                     :if={s.status == :pending}
                     phx-click="reevaluate_one"
                     phx-value-id={s.id}
+                    aria-label={"Re-avaliar (IA): #{card_title(s.track)}"}
                     class="rounded-md bg-input px-2.5 py-1 text-[11px] text-ink-muted hover:text-ink"
                   >
                     Re-avaliar (IA)
@@ -439,6 +441,7 @@ defmodule BeatgridWeb.ReviewLive do
                   <button
                     phx-click="re_resolve"
                     phx-value-id={s.id}
+                    aria-label={"Re-resolver: #{card_title(s.track)}"}
                     data-confirm="Re-resolver gasta chamadas da cota Soundcharts. Continuar?"
                     disabled={not Beatgrid.Integrations.configured?(:soundcharts)}
                     class="rounded-md bg-input px-2.5 py-1 text-[11px] text-ink-muted hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
@@ -449,6 +452,7 @@ defmodule BeatgridWeb.ReviewLive do
                   <button
                     phx-click="dismiss_audit"
                     phx-value-id={s.id}
+                    aria-label={"Ignorar flag: #{card_title(s.track)}"}
                     class="rounded-md bg-input px-2.5 py-1 text-[11px] text-ink-muted hover:text-ink"
                   >
                     Ignorar flag
@@ -456,6 +460,7 @@ defmodule BeatgridWeb.ReviewLive do
                   <button
                     phx-click="quarantine"
                     phx-value-id={s.id}
+                    aria-label={"Quarentena: #{card_title(s.track)}"}
                     data-confirm="Mover esta faixa para _Quarantine no disco?"
                     class="rounded-md bg-coral/10 px-2.5 py-1 text-[11px] text-coral hover:bg-coral/20"
                   >
