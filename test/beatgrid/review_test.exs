@@ -259,6 +259,30 @@ defmodule Beatgrid.ReviewTest do
       assert File.exists?(Path.join(root, "MPB/Art - One.mp3"))
       assert File.exists?(Path.join(root, "MPB/B.mp3"))
     end
+
+    @tag :tmp_dir
+    test "never touches the disk for a suggestion the user rejected", %{tmp_dir: root} do
+      File.mkdir_p!(Path.join(root, "MPB"))
+      File.write!(Path.join(root, "MPB/A.mp3"), "a")
+
+      insert(:track,
+        rel_path: "MPB/A.mp3",
+        filename: "A.mp3",
+        genre_folder: "mpb",
+        soundcharts_song: build(:soundcharts_song, credit_name: "Art", name: "One"),
+        sc_match_confidence: :high
+      )
+
+      {:ok, _} = NameSync.propose()
+      [suggestion] = NameSync.list_by(status: :pending)
+      {:ok, rejected} = Review.reject(suggestion)
+
+      assert {:ok, %{applied: 0, failed: 0}} = Review.apply_selected([rejected.id])
+
+      assert NameSync.get(rejected.id).status == :rejected
+      assert File.exists?(Path.join(root, "MPB/A.mp3"))
+      refute File.exists?(Path.join(root, "MPB/Art - One.mp3"))
+    end
   end
 
   describe "suggestions_for_scope/1 + reevaluate_chunk/1" do

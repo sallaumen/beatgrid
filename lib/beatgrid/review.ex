@@ -28,6 +28,11 @@ defmodule Beatgrid.Review do
   # Suggestions still in the review queue (not yet applied/undone/failed).
   @open ~w(pending approved rejected)a
 
+  # Of those, the ones an apply may actually touch. A rejected suggestion is a
+  # decision the user already made: it stays listed so it can be un-rejected,
+  # but nothing may write it to disk.
+  @applicable ~w(pending approved)a
+
   @reeval_topic "reevaluate"
   @scope_preload [track: :soundcharts_song]
 
@@ -291,8 +296,10 @@ defmodule Beatgrid.Review do
     selected = MapSet.new(ids)
 
     apply_all(
-      [statuses: @open] |> NameSync.list_by() |> Enum.filter(&MapSet.member?(selected, &1.id)),
-      [statuses: @open, source: :claude]
+      [statuses: @applicable]
+      |> NameSync.list_by()
+      |> Enum.filter(&MapSet.member?(selected, &1.id)),
+      [statuses: @applicable, source: :claude]
       |> Organization.list_by()
       |> Enum.filter(&MapSet.member?(selected, &1.id))
     )
