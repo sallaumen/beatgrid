@@ -448,6 +448,7 @@ defmodule BeatgridWeb.MixLive do
             id="mix-audio"
             controls
             preload="metadata"
+            aria-label="Player do set"
             src={~p"/sets-online/#{@mix.id}/audio"}
             class="w-full"
           />
@@ -476,6 +477,7 @@ defmodule BeatgridWeb.MixLive do
               <textarea
                 name="timestamps"
                 rows="4"
+                aria-label="Timestamps manuais (ex: 0:00 DJ Nome)"
                 class="w-full rounded border border-white/10 bg-transparent px-2 py-1.5 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary/50 focus:outline-none font-mono"
                 placeholder="0:00 DJ A\n30:00 DJ B"
               ></textarea>
@@ -528,7 +530,7 @@ defmodule BeatgridWeb.MixLive do
 
         <div :if={@recorte} class="mt-5 rounded-xl border border-primary/25 bg-surface p-4">
           <div class="flex items-center justify-between">
-            <h3 class="text-body-sm font-semibold">✂ Novo recorte</h3>
+            <h2 class="text-body-sm font-semibold">✂ Novo recorte</h2>
             <button
               type="button"
               phx-click="close_recorte"
@@ -547,7 +549,7 @@ defmodule BeatgridWeb.MixLive do
             <section>
               <div class="flex items-baseline gap-2">
                 <span class="text-caption font-bold text-primary">1</span>
-                <h4 class="text-body-sm font-semibold">Trecho</h4>
+                <h3 class="text-body-sm font-semibold">Trecho</h3>
                 <span class="text-caption text-ink-faint">cole início-fim de uma vez</span>
               </div>
 
@@ -592,14 +594,15 @@ defmodule BeatgridWeb.MixLive do
                 >
                   <span class="w-11 text-caption text-ink-faint">{label}</span>
                   <button
-                    :for={delta <- [-5000, 5000]}
+                    :for={{delta, delta_label} <- [{-5000, "−5s"}, {5000, "+5s"}]}
                     type="button"
                     phx-click="nudge_recorte"
                     phx-value-field={field}
                     phx-value-delta={delta}
+                    aria-label={"#{delta_label} no #{label}"}
                     class="h-8 w-11 rounded-md border border-white/12 font-mono text-caption text-ink-secondary hover:border-primary/50 hover:text-ink focus:outline-none focus:ring-2 focus:ring-primary/40"
                   >
-                    {if delta < 0, do: "−5s", else: "+5s"}
+                    {delta_label}
                   </button>
                 </div>
               </div>
@@ -615,7 +618,7 @@ defmodule BeatgridWeb.MixLive do
             >
               <div class="flex flex-wrap items-baseline gap-2">
                 <span class="text-caption font-bold text-primary">2</span>
-                <h4 class="text-body-sm font-semibold">Ouça e marque</h4>
+                <h3 class="text-body-sm font-semibold">Ouça e marque</h3>
                 <div class="ml-auto flex overflow-hidden rounded-md border border-white/12">
                   <button
                     :for={
@@ -639,7 +642,13 @@ defmodule BeatgridWeb.MixLive do
                 </div>
               </div>
 
-              <audio id="recorte-player" controls preload="metadata" class="mt-1.5 w-full" />
+              <audio
+                id="recorte-player"
+                controls
+                preload="metadata"
+                aria-label="Prévia do recorte"
+                class="mt-1.5 w-full"
+              />
 
               <div class="mt-2 flex flex-col gap-2 sm:flex-row">
                 <button
@@ -672,7 +681,7 @@ defmodule BeatgridWeb.MixLive do
             <section>
               <div class="flex items-baseline gap-2">
                 <span class="text-caption font-bold text-primary">3</span>
-                <h4 class="text-body-sm font-semibold">Nome e destino</h4>
+                <h3 class="text-body-sm font-semibold">Nome e destino</h3>
               </div>
 
               <form
@@ -1058,6 +1067,7 @@ defmodule BeatgridWeb.MixLive do
           phx-value-id={@part.id}
           data-confirm="Apagar esta divisória?"
           title="Apagar divisória"
+          aria-label={"Apagar divisória de #{@part.dj_name || "Sem DJ"}"}
           class="rounded px-1 py-0.5 text-[12px] text-ink-faint hover:text-coral"
         >×</button>
       <% else %>
@@ -1099,6 +1109,7 @@ defmodule BeatgridWeb.MixLive do
         data-seg-play
         data-start-ms={@seg.start_ms}
         title="Ouvir a partir daqui"
+        aria-label={"Ouvir a partir de #{format_clock(@seg.start_ms)}"}
         class="shrink-0 rounded px-1.5 py-0.5 text-[12px] text-ink-muted hover:text-ink"
       >
         ▶
@@ -1121,6 +1132,7 @@ defmodule BeatgridWeb.MixLive do
         phx-value-id={@seg.id}
         disabled={not Beatgrid.Integrations.configured?(:audd)}
         title="Identificar faixa (AudD)"
+        aria-label={"Identificar a faixa em #{format_clock(@seg.start_ms)} (AudD)"}
         class="shrink-0 rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[11px] text-ink-muted hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
       >
         ?
@@ -1141,12 +1153,14 @@ defmodule BeatgridWeb.MixLive do
           name="artist"
           value={@seg.artist || ""}
           placeholder="Artista"
+          aria-label={"Artista da faixa em #{format_clock(@seg.start_ms)}"}
           class="w-32 shrink-0 rounded border border-white/10 bg-transparent px-1.5 py-0.5 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary/50 focus:outline-none"
         />
         <input
           name="title"
           value={@seg.title || ""}
           placeholder="Título"
+          aria-label={"Título da faixa em #{format_clock(@seg.start_ms)}"}
           class="min-w-0 flex-1 rounded border border-white/10 bg-transparent px-1.5 py-0.5 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary/50 focus:outline-none"
         />
         <button
@@ -1161,6 +1175,7 @@ defmodule BeatgridWeb.MixLive do
         phx-click="open_recorte"
         phx-value-segment={@seg.id}
         title="Recortar este trecho como uma faixa da biblioteca"
+        aria-label={"Recortar o trecho a partir de #{format_clock(@seg.start_ms)}"}
         class="shrink-0 rounded px-1 py-0.5 text-[12px] text-ink-muted hover:text-ink"
       >
         ✂
