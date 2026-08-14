@@ -48,6 +48,25 @@ defmodule BeatgridWeb.ReviewLiveTest do
 
   defp select_btn(id), do: "button[phx-click=toggle_select][phx-value-id='#{id}']"
 
+  describe "toast tone" do
+    test "an outcome is framed by what happened, not by the happy path" do
+      alias BeatgridWeb.ReviewLive
+
+      assert ReviewLive.toast_tone({:applied, %{applied: 3, failed: 0}}) == :ok
+      assert ReviewLive.toast_tone({:undone, %{undone: 3}}) == :ok
+
+      # A partial apply moved part of the disk and left part behind: the DJ has
+      # to notice, so it may not wear the success frame.
+      assert ReviewLive.toast_tone({:applied, %{applied: 2, failed: 1}}) == :warn
+      assert ReviewLive.toast_tone({:budget_exhausted, %{}}) == :warn
+
+      assert ReviewLive.toast_tone({:error, :re_resolve}) == :error
+
+      # Nothing went wrong and nothing was achieved.
+      assert ReviewLive.toast_tone({:no_match, %{}}) == :neutral
+    end
+  end
+
   test "shows the three tabs and a pending rename card", %{conn: conn} do
     suggestion = pending_rename()
 
@@ -214,6 +233,18 @@ defmodule BeatgridWeb.ReviewLiveTest do
 
     send(view.pid, {:review_applied, %{batch_id: "b1", applied: 1, failed: 0}})
     assert render(view) =~ "Desfazer"
+  end
+
+  test "a partial apply is not dressed as a success", %{conn: conn} do
+    pending_rename()
+    {:ok, view, _html} = live(conn, ~p"/revisao")
+
+    send(view.pid, {:review_applied, %{batch_id: "b1", applied: 1, failed: 1}})
+    toast = view |> element("#review-toast") |> render()
+
+    assert toast =~ "1 aplicadas no disco, 1 falharam"
+    assert toast =~ "border-amber/35"
+    refute toast =~ "border-green/30"
   end
 
   test "undo enqueues a durable job and the broadcast reports the undone count", %{conn: conn} do

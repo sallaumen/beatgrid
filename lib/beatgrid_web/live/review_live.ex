@@ -522,14 +522,20 @@ defmodule BeatgridWeb.ReviewLive do
 
   defp toast(assigns) do
     ~H"""
-    <div class="mb-4 flex items-center justify-between gap-4 rounded-lg border border-green/30 bg-green/10 px-4 py-2.5">
+    <div
+      id="review-toast"
+      class={[
+        "mb-4 flex items-center justify-between gap-4 rounded-lg border px-4 py-2.5",
+        toast_frame(@toast)
+      ]}
+    >
       <p class="text-body-sm text-ink">{toast_message(@toast)}</p>
       <div class="flex items-center gap-3">
         <button
           :if={match?({:applied, _}, @toast)}
           phx-click="undo"
           phx-value-batch={elem(@toast, 1).batch_id}
-          class="text-body-sm font-semibold text-green hover:underline"
+          class={["text-body-sm font-semibold hover:underline", toast_accent(@toast)]}
         >
           Desfazer
         </button>
@@ -541,6 +547,34 @@ defmodule BeatgridWeb.ReviewLive do
       </div>
     </div>
     """
+  end
+
+  @doc false
+  # The frame carries the outcome before the sentence is read. A partial apply is
+  # not a success: some of the disk moved and some did not, which is the state a
+  # DJ most needs to notice.
+  def toast_tone({:applied, %{failed: f}}) when f > 0, do: :warn
+  def toast_tone({:error, _reason}), do: :error
+  def toast_tone({:budget_exhausted, _}), do: :warn
+  def toast_tone({:no_match, _}), do: :neutral
+  def toast_tone({:resolving, _}), do: :neutral
+  def toast_tone(_outcome), do: :ok
+
+  defp toast_frame(outcome) do
+    case toast_tone(outcome) do
+      :ok -> "border-green/30 bg-green/10"
+      :warn -> "border-amber/35 bg-amber/10"
+      :error -> "border-coral/35 bg-coral/10"
+      :neutral -> "border-white/10 bg-white/5"
+    end
+  end
+
+  defp toast_accent(outcome) do
+    case toast_tone(outcome) do
+      :warn -> "text-amber"
+      :error -> "text-coral"
+      _ -> "text-green"
+    end
   end
 
   defp toast_message({:applied, %{applied: n, failed: 0}}),
