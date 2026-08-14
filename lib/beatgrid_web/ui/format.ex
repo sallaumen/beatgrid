@@ -74,14 +74,14 @@ defmodule BeatgridWeb.UI.Format do
   def rating_color(n) when is_integer(n) and n >= 7, do: "#5ad1a0"
   def rating_color(n) when is_integer(n) and n >= 5, do: "#ffb020"
   def rating_color(n) when is_integer(n) and n >= 0, do: "#ff5d6c"
-  def rating_color(_), do: "#5f636f"
+  def rating_color(_), do: "#7d818c"
 
   @doc "Hex color for a Camelot code (major B = amber, minor A = amber-deep)."
   def camelot_color(code) when is_binary(code) do
     if String.ends_with?(code, "B"), do: "#ffb020", else: "#e08e00"
   end
 
-  def camelot_color(_), do: "#5f636f"
+  def camelot_color(_), do: "#7d818c"
 
   @doc "Hex color for a match-confidence level."
   def confidence_color(:high), do: "#5ad1a0"

@@ -43,8 +43,8 @@ defmodule BeatgridWeb.MixesLiveTest do
     assert html =~ "DJ Roots"
     assert html =~ "soundcloud.com/dj-roots/long-forro-research"
     assert html =~ "3:00:00"
-    assert html =~ "2 tracks"
-    assert html =~ "50% library"
+    assert html =~ "2 faixas"
+    assert html =~ "50% na biblioteca"
   end
 
   test "submitting a SoundCloud URL enqueues a download and shows the new mix", %{conn: conn} do

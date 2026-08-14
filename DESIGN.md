@@ -25,7 +25,7 @@ colors:
   amber-deep: "#e08e00"
   green: "#5ad1a0"
   green-deep: "#2f9e76"
-  blue: "#2d9cff"
+  info: "#2d9cff"
   coral: "#ff5d6c"
   coral-soft: "#ff8d97"
   violet-pink: "#c08bf0"
@@ -170,10 +170,18 @@ forró — amber, coral, gold — doing the semantic work.
 - **Coral de Clip** (`coral` #ff5d6c, soft #ff8d97): danger and absence —
   destructive actions, no-match/low confidence, 0–4 ratings, loudness spikes,
   the "rating" channel.
-- **Azul de Monitor** (`blue` #2d9cff): informational cool — the "harmony"
-  channel, the Forró In The Light folder.
-- **Ouro de Crate** (`gold` #f5c518): the rare-gem star (Selo Ouro). Lives only
-  in code today, not in `tokens.css` — promote it when touching the tokens file.
+- **Token names are utility names.** Every key in the frontmatter above is the
+  exact suffix of its `@theme` token, so `colors.x` always means `text-x`/`bg-x`.
+  Renaming one without the other is how a class silently renders nothing.
+  One exception you must know: **`text-base` is a font size, not a colour.**
+  Tailwind owns that name for 1rem, so it wins the namespace — writing
+  `text-base` for the near-black background quietly turns 11px text into 16px.
+  Use `bg-base` freely; for the colour as text, write the literal.
+- **Azul de Monitor** (`info` #2d9cff): informational cool — the "harmony"
+  channel, the Forró In The Light folder. Its utility is `text-info`/`bg-info`,
+  not `text-blue`: the frontmatter key and the `@theme` token must carry the
+  same name, or a class that looks right compiles to nothing.
+- **Ouro de Crate** (`gold` #f5c518): the rare-gem star (Selo Ouro).
 - **Violeta-rosa** (`violet-pink` #c08bf0): the Forró MPB folder blend.
 
 ### Neutral
