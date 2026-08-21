@@ -124,12 +124,14 @@ defmodule Beatgrid.Library do
     if is_binary(sha) and MapSet.member?(seen, sha) do
       {Map.update!(acc, :skipped, &(&1 + 1)), seen}
     else
-      dest_rel = ensure_unique(Path.join("_Inbox", info.filename))
+      filename = truthful_filename(info)
+      dest_rel = ensure_unique(Path.join("_Inbox", filename))
       File.cp!(src, abs_path(dest_rel))
 
       attrs =
         info
         |> Map.merge(%{
+          filename: filename,
           rel_path: dest_rel,
           source_playlist: "import",
           status: :present,
@@ -139,6 +141,17 @@ defmodule Beatgrid.Library do
 
       {:ok, _track} = Tracks.upsert_by_path(attrs)
       {Map.update!(acc, :imported, &(&1 + 1)), MapSet.put(seen, sha)}
+    end
+  end
+
+  # A source with a lying extension (a .mpeg that is an mp3, an .mp4 that is an
+  # .m4a) lands in the library under the extension its CONTENT earns. The bytes
+  # are copied untouched — mp3-in-.mpeg IS an mp3 file and m4a IS an mp4
+  # container, so renaming is normalization, not transcoding.
+  defp truthful_filename(%{filename: filename} = info) do
+    case FileInfo.corrective_ext(info) do
+      nil -> filename
+      ext -> Path.rootname(filename) <> ext
     end
   end
 
@@ -169,8 +182,8 @@ defmodule Beatgrid.Library do
     source = Path.expand(source)
 
     cond do
-      File.dir?(source) -> {:ok, source |> FileInfo.audio_files() |> build_rows(opts)}
-      File.regular?(source) and FileInfo.audio?(source) -> {:ok, build_rows([source], opts)}
+      File.dir?(source) -> {:ok, source |> FileInfo.importable_files() |> build_rows(opts)}
+      File.regular?(source) and FileInfo.importable?(source) -> {:ok, build_rows([source], opts)}
       true -> {:error, :not_found}
     end
   end

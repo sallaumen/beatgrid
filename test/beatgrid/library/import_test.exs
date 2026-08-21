@@ -129,5 +129,43 @@ defmodule Beatgrid.Library.ImportTest do
       assert created.tag_artist == "A"
       assert created.tag_title == "T"
     end
+
+    @tag :tmp_dir
+    test "normalizes a lying extension on copy: .mpeg lands as .mp3, .mp4 as .m4a", %{
+      tmp_dir: root
+    } do
+      src = Path.join(root, "src")
+      File.mkdir_p!(src)
+      josy = Path.join(src, "Josy - Todo Mundo Bole.mpeg")
+      savinho = Path.join(src, "Savinho - Sorrindo e Cantando.mp4")
+      File.write!(josy, "mp3-bytes")
+      File.write!(savinho, "aac-bytes")
+
+      stub(Beatgrid.Audio.Mock, :read_metadata, fn path ->
+        if String.ends_with?(path, ".mpeg"),
+          do: {:ok, %Metadata{format_name: "mp3", duration_ms: 159_533}},
+          else: {:ok, %Metadata{format_name: "mov,mp4,m4a,3gp,3g2,mj2", duration_ms: 177_393}}
+      end)
+
+      items = [
+        %{"source_path" => josy, "artist" => "Josy", "title" => "Todo Mundo Bole"},
+        %{"source_path" => savinho, "artist" => "Savinho", "title" => "Sorrindo e Cantando"}
+      ]
+
+      assert %{imported: 2, skipped: 0} = Library.import_files(items, "b3")
+
+      # The copy is byte-identical — only the name stops lying.
+      assert File.read!(Path.join(root, "_Inbox/Josy - Todo Mundo Bole.mp3")) == "mp3-bytes"
+
+      assert File.read!(Path.join(root, "_Inbox/Savinho - Sorrindo e Cantando.m4a")) ==
+               "aac-bytes"
+
+      assert %{format: :mp3} = Tracks.get_by_path("_Inbox/Josy - Todo Mundo Bole.mp3")
+      assert %{format: :m4a} = Tracks.get_by_path("_Inbox/Savinho - Sorrindo e Cantando.m4a")
+
+      # Originals untouched — import copies, never moves.
+      assert File.exists?(josy)
+      assert File.exists?(savinho)
+    end
   end
 end
