@@ -202,6 +202,10 @@ defmodule BeatgridWeb.RecSetLiveTest do
       preset: "forro_roots_marathon"
     })
 
+    # Planning 100 slots is the heaviest async in the suite — wait for it
+    # explicitly instead of racing the assert against the task.
+    render_async(view, 30_000)
+
     [set] = Sets.list()
     assert length(Sets.entries(set)) == 100
   end

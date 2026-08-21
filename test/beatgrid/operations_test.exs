@@ -54,6 +54,11 @@ defmodule Beatgrid.OperationsTest do
           Operations.record(%{track_id: track.id, kind: kind, batch_id: batch, to: "x"})
       end
 
+      # Real batches are minutes apart; two uuid7() in a row share a millisecond
+      # and would leave the ordering to the v7 random bits. Age the older batch
+      # so the test pins the actual ordering column, not a coin flip.
+      age_batch(older, -60)
+
       assert [first, second] = Operations.recent_batches(limit: 5)
 
       # Newest first: the DJ undoes what he just did, not what he did an hour ago.
@@ -73,6 +78,31 @@ defmodule Beatgrid.OperationsTest do
       assert [only] = Operations.recent_batches(limit: 5)
       assert only.batch_id == batch
       refute only.undoable?
+    end
+
+    test "same-second batches fall back to the time-ordered batch_id" do
+      track = insert(:track)
+      # Hand-picked v7-shaped ids where byte order is unambiguous.
+      low = "01900000-0000-7000-8000-000000000001"
+      high = "01900000-0000-7000-8000-000000000002"
+
+      for batch <- [high, low] do
+        {:ok, _} = Operations.record(%{track_id: track.id, kind: :rename, batch_id: batch})
+      end
+
+      # Same inserted_at second for both — only the id can order them.
+      assert [first, second] = Operations.recent_batches(limit: 5)
+      assert first.batch_id == high
+      assert second.batch_id == low
+    end
+
+    defp age_batch(batch_id, seconds) do
+      import Ecto.Query
+
+      Beatgrid.Repo.update_all(
+        from(o in Beatgrid.Operations.Operation, where: o.batch_id == ^batch_id),
+        set: [inserted_at: DateTime.add(DateTime.utc_now(), seconds, :second)]
+      )
     end
 
     test "gain batches stay out: the Painel owns those, with their own restore" do
