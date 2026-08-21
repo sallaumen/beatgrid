@@ -9,12 +9,32 @@ defmodule Beatgrid.Library.FileInfo do
 
   @audio_exts ~w(.mp3 .m4a .flac .wav .aac .ogg)
 
+  # Containers downloaders hand out that often carry pure audio (a .mpeg that IS
+  # an mp3, an .mp4 with only an aac stream). They qualify as import candidates
+  # only when a probe confirms an audio stream — never by extension alone.
+  @container_exts ~w(.mp4 .mpeg .mpg .mov .webm .m4v .mkv)
+
   @doc "Lists audio files under `root`, recursively (absolute paths)."
   @spec audio_files(String.t()) :: [String.t()]
   def audio_files(root), do: root |> walk() |> Enum.filter(&audio?/1)
 
+  @doc """
+  Lists import candidates under `root`: audio files by extension, plus container
+  files (`.mp4`, `.mpeg`, …) whose probe finds an audio stream. The scanner keeps
+  using `audio_files/1` — the library itself never holds lying extensions.
+  """
+  @spec importable_files(String.t()) :: [String.t()]
+  def importable_files(root), do: root |> walk() |> Enum.filter(&importable?/1)
+
+  @spec importable?(String.t()) :: boolean()
+  def importable?(path), do: audio?(path) or (container?(path) and probed_audio?(path))
+
   @spec audio?(String.t()) :: boolean()
   def audio?(path), do: String.downcase(Path.extname(path)) in @audio_exts
+
+  defp container?(path), do: String.downcase(Path.extname(path)) in @container_exts
+
+  defp probed_audio?(path), do: match?({:ok, _metadata}, Audio.read_metadata(path))
 
   @doc "Attributes for one file: identity, audio properties, tags, and quality issues."
   @spec read(String.t()) :: map()
@@ -29,6 +49,53 @@ defmodule Beatgrid.Library.FileInfo do
       quality_issues: Quality.detect(metadata)
     }
     |> merge_metadata(metadata)
+    |> resolve_format(metadata)
+  end
+
+  @doc """
+  The extension the file SHOULD have for its (probed) format — `nil` when the
+  current one already tells the truth or the format is unknown. The importer
+  uses this so a `.mpeg` that is an mp3 lands in the library as `.mp3`.
+  """
+  @spec corrective_ext(map()) :: String.t() | nil
+  def corrective_ext(%{filename: filename, format: format}) do
+    ext = canonical_ext(format)
+    if ext && String.downcase(Path.extname(filename)) != ext, do: ext, else: nil
+  end
+
+  defp canonical_ext(:mp3), do: ".mp3"
+  defp canonical_ext(:m4a), do: ".m4a"
+  defp canonical_ext(:flac), do: ".flac"
+  defp canonical_ext(:wav), do: ".wav"
+  defp canonical_ext(:aac), do: ".aac"
+  defp canonical_ext(:ogg), do: ".ogg"
+  defp canonical_ext(:other), do: nil
+
+  # A container extension says nothing about the audio inside; the probed
+  # `format_name` does ("mp3", "mov,mp4,m4a,3gp,3g2,mj2", …).
+  defp resolve_format(%{format: :other} = attrs, {:ok, %{format_name: name}})
+       when is_binary(name),
+       do: %{attrs | format: format_from_name(name)}
+
+  defp resolve_format(attrs, _metadata), do: attrs
+
+  # ffprobe's `format_name` is a comma-joined demuxer list — first marker wins.
+  @format_markers [
+    {"mp3", :mp3},
+    {"mp4", :m4a},
+    {"m4a", :m4a},
+    {"mov", :m4a},
+    {"flac", :flac},
+    {"ogg", :ogg},
+    {"wav", :wav},
+    {"aac", :aac},
+    {"adts", :aac}
+  ]
+
+  defp format_from_name(name) do
+    Enum.find_value(@format_markers, :other, fn {marker, format} ->
+      name =~ marker && format
+    end)
   end
 
   defp walk(dir) do

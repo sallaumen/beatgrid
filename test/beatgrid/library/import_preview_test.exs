@@ -177,4 +177,77 @@ defmodule Beatgrid.Library.ImportPreviewTest do
   test "returns {:error, :not_found} for a bogus path", %{tmp_dir: root} do
     assert {:error, :not_found} = Library.preview_import(Path.join(root, "nope"))
   end
+
+  # The downloader hands out audio with video-container extensions: a .mpeg that
+  # IS an mp3, an .mp4 that is aac-only (an .m4a in disguise). Judging by
+  # extension alone made the import blind to both — the exact "0 novas / não é
+  # áudio" the DJ hit on gig day.
+  describe "container extensions carrying pure audio" do
+    defp stub_containers do
+      stub(Beatgrid.Audio.Mock, :read_metadata, fn path ->
+        cond do
+          String.ends_with?(path, ".mpeg") ->
+            {:ok, %Metadata{format_name: "mp3", duration_ms: 159_533}}
+
+          String.ends_with?(path, ".mp4") ->
+            {:ok, %Metadata{format_name: "mov,mp4,m4a,3gp,3g2,mj2", duration_ms: 177_393}}
+
+          true ->
+            raise "probed a non-media file: #{path}"
+        end
+      end)
+    end
+
+    @tag :tmp_dir
+    test "previews .mpeg/.mp4 files whose content is audio", %{tmp_dir: root} do
+      src = Path.join(root, "src")
+      File.mkdir_p!(src)
+      File.write!(Path.join(src, "Josy - Todo Mundo Bole.mpeg"), "mp3-bytes")
+      File.write!(Path.join(src, "Savinho - Sorrindo e Cantando.mp4"), "aac-bytes")
+      # Junk must never even be probed.
+      File.write!(Path.join(src, "capa.jpg"), "jpg-bytes")
+
+      stub_containers()
+
+      assert {:ok, rows} = Library.preview_import(src, ai: false)
+      assert length(rows) == 2
+
+      josy = Enum.find(rows, &(&1.filename == "Josy - Todo Mundo Bole.mpeg"))
+      assert josy.format == :mp3
+      assert josy.artist == "Josy"
+      assert josy.title == "Todo Mundo Bole"
+
+      savinho = Enum.find(rows, &(&1.filename == "Savinho - Sorrindo e Cantando.mp4"))
+      assert savinho.format == :m4a
+      assert savinho.artist == "Savinho"
+    end
+
+    @tag :tmp_dir
+    test "previews a single .mp4 file pasted directly", %{tmp_dir: root} do
+      file = Path.join(root, "Savinho - Sorrindo e Cantando.mp4")
+      File.write!(file, "aac-bytes")
+      stub_containers()
+
+      assert {:ok, [row]} = Library.preview_import(file, ai: false)
+      assert row.artist == "Savinho"
+      assert row.format == :m4a
+    end
+
+    @tag :tmp_dir
+    test "excludes a container with no audio stream", %{tmp_dir: root} do
+      src = Path.join(root, "src")
+      File.mkdir_p!(src)
+      File.write!(Path.join(src, "Josy - Todo Mundo Bole.mpeg"), "mp3-bytes")
+      File.write!(Path.join(src, "trailer.mp4"), "video-bytes")
+
+      stub(Beatgrid.Audio.Mock, :read_metadata, fn path ->
+        if String.ends_with?(path, ".mpeg"),
+          do: {:ok, %Metadata{format_name: "mp3", duration_ms: 159_533}},
+          else: {:error, :not_audio}
+      end)
+
+      assert {:ok, rows} = Library.preview_import(src, ai: false)
+      assert [%{format: :mp3}] = rows
+    end
+  end
 end
