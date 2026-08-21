@@ -1,6 +1,6 @@
 defmodule Beatgrid.Library.ImportTest do
   # async: false — overrides the global :library_root app env.
-  use Beatgrid.DataCase, async: false
+  use Beatgrid.DataCase, async: false, oban: true
 
   alias Beatgrid.Audio.Metadata
   alias Beatgrid.Library
@@ -166,6 +166,44 @@ defmodule Beatgrid.Library.ImportTest do
       # Originals untouched — import copies, never moves.
       assert File.exists?(josy)
       assert File.exists?(savinho)
+    end
+
+    @tag :tmp_dir
+    test "queues the full analysis suite per imported track — no manual Painel sweep", %{
+      tmp_dir: root
+    } do
+      src = Path.join(root, "src")
+      File.mkdir_p!(src)
+      file = Path.join(src, "nova.mp3")
+      File.write!(file, "nova-bytes")
+      dup = Path.join(src, "dup.mp3")
+      File.write!(dup, "dup-bytes")
+      stub_healthy()
+
+      dup_sha = :sha256 |> :crypto.hash("dup-bytes") |> Base.encode16(case: :lower)
+
+      insert(:track,
+        status: :present,
+        content_sha256: dup_sha,
+        rel_path: "_Inbox/dup.mp3",
+        filename: "dup.mp3"
+      )
+
+      items = [
+        %{"source_path" => file, "artist" => "", "title" => ""},
+        %{"source_path" => dup, "artist" => "", "title" => ""}
+      ]
+
+      assert %{imported: 1, skipped: 1} = Library.import_files(items, "b4")
+
+      t = Tracks.get_by_path("_Inbox/nova.mp3")
+      assert_enqueued(worker: Beatgrid.Workers.AnalyzeWorker, args: %{track_id: t.id})
+      assert_enqueued(worker: Beatgrid.Workers.LoudnessWorker, args: %{track_id: t.id})
+      assert_enqueued(worker: Beatgrid.Workers.MarkerAnalyzeWorker, args: %{track_id: t.id})
+
+      # The skipped duplicate gets NO jobs — its library twin is already analyzed.
+      refute_enqueued(worker: Beatgrid.Workers.AnalyzeWorker, args: %{track_id: nil})
+      assert length(all_enqueued(worker: Beatgrid.Workers.AnalyzeWorker)) == 1
     end
   end
 end

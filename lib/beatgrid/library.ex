@@ -8,6 +8,7 @@ defmodule Beatgrid.Library do
   """
   alias Beatgrid.{Gold, Operations, Tagging}
   alias Beatgrid.Library.{FileInfo, GenreFolders, MetadataAI, Normalize, Track, Tracks}
+  alias Beatgrid.Workers.{AnalyzeWorker, LoudnessWorker, MarkerAnalyzeWorker}
   alias Beatgrid.YouTube.TitleParser
 
   @structural_dirs ["_Inbox", "_Quarantine"]
@@ -139,9 +140,20 @@ defmodule Beatgrid.Library do
         })
         |> overlay_names(item)
 
-      {:ok, _track} = Tracks.upsert_by_path(attrs)
+      {:ok, track} = Tracks.upsert_by_path(attrs)
+      :ok = enqueue_track_analysis(track)
       {Map.update!(acc, :imported, &(&1 + 1)), MapSet.put(seen, sha)}
     end
+  end
+
+  # An import is only playable once BPM/loudness/markers exist — queue the whole
+  # suite right away (same contract as the YouTube download flow) instead of
+  # waiting for a manual Painel sweep.
+  defp enqueue_track_analysis(track) do
+    {:ok, _} = AnalyzeWorker.enqueue(track.id)
+    {:ok, _} = LoudnessWorker.enqueue(track.id)
+    {:ok, _} = MarkerAnalyzeWorker.enqueue(track.id)
+    :ok
   end
 
   # A source with a lying extension (a .mpeg that is an mp3, an .mp4 that is an
