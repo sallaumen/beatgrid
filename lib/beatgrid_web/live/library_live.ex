@@ -5,7 +5,7 @@ defmodule BeatgridWeb.LibraryLive do
   import BeatgridWeb.UI
 
   alias Beatgrid.Library
-  alias Beatgrid.Library.{GenreFolders, TrackQuery, Tracks}
+  alias Beatgrid.Library.{GenreFolders, SourceBrowser, TrackQuery, Tracks}
   alias Beatgrid.Loudness
   alias Beatgrid.Operations
   alias Beatgrid.Playback
@@ -288,7 +288,7 @@ defmodule BeatgridWeb.LibraryLive do
   # --- import: open/close the modal ---
 
   def handle_event("show_import", _params, socket),
-    do: {:noreply, assign(socket, import: %{open: true})}
+    do: {:noreply, assign(socket, import: browse(%{open: true}, SourceBrowser.start_dir()))}
 
   def handle_event("hide_import", _params, socket), do: {:noreply, assign(socket, import: nil)}
 
@@ -300,16 +300,28 @@ defmodule BeatgridWeb.LibraryLive do
     soundcharts? = params["soundcharts"] == "on"
 
     if source == "" do
-      {:noreply, assign(socket, import: %{open: true, error: "Cole um caminho."})}
+      {:noreply, assign(socket, import: browse(%{open: true, error: "Cole um caminho."}))}
     else
-      # Intentionally NOT an Oban job: the preview is a read-only dry run feeding
-      # this modal — if the tab dies, nothing is lost and the user just re-opens it.
-      {:noreply,
-       socket
-       |> assign(
-         import: %{open: true, source: source, ai: ai?, soundcharts: soundcharts?, loading: true}
-       )
-       |> start_async(:preview, fn -> Library.preview_import(source, ai: ai?) end)}
+      {:noreply, start_preview(socket, source, %{ai: ai?, soundcharts: soundcharts?})}
+    end
+  end
+
+  # --- import: the folder browser (server-side — the app browses the DJ's own disk) ---
+
+  def handle_event("browse_to", %{"dir" => dir}, socket) do
+    {:noreply, assign(socket, import: browse(socket.assigns.import, dir))}
+  end
+
+  def handle_event("browse_pick", %{"file" => file}, socket) do
+    {:noreply, start_preview(socket, file, socket.assigns.import)}
+  end
+
+  def handle_event("browse_import_here", _params, socket) do
+    import_state = socket.assigns.import
+
+    case import_state[:browse] do
+      %{dir: dir} -> {:noreply, start_preview(socket, dir, import_state)}
+      _no_browse -> {:noreply, socket}
     end
   end
 
@@ -337,6 +349,51 @@ defmodule BeatgridWeb.LibraryLive do
 
   def handle_event("dismiss_import_toast", _params, socket),
     do: {:noreply, assign(socket, import_toast: nil)}
+
+  # Intentionally NOT an Oban job: the preview is a read-only dry run feeding
+  # this modal — if the tab dies, nothing is lost and the user just re-opens it.
+  defp start_preview(socket, source, prefs) do
+    ai? = Map.get(prefs, :ai, true)
+
+    state =
+      socket.assigns.import
+      |> Map.merge(%{
+        open: true,
+        source: source,
+        ai: ai?,
+        soundcharts: Map.get(prefs, :soundcharts, false),
+        loading: true,
+        error: nil,
+        rows: nil
+      })
+
+    socket
+    |> assign(import: state)
+    |> start_async(:preview, fn -> Library.preview_import(source, ai: ai?) end)
+  end
+
+  # Lists `dir` into the modal state; on failure the panel says so and still
+  # offers the way up. Without a dir, keeps (or seeds) the current listing.
+  defp browse(import_state, dir \\ nil) do
+    dir = dir || get_in(import_state, [:browse, :dir]) || SourceBrowser.start_dir()
+
+    listing =
+      case SourceBrowser.list(dir) do
+        {:ok, listing} ->
+          Map.put(listing, :error, nil)
+
+        {:error, _reason} ->
+          %{
+            dir: dir,
+            parent: Path.dirname(dir),
+            dirs: [],
+            files: [],
+            error: "Não deu para ler esta pasta."
+          }
+      end
+
+    Map.put(import_state, :browse, listing)
+  end
 
   @impl true
   def handle_async(:preview, {:ok, {:ok, rows}}, socket) do
@@ -1303,6 +1360,8 @@ defmodule BeatgridWeb.LibraryLive do
           </div>
         </form>
 
+        <.source_browser :if={@import[:browse]} browse={@import.browse} />
+
         <p
           :if={@import[:error]}
           class="mt-3 rounded-lg border border-coral/25 bg-coral/8 px-3 py-2 text-body-sm text-ink"
@@ -1319,6 +1378,64 @@ defmodule BeatgridWeb.LibraryLive do
         </div>
 
         <.preview_table :if={@import[:rows]} rows={@import.rows} soundcharts={@import[:soundcharts]} />
+      </div>
+    </div>
+    """
+  end
+
+  # Server-side folder browser: the app is single-user and local, so it walks the
+  # DJ's own disk — no upload, no typing paths by hand. Listing is extension-only
+  # (cheap); the probe happens in the preview.
+  attr :browse, :map, required: true
+
+  defp source_browser(assigns) do
+    ~H"""
+    <div id="import-browser" class="mt-3 rounded-lg border border-white/8">
+      <div class="flex items-center justify-between gap-3 border-b border-white/5 px-3 py-2">
+        <p class="min-w-0 truncate font-mono text-caption text-ink-muted" title={@browse.dir}>
+          {@browse.dir}
+        </p>
+        <button
+          phx-click="browse_import_here"
+          class="shrink-0 rounded-md bg-primary/15 px-2.5 py-1 text-body-sm font-semibold text-primary hover:bg-primary/25"
+        >
+          Importar esta pasta
+        </button>
+      </div>
+
+      <p :if={@browse.error} class="px-3 py-2 text-body-sm text-ink-muted">{@browse.error}</p>
+
+      <div class="max-h-56 divide-y divide-white/5 overflow-y-auto">
+        <button
+          :if={@browse.parent}
+          phx-click="browse_to"
+          phx-value-dir={@browse.parent}
+          class="block w-full px-3 py-1.5 text-left text-body-sm text-ink-muted hover:bg-white/5 hover:text-ink"
+        >
+          ‹ subir
+        </button>
+        <button
+          :for={dir <- @browse.dirs}
+          phx-click="browse_to"
+          phx-value-dir={dir.path}
+          class="block w-full truncate px-3 py-1.5 text-left text-body-sm text-ink-secondary hover:bg-white/5 hover:text-ink"
+        >
+          {dir.name}/
+        </button>
+        <button
+          :for={file <- @browse.files}
+          phx-click="browse_pick"
+          phx-value-file={file.path}
+          class="block w-full truncate px-3 py-1.5 text-left text-body-sm text-ink hover:bg-primary/10"
+        >
+          {file.name}
+        </button>
+        <p
+          :if={!@browse.error && @browse.dirs == [] && @browse.files == []}
+          class="px-3 py-2 text-body-sm text-ink-faint"
+        >
+          Nada importável aqui — entre numa subpasta ou cole um caminho.
+        </p>
       </div>
     </div>
     """
