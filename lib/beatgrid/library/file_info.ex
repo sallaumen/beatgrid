@@ -26,6 +26,13 @@ defmodule Beatgrid.Library.FileInfo do
   @spec importable_files(String.t()) :: [String.t()]
   def importable_files(root), do: root |> walk() |> Enum.filter(&importable?/1)
 
+  @doc """
+  Cheap extension-only screen: could this file be importable? Used by listings
+  that must not shell out per entry; `importable?/1` adds the probe.
+  """
+  @spec candidate?(String.t()) :: boolean()
+  def candidate?(path), do: audio?(path) or container?(path)
+
   @spec importable?(String.t()) :: boolean()
   def importable?(path), do: audio?(path) or (container?(path) and probed_audio?(path))
 

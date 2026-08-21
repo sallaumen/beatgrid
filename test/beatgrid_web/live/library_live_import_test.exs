@@ -196,4 +196,81 @@ defmodule BeatgridWeb.LibraryLiveImportTest do
     assert html =~ "Sina"
     refute html =~ "Importando"
   end
+
+  describe "folder browser" do
+    @tag :tmp_dir
+    test "opening the modal lists the start dir; clicking navigates", %{conn: conn, tmp_dir: root} do
+      shows = Path.join(root, "shows")
+      File.mkdir_p!(shows)
+      File.write!(Path.join(shows, "Josy - Todo Mundo Bole.mpeg"), "x")
+      File.write!(Path.join(root, "capa.jpg"), "x")
+
+      {:ok, view, _html} = live(conn, ~p"/")
+      html = view |> element("button[phx-click=show_import]") |> render_click()
+      # The browser panel exists as soon as the modal opens.
+      assert html =~ "import-browser"
+
+      # Navigate to the tmp root: the subdir shows, the jpg does not.
+      html = render_click(view, "browse_to", %{"dir" => root})
+      assert html =~ "shows"
+      refute html =~ "capa.jpg"
+
+      # Descend into the subdir: the candidate file is listed.
+      html = render_click(view, "browse_to", %{"dir" => shows})
+      assert html =~ "Josy - Todo Mundo Bole.mpeg"
+    end
+
+    @tag :tmp_dir
+    test "picking a file previews it immediately", %{conn: conn, tmp_dir: root} do
+      file = Path.join(root, "Savinho - Sorrindo e Cantando.mp4")
+      File.write!(file, "aac-bytes")
+
+      stub(Beatgrid.Audio.Mock, :read_metadata, fn _path ->
+        {:ok, %Metadata{format_name: "mov,mp4,m4a,3gp,3g2,mj2", duration_ms: 177_393}}
+      end)
+
+      stub(Beatgrid.AI.Mock, :complete, fn _prompt, _schema, _opts ->
+        {:ok, %{"titles" => [%{"artist" => "Savinho", "title" => "Sorrindo e Cantando"}]}}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/")
+      view |> element("button[phx-click=show_import]") |> render_click()
+      render_click(view, "browse_to", %{"dir" => root})
+
+      render_click(view, "browse_pick", %{"file" => file})
+      html = render_async(view)
+      assert html =~ "1 nova(s), 0 duplicada(s)"
+      assert html =~ "Savinho"
+    end
+
+    @tag :tmp_dir
+    test "importar esta pasta previews the current directory", %{conn: conn, tmp_dir: root} do
+      File.write!(Path.join(root, "a.mp3"), "a")
+      File.write!(Path.join(root, "b.mp3"), "b")
+
+      stub(Beatgrid.Audio.Mock, :read_metadata, fn _path ->
+        {:ok, %Metadata{title: "T", artist: "A", duration_ms: 100_000}}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/")
+      view |> element("button[phx-click=show_import]") |> render_click()
+      render_click(view, "browse_to", %{"dir" => root})
+
+      render_click(view, "browse_import_here", %{})
+      html = render_async(view)
+      assert html =~ "2 nova(s), 0 duplicada(s)"
+    end
+
+    @tag :tmp_dir
+    test "an empty folder says so instead of showing a bare panel", %{conn: conn, tmp_dir: root} do
+      vazio = Path.join(root, "vazio")
+      File.mkdir_p!(vazio)
+
+      {:ok, view, _html} = live(conn, ~p"/")
+      view |> element("button[phx-click=show_import]") |> render_click()
+
+      html = render_click(view, "browse_to", %{"dir" => vazio})
+      assert html =~ "Nada importável aqui"
+    end
+  end
 end
