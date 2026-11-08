@@ -190,3 +190,14 @@ on **5434**. Never start a second Beatgrid on another port to dodge a
 collision: attach to the running one (`.claude/launch.json` has a
 `beatgrid-attach` entry) — two servers on one dev database means two Oban
 schedulers working the real library.
+
+<!-- elixir-agent-kit:start -->
+## Elixir Agent Kit
+
+Before opening any source file for a change or a review, select one workflow from
+[.elixir-agent-kit/START.md](.elixir-agent-kit/START.md) and name it, or NONE for a bounded,
+fully specified edit; then read the workflow with its shared contract alongside this project's
+own contracts, and investigate the way the workflow says. This project's rules keep precedence.
+If the files are missing, run `mix deps.get`; if you cannot read them, report that instead of
+claiming the practices were applied.
+<!-- elixir-agent-kit:end -->

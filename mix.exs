@@ -10,6 +10,7 @@ defmodule Beatgrid.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
+      elixir_agent_kit: [agents: [:codex, :claude, :generic], skills: :all],
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
       listeners: [Phoenix.CodeReloader],
       test_coverage: [tool: ExCoveralls],
@@ -86,6 +87,11 @@ defmodule Beatgrid.MixProject do
 
       # Quality / dev tooling
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:elixir_agent_kit,
+       git: "https://github.com/sallaumen/elixir-agent-kit.git",
+       tag: "v0.10.0",
+       only: [:dev, :test],
+       runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:sobelow, "~> 0.13", only: [:dev, :test], runtime: false},
       {:excoveralls, "~> 0.18", only: :test},
