@@ -1,4 +1,4 @@
-# Elixir Agent Kit 0.10.0
+# Elixir Agent Kit 1.2.2
 
 Before opening any source file for a change or a review:
 

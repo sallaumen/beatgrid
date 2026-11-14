@@ -121,6 +121,10 @@ mix test     # suíte completa, rápida (ferramentas externas mockadas)
 mix lint     # format + credo --strict + sobelow + dialyzer
 ```
 
+### Elixir Agent Kit
+
+O [Elixir Agent Kit](https://hexdocs.pm/elixir_agent_kit/instalacao.html) é uma dependência Hex de desenvolvimento e testes. Após `mix deps.get`, rode `mix agent_kit.check` para conferir as referências locais. Para atualizar dentro da faixa `~> 1.2`, rode `mix deps.update elixir_agent_kit`, revise `mix agent_kit.sync --dry-run`, aplique com `mix agent_kit.sync` e repita o check.
+
 ## Arquitetura em uma nota
 
 Contextos por domínio com módulos de query dedicados; toda integração externa
