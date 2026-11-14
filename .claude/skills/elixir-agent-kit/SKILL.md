@@ -3,7 +3,7 @@ name: elixir-agent-kit
 description: "Use first, before opening source files to change behavior or review code in this Elixir project, when the task matches a shared workflow: screens and accessibility, data and migrations, provider calls, asynchronous or process state, performance, tests, code review, debugging, build or delivery. Routes to the versioned Elixir Agent Kit read from the Mix dependency."
 ---
 
-# Elixir Agent Kit 0.10.0
+# Elixir Agent Kit 1.2.2
 
 Before opening any source file for a change or a review:
 
