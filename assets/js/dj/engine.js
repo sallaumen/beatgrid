@@ -479,6 +479,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     transitionToken: 0,
     firedForTrack: null, // dedupes transition vs ended for one boundary
     rescue: null, // outgoing load that can still be brought back
+    pendingEntry: null, // receiving deck reserved while a brake or scratch drop plays
     waitingForNext: false, // the outgoing ended before the authorized preload was ready
     lastFireAt: null, // performance.now() of the last fired transition
     autoOn: false,
@@ -602,8 +603,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     const id = state.activeDeck
     if (!id) return null
     const deck = decks[id]
-    const scratchDropPlaying = state.rescue && scratch[state.rescue.deck].active
-    if (deck.audible() || deck.playPending || restartingLoop(deck) || platterWillResume(deck) || scratchDropPlaying || state.breatherGap || state.waitingForNext ||
+    if (deck.audible() || deck.playPending || restartingLoop(deck) || platterWillResume(deck) || state.pendingEntry === id || state.breatherGap || state.waitingForNext ||
         (deck.el.ended && deck.wantsPlayback && state.autoOn && state.hint)) return id
     return audibleDeckId()
   }
@@ -720,6 +720,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     state.fireScale = fitScale(from, mode === "auto" ? state.hint : null, toMs)
     if (state.fireScale < 0.95) emit("transitionSqueezed", {type, factor: state.fireScale})
     const run = TRANSITIONS()[type] || cut
+    state.pendingEntry = to.id
     run(from, to, toMs, token)
     state.fireScale = 1
     handoff(from, to, event)
@@ -800,6 +801,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // both decks running): never seek or restart something audible. A deck the
   // DJ re-cued by hand keeps ITS position — the plan's to_ms is discarded.
   function startIncoming(to, toMs) {
+    state.pendingEntry = null
     if (to.audible()) return
     to.play(to._cued ? null : toMs)
     to._cued = false
@@ -1251,6 +1253,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     state.breatherGap = null
     state.waitingForNext = false
     state.rescue = null
+    state.pendingEntry = null
     return ++state.transitionToken
   }
 
@@ -1499,7 +1502,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // A scratch-drop transition owns the deck's worklet (active with no
     // auto-scratch): refuse the grab — the jog would fight its command stream
     // and its release would steal the transition's stop.
-    if (held && (deck.cueState || deck.stopBrake || (s.active && !autoScratch[deckId]))) return
+    if (held && (state.pendingEntry === deckId || deck.cueState || deck.stopBrake || (s.active && !autoScratch[deckId]))) return
     j.held = held
     if (deck.trackId == null) {
       if (!held) emit("deckFreed", {deck: deckId})
@@ -1579,6 +1582,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   function startAutoScratch(deckId, pattern) {
     const deck = decks[deckId]
     if (deck.trackId == null) return {ok: false, reason: "empty"}
+    if (state.pendingEntry === deckId) return {ok: false, reason: "busy"}
     if (deck.cueState || jog[deckId].held) return {ok: false, reason: "held"}
     stopAutoScratch(deckId)
     // Still active after the stop = a scratch-drop transition owns the deck
@@ -1769,7 +1773,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   function deckHeld(id) {
-    return Boolean(decks[id].cueState || jog[id].held || scratch[id].active)
+    return Boolean(state.pendingEntry === id || decks[id].cueState || jog[id].held || scratch[id].active)
   }
 
   function releaseDeck(deck) {
@@ -2055,7 +2059,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         if (held) releaseDeck(deck)
         return
       }
-      if (!deck.trackId || deck.cueState || jog[deckId].held || scratch[deckId].active) return
+      if (!deck.trackId || deckHeld(deckId)) return
       deck.cueState = "held"
       const atMs = Math.round(deck.platterTime() * 1000)
       if (deck.audible() || deck.playPending) {
