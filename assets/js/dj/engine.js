@@ -27,7 +27,7 @@
 // the headphones either as channels 3/4 of a 4-channel interface (DJ2GO2
 // Touch main = 1/2, phones = 3/4) or via a routable MediaStream element.
 
-import {getScratchPcm} from "./waveform.js"
+import {getScratchPcm, retainScratch} from "./waveform.js"
 import {ensureScratchModule, scratchPattern} from "./scratch.js"
 
 const RAMP = Object.freeze({
@@ -218,6 +218,7 @@ class Deck {
     this.el.load()
     this._pendingSeekMs = atMs
     this._readyToken = token
+    retainScratch(this, track.id)
     return true
   }
 
@@ -2168,6 +2169,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       deck.durationMs = null
       deck.el.removeAttribute("src")
       deck.el.load()
+      retainScratch(deck, null)
       resetChain(deck)
       if (state.hint && state.hint.deck === deckId) this.clearHint()
       return true
@@ -2315,6 +2317,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       xfadeGlide++
       cancelAnimationFrame(xfadeAnim)
       for (const d of ["a", "b"]) {
+        retainScratch(decks[d], null)
         if (loopTimers[d]) clearInterval(loopTimers[d])
         if (jog[d].decay) clearInterval(jog[d].decay)
         // Scratch timers outlive the hook otherwise (setInterval keeps posting
