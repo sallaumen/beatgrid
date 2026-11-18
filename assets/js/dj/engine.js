@@ -1783,6 +1783,62 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     return deck.audible() || deck.playPending || restartingLoop(deck) || deckHeld(id)
   }
 
+  // Panic rescue: undo a transition that just fired — the outgoing deck comes
+  // back on air with a neutral chain, the incoming is pulled off, and the
+  // server hears transitionCancelled to rewind the set pointer.
+  function cancelTransition({keepFader = false} = {}) {
+    if (!state.lastFireAt || performance.now() - state.lastFireAt > 30_000) {
+      return {ok: false, reason: "nothing"}
+    }
+    const rescue = state.rescue
+    if (!rescue) return {ok: false, reason: "nothing"}
+    const rescued = decks[rescue.deck]
+    const dropped = decks[otherId(rescue.deck)]
+    if (!rescued.trackId || rescued.loadToken !== rescue.load) return {ok: false, reason: "nothing"}
+    interruptTransition() // cancels every scheduled pause/ramp of the fired run
+    settleTransitionParams(rescued)
+    settleTransitionParams(dropped)
+    const now = ctx.currentTime
+    rescued.gain.gain.linearRampToValueAtTime(1, now + 0.25)
+    rescued.dry.gain.linearRampToValueAtTime(1, now + 0.25)
+    rescued.echoSend.gain.linearRampToValueAtTime(0, now + 0.25)
+    rescued.hpf.frequency.linearRampToValueAtTime(10, now + 0.2)
+    rescued.lpf.frequency.linearRampToValueAtTime(20_000, now + 0.2)
+    // A brake mid-flight left the rate collapsed — restore the deck's own.
+    rescued.el.preservesPitch = !rescued.vinylMode
+    rescued.el.playbackRate = rescued.baseRate
+    if (rescued.el.paused) rescued.play()
+    dropped.pause()
+    setCrossfader(keepFader ? xfade.pos : sideOf(rescued.id))
+    rescued._seekGuard = true
+    state.activeDeck = rescued.id
+    state.firedForTrack = null
+    state.postponeMs = 0
+    state.lastFireAt = null
+    emit("fxReset", {deck: rescued.id})
+    emit("transitionCancelled", {trackId: rescued.trackId, deck: rescued.id})
+    return {ok: true}
+  }
+
+  function pauseTransport(deck) {
+    const other = decks[otherId(deck.id)]
+    if (state.activeDeck === deck.id && other.audible() && !other.cueState) {
+      // Restore the mix to the outgoing deck, respecting a manual fader takeover.
+      const keepFader = state.faderVersion !== faderVersion
+      if (state.rescue?.deck === other.id && cancelTransition({keepFader}).ok) return
+      state.activeDeck = other.id
+      state.hint = null
+      state.firedForTrack = null
+      emit("deckStarted", {deck: other.id, trackId: other.trackId})
+    } else if (state.activeDeck === deck.id && state.breatherGap) {
+      interruptTransition()
+      settleTransitionParams(deck)
+      neutralizeIncoming(deck, "cut")
+      state.firedForTrack = null
+    }
+    deck.pause()
+  }
+
   watchOutgoing(decks.a)
   watchOutgoing(decks.b)
   wireOutputs()
@@ -1957,42 +2013,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       return {ok: true, type: transition.type || "cut"}
     },
 
-    // Panic rescue: undo a transition that just fired — the outgoing deck comes
-    // back on air with a neutral chain, the incoming is pulled off, and the
-    // server hears transitionCancelled to rewind the set pointer.
-    cancelTransition({keepFader = false} = {}) {
-      if (!state.lastFireAt || performance.now() - state.lastFireAt > 30_000) {
-        return {ok: false, reason: "nothing"}
-      }
-      const rescue = state.rescue
-      if (!rescue) return {ok: false, reason: "nothing"}
-      const rescued = decks[rescue.deck]
-      const dropped = decks[otherId(rescue.deck)]
-      if (!rescued.trackId || rescued.loadToken !== rescue.load) return {ok: false, reason: "nothing"}
-      interruptTransition() // cancels every scheduled pause/ramp of the fired run
-      settleTransitionParams(rescued)
-      settleTransitionParams(dropped)
-      const now = ctx.currentTime
-      rescued.gain.gain.linearRampToValueAtTime(1, now + 0.25)
-      rescued.dry.gain.linearRampToValueAtTime(1, now + 0.25)
-      rescued.echoSend.gain.linearRampToValueAtTime(0, now + 0.25)
-      rescued.hpf.frequency.linearRampToValueAtTime(10, now + 0.2)
-      rescued.lpf.frequency.linearRampToValueAtTime(20_000, now + 0.2)
-      // A brake mid-flight left the rate collapsed — restore the deck's own.
-      rescued.el.preservesPitch = !rescued.vinylMode
-      rescued.el.playbackRate = rescued.baseRate
-      if (rescued.el.paused) rescued.play()
-      dropped.pause()
-      setCrossfader(keepFader ? xfade.pos : sideOf(rescued.id))
-      rescued._seekGuard = true
-      state.activeDeck = rescued.id
-      state.firedForTrack = null
-      state.postponeMs = 0
-      state.lastFireAt = null
-      emit("fxReset", {deck: rescued.id})
-      emit("transitionCancelled", {trackId: rescued.trackId, deck: rescued.id})
-      return {ok: true}
-    },
+    cancelTransition,
 
     playPause(deckId) {
       const deck = decks[deckId]
@@ -2001,13 +2022,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       const latchPreview = deck.cueState === "preview"
       deck.cueState = null
       if (!latchPreview && (deck.audible() || deck.playPending)) {
-        if (state.breatherGap) {
-          interruptTransition()
-          settleTransitionParams(deck)
-          neutralizeIncoming(deck, "cut")
-          state.firedForTrack = null
-        }
-        deck.pause()
+        pauseTransport(deck)
       } else if (deck.trackId) {
         // Manual restart takes ownership: cancel stale transition cleanups and
         // resume with a SANE chain — a stop mid-echo/filter may have frozen
@@ -2045,21 +2060,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       deck.cueState = "held"
       const atMs = Math.round(deck.platterTime() * 1000)
       if (deck.audible() || deck.playPending) {
-        const other = decks[otherId(deckId)]
-        if (state.activeDeck === deckId && other.audible() && !other.cueState) {
-          if (!this.cancelTransition({keepFader: true}).ok) {
-            state.activeDeck = other.id
-            state.hint = null
-            state.firedForTrack = null
-            emit("deckStarted", {deck: other.id, trackId: other.trackId})
-          }
-        } else if (state.breatherGap && state.activeDeck === deckId) {
-          interruptTransition()
-          settleTransitionParams(deck)
-          neutralizeIncoming(deck, "cut")
-          state.firedForTrack = null
-        }
-        deck.pause()
+        pauseTransport(deck)
         this.cueTo(deckId, deck.cueMs)
       } else if ((deck._cued || deck._pendingSeekMs == null) && Math.abs(atMs - deck.cueMs) > 20) {
         deck.cueMs = atMs
