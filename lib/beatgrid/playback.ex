@@ -31,7 +31,7 @@ defmodule Beatgrid.Playback do
   @doc "Subscribe the caller to cue-point marker changes (`{:markers_changed, track_id}`)."
   defdelegate subscribe_markers(), to: NowPlaying
 
-  @doc "Broadcast `{:markers_changed, track_id}` to the player + that track's page."
+  @doc "Broadcast a track's marker changes to the player, track page and DJ console."
   defdelegate broadcast_markers_changed(track_id), to: NowPlaying
 
   @doc "Pause background work while a set is actively playing."

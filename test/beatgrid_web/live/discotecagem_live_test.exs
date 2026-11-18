@@ -4,6 +4,8 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
   import Phoenix.LiveViewTest
   import Beatgrid.Factory
 
+  alias Beatgrid.Library.Tracks
+  alias Beatgrid.Playback
   alias Beatgrid.Sets
 
   defp set_with_tracks(names_bpms) do
@@ -304,6 +306,24 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert render(view) =~ "Convidada"
   end
 
+  test "saved marker edits reach a loaded deck without loading its audio again", %{conn: conn} do
+    {set, [track]} = set_with_tracks([{"Um", 120.0}])
+    view = open_console(conn, set)
+    id = track.id
+    render_hook(view, "deck_loaded", %{"deck" => "b", "track_id" => id})
+
+    {:ok, updated} = Tracks.add_marker(track, 3500, "Entrada")
+    Playback.broadcast_markers_changed(id)
+    expected = updated.cue_points
+    assert_push_event(view, "dj_markers", %{track_id: ^id, markers: ^expected})
+
+    {:ok, updated} = Tracks.remove_marker(updated, 3500)
+    Playback.broadcast_markers_changed(id)
+    expected = updated.cue_points
+    assert_push_event(view, "dj_markers", %{track_id: ^id, markers: ^expected})
+    refute_push_event(view, "dj_load", %{})
+  end
+
   test "console_resync adopts the client's playing state", %{conn: conn} do
     {set, [a, b]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}])
     view = open_console(conn, set)
@@ -330,6 +350,11 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     view = open_console(conn, set)
 
     render_hook(view, "console_resync", %{"decks" => %{"a" => a.id, "b" => b.id}, "auto" => false})
+
+    for track <- [a, b] do
+      assert_push_event(view, "dj_markers", %{track_id: id, markers: markers})
+      assert {id, markers} == {track.id, track.cue_points}
+    end
 
     for {deck, track} <- [{"a", a}, {"b", b}] do
       assert has_element?(

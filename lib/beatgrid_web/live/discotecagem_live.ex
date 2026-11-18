@@ -36,6 +36,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    if connected?(socket), do: Playback.subscribe_markers()
+
     {:ok,
      socket
      |> assign(
@@ -427,6 +429,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
     end
   end
 
+  # The browser also holds unacknowledged loads and deferred hints. Send the
+  # marker delta by track ID so it reaches those as well as either platter.
+  def handle_info({:markers_changed, id}, socket) do
+    {:noreply, push_markers(socket, Tracks.get(id))}
+  end
+
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   # Saiu da página com a mesa no ar: o áudio morre junto (elementos locais),
@@ -522,10 +530,18 @@ defmodule BeatgridWeb.DiscotecagemLive do
   defp assign_deck(socket, "b", track), do: assign(socket, deck_b: track)
 
   defp restore_loaded_decks(socket, %{"a" => a, "b" => b}) do
-    socket |> assign_deck("a", get_track(a)) |> assign_deck("b", get_track(b))
+    a = get_track(a)
+    b = get_track(b)
+    socket = socket |> assign_deck("a", a) |> assign_deck("b", b) |> push_markers(a)
+    if a == b, do: socket, else: push_markers(socket, b)
   end
 
   defp restore_loaded_decks(socket, _decks), do: socket
+
+  defp push_markers(socket, nil), do: socket
+
+  defp push_markers(socket, track),
+    do: push_event(socket, "dj_markers", %{track_id: track.id, markers: track.cue_points || []})
 
   defp assign_deck_by_id(socket, deck, id) do
     current = if deck == "a", do: socket.assigns.deck_a, else: socket.assigns.deck_b
@@ -1482,6 +1498,17 @@ defmodule BeatgridWeb.DiscotecagemLive do
             })
             this.handleEvent("dj_set", ({id}) => {
               this.setId = id
+            })
+            this.handleEvent("dj_markers", ({track_id, markers}) => {
+              for (const request of [this.pendingLoad, this.pendingHint, this.hint]) {
+                if (request?.track.id === track_id) request.track.markers = markers
+              }
+              for (const d of ["a", "b"]) {
+                const track = this.tracks[d]
+                if (track?.id !== track_id) continue
+                track.markers = markers
+                this.renderMarkers(d, track)
+              }
             })
             this.handleEvent("dj_eject", ({deck}) => {
               if (!this.engine.eject(deck)) {

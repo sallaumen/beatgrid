@@ -62,8 +62,8 @@ defmodule Beatgrid.Playback.NowPlaying do
   def subscribe_markers, do: PubSub.subscribe(Beatgrid.PubSub, @markers_topic)
 
   @doc """
-  Broadcast `{:markers_changed, track_id}` so the player and that track's page reload
-  the cue points. On a dedicated topic so the broader now-playing subscribers are spared.
+  Broadcast `{:markers_changed, track_id}` so the player, track page and DJ console
+  can refresh cue points. Other now-playing subscribers use a separate topic.
   """
   @spec broadcast_markers_changed(term()) :: :ok
   def broadcast_markers_changed(track_id),
