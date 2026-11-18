@@ -1208,6 +1208,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
       <script :type={Phoenix.LiveView.ColocatedHook} name=".DjConsole">
         import {createEngine} from "@/js/dj/engine.js"
+        import {hotCues} from "@/js/dj/hot_cues.js"
         import {loadPeaks, drawWave} from "@/js/dj/waveform.js"
 
         const ACCENTS = {a: "#8b7bf0", b: "#2d9cff"}
@@ -2087,7 +2088,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 marks.appendChild(tick)
               })
             }
-            const pads = (track.markers || []).slice().sort((x, y) => x.ms - y.ms).slice(0, 4)
+            const pads = hotCues(track.markers)
             for (let n = 1; n <= 4; n++) {
               const pad = byId(`dj-pad-${d}-${n}`)
               const lab = byId(`dj-padlab-${d}-${n}`)
