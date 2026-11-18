@@ -125,48 +125,48 @@ defmodule Beatgrid.Library.Tracks do
           {:ok, Track.t()} | {:error, Ecto.Changeset.t()}
   def add_marker(track, position_ms, label \\ nil) do
     marker = %{"ms" => position_ms, "label" => label}
-    save_cues(track, Enum.sort_by((track.cue_points || []) ++ [marker], & &1["ms"]))
+    edit_cues(track, fn cues -> Enum.sort_by([marker | cues], & &1["ms"]) end)
   end
 
   @doc "Removes the cue-point marker at `position_ms`."
   @spec remove_marker(Track.t(), non_neg_integer()) ::
           {:ok, Track.t()} | {:error, Ecto.Changeset.t()}
   def remove_marker(track, position_ms) do
-    save_cues(track, Enum.reject(track.cue_points || [], &(&1["ms"] == position_ms)))
+    edit_cues(track, fn cues -> Enum.reject(cues, &(&1["ms"] == position_ms)) end)
   end
 
   @doc "Sets the label of the marker at `position_ms`; a blank label clears it. Unknown position is a no-op."
   @spec rename_marker(Track.t(), non_neg_integer(), String.t() | nil) ::
           {:ok, Track.t()} | {:error, Ecto.Changeset.t()}
   def rename_marker(track, position_ms, label) do
-    cues =
-      Enum.map(track.cue_points || [], fn
+    edit_cues(track, fn cues ->
+      Enum.map(cues, fn
         %{"ms" => ^position_ms} = marker -> Map.put(marker, "label", normalize_label(label))
         marker -> marker
       end)
-
-    save_cues(track, cues)
+    end)
   end
 
   @doc "Sets the `type` (coerced via `Marker.normalize_type`) of the marker at `position_ms`."
   @spec set_marker_type(Track.t(), non_neg_integer(), String.t()) ::
           {:ok, Track.t()} | {:error, Ecto.Changeset.t()}
   def set_marker_type(track, position_ms, type) do
-    cues =
-      Enum.map(track.cue_points || [], fn
+    edit_cues(track, fn cues ->
+      Enum.map(cues, fn
         %{"ms" => ^position_ms} = marker -> Map.put(marker, "type", Marker.normalize_type(type))
         marker -> marker
       end)
-
-    save_cues(track, cues)
+    end)
   end
 
   @doc "Replaces all auto-source markers with `auto_markers`, keeping manual ones, sorted by ms."
   @spec replace_auto_markers(Track.t(), [map()]) ::
           {:ok, Track.t()} | {:error, Ecto.Changeset.t()}
   def replace_auto_markers(track, auto_markers) do
-    manual = Enum.reject(track.cue_points || [], &Marker.auto?/1)
-    save_cues(track, Enum.sort_by(manual ++ auto_markers, & &1["ms"]))
+    edit_cues(track, fn cues ->
+      manual = Enum.reject(cues, &Marker.auto?/1)
+      Enum.sort_by(manual ++ auto_markers, & &1["ms"])
+    end)
   end
 
   defp normalize_label(nil), do: nil
@@ -178,7 +178,21 @@ defmodule Beatgrid.Library.Tracks do
     end
   end
 
-  defp save_cues(track, cues), do: track |> Track.changeset(%{cue_points: cues}) |> Repo.update()
+  defp edit_cues(track, edit) do
+    Repo.transact(fn ->
+      case TrackQuery.locked_cues(track.id) do
+        nil ->
+          {:error,
+           track |> Ecto.Changeset.change() |> Ecto.Changeset.add_error(:id, "is missing")}
+
+        %{cue_points: cues} ->
+          # Keep associations the caller loaded; compare against the locked cue list.
+          %{track | cue_points: cues}
+          |> Track.changeset(%{cue_points: edit.(cues || [])})
+          |> Repo.update()
+      end
+    end)
+  end
 
   @spec count(keyword()) :: non_neg_integer()
   def count(opts \\ []), do: TrackQuery.count(opts)

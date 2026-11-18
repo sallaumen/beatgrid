@@ -30,6 +30,14 @@ defmodule Beatgrid.Library.TrackQuery do
   @spec get(Ecto.UUID.t()) :: Track.t() | nil
   def get(id), do: Repo.get(Track, id)
 
+  @doc "Reads and locks only the cue list for a marker edit within a transaction."
+  @spec locked_cues(Ecto.UUID.t()) :: %{cue_points: list() | nil} | nil
+  def locked_cues(id) do
+    Repo.one(
+      from t in Track, where: t.id == ^id, select: map(t, [:cue_points]), lock: "FOR UPDATE"
+    )
+  end
+
   @spec get_with_song(Ecto.UUID.t()) :: Track.t() | nil
   def get_with_song(id) do
     case Repo.get(Track, id) do
