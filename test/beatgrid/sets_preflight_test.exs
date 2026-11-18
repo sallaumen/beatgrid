@@ -84,6 +84,32 @@ defmodule Beatgrid.SetsPreflightTest do
     assert Sets.preflight(set).issues == []
   end
 
+  test "preflight follows the actual exit when a DJ teaches a pair or protects its ending" do
+    [a, b] =
+      for name <- ["x", "y"] do
+        rel = "#{name}.mp3"
+        File.write!(Path.join(Library.library_root(), rel), "x")
+        insert(:track, rel_path: rel, bpm_detected: 112.0, duration_ms: 180_000, cue_points: [])
+      end
+
+    {:ok, set} = Sets.create_filled("Baile", [a, b])
+    assert [%{position: 1, problems: [:sem_saida]}] = Sets.preflight(set).issues
+    assert {:ok, 120_000} = Sets.learn_fire_point(set.id, b.id, a.id, 120_000)
+    assert Sets.preflight(set).issues == []
+
+    protected =
+      insert(:track,
+        rel_path: "fim.mp3",
+        bpm_detected: 112.0,
+        sacred_ending: true,
+        duration_ms: 180_000
+      )
+
+    File.write!(Path.join(Library.library_root(), protected.rel_path), "x")
+    {:ok, other} = Sets.create_filled("Final", [protected, b])
+    assert Sets.preflight(other).issues == []
+  end
+
   test "a clean set reports zero issues" do
     {:ok, set} = Sets.create("Limpa")
     root = Library.library_root()

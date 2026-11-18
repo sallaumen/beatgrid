@@ -4,7 +4,7 @@ defmodule BeatgridWeb.RecSetLive do
 
   import BeatgridWeb.UI
 
-  alias Beatgrid.Library.{GenreFolders, Marker, TrackQuery, Tracks}
+  alias Beatgrid.Library.{GenreFolders, TrackQuery, Tracks}
   alias Beatgrid.Mixing
   alias Beatgrid.Mixing.StyleAffinity
   alias Beatgrid.Playback
@@ -99,25 +99,21 @@ defmodule BeatgridWeb.RecSetLive do
     entries
     |> Enum.chunk_every(2, 1, :discard)
     |> Map.new(fn [prev, this] ->
-      timing = Sets.pair_timing(prev.track, this)
-      {this.track.id, Map.put(timing, :has_outro?, Marker.outro(prev.track) != nil)}
+      {this.track.id, Sets.pair_timing(prev.track, this)}
     end)
   end
 
   defp pair_summary(%{from_ms: from, to_ms: to} = timing) do
     exit_label =
-      cond do
-        timing.learned? -> "sai #{format_ms(from)} 📌"
-        timing.has_outro? -> "sai #{format_ms(from)}"
-        true -> "sai ~fim"
+      case timing do
+        %{source: :fallback} -> "sai ~fim"
+        %{source: :learned} -> "sai #{format_ms(from)} 📌"
+        %{from_ms: nil} -> "sai no fim"
+        _ -> "sai #{format_ms(from)}"
       end
 
     "#{exit_label} · entra #{format_ms(to)}"
   end
-
-  # A pair with no outro normally exits blind (~fim) — unless the DJ already
-  # taught it a real exit point.
-  defp pair_warns?(timing), do: not (timing.has_outro? or timing.learned?)
 
   defp reload(socket), do: load_set(socket, Sets.get(socket.assigns.set.id))
 
@@ -916,9 +912,10 @@ defmodule BeatgridWeb.RecSetLive do
                     :if={transition_on?(e) && @pair_timings[e.track.id]}
                     class={[
                       "whitespace-nowrap font-mono text-[9px]",
-                      (pair_warns?(@pair_timings[e.track.id]) && "text-amber") || "text-ink-faint"
+                      (@pair_timings[e.track.id].source == :fallback && "text-amber") ||
+                        "text-ink-faint"
                     ]}
-                    title="Pontos derivados dos marcadores ATUAIS da faixa que sai e da que entra — é aqui que o console dispara e onde a próxima começa. '~fim' = sem marcador de saída, corte na janela final."
+                    title="Saída da faixa atual e entrada da próxima. ~fim indica uma saída estimada."
                   >
                     {pair_summary(@pair_timings[e.track.id])}
                   </span>

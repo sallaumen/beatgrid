@@ -17,22 +17,23 @@ defmodule Beatgrid.Sets.TransitionTiming do
 
   @doc "The effective exit, entry and learned flag for a connected pair."
   @spec resolve(Library.Track.t(), Library.Track.t(), map() | nil) :: map()
-  def resolve(outgoing, incoming, %{"breather" => true}) do
-    %{from_ms: breather_from(outgoing), to_ms: derived_to_ms(incoming), learned?: false}
-  end
-
   def resolve(outgoing, incoming, transition) do
-    learned = learned_from(transition || %{}, outgoing)
-
-    %{
-      from_ms: mix_out(outgoing, learned),
-      to_ms: derived_to_ms(incoming),
-      learned?: not is_nil(learned)
-    }
+    {ms, source} = exit_point(outgoing, transition)
+    %{from_ms: ms, to_ms: derived_to_ms(incoming), learned?: source == :learned, source: source}
   end
 
-  defp mix_out(outgoing, learned),
-    do: learned || sacred_from(outgoing) || clamped_derived_from(outgoing)
+  @doc "The exit position and the decision responsible for it, shared with the set checks."
+  @spec exit_point(Library.Track.t(), map() | nil) ::
+          {non_neg_integer() | nil, :breather | :learned | :protected | :marker | :fallback}
+  def exit_point(outgoing, %{"breather" => true}), do: {breather_from(outgoing), :breather}
+
+  def exit_point(outgoing, transition) do
+    cond do
+      ms = learned_from(transition || %{}, outgoing) -> {ms, :learned}
+      ms = sacred_from(outgoing) -> {ms, :protected}
+      true -> marker_exit(outgoing)
+    end
+  end
 
   @doc """
   The fire/entry points the console will derive RIGHT NOW for mixing
@@ -42,7 +43,8 @@ defmodule Beatgrid.Sets.TransitionTiming do
   @spec derived_timing(Library.Track.t(), Library.Track.t()) ::
           %{from_ms: non_neg_integer() | nil, to_ms: non_neg_integer()}
   def derived_timing(outgoing, incoming) do
-    %{from_ms: clamped_derived_from(outgoing), to_ms: derived_to_ms(incoming)}
+    {ms, _source} = marker_exit(outgoing)
+    %{from_ms: ms, to_ms: derived_to_ms(incoming)}
   end
 
   # Uma fronteira de respiro não aprende: o ponto dela é o FIM da música por
@@ -52,7 +54,7 @@ defmodule Beatgrid.Sets.TransitionTiming do
 
   def learnable?(at_ms, transition, %{duration_ms: dur} = outgoing)
       when is_integer(dur) and dur > 0 do
-    current = mix_out(outgoing, learned_from(transition, outgoing))
+    {current, _source} = exit_point(outgoing, transition)
 
     at_ms * 2 >= dur and at_ms < dur and abs(at_ms - current) >= @learn_min_delta_ms
   end
@@ -83,9 +85,16 @@ defmodule Beatgrid.Sets.TransitionTiming do
 
   defp learned_from(_transition, _outgoing), do: nil
 
-  defp clamped_derived_from(outgoing) do
-    %{"from_ms" => from} = clamp_from(%{"from_ms" => derived_from_ms(outgoing)}, outgoing)
-    from
+  defp marker_exit(%{duration_ms: dur} = outgoing) when is_integer(dur) and dur > 0 do
+    {ms, source} = trusted_exit(derived_from_ms(outgoing), dur)
+    {ms |> min(dur - @min_tail_ms) |> max(0), source}
+  end
+
+  defp marker_exit(outgoing) do
+    case derived_from_ms(outgoing) do
+      nil -> {nil, :fallback}
+      ms -> {ms, :marker}
+    end
   end
 
   defp derived_from_ms(outgoing) do
@@ -104,20 +113,7 @@ defmodule Beatgrid.Sets.TransitionTiming do
     end
   end
 
-  defp clamp_from(transition, %{duration_ms: dur}) when is_integer(dur) and dur > 0 do
-    from =
-      transition["from_ms"]
-      |> trusted_from(dur)
-      |> min(dur - @min_tail_ms)
-      |> max(0)
-
-    Map.put(transition, "from_ms", from)
-  end
-
-  defp clamp_from(transition, _outgoing), do: transition
-
-  # An outro in the front 70% of the track is noise (the old "salto no meio"),
-  # not a mix-out point — fall back to the end window, same as no marker at all.
-  defp trusted_from(from, dur) when is_integer(from) and from * 10 >= dur * 7, do: from
-  defp trusted_from(_untrusted, dur), do: dur - @default_outro_window_ms
+  # Only a marker in the final 30% is usable as a mix-out point.
+  defp trusted_exit(ms, dur) when is_integer(ms) and ms * 10 >= dur * 7, do: {ms, :marker}
+  defp trusted_exit(_untrusted, dur), do: {dur - @default_outro_window_ms, :fallback}
 end

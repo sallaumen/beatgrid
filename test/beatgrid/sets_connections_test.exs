@@ -602,11 +602,23 @@ defmodule Beatgrid.SetsConnectionsTest do
       {set, a, b} = connected_pair()
 
       entry_b = Enum.find(Sets.entries(set), &(&1.track.id == b.id))
-      assert Sets.pair_timing(a, entry_b) == %{from_ms: 180_000, to_ms: 4_000, learned?: false}
+
+      assert Sets.pair_timing(a, entry_b) == %{
+               from_ms: 180_000,
+               to_ms: 4_000,
+               learned?: false,
+               source: :marker
+             }
 
       {:ok, _} = Sets.learn_fire_point(set.id, b.id, a.id, 120_000)
       entry_b = Enum.find(Sets.entries(set), &(&1.track.id == b.id))
-      assert Sets.pair_timing(a, entry_b) == %{from_ms: 120_000, to_ms: 4_000, learned?: true}
+
+      assert Sets.pair_timing(a, entry_b) == %{
+               from_ms: 120_000,
+               to_ms: 4_000,
+               learned?: true,
+               source: :learned
+             }
     end
   end
 
