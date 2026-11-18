@@ -91,7 +91,26 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     end
   end
 
-  test "✈ Checar runs the pre-trip check and the report can be dismissed", %{conn: conn} do
+  test "the preparation report follows the selected set and its disclosure button", %{conn: conn} do
+    {set, _tracks} = set_with_tracks([{"Um", 100.0}])
+    view = open_console(conn, set)
+
+    view |> element("button[phx-click=preflight]") |> render_click()
+    assert has_element?(view, ~s(button[aria-expanded=true][aria-controls=dj-preflight]))
+    assert has_element?(view, "#dj-preflight", "arquivo sumido do disco")
+
+    view |> element("button[aria-controls=dj-preflight]") |> render_click()
+    refute has_element?(view, "#dj-preflight")
+    assert has_element?(view, "button[phx-click=preflight][aria-expanded=false]")
+
+    view |> element("button[phx-click=preflight]") |> render_click()
+    view |> form("#dj-set-picker", %{set_id: ""}) |> render_change()
+    refute has_element?(view, "#dj-preflight")
+    refute has_element?(view, "button[phx-click=play_set]")
+    assert has_element?(view, "button[phx-click=stop_all]")
+  end
+
+  test "checking a set reports missing audio and the report can be dismissed", %{conn: conn} do
     {set, [_a, _b]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}])
     view = open_console(conn, set)
 
