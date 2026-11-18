@@ -7,6 +7,7 @@ defmodule Beatgrid.Sets.RecSet do
   alias Beatgrid.Sets.SetTrack
 
   @type t :: %__MODULE__{}
+  @max_name_length 255
 
   @primary_key {:id, Uniq.UUID, autogenerate: true, version: 7, type: :uuid}
   @foreign_key_type Uniq.UUID
@@ -26,5 +27,14 @@ defmodule Beatgrid.Sets.RecSet do
     rec_set
     |> cast(attrs, [:name, :target_style])
     |> validate_required([:name])
+    |> validate_length(:name, max: @max_name_length, count: :codepoints)
+  end
+
+  @doc "Adds the copy suffix within the database's character limit."
+  @spec copy_name(String.t()) :: String.t()
+  def copy_name(name) do
+    suffix = " (cópia)"
+    prefix = name |> String.codepoints() |> Enum.take(@max_name_length - String.length(suffix))
+    Enum.join(prefix) <> suffix
   end
 end
