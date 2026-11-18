@@ -37,6 +37,18 @@ defmodule Beatgrid.SetsBreatherSettingsTest do
     assert Sets.entry_after(set.id, a.id).transition["gap_ms"] == 7_500
   end
 
+  test "cadence follows audible order when a library deletion leaves a hole" do
+    {set, [removed, a, b, c]} = breather_set(4)
+    {:ok, _} = Settings.put(:breather_every, 2)
+    Beatgrid.Repo.delete!(removed)
+
+    refute Sets.entry_after(set.id, a.id).transition["breather"]
+    assert Sets.entry_after(set.id, b.id).track.id == c.id
+    assert Sets.entry_after(set.id, b.id).transition["breather"]
+    refute Sets.breather?(%{position: 1, transition: %{"enabled" => true, "breather" => true}})
+    refute Sets.breather?(%{position: 3, transition: %{"enabled" => false, "breather" => true}})
+  end
+
   test "the /ajustes cadence decides the breathers BY POSITION at read time" do
     {set, _tracks} = breather_set(5)
     {:ok, _} = Sets.connect_all(set)

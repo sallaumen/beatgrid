@@ -10,6 +10,7 @@ defmodule Beatgrid.Sets do
   # membership delete mutation below.
   import Ecto.Query, only: [where: 3]
 
+  alias Beatgrid.Error
   alias Beatgrid.Library
   alias Beatgrid.Library.{Marker, TrackQuery}
   alias Beatgrid.Mixing
@@ -76,6 +77,9 @@ defmodule Beatgrid.Sets do
           required(:transition) => map() | nil,
           optional(any()) => any()
         }) :: boolean()
+  def breather?(%{position: 1}), do: false
+  def breather?(%{transition: %{"enabled" => false}}), do: false
+
   def breather?(%{position: pos, transition: transition}) do
     t = transition || %{}
 
@@ -175,16 +179,45 @@ defmodule Beatgrid.Sets do
   playback facts a deck needs (effective BPM, duration, markers). Nil when current
   is last or not a member. Fresh-read every call: a pointer, never a plan.
   """
-  @spec entry_after(Ecto.UUID.t(), Ecto.UUID.t()) :: map() | nil
-  def entry_after(set_id, current_track_id) when is_binary(set_id) do
-    entries = RecSetQuery.ordered_entries(set_id)
+  @spec entry_after(Ecto.UUID.t(), Ecto.UUID.t(), Library.Track.t() | nil) :: map() | nil
+  def entry_after(set_id, current_track_id, outgoing \\ nil) when is_binary(set_id) do
+    set_id
+    |> RecSetQuery.ordered_entries()
+    |> Enum.drop_while(&(&1.track.id != current_track_id))
+    |> following_hint(outgoing)
+  end
 
-    with idx when is_integer(idx) <-
-           Enum.find_index(entries, &(&1.track.id == current_track_id)),
-         %{} = next <- Enum.at(entries, idx + 1) do
-      build_hint(Enum.at(entries, idx).track, next)
-    else
-      _ -> nil
+  defp following_hint([current, next | _], nil), do: build_hint(current.track, next)
+
+  # A skipped preload never went on air. Bind any legacy learning to its
+  # original predecessor before timing this transition from the real source.
+  defp following_hint(
+         [current, %{transition: %{"learned_from_ms" => _} = decision} = next | _],
+         outgoing
+       ) do
+    bound = Map.put_new(decision, "learned_from_track_id", current.track.id)
+    build_hint(outgoing, %{next | transition: bound})
+  end
+
+  defp following_hint([_current, next | _], outgoing), do: build_hint(outgoing, next)
+  defp following_hint(_no_successor, _outgoing), do: nil
+
+  @doc """
+  Resolves the next hint in a refreshed queue, using the track actually on air
+  for timing. If it was removed, resume after its nearest surviving predecessor.
+  An empty predecessor list identifies a removed opener.
+  """
+  @spec live_hint(list(), Library.Track.t(), [Ecto.UUID.t()] | nil) :: map() | nil
+  def live_hint(entries, outgoing, predecessors) do
+    case Enum.drop_while(entries, &(&1.track.id != outgoing.id)) do
+      [] when is_list(predecessors) ->
+        positions = Map.new(entries, &{&1.track.id, &1.position})
+        prior_position = Enum.find_value(predecessors, 0, &positions[&1])
+
+        if next = Enum.at(entries, prior_position), do: build_hint(outgoing, next)
+
+      current_and_rest ->
+        following_hint(current_and_rest, nil)
     end
   end
 
@@ -302,6 +335,9 @@ defmodule Beatgrid.Sets do
   # O ponto que o DJ ensinou (um disparo real) vence o derivado dos marcadores;
   # só o clamp de cauda se aplica — o piso dos 70% protege contra marcador
   # automático ruim, não contra escolha humana.
+  defp learned_from(%{"learned_from_track_id" => expected}, %{id: id}) when expected != id,
+    do: nil
+
   defp learned_from(%{"learned_from_ms" => ms}, %{duration_ms: dur})
        when is_integer(ms) and is_integer(dur) and dur > 0,
        do: ms |> min(dur - @min_tail_ms) |> max(0)
@@ -407,36 +443,45 @@ defmodule Beatgrid.Sets do
     end)
   end
 
-  @spec rename(RecSet.t(), String.t()) :: {:ok, RecSet.t()} | {:error, Ecto.Changeset.t()}
-  def rename(set, name), do: set |> RecSet.changeset(%{name: name}) |> Repo.update()
+  @spec rename(RecSet.t(), String.t()) ::
+          {:ok, RecSet.t()} | {:error, Ecto.Changeset.t() | Error.t()}
+  def rename(set, name), do: update_set(set, %{name: name})
 
   @doc "Sets the set's target style (genre-folder key) — the anchor for style scoring."
   @spec set_target_style(RecSet.t(), String.t() | nil) ::
-          {:ok, RecSet.t()} | {:error, Ecto.Changeset.t()}
-  def set_target_style(set, key),
-    do: set |> RecSet.changeset(%{target_style: key}) |> Repo.update()
+          {:ok, RecSet.t()} | {:error, Ecto.Changeset.t() | Error.t()}
+  def set_target_style(set, key), do: update_set(set, %{target_style: key})
 
-  @spec delete(RecSet.t()) :: {:ok, RecSet.t()} | {:error, Ecto.Changeset.t()}
-  def delete(set), do: Repo.delete(set)
+  defp update_set(%RecSet{id: id}, attrs) do
+    with_locked_set(id, fn set -> set |> RecSet.changeset(attrs) |> Repo.update() end)
+  end
+
+  @spec delete(RecSet.t()) :: {:ok, RecSet.t()} | {:error, Ecto.Changeset.t() | Error.t()}
+  def delete(%RecSet{id: id}), do: with_locked_set(id, &Repo.delete/1)
 
   @doc """
   Duplicates a set into a fresh `"<name> (cópia)"` — same target style and every
   entry copied verbatim (track, position, role, transition). A real backup: the
   copy and the original share no rows, so editing one never touches the other.
   """
-  @spec duplicate(RecSet.t()) :: {:ok, RecSet.t()} | {:error, Ecto.Changeset.t()}
+  @spec duplicate(RecSet.t()) :: {:ok, RecSet.t()} | {:error, Ecto.Changeset.t() | Error.t()}
   def duplicate(%RecSet{id: id}) do
-    # Read the source fresh so a stale in-memory struct still copies the current
-    # name/target_style/rows.
-    %RecSet{name: name, target_style: style} = RecSetQuery.get(id)
-
-    Repo.transact(fn ->
+    with_locked_set(id, fn %{name: name, target_style: style} ->
       with {:ok, copy} <-
              %RecSet{}
-             |> RecSet.changeset(%{name: "#{name} (cópia)", target_style: style})
+             |> RecSet.changeset(%{name: RecSet.copy_name(name), target_style: style})
              |> Repo.insert() do
         copy_rows(id, copy.id)
         {:ok, copy}
+      end
+    end)
+  end
+
+  defp with_locked_set(id, edit) do
+    Repo.transact(fn ->
+      case RecSetQuery.lock(id) do
+        nil -> {:error, Error.new(:set_not_found, "Set no longer exists", %{id: id})}
+        set -> edit.(set)
       end
     end)
   end
@@ -480,9 +525,9 @@ defmodule Beatgrid.Sets do
   `max + 1` stays correct after a library deletion cascades a hole that `count`
   would land on.
   """
-  @spec append_quiet(RecSet.t(), Library.Track.t(), String.t() | nil) ::
+  @spec append_quiet(RecSet.t(), Library.Track.t(), String.t() | nil, map() | nil) ::
           {:ok, SetTrack.t()} | {:error, term()}
-  def append_quiet(%RecSet{id: id}, track, role \\ nil) do
+  def append_quiet(%RecSet{id: id}, track, role \\ nil, transition \\ nil) do
     Repo.transact(fn ->
       RecSetQuery.lock(id)
 
@@ -491,7 +536,8 @@ defmodule Beatgrid.Sets do
         rec_set_id: id,
         track_id: track.id,
         position: RecSetQuery.max_position(id) + 1,
-        role: role
+        role: role,
+        transition: transition
       })
       |> Repo.insert(on_conflict: :nothing, conflict_target: [:rec_set_id, :track_id])
     end)
@@ -521,66 +567,79 @@ defmodule Beatgrid.Sets do
 
   @doc "Removes a track from the set and re-numbers the remaining positions."
   @spec remove(RecSet.t(), Library.Track.t()) :: :ok
-  def remove(%RecSet{id: id} = set, track) do
-    SetTrack
-    |> where([st], st.rec_set_id == ^id and st.track_id == ^track.id)
-    |> Repo.delete_all()
-
-    reindex(set)
-    broadcast_set_changed(id)
-    :ok
-  end
+  def remove(%RecSet{id: id}, track), do: edit_order(id, track.id, :remove)
 
   @doc """
-  Reorders a track in the set: `:up`/`:down` move one step (no-op at the edges),
-  `:top`/`:bottom` jump it to the start/end. Positions are renumbered afterwards.
+  Reorders a track in the set. Up and down move one place, top and bottom move
+  to the ends. A track already removed from the set is a no-op.
   """
   @spec move(RecSet.t(), Library.Track.t(), :up | :down | :top | :bottom) :: :ok
-  def move(%RecSet{} = set, track, :top), do: reposition(set, track, 0)
+  def move(%RecSet{id: id}, track, direction) when direction in [:up, :down, :top, :bottom],
+    do: edit_order(id, track.id, direction)
 
-  def move(%RecSet{id: id} = set, track, :bottom),
-    do: reposition(set, track, RecSetQuery.count(id) + 1)
-
-  def move(%RecSet{id: id}, track, direction) do
-    rows = RecSetQuery.rows(id)
-    idx = Enum.find_index(rows, &(&1.track_id == track.id))
-    swap_idx = if idx, do: idx + step(direction)
-
-    if idx && swap_idx in 0..(length(rows) - 1)//1 do
-      swap_positions(Enum.at(rows, idx), Enum.at(rows, swap_idx))
-      broadcast_set_changed(id)
-    end
-
+  defp edit_order(set_id, track_id, action) do
+    if edit_order_quiet(set_id, track_id, action) == :changed, do: broadcast_set_changed(set_id)
     :ok
   end
 
-  defp step(:up), do: -1
-  defp step(:down), do: 1
-
-  defp swap_positions(a, b) do
-    {:ok, _} =
+  defp edit_order_quiet(set_id, track_id, action) do
+    {:ok, result} =
       Repo.transact(fn ->
-        pa = a.position
-        a |> SetTrack.changeset(%{position: b.position}) |> Repo.update!()
-        b |> SetTrack.changeset(%{position: pa}) |> Repo.update!()
-        {:ok, :swapped}
+        RecSetQuery.lock(set_id)
+        rows = RecSetQuery.rows(set_id)
+
+        case Enum.find_index(rows, &(&1.track_id == track_id)) do
+          nil -> {:ok, :unchanged}
+          index -> {:ok, apply_order_edit(rows, index, action)}
+        end
       end)
 
-    :ok
+    result
   end
 
-  # Parks the track at an out-of-range position (0 = before all, count+1 = after all),
-  # then renumbers — so it lands first/last.
-  defp reposition(%RecSet{id: id} = set, track, position) do
-    id
-    |> RecSetQuery.row!(track.id)
-    |> SetTrack.changeset(%{position: position})
-    |> Repo.update()
+  defp apply_order_edit(rows, index, action) do
+    {row, rest} = List.pop_at(rows, index)
 
-    reindex(set)
-    broadcast_set_changed(id)
-    :ok
+    ordered =
+      case action do
+        :remove ->
+          Repo.delete!(row)
+          rest
+
+        dir ->
+          List.insert_at(rest, move_index(dir, index, length(rest)), row)
+      end
+
+    if ordered == rows do
+      :unchanged
+    else
+      persist_order(rows, ordered)
+      :changed
+    end
   end
+
+  defp persist_order(before, ordered) do
+    # Older sets stored the fire time without the outgoing track's identity.
+    # Bind it while the original order is still known, even if the set has holes.
+    legacy =
+      for {prev, %{transition: %{"learned_from_ms" => _} = t} = entry} <-
+            Enum.zip([nil | before], before),
+          not is_map_key(t, "learned_from_track_id"),
+          into: %{},
+          do: {entry.id, Map.put(t, "learned_from_track_id", prev && prev.track_id)}
+
+    ordered
+    |> Enum.with_index(1)
+    |> Enum.each(fn {row, pos} ->
+      attrs = %{position: pos, transition: Map.get(legacy, row.id, row.transition)}
+      row |> SetTrack.changeset(attrs) |> Repo.update!()
+    end)
+  end
+
+  defp move_index(:top, _index, _last), do: 0
+  defp move_index(:bottom, _index, last), do: last
+  defp move_index(:up, index, _last), do: max(index - 1, 0)
+  defp move_index(:down, index, last), do: min(index + 1, last)
 
   @doc """
   Hands every set seat of `loser_track_id` to `keeper_track_id` — the dedup
@@ -609,8 +668,7 @@ defmodule Beatgrid.Sets do
   defp adopt_row(row, keeper_track_id) do
     case RecSetQuery.fetch_row(row.rec_set_id, keeper_track_id) do
       {:ok, _already_member} ->
-        Repo.delete(row)
-        reindex(%RecSet{id: row.rec_set_id})
+        edit_order_quiet(row.rec_set_id, row.track_id, :remove)
 
       {:error, :not_a_member} ->
         row |> SetTrack.changeset(%{track_id: keeper_track_id}) |> Repo.update()
@@ -708,7 +766,12 @@ defmodule Beatgrid.Sets do
          %{transition: %{"enabled" => true} = transition} = entry <- Enum.at(entries, idx),
          false <- breather?(entry),
          true <- learnable?(at_ms, transition, outgoing) do
-      persist_learned(set_id, receiving_track_id, transition, at_ms)
+      persist_learned(
+        set_id,
+        receiving_track_id,
+        Map.put(transition, "learned_from_track_id", from_track_id),
+        at_ms
+      )
     else
       _not_learnable -> :ignored
     end
@@ -854,20 +917,20 @@ defmodule Beatgrid.Sets do
   """
   @spec suggest_opening(RecSet.t(), keyword()) :: [Mixing.suggestion()]
   def suggest_opening(%RecSet{} = set, opts \\ []) do
-    Mixing.rank(
-      prev: nil,
-      target_style: set.target_style,
-      target_intensity:
-        Keyword.get(opts, :target_intensity) || Mixing.target_intensity("abertura"),
-      exclude: member_ids(set),
-      limit: Keyword.get(opts, :limit, 10)
+    set
+    |> rank_opts(opts)
+    |> Keyword.put(:prev, nil)
+    |> Keyword.put(
+      :target_intensity,
+      opts[:target_intensity] || Mixing.target_intensity("abertura")
     )
+    |> Mixing.rank()
   end
 
   @doc "Greedily appends up to `:count` (default 8) compatible tracks (style + harmony)."
   @spec auto_fill(RecSet.t(), keyword()) :: {:ok, RecSet.t()}
   def auto_fill(%RecSet{} = set, opts \\ []) do
-    filled = greedy_fill(set, Keyword.get(opts, :count, 8), nil, nil)
+    filled = greedy_fill(set, Keyword.get(opts, :count, 8), nil, opts)
     broadcast_set_changed(set.id)
     {:ok, filled}
   end
@@ -877,9 +940,17 @@ defmodule Beatgrid.Sets do
   chained from the last track and anchored on the set's style. Each appended track
   is tagged with `role`. Stops early if no candidate remains.
   """
-  @spec fill_section(RecSet.t(), String.t(), pos_integer()) :: {:ok, RecSet.t()}
-  def fill_section(%RecSet{} = set, role, count) when is_integer(count) and count > 0 do
-    filled = greedy_fill(set, count, role, Mixing.target_intensity(role))
+  @spec fill_section(RecSet.t(), String.t(), pos_integer(), keyword()) :: {:ok, RecSet.t()}
+  def fill_section(%RecSet{} = set, role, count, opts \\ [])
+      when is_integer(count) and count > 0 do
+    filled =
+      greedy_fill(
+        set,
+        count,
+        role,
+        Keyword.put(opts, :target_intensity, Mixing.target_intensity(role))
+      )
+
     broadcast_set_changed(set.id)
     {:ok, filled}
   end
@@ -908,9 +979,9 @@ defmodule Beatgrid.Sets do
   committing the clear and losing it. Subscribers hear one broadcast, after commit.
   """
   @spec plan(RecSet.t(), map()) :: {:ok, RecSet.t()} | {:error, term()}
-  def plan(%RecSet{id: id} = set, params) when is_map(params) do
+  def plan(%RecSet{id: id}, params) when is_map(params) do
     with {:ok, planned} <-
-           Repo.transact(fn -> Planner.run(set, PlanConfig.from_params(params)) end) do
+           with_locked_set(id, &Planner.run(&1, PlanConfig.from_params(params))) do
       broadcast_set_changed(id)
       {:ok, planned}
     end
@@ -944,40 +1015,38 @@ defmodule Beatgrid.Sets do
   best fits and nudging "ouro" (gold) tracks toward the peaks so they spread across
   the highlights. Re-tags the arc roles and re-connects every pair. `{:ok, set}`.
   """
-  @spec remix(RecSet.t()) :: {:ok, RecSet.t()}
-  def remix(%RecSet{} = set) do
-    ordered =
-      set
-      |> tracks()
-      |> Enum.map(&%{track: &1, intensity: Mixing.intensity(&1), gold: Beatgrid.Gold.gold?(&1)})
-      |> Remixer.order()
+  @spec remix(RecSet.t()) :: {:ok, RecSet.t()} | {:error, Error.t()}
+  def remix(%RecSet{id: id}) do
+    with {:ok, set} <- with_locked_set(id, &remix_tracks/1) do
+      broadcast_set_changed(id)
+      {:ok, set}
+    end
+  end
 
-    {:ok, _} =
-      Repo.transact(fn ->
-        ordered
-        |> Enum.with_index(1)
-        |> Enum.each(fn {{track, role}, pos} ->
-          set.id
-          |> RecSetQuery.row!(track.id)
-          |> SetTrack.changeset(%{position: pos, role: role})
-          |> Repo.update!()
-        end)
+  defp remix_tracks(set) do
+    set
+    |> tracks()
+    |> Enum.map(&%{track: &1, intensity: Mixing.intensity(&1), gold: Beatgrid.Gold.gold?(&1)})
+    |> Remixer.order()
+    |> Enum.with_index(1)
+    |> Enum.each(fn {{track, role}, pos} ->
+      set.id
+      |> RecSetQuery.row!(track.id)
+      |> SetTrack.changeset(%{position: pos, role: role})
+      |> Repo.update!()
+    end)
 
-        connect_pairs_quiet(set)
-        {:ok, set}
-      end)
-
-    broadcast_set_changed(set.id)
+    connect_pairs_quiet(set)
     {:ok, set}
   end
 
-  defp greedy_fill(set, count, _role, _ti) when count <= 0, do: set
+  defp greedy_fill(set, count, _role, _opts) when count <= 0, do: set
 
-  defp greedy_fill(set, count, role, ti) do
-    case Mixing.rank(rank_opts(set, target_intensity: ti, limit: 1)) do
+  defp greedy_fill(set, count, role, opts) do
+    case next_candidates(set, Keyword.put(opts, :limit, 1)) do
       [%{track: next} | _] ->
         {:ok, _} = append_quiet(set, next, role)
-        greedy_fill(set, count - 1, role, ti)
+        greedy_fill(set, count - 1, role, opts)
 
       [] ->
         set
@@ -1008,14 +1077,19 @@ defmodule Beatgrid.Sets do
 
     base =
       case List.last(members) do
-        nil -> base
-        last -> [{:prev, last} | base]
+        nil ->
+          Keyword.put(
+            base,
+            :target_intensity,
+            opts[:target_intensity] || Mixing.target_intensity("abertura")
+          )
+
+        last ->
+          [{:prev, last} | base]
       end
 
     Keyword.merge(base, Keyword.take(opts, @passthrough))
   end
-
-  defp member_ids(%RecSet{id: id}), do: RecSetQuery.ordered_tracks(id) |> Enum.map(& &1.id)
 
   @doc "Writes the set as an `.m3u` playlist under `<library_root>/_Sets`."
   @spec export_m3u(RecSet.t()) :: {:ok, Path.t()} | {:error, term()}
@@ -1028,23 +1102,5 @@ defmodule Beatgrid.Sets do
          :ok <- File.write(path, M3u.body(RecSetQuery.ordered_tracks(id), root)) do
       {:ok, path}
     end
-  end
-
-  # --- internals ---
-
-  defp reindex(%RecSet{id: id}) do
-    {:ok, _} =
-      Repo.transact(fn ->
-        id
-        |> RecSetQuery.rows()
-        |> Enum.with_index(1)
-        |> Enum.each(fn {row, position} ->
-          row |> SetTrack.changeset(%{position: position}) |> Repo.update!()
-        end)
-
-        {:ok, :reindexed}
-      end)
-
-    :ok
   end
 end

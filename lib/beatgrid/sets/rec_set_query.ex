@@ -61,9 +61,10 @@ defmodule Beatgrid.Sets.RecSetQuery do
     |> order_by([st], asc: st.position)
     |> preload(track: :soundcharts_song)
     |> Repo.all()
-    |> Enum.map(
-      &%{track: &1.track, role: &1.role, position: &1.position, transition: &1.transition}
-    )
+    |> Enum.with_index(1)
+    |> Enum.map(fn {row, ordinal} ->
+      %{track: row.track, role: row.role, position: ordinal, transition: row.transition}
+    end)
   end
 
   @doc "Set-track rows in position order (for reindexing)."

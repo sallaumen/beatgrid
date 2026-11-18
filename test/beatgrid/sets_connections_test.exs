@@ -5,6 +5,7 @@ defmodule Beatgrid.SetsConnectionsTest do
 
   alias Beatgrid.Repo
   alias Beatgrid.Sets
+  alias Beatgrid.Sets.RecSetQuery
 
   defp with_song(track), do: Repo.preload(track, :soundcharts_song)
 
@@ -531,6 +532,38 @@ defmodule Beatgrid.SetsConnectionsTest do
 
       assert :ignored = Sets.learn_fire_point(set.id, b.id, a.id, 182_000)
       assert Sets.entry_after(set.id, a.id).transition["from_ms"] == 180_000
+    end
+
+    test "a reordered pair never fires at another outgoing track's learned time" do
+      {set, a, b} = connected_pair()
+      c = insert(:track, duration_ms: 200_000, status: :present)
+      {:ok, _} = Sets.append(set, c)
+      {:ok, 120_000} = Sets.learn_fire_point(set.id, b.id, a.id, 120_000)
+
+      :ok = Sets.move(set, c, :up)
+      entry = List.last(Sets.entries(set))
+      assert entry.track.id == b.id
+      refute Sets.pair_timing(c, entry).learned?
+
+      assert Sets.entry_after(set.id, c.id).transition["from_ms"] ==
+               Sets.derived_timing(c, b).from_ms
+    end
+
+    test "an edit preserves a legacy fire point only for the original pair" do
+      {set, a, b} = connected_pair()
+      {:ok, row} = RecSetQuery.fetch_row(set.id, b.id)
+
+      row
+      |> change(transition: Map.put(row.transition, "learned_from_ms", 120_000))
+      |> Repo.update!()
+
+      c = insert(:track, duration_ms: 200_000, status: :present)
+      {:ok, _} = Sets.append(set, c)
+
+      :ok = Sets.move(set, c, :up)
+      refute Sets.pair_timing(c, List.last(Sets.entries(set))).learned?
+      :ok = Sets.remove(set, c)
+      assert Sets.entry_after(set.id, a.id).transition["from_ms"] == 120_000
     end
 
     test "front-half fires, wrong predecessors, and disabled pairs teach nothing" do

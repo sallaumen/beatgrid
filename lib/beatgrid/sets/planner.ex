@@ -10,11 +10,11 @@ defmodule Beatgrid.Sets.Planner do
   The candidate pool is fetched once per plan (every SQL filter, BPM window
   included, is plan-constant) and each slot re-ranks it in memory; the running
   exclude set is threaded the same way (no per-slot re-query). A `:replace`
-  fill clears the set first. Finishes by connecting every consecutive pair
-  with a transition.
+  fill replaces the set once candidates exist. Each new track connects to its
+  predecessor, leaving earlier transitions intact when extending a set.
   """
 
-  alias Beatgrid.Gold
+  alias Beatgrid.{Error, Gold}
   alias Beatgrid.Mixing
   alias Beatgrid.Sets
   alias Beatgrid.Sets.{EnergyArc, PlanConfig, Presets, RecSet, RecSetQuery}
@@ -31,29 +31,32 @@ defmodule Beatgrid.Sets.Planner do
   # keep competing on the other dimensions.
   @rating_weights %{style: 15, harmony: 20, intensity: 25, bpm: 12, rating: 28}
 
-  @doc "Plans (or extends) `set` per `config`. Returns `{:ok, set}`."
-  @spec run(RecSet.t(), PlanConfig.t()) :: {:ok, RecSet.t()}
+  @doc "Plans or extends the set. An empty candidate pool leaves it untouched."
+  @spec run(RecSet.t(), PlanConfig.t()) :: {:ok, RecSet.t()} | {:error, Error.t()}
   def run(%RecSet{} = set, %PlanConfig{} = config) do
     # Read BEFORE a :replace clears — the reference may be this very set.
     reference = reference_pool(config)
-    set = maybe_clear(set, config.fill_mode)
     preset = Presets.get(config.preset)
-    members = RecSetQuery.ordered_tracks(set.id)
+    members = if config.fill_mode == :append, do: RecSetQuery.ordered_tracks(set.id), else: []
     exclude = initial_exclusions(members, config)
     pool = fetch_pool(exclude, config, preset, reference)
 
-    ctx = %{
-      set: set,
-      config: config,
-      preset: preset,
-      count: plan_count(config, preset),
-      pool: pool,
-      gold_pool: Enum.filter(pool, &Gold.gold?/1)
-    }
+    if pool == [] do
+      {:error, Error.new(:no_candidates, "No tracks match the planning criteria")}
+    else
+      ctx = %{
+        set: set,
+        config: config,
+        preset: preset,
+        count: min(plan_count(config, preset), length(pool)),
+        pool: pool,
+        gold_pool: Enum.filter(pool, &Gold.gold?/1)
+      }
 
-    fill_slots(ctx, {exclude, MapSet.new(), List.last(members), 0})
-    {:ok, _count} = Sets.connect_all_quiet(set)
-    {:ok, set}
+      maybe_clear(set, config.fill_mode)
+      fill_slots(ctx, {exclude, MapSet.new(), List.last(members), 0})
+      {:ok, set}
+    end
   end
 
   defp initial_exclusions(members, config) do
@@ -102,7 +105,8 @@ defmodule Beatgrid.Sets.Planner do
 
       ranked ->
         chosen = pick(ranked, artists, ctx.config.avoid_artist_repeat, slot.role)
-        {:ok, _} = Sets.append_quiet(ctx.set, chosen.track, slot.role)
+        transition = prev && Sets.suggest_transition(prev, chosen.track)
+        {:ok, _} = Sets.append_quiet(ctx.set, chosen.track, slot.role, transition)
 
         {MapSet.put(exclude, chosen.track.id), MapSet.put(artists, artist_key(chosen.track)),
          chosen.track, next_gold_gap(ctx.config, since_gold, chosen.track)}
