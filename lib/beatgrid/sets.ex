@@ -401,9 +401,10 @@ defmodule Beatgrid.Sets do
   def append(set, track, role \\ nil)
 
   def append(%RecSet{id: id} = set, track, role) do
-    result = append_quiet(set, track, role)
-    broadcast_set_changed(id)
-    result
+    with {:ok, row} <- append_quiet(set, track, role) do
+      broadcast_set_changed(id)
+      {:ok, row}
+    end
   end
 
   @doc """
@@ -420,9 +421,7 @@ defmodule Beatgrid.Sets do
   @spec append_quiet(RecSet.t(), Library.Track.t(), String.t() | nil, map() | nil) ::
           {:ok, SetTrack.t()} | {:error, term()}
   def append_quiet(%RecSet{id: id}, track, role \\ nil, transition \\ nil) do
-    Repo.transact(fn ->
-      RecSetQuery.lock(id)
-
+    with_locked_set(id, fn _set ->
       %SetTrack{}
       |> SetTrack.changeset(%{
         rec_set_id: id,

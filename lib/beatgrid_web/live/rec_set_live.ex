@@ -246,8 +246,11 @@ defmodule BeatgridWeb.RecSetLive do
   def handle_event("append", %{"track" => track_id}, socket) do
     {:noreply,
      with_track(socket, track_id, fn track ->
-       {:ok, _} = Sets.append(socket.assigns.set, track)
-       reload(socket)
+       case Sets.append(socket.assigns.set, track) do
+         {:ok, _} -> reload(socket)
+         {:error, %Beatgrid.Error{code: :set_not_found}} -> missing_set(socket)
+         {:error, _changeset} -> stale_reference(socket)
+       end
      end)}
   end
 
