@@ -152,7 +152,7 @@ defmodule Beatgrid.Sets do
   def first_track(%RecSet{id: id}), do: first_track(id)
 
   def first_track(set_id) when is_binary(set_id),
-    do: set_id |> RecSetQuery.ordered_tracks() |> List.first()
+    do: RecSetQuery.first_track(set_id)
 
   @doc """
   The track right after `current_track_id` in the set's current order, or nil if it
@@ -163,14 +163,8 @@ defmodule Beatgrid.Sets do
   @spec next_after(RecSet.t() | Ecto.UUID.t(), Ecto.UUID.t()) :: Library.Track.t() | nil
   def next_after(%RecSet{id: id}, current_track_id), do: next_after(id, current_track_id)
 
-  def next_after(set_id, current_track_id) when is_binary(set_id) do
-    tracks = RecSetQuery.ordered_tracks(set_id)
-
-    case Enum.find_index(tracks, &(&1.id == current_track_id)) do
-      nil -> nil
-      idx -> Enum.at(tracks, idx + 1)
-    end
-  end
+  def next_after(set_id, current_track_id) when is_binary(set_id),
+    do: RecSetQuery.next_track(set_id, current_track_id)
 
   @doc """
   The Discotecagem console hint: the entry that follows `current_track_id` in the
