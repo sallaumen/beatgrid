@@ -234,13 +234,12 @@ defmodule Beatgrid.Sets do
   end
 
   defp entry_issues(track, pos, last, exit_transition) do
-    breather_out? =
-      is_map(exit_transition) and breather?(%{position: pos + 1, transition: exit_transition})
+    next = %{position: pos + 1, transition: exit_transition}
 
     checks = [
       arquivo_sumido: not File.exists?(Path.join(Library.library_root(), track.rel_path)),
       fora_da_biblioteca: track.status != :present,
-      sem_saida: pos != last and not breather_out? and is_nil(Marker.outro(track)),
+      sem_saida: pos != last and missing_exit?(track, next),
       sem_bpm: is_nil(Library.effective(track).bpm)
     ]
 
@@ -249,6 +248,11 @@ defmodule Beatgrid.Sets do
       title: track.tag_title || track.filename,
       problems: for({key, true} <- checks, do: key)
     }
+  end
+
+  defp missing_exit?(outgoing, next) do
+    {_ms, source} = TransitionTiming.exit_point(outgoing, effective_transition(next))
+    source == :fallback
   end
 
   defp build_hint(outgoing, %{track: track} = entry) do

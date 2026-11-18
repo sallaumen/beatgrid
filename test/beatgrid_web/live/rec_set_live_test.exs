@@ -42,6 +42,17 @@ defmodule BeatgridWeb.RecSetLiveTest do
     |> render_click()
   end
 
+  test "the editor displays the booth time for a protected ending with no outro cue", %{
+    conn: conn
+  } do
+    a = track_with("8A", 112.0, sacred_ending: true, duration_ms: 200_000, cue_points: [])
+    b = track_with("8A", 113.0, cue_points: [])
+    {:ok, set} = Sets.create_filled("Fim de baile", [a, b])
+    {:ok, _view, html} = live(conn, ~p"/set/#{set.id}")
+    assert html =~ "sai 3:18"
+    refute html =~ "sai ~fim"
+  end
+
   @tag :tmp_dir
   test "build a set from search, append, play affordance, then export to M3U", %{
     conn: conn,
