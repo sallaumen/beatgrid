@@ -26,33 +26,20 @@ defmodule Beatgrid.Sets do
     RecSetQuery,
     Remixer,
     SetTrack,
-    TransitionChooser
+    TransitionChooser,
+    TransitionTiming
   }
 
   @transition_types ~w(cut fade crossfade echo filter bass_swap brake lowpass scratch_cut spinback chirp transform scribble)
-
-  # Console hint clamps (never-again #4: from_ms is never trusted blindly).
-  @default_outro_window_ms 8_000
-  @min_tail_ms 3_000
-  @max_intro_skip_ms 10_000
-
-  # A hand fire is only a CORRECTION when it departs this far from what the
-  # console would already do — anything closer is noise, not a lesson.
-  @learn_min_delta_ms 5_000
 
   # Respiro do salão (a regra do forró, não do rádio): a cada N músicas a
   # fronteira NÃO emenda — a que sai toca até o fim de verdade, o tratamento
   # (eco na voz) abre na última frase, e o console segura um silêncio para o
   # casal agradecer e trocar antes da próxima.
   @breather_every_default 4
-  @breather_lead_ms 4_000
   # Floor-tuned in /ajustes (2.5s measured "ainda meio curto" at a real gig);
   # this is the code fallback when no override is stored.
   @breather_gap_s_default 5.0
-
-  # Final de verdade: o salão espera o passo do fim — dispara só no talo
-  # (1.5s casa com o clamp mínimo de cauda do engine).
-  @sacred_tail_ms 1_500
 
   @doc "The transition-type vocabulary, in UI order — screens mirror the engine."
   @spec transition_types() :: [String.t()]
@@ -300,114 +287,25 @@ defmodule Beatgrid.Sets do
   defp hint_transition(nil, _outgoing, _incoming), do: nil
   defp hint_transition(%{"enabled" => false}, _outgoing, _incoming), do: nil
 
-  # Respiro: a música que sai toca até o FIM DE VERDADE (o outro marker é
-  # irrelevante aqui); o console recebe o gap do agradecimento junto.
-  defp hint_transition(%{"breather" => true} = transition, outgoing, incoming) do
-    transition
-    |> Map.put("from_ms", breather_from(outgoing))
-    |> Map.put("to_ms", derived_to_ms(incoming))
-    |> Map.put("gap_ms", round(breather_gap_s() * 1000))
-  end
-
   defp hint_transition(transition, outgoing, incoming) do
-    timing = derived_timing(outgoing, incoming)
+    timing = TransitionTiming.resolve(outgoing, incoming, transition)
+    hint = Map.merge(transition, %{"from_ms" => timing.from_ms, "to_ms" => timing.to_ms})
 
-    from =
-      learned_from(transition, outgoing) || sacred_from(outgoing) || timing.from_ms
-
-    transition
-    |> Map.put("from_ms", from)
-    |> Map.put("to_ms", timing.to_ms)
+    if transition["breather"],
+      do: Map.put(hint, "gap_ms", round(breather_gap_s() * 1000)),
+      else: hint
   end
 
-  defp breather_from(%{duration_ms: dur}) when is_integer(dur) and dur > 0,
-    do: max(dur - @breather_lead_ms, 0)
+  defdelegate derived_timing(outgoing, incoming), to: TransitionTiming
 
-  defp breather_from(_outgoing), do: nil
+  @doc "The effective window for the set editor, using the same decision as the booth."
+  @spec pair_timing(Library.Track.t(), map()) :: map()
+  def pair_timing(outgoing, %{track: incoming} = entry) do
+    decision =
+      if Map.has_key?(entry, :position), do: effective_transition(entry), else: entry.transition
 
-  # Curadoria de final: matar esta música cedo é crime — o corte só no talo.
-  # O aprendizado humano (um disparo real) ainda vence: ao vivo, a mão manda.
-  defp sacred_from(%{sacred_ending: true, duration_ms: dur}) when is_integer(dur) and dur > 0,
-    do: max(dur - @sacred_tail_ms, 0)
-
-  defp sacred_from(_outgoing), do: nil
-
-  # O ponto que o DJ ensinou (um disparo real) vence o derivado dos marcadores;
-  # só o clamp de cauda se aplica — o piso dos 70% protege contra marcador
-  # automático ruim, não contra escolha humana.
-  defp learned_from(%{"learned_from_track_id" => expected}, %{id: id}) when expected != id,
-    do: nil
-
-  defp learned_from(%{"learned_from_ms" => ms}, %{duration_ms: dur})
-       when is_integer(ms) and is_integer(dur) and dur > 0,
-       do: ms |> min(dur - @min_tail_ms) |> max(0)
-
-  defp learned_from(_transition, _outgoing), do: nil
-
-  @doc """
-  The fire/entry points the console will derive RIGHT NOW for mixing
-  `outgoing` into `incoming` — current markers, clamped. What the set editor
-  shows with this is exactly what the deck will do.
-  """
-  @spec derived_timing(Library.Track.t(), Library.Track.t()) ::
-          %{from_ms: non_neg_integer() | nil, to_ms: non_neg_integer()}
-  def derived_timing(outgoing, incoming) do
-    %{from_ms: clamped_derived_from(outgoing), to_ms: derived_to_ms(incoming)}
+    TransitionTiming.resolve(outgoing, incoming, decision)
   end
-
-  @doc """
-  What the console will actually do for this pair RIGHT NOW: marker-derived
-  timing, with the DJ-taught point (when the receiving entry carries one)
-  winning on the exit side. `learned?` lets the editor badge the pair.
-  """
-  @spec pair_timing(Library.Track.t(), %{track: Library.Track.t(), transition: map() | nil}) ::
-          %{from_ms: non_neg_integer() | nil, to_ms: non_neg_integer(), learned?: boolean()}
-  def pair_timing(outgoing, %{track: incoming, transition: transition}) do
-    timing = derived_timing(outgoing, incoming)
-
-    case learned_from(transition || %{}, outgoing) do
-      nil -> Map.put(timing, :learned?, false)
-      ms -> %{from_ms: ms, to_ms: timing.to_ms, learned?: true}
-    end
-  end
-
-  defp clamped_derived_from(outgoing) do
-    %{"from_ms" => from} = clamp_from(%{"from_ms" => derived_from_ms(outgoing)}, outgoing)
-    from
-  end
-
-  defp derived_from_ms(outgoing) do
-    case Marker.outro(outgoing) do
-      %{"ms" => ms} when is_integer(ms) -> ms
-      _missing -> nil
-    end
-  end
-
-  # Skip a short breath at the head; a LONG quiet opening is real music (live/
-  # acoustic intros measured only 6-8dB under the chorus), so play it from 0.
-  defp derived_to_ms(incoming) do
-    case Marker.intro(incoming) do
-      %{"ms" => ms} when is_integer(ms) and ms <= @max_intro_skip_ms -> ms
-      _long_or_missing -> 0
-    end
-  end
-
-  defp clamp_from(transition, %{duration_ms: dur}) when is_integer(dur) and dur > 0 do
-    from =
-      transition["from_ms"]
-      |> trusted_from(dur)
-      |> min(dur - @min_tail_ms)
-      |> max(0)
-
-    Map.put(transition, "from_ms", from)
-  end
-
-  defp clamp_from(transition, _outgoing), do: transition
-
-  # An outro in the front 70% of the track is noise (the old "salto no meio"),
-  # not a mix-out point — fall back to the end window, same as no marker at all.
-  defp trusted_from(from, dur) when is_integer(from) and from * 10 >= dur * 7, do: from
-  defp trusted_from(_untrusted, dur), do: dur - @default_outro_window_ms
 
   @spec create(String.t()) :: {:ok, RecSet.t()} | {:error, Ecto.Changeset.t()}
   def create(name), do: %RecSet{} |> RecSet.changeset(%{name: name}) |> Repo.insert()
@@ -765,7 +663,7 @@ defmodule Beatgrid.Sets do
          %{track: %{id: ^from_track_id} = outgoing} <- Enum.at(entries, idx - 1),
          %{transition: %{"enabled" => true} = transition} = entry <- Enum.at(entries, idx),
          false <- breather?(entry),
-         true <- learnable?(at_ms, transition, outgoing) do
+         true <- TransitionTiming.learnable?(at_ms, transition, outgoing) do
       persist_learned(
         set_id,
         receiving_track_id,
@@ -776,20 +674,6 @@ defmodule Beatgrid.Sets do
       _not_learnable -> :ignored
     end
   end
-
-  # Uma fronteira de respiro não aprende: o ponto dela é o FIM da música por
-  # definição — um disparo manual ali é o DJ pulando o respiro, não uma
-  # correção de timing.
-  defp learnable?(_at_ms, %{"breather" => true}, _outgoing), do: false
-
-  defp learnable?(at_ms, transition, %{duration_ms: dur} = outgoing)
-       when is_integer(dur) and dur > 0 do
-    current = learned_from(transition, outgoing) || clamped_derived_from(outgoing)
-
-    at_ms * 2 >= dur and at_ms < dur and abs(at_ms - current) >= @learn_min_delta_ms
-  end
-
-  defp learnable?(_at_ms, _transition, _outgoing), do: false
 
   defp persist_learned(set_id, track_id, transition, at_ms) do
     with {:ok, row} <- RecSetQuery.fetch_row(set_id, track_id),

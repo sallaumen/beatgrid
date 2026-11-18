@@ -609,4 +609,16 @@ defmodule Beatgrid.SetsConnectionsTest do
       assert Sets.pair_timing(a, entry_b) == %{from_ms: 120_000, to_ms: 4_000, learned?: true}
     end
   end
+
+  test "editor and booth resolve sacred endings and breathers at the same time" do
+    {:ok, set} = Sets.create("Final")
+    a = insert(:track, duration_ms: 200_000, sacred_ending: true)
+    b = insert(:track)
+    for track <- [a, b], do: Sets.append(set, track)
+    {:ok, _} = Sets.connect(set, b, %{"type" => "fade"})
+    assert Sets.pair_timing(a, List.last(Sets.entries(set))).from_ms == 198_500
+    {:ok, _} = Sets.set_breather(set, b, true)
+    assert Sets.pair_timing(a, List.last(Sets.entries(set))).from_ms == 196_000
+    assert Sets.entry_after(set.id, a.id).transition["from_ms"] == 196_000
+  end
 end
