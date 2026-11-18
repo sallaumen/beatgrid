@@ -385,4 +385,19 @@ defmodule Beatgrid.Sets.PlannerTest do
       50 -> count
     end
   end
+
+  test "extending the set carries the gold quota across its existing tail", %{set: set} do
+    {:ok, _} = Sets.append(set, track(tag_artist: "Opening"))
+    gold = track(tag_artist: "Next", gold_status: :confirmed)
+
+    {:ok, _} =
+      plan(set, %{
+        "mode" => "tracks",
+        "track_count" => "2",
+        "fill_mode" => "append",
+        "gold_every" => "2"
+      })
+
+    assert Enum.at(Sets.tracks(set), 1).id == gold.id
+  end
 end
