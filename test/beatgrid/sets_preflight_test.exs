@@ -104,4 +104,12 @@ defmodule Beatgrid.SetsPreflightTest do
 
     assert %{total: 2, issues: []} = Sets.preflight(set)
   end
+
+  test "a directory at the expected audio path is reported before the set plays" do
+    {:ok, set} = Sets.create("Conferência")
+    track = insert(:track, status: :present, rel_path: "Faixa.mp3", bpm_detected: 120.0)
+    File.mkdir_p!(Path.join(Library.library_root(), track.rel_path))
+    {:ok, _} = Sets.append(set, track)
+    assert [%{position: 1, problems: [:arquivo_sumido]}] = Sets.preflight(set).issues
+  end
 end
