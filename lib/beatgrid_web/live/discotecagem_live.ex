@@ -411,7 +411,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
   def handle_info({:set_changed, set_id}, %{assigns: %{set: %{id: set_id} = set}} = socket) do
     old_entries = socket.assigns.entries
     entries = Sets.entries(set)
-    socket = assign(socket, entries: entries)
+    report = socket.assigns.preflight && Sets.preflight(entries)
+    socket = assign(socket, entries: entries, preflight: report)
 
     outgoing = active_track(socket)
 
@@ -754,14 +755,18 @@ defmodule BeatgridWeb.DiscotecagemLive do
           aria-label="Conferência do set"
           class={[
             "mt-3 rounded-xl border p-3",
-            (@preflight.issues == [] && "border-green/30 bg-green/5") || "border-amber/30 bg-amber/5"
+            @preflight.total == 0 && "border-white/8 bg-surface",
+            @preflight.total > 0 && @preflight.issues == [] && "border-green/30 bg-green/5",
+            @preflight.issues != [] && "border-amber/30 bg-amber/5"
           ]}
         >
           <div class="flex items-center justify-between">
             <p class="text-body-sm font-semibold">
-              {if @preflight.issues == [],
-                do: "#{@preflight.total} faixas conferidas. Tudo pronto.",
-                else: "#{length(@preflight.issues)} de #{@preflight.total} faixas com pendência"}
+              {cond do
+                @preflight.total == 0 -> "O set está vazio."
+                @preflight.issues == [] -> "#{@preflight.total} faixas conferidas. Tudo pronto."
+                true -> "#{length(@preflight.issues)} de #{@preflight.total} faixas com pendência"
+              end}
             </p>
             <button
               type="button"
