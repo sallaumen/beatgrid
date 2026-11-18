@@ -54,7 +54,9 @@ defmodule Beatgrid.Sets.Planner do
       }
 
       maybe_clear(set, config.fill_mode)
-      fill_slots(ctx, {exclude, MapSet.new(), List.last(members), 0})
+      artists = MapSet.new(members, &artist_key/1)
+      since_gold = members |> Enum.reverse() |> Enum.take_while(&(not Gold.gold?(&1))) |> length()
+      fill_slots(ctx, {exclude, artists, List.last(members), since_gold})
       {:ok, set}
     end
   end
