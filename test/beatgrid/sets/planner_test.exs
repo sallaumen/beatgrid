@@ -400,4 +400,22 @@ defmodule Beatgrid.Sets.PlannerTest do
 
     assert Enum.at(Sets.tracks(set), 1).id == gold.id
   end
+
+  test "duration planning measures the available reference tracks", %{set: set} do
+    for i <- 1..20, do: track(tag_title: "Curta #{i}", duration_ms: 60_000)
+    {:ok, ref_set} = Sets.create("Longas")
+
+    for i <- 1..6 do
+      {:ok, _} = Sets.append(ref_set, track(tag_title: "Longa #{i}", duration_ms: 600_000))
+    end
+
+    {:ok, _} =
+      plan(set, %{
+        "mode" => "duration",
+        "duration_minutes" => "20",
+        "reference_set_id" => ref_set.id
+      })
+
+    assert length(Sets.tracks(set)) == 2
+  end
 end
