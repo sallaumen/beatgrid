@@ -141,10 +141,11 @@ mocks — those two files are the ground truth). The current ports:
   flow; delete a failing test to green CI; delete audio files implicitly;
   re-fetch a cached Soundcharts response; spend API quota in tests.
 
-## Skills routing (Claude Code)
+## Skills routing
 
-Skills live in `~/.claude/skills` (machine-global). Invoke BEFORE starting the
-work, not after it is already done the old way:
+Claude Code looks in `~/.claude/skills`. Codex and DeepSeek Harness can discover a
+project skill in `.agents/skills/<name>/SKILL.md`. Check which skills the active client
+can load and invoke the relevant one before starting work.
 
 - **impeccable**: any task touching UI (.heex, `~H` components, CSS, screens).
   A new surface goes through `shape` before code; reviews use `audit`/`critique`.
@@ -155,6 +156,8 @@ work, not after it is already done the old way:
 - **tdd**: every feature and every bugfix.
 - **elixir-antipatterns** (+ elixir, elixir-ecto-patterns): Elixir review and
   refactors.
+
+For a new public page introducing Beatgrid to DJs, [Hallmark 2.0.0](https://github.com/Nutlope/hallmark/tree/04977e15f3dfd6ee4b74c887dac3eb52665d6c92/skills/hallmark) is an optional way to explore the layout with real product screenshots. Library rows, the player and the set planner follow [A Cabine](DESIGN.md) and the Impeccable workflow above. Use Hallmark on an existing page only when the request names it. For a requested audit, report findings and check the rendered interface with sample tracks, including keyboard focus and readable track metadata. Hallmark's static checker skips HEEx.
 
 Design posture: generator-default UI is a defect even when the detector stays
 quiet. Side-tab accent borders, glow, gradient text, flat hierarchy, timid
