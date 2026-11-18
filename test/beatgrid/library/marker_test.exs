@@ -38,4 +38,17 @@ defmodule Beatgrid.Library.MarkerTest do
     assert Marker.intro(%{cue_points: []}) == nil
     assert Marker.outro(%{cue_points: nil}) == nil
   end
+
+  test "only nonnegative complete timestamps can address saved cues" do
+    assert Marker.parse_position(1250.8) == {:ok, 1250}
+    assert Marker.parse_position("0") == {:ok, 0}
+
+    for value <- ["1250ms?", -1, "-1", nil, ""] do
+      assert Marker.parse_position(value) == :error
+    end
+
+    assert Marker.intro(%{
+             cue_points: [%{"type" => "intro", "ms" => -1}, %{"type" => "intro", "ms" => 420}]
+           }) == %{"type" => "intro", "ms" => 420}
+  end
 end

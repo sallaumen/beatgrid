@@ -18,7 +18,7 @@ defmodule BeatgridWeb.PlayerLive do
 
   import BeatgridWeb.UI
 
-  alias Beatgrid.Library.Tracks
+  alias Beatgrid.Library.{Marker, Tracks}
   alias Beatgrid.Playback
   alias Beatgrid.Sets
 
@@ -80,7 +80,7 @@ defmodule BeatgridWeb.PlayerLive do
   # track fresh (no lost update vs a concurrent track-page edit) and updates the lane
   # synchronously instead of waiting for the broadcast echo.
   def handle_event("add_marker", %{"ms" => ms}, %{assigns: %{now_playing: %{id: id}}} = socket) do
-    case to_ms(ms) do
+    case Marker.parse_position(ms) do
       {:ok, n} -> {:noreply, mutate_markers(socket, id, &Tracks.add_marker(&1, n))}
       :error -> {:noreply, socket}
     end
@@ -91,14 +91,14 @@ defmodule BeatgridWeb.PlayerLive do
         %{"ms" => ms, "label" => label},
         %{assigns: %{now_playing: %{id: id}}} = socket
       ) do
-    case to_ms(ms) do
+    case Marker.parse_position(ms) do
       {:ok, n} -> {:noreply, mutate_markers(socket, id, &Tracks.rename_marker(&1, n, label))}
       :error -> {:noreply, socket}
     end
   end
 
   def handle_event("remove_marker", %{"ms" => ms}, %{assigns: %{now_playing: %{id: id}}} = socket) do
-    case to_ms(ms) do
+    case Marker.parse_position(ms) do
       {:ok, n} -> {:noreply, mutate_markers(socket, id, &Tracks.remove_marker(&1, n))}
       :error -> {:noreply, socket}
     end
@@ -109,7 +109,7 @@ defmodule BeatgridWeb.PlayerLive do
         %{"ms" => ms, "type" => type},
         %{assigns: %{now_playing: %{id: id}}} = socket
       ) do
-    case to_ms(ms) do
+    case Marker.parse_position(ms) do
       {:ok, n} -> {:noreply, mutate_markers(socket, id, &Tracks.set_marker_type(&1, n, type))}
       :error -> {:noreply, socket}
     end
@@ -185,19 +185,6 @@ defmodule BeatgridWeb.PlayerLive do
       _ -> socket
     end
   end
-
-  # Coerce a client-supplied position to integer ms; reject empty/non-numeric (no crash).
-  defp to_ms(ms) when is_integer(ms), do: {:ok, ms}
-  defp to_ms(ms) when is_float(ms), do: {:ok, trunc(ms)}
-
-  defp to_ms(ms) when is_binary(ms) do
-    case Integer.parse(ms) do
-      {n, _rest} -> {:ok, n}
-      :error -> :error
-    end
-  end
-
-  defp to_ms(_ms), do: :error
 
   defp load_playing_set(nil), do: nil
 
