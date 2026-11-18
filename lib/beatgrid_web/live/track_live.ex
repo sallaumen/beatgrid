@@ -6,7 +6,7 @@ defmodule BeatgridWeb.TrackLive do
 
   alias Beatgrid.Analysis
   alias Beatgrid.Library
-  alias Beatgrid.Library.{GenreFolders, Tracks}
+  alias Beatgrid.Library.{GenreFolders, Marker, Tracks}
   alias Beatgrid.Loudness
   alias Beatgrid.Mixing
   alias Beatgrid.Operations
@@ -485,7 +485,7 @@ defmodule BeatgridWeb.TrackLive do
 
   # Parse ms (no crash on junk), re-read the track fresh (no lost update), mutate, reload.
   defp mutate_markers(socket, ms, fun) do
-    with {:ok, n} <- to_ms(ms),
+    with {:ok, n} <- Marker.parse_position(ms),
          track when not is_nil(track) <- Tracks.get_with_song(socket.assigns.track.id),
          {:ok, _} <- fun.(track, n) do
       Playback.broadcast_markers_changed(track.id)
@@ -494,17 +494,6 @@ defmodule BeatgridWeb.TrackLive do
       _ -> socket
     end
   end
-
-  defp to_ms(ms) when is_integer(ms), do: {:ok, ms}
-
-  defp to_ms(ms) when is_binary(ms) do
-    case Integer.parse(ms) do
-      {n, _rest} -> {:ok, n}
-      :error -> :error
-    end
-  end
-
-  defp to_ms(_ms), do: :error
 
   @impl true
   def render(assigns) do
