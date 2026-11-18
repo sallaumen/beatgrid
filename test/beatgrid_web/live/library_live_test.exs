@@ -62,6 +62,8 @@ defmodule BeatgridWeb.LibraryLiveTest do
              "Menu"
            )
 
+    assert has_element?(view, "nav img[src='/images/logo.svg'][alt='']")
+
     for path <- ["/", "/set", "/discotecagem", "/painel", "/ajustes"] do
       assert has_element?(view, "#app-destinations a[href='#{path}']")
     end
