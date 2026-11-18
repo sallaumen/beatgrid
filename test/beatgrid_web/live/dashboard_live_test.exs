@@ -117,6 +117,56 @@ defmodule BeatgridWeb.DashboardLiveTest do
     assert html =~ "Gerando…"
   end
 
+  test "changing folders and revisiting the dashboard show which search is in flight", %{
+    conn: conn
+  } do
+    insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB", sort_order: 1)
+    insert(:genre_folder, key: "roots", display_name: "Roots", dir_name: "Roots", sort_order: 2)
+    {:ok, view, _html} = live(conn, ~p"/painel")
+    view |> element("button[phx-click=fetch_gaps]") |> render_click()
+
+    view |> element("button[phx-value-folder=roots]") |> render_click()
+    refute has_element?(view, "button[phx-click=fetch_gaps][disabled]")
+
+    view |> element("button[phx-value-folder=mpb]") |> render_click()
+    assert has_element?(view, "button[phx-click=fetch_gaps][disabled]", "Gerando")
+
+    {:ok, reopened, _html} = live(conn, ~p"/painel")
+    assert has_element?(reopened, "button[phx-click=fetch_gaps][disabled]", "Gerando")
+  end
+
+  test "completion and failure for another folder do not interrupt the current search", %{
+    conn: conn
+  } do
+    insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB")
+    {:ok, view, _html} = live(conn, ~p"/painel")
+    view |> element("button[phx-click=fetch_gaps]") |> render_click()
+
+    for status <- [:done, :error] do
+      Repertoire.broadcast_recommend(%{
+        scope: "folder",
+        key: "roots",
+        status: status,
+        count: 0,
+        batch_id: Ecto.UUID.generate()
+      })
+
+      assert has_element?(view, "button[phx-click=fetch_gaps][disabled]", "Gerando")
+      refute has_element?(view, "#flash-error", "roots")
+    end
+
+    Repertoire.broadcast_recommend(%{
+      scope: "folder",
+      key: "mpb",
+      status: :error,
+      count: 0,
+      batch_id: Ecto.UUID.generate()
+    })
+
+    assert has_element?(view, "#flash-error", "mpb")
+    refute has_element?(view, "button[phx-click=fetch_gaps][disabled]")
+  end
+
   test "a recommend-progress :done event reloads the persisted gaps live", %{conn: conn} do
     insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB")
 
