@@ -17,6 +17,7 @@ defmodule BeatgridWeb.UI do
   defdelegate camelot_color(code), to: Format
   defdelegate confidence_color(level), to: Format
   defdelegate confidence_label(level), to: Format
+  defdelegate transition_label(type), to: Format
   defdelegate format_lufs(lufs), to: Format
   defdelegate format_gain(gain), to: Format
   defdelegate loudness_delta_class(delta), to: Format
