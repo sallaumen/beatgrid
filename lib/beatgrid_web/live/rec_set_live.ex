@@ -463,13 +463,17 @@ defmodule BeatgridWeb.RecSetLive do
   # --- export ---
 
   def handle_event("export", _params, socket) do
-    toast =
-      case Sets.export_m3u(socket.assigns.set) do
-        {:ok, path} -> {:ok, Path.relative_to(path, Beatgrid.Library.library_root())}
-        _ -> {:error, nil}
-      end
+    case Sets.export_m3u(socket.assigns.set) do
+      {:ok, path} ->
+        rel = Path.relative_to(path, Beatgrid.Library.library_root())
+        {:noreply, assign(socket, toast: {:ok, rel})}
 
-    {:noreply, assign(socket, toast: toast)}
+      {:error, %Beatgrid.Error{code: :set_not_found}} ->
+        {:noreply, missing_set(socket)}
+
+      {:error, _reason} ->
+        {:noreply, assign(socket, toast: {:error, nil})}
+    end
   end
 
   def handle_event("dismiss_toast", _params, socket), do: {:noreply, assign(socket, toast: nil)}

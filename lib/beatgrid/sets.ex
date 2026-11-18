@@ -970,13 +970,20 @@ defmodule Beatgrid.Sets do
 
   @doc "Writes the set as an `.m3u` playlist under `<library_root>/_Sets`."
   @spec export_m3u(RecSet.t()) :: {:ok, Path.t()} | {:error, term()}
-  def export_m3u(%RecSet{id: id, name: name}) do
+  def export_m3u(%RecSet{id: id}) do
+    with {:ok, {name, tracks}} <-
+           with_locked_set(id, fn set -> {:ok, {set.name, RecSetQuery.ordered_tracks(id)}} end) do
+      write_playlist(name, tracks)
+    end
+  end
+
+  defp write_playlist(name, tracks) do
     root = Library.library_root()
     dir = Path.join(root, "_Sets")
     path = Path.join(dir, M3u.filename(name))
 
     with :ok <- File.mkdir_p(dir),
-         :ok <- File.write(path, M3u.body(RecSetQuery.ordered_tracks(id), root)) do
+         :ok <- File.write(path, M3u.body(tracks, root)) do
       {:ok, path}
     end
   end
