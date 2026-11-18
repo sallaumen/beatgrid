@@ -160,10 +160,11 @@ defmodule BeatgridWeb.DashboardLive do
   defp backup_stale?(nil), do: true
   defp backup_stale?(%{at: at}), do: DateTime.diff(DateTime.utc_now(), at, :hour) > 48
 
-  defp max_count([]), do: 0
   defp max_count(list), do: list |> Enum.map(fn {_k, v} -> v end) |> Enum.max()
 
   defp decade_label(d), do: "#{d}s"
+  defp track_count(1), do: "1 faixa"
+  defp track_count(total), do: "#{total} faixas"
 
   defp conf(by_confidence, level), do: Map.get(by_confidence, level, 0)
 
@@ -199,329 +200,23 @@ defmodule BeatgridWeb.DashboardLive do
     ~H"""
     <.app_shell flash={@flash} active={:painel} socket={@socket}>
       <div class="h-[calc(100vh_-_5rem)] overflow-y-auto">
-        <header class="border-b border-white/6 bg-rail px-5 py-3">
-          <div class="mx-auto flex max-w-[1600px] flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h1 class="text-[22px] font-semibold">Painel</h1>
-              <p class="text-body-sm text-ink-muted">{@overview.total} faixas na biblioteca</p>
-            </div>
-            <div class="grid grid-cols-1 gap-2 sm:w-[520px] sm:grid-cols-3">
-              <.status_pill
-                label="Markers"
-                value={@markers_unmapped}
-                tone={if @markers_unmapped > 0, do: :alert, else: :ok}
-              />
-              <.status_pill
-                label="Gain queue"
-                value={@gain_pending}
-                tone={if @gain_pending > 0, do: :alert, else: :ok}
-              />
-              <.status_pill
-                label="YouTube queue"
-                value={@youtube_pending}
-                tone={if @youtube_pending > 0, do: :info, else: :ok}
-              />
-            </div>
+        <header class="border-b border-white/6 bg-rail px-3 py-3 sm:px-6">
+          <div class="mx-auto flex max-w-[1600px] flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h1 class="text-[22px] font-semibold">Painel</h1>
+            <p class="text-body text-ink-muted">
+              {track_count(@overview.total)} na biblioteca
+            </p>
           </div>
         </header>
 
-        <div class="mx-auto max-w-[1600px] space-y-5 px-3 py-5 sm:px-6">
+        <div class="mx-auto max-w-[1600px] space-y-4 px-3 py-4 sm:px-6">
           <section
-            id="dashboard-kpis"
-            class="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6"
+            id="dashboard-insights"
+            aria-label="Repertório"
+            class="grid grid-cols-[repeat(auto-fit,minmax(min(100%,17rem),1fr))] gap-3"
           >
-            <.kpi_card label="Total" value={@overview.total} color="var(--color-primary)" />
-            <.kpi_card
-              label="Resolvidas"
-              value={@overview.resolved}
-              sub="com metadados"
-              color="var(--color-green)"
-            />
-            <.kpi_card label="Sem match" value={@overview.unresolved} color="var(--color-amber)" />
-            <.kpi_card
-              label="Truncadas"
-              value={@overview.truncated}
-              alert={@overview.truncated > 0}
-              color={if @overview.truncated > 0, do: "var(--color-coral)", else: "var(--color-ink)"}
-            />
-            <.kpi_card
-              label="Conf. alta"
-              value={conf(@overview.by_confidence, :high)}
-              color="var(--color-green)"
-            />
-            <.kpi_card
-              label="Conf. baixa"
-              value={conf(@overview.by_confidence, :low)}
-              color="var(--color-coral)"
-            />
-          </section>
-
-          <div class="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]">
-            <.panel id="dashboard-operations" title="Operações">
-              <div class="rounded-lg border border-white/6 bg-base/45 p-2 sm:p-3">
-                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-                  <div class="min-w-0 flex-1">
-                    <div class="flex flex-col gap-1 text-body-sm sm:flex-row sm:items-center sm:justify-between">
-                      <span class="text-ink-secondary">Análise de áudio local (BPM + tom)</span>
-                      <span class="font-mono text-ink-muted">
-                        {@analysis.analyzed}/{@analysis.total} analisadas
-                      </span>
-                    </div>
-                    <div class="mt-1.5 h-[7px] rounded-full bg-white/5">
-                      <div
-                        class="h-full rounded-full bg-green transition-all"
-                        style={"width:#{pct(@analysis.analyzed, @analysis.total)}%"}
-                      >
-                      </div>
-                    </div>
-                    <p :if={@analysis_note} class="mt-1.5 text-caption text-ink-muted">
-                      {@analysis_note}
-                    </p>
-                  </div>
-                  <button
-                    phx-click="analyze_library"
-                    disabled={@analysis.analyzed >= @analysis.total}
-                    class="w-full shrink-0 whitespace-normal break-words rounded-md bg-primary-deep px-2 py-1.5 text-center text-body-sm font-semibold text-white disabled:opacity-40 sm:w-auto sm:px-3.5"
-                  >
-                    Analisar faltantes ({max(@analysis.total - @analysis.analyzed, 0)})
-                  </button>
-                </div>
-              </div>
-
-              <div class="mt-3 rounded-lg border border-white/6 bg-base/45 p-2 sm:p-3">
-                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-                  <div class="min-w-0 flex-1">
-                    <div class="flex flex-col gap-1 text-body-sm sm:flex-row sm:items-center sm:justify-between">
-                      <span class="text-ink-secondary">Loudness (LUFS)</span>
-                      <span class="font-mono text-ink-muted">
-                        {@loudness.measured}/{@loudness.total} medidas
-                      </span>
-                    </div>
-                    <div class="mt-1.5 h-[7px] rounded-full bg-white/5">
-                      <div
-                        class="bg-amber h-full rounded-full transition-all"
-                        style={"width:#{pct(@loudness.measured, @loudness.total)}%"}
-                      >
-                      </div>
-                    </div>
-                    <p :if={@loudness_note} class="mt-1.5 text-caption text-ink-muted">
-                      {@loudness_note}
-                    </p>
-                  </div>
-                  <button
-                    phx-click="analyze_loudness"
-                    disabled={@loudness.measured >= @loudness.total}
-                    class="text-amber w-full shrink-0 whitespace-normal break-words rounded-md bg-amber/20 px-2 py-1.5 text-center text-body-sm font-semibold disabled:opacity-40 sm:w-auto sm:px-3.5"
-                  >
-                    Analisar loudness ({max(@loudness.total - @loudness.measured, 0)})
-                  </button>
-                </div>
-              </div>
-
-              <div class="mt-3 rounded-lg border border-white/6 bg-base/45 p-2 sm:p-3">
-                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-                  <div class="min-w-0 flex-1">
-                    <span class="text-body-sm text-ink-secondary">Gain application</span>
-                    <p class="mt-1 text-caption text-ink-muted">
-                      Applies the measured LUFS gain to eligible files and remeasures them.
-                    </p>
-                  </div>
-                  <button
-                    phx-click="apply_gain"
-                    disabled={@gain_pending == 0}
-                    class="w-full shrink-0 whitespace-normal break-words rounded-md bg-amber/15 px-2 py-1.5 text-center text-body-sm font-semibold text-amber disabled:opacity-40 sm:w-auto sm:px-3.5"
-                  >
-                    Apply gain ({@gain_pending})
-                  </button>
-                  <button
-                    :if={@gain_undo_batch}
-                    phx-click="restore_gain_backup"
-                    class="w-full shrink-0 whitespace-normal break-words rounded-md border border-amber/30 bg-input px-2 py-1.5 text-center text-body-sm font-semibold text-amber hover:bg-amber/10 sm:w-auto sm:px-3.5"
-                  >
-                    Restore gain backup
-                  </button>
-                </div>
-              </div>
-
-              <div class="mt-3 rounded-lg border border-white/6 bg-base/45 p-2 sm:p-3">
-                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-                  <div class="min-w-0 flex-1">
-                    <div class="flex flex-col gap-1 text-body-sm sm:flex-row sm:items-center sm:justify-between">
-                      <span class="text-ink-secondary">Marcadores (saída/entrada/seções)</span>
-                      <span class="font-mono text-ink-muted">
-                        {@markers.mapped}/{@markers.total} com marcadores
-                      </span>
-                    </div>
-                    <div class="mt-1.5 h-[7px] rounded-full bg-white/5">
-                      <div
-                        class="h-full rounded-full bg-primary transition-all"
-                        style={"width:#{pct(@markers.mapped, @markers.total)}%"}
-                      >
-                      </div>
-                    </div>
-                    <p :if={@markers_queue > 0} class="mt-1.5 text-caption text-primary">
-                      Analisando: {@markers_queue} na fila — os sets pegam os pontos novos sozinhos.
-                    </p>
-                    <p :if={@markers_note} class="mt-1.5 text-caption text-ink-muted">
-                      {@markers_note}
-                    </p>
-                  </div>
-                  <div class="flex w-full shrink-0 flex-col gap-1.5 sm:w-auto sm:min-w-max">
-                    <button
-                      phx-click="map_markers"
-                      disabled={@markers_unmapped == 0}
-                      class="w-full whitespace-normal break-words rounded-md bg-primary/15 px-2 py-1.5 text-center text-body-sm font-semibold text-primary disabled:opacity-40 sm:w-auto sm:px-3.5"
-                    >
-                      Mapear faltantes ({@markers_unmapped})
-                    </button>
-                    <button
-                      phx-click="remap_markers"
-                      disabled={@markers_queue > 0}
-                      data-confirm="Re-analisar TODAS as faixas com o detector novo? Marcadores manuais são preservados; os automáticos serão recalculados em background."
-                      title="Rollout de um detector novo: recalcula intro/saída/seções de toda a biblioteca"
-                      class="w-full whitespace-normal break-words rounded-md border border-white/10 px-2 py-1.5 text-center text-body-sm font-semibold text-ink-secondary hover:text-ink disabled:opacity-40 sm:w-auto sm:px-3.5"
-                    >
-                      {if @markers_queue > 0, do: "Re-mapeando…", else: "Re-mapear tudo"}
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div class="mt-3 rounded-lg border border-white/6 bg-base/45 p-2 sm:p-3">
-                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-                  <div class="min-w-0 flex-1">
-                    <div class="flex flex-col gap-1 text-body-sm sm:flex-row sm:items-center sm:justify-between">
-                      <span class="text-ink-secondary">Backup da curadoria (banco)</span>
-                      <span class={[
-                        "font-mono",
-                        (backup_stale?(@backup) && "text-amber") || "text-ink-muted"
-                      ]}>
-                        {backup_label(@backup)}
-                      </span>
-                    </div>
-                    <p class="mt-1 text-caption text-ink-muted">
-                      Sets, marcadores manuais, ratings e decisões vivem só no banco — o dump
-                      diário (5h) guarda os 14 últimos em <span class="font-mono">_Backups/DB</span>.
-                      Restaurar é manual: passe o mouse no botão pra ver o comando.
-                    </p>
-                    <p :if={@backup_note} class="mt-1.5 text-caption text-ink-muted">
-                      {@backup_note}
-                    </p>
-                  </div>
-                  <button
-                    phx-click="db_backup"
-                    title={
-                      (@backup && Beatgrid.Backup.restore_command(@backup)) || "Nenhum backup ainda"
-                    }
-                    class="w-full shrink-0 whitespace-normal break-words rounded-md border border-white/10 px-2 py-1.5 text-center text-body-sm font-semibold text-ink-secondary hover:text-ink sm:w-auto sm:px-3.5"
-                  >
-                    Backup agora
-                  </button>
-                </div>
-              </div>
-            </.panel>
-
-            <.panel id="dashboard-imports" title="Importar do YouTube">
-              <form id="youtube-form" phx-submit="download_youtube" class="space-y-2">
-                <textarea
-                  name="urls"
-                  rows="3"
-                  aria-label="URLs do YouTube para baixar"
-                  placeholder="Cole URLs do YouTube (uma por linha) ou uma URL de playlist…"
-                  class="w-full rounded-md border border-white/8 bg-input px-3 py-2 text-body-sm focus:border-primary/50 focus:outline-none"
-                ></textarea>
-                <div class="flex justify-end">
-                  <button class="rounded-md bg-primary-deep px-3.5 py-1.5 text-body-sm font-semibold text-white">
-                    Baixar
-                  </button>
-                </div>
-              </form>
-
-              <div class="mt-2 flex flex-col gap-3 border-t border-white/6 pt-2 sm:flex-row sm:items-center sm:justify-between">
-                <span class="break-words text-body-sm text-ink-secondary">
-                  Pendentes de enriquecimento: {@youtube_pending}
-                </span>
-                <button
-                  phx-click="enrich_youtube"
-                  disabled={
-                    enrich_running?(@enrich) or @youtube_pending == 0 or
-                      not Beatgrid.Integrations.configured?(:soundcharts)
-                  }
-                  class="w-full whitespace-normal break-words rounded-md border border-white/10 bg-input px-2 py-1.5 text-center text-body-sm text-ink-secondary hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed sm:w-auto sm:px-3"
-                >
-                  {if enrich_running?(@enrich),
-                    do: "Enriquecendo…",
-                    else: "Enriquecer pendentes (#{@youtube_pending})"}
-                </button>
-                <.integration_gate key={:soundcharts} />
-              </div>
-
-              <div
-                :if={enrich_running?(@enrich)}
-                class="mt-2 rounded-lg border border-white/8 bg-base px-3 py-2"
-              >
-                <p class="text-body-sm text-ink-secondary">{enrich_label(@enrich)}</p>
-                <div class="mt-1.5 h-1.5 w-full rounded-full bg-white/5">
-                  <div
-                    class="h-full rounded-full bg-primary transition-[width]"
-                    style={"width:#{enrich_pct(@enrich)}%"}
-                  />
-                </div>
-              </div>
-
-              <div class="mt-4 flex flex-col gap-3 border-t border-white/6 pt-2 sm:flex-row sm:items-center sm:justify-between">
-                <span class="text-body-sm text-ink-secondary">
-                  Soundcharts não achou / raras: {@rare_pending}
-                </span>
-                <button
-                  phx-click="enrich_rare"
-                  disabled={enrich_running?(@enrich_rare) or @rare_pending == 0}
-                  class="w-full whitespace-normal break-words rounded-md border border-white/10 bg-input px-2 py-1.5 text-center text-body-sm text-ink-secondary hover:text-ink disabled:opacity-40 sm:w-auto sm:px-3"
-                >
-                  {if enrich_running?(@enrich_rare),
-                    do: "Enriquecendo raras…",
-                    else: "Enriquecer raras (IA + análise) (#{@rare_pending})"}
-                </button>
-              </div>
-
-              <div
-                :if={enrich_running?(@enrich_rare)}
-                class="mt-2 rounded-lg border border-white/8 bg-base px-3 py-2"
-              >
-                <p class="text-body-sm text-ink-secondary">{enrich_label(@enrich_rare)}</p>
-                <div class="mt-1.5 h-1.5 w-full rounded-full bg-white/5">
-                  <div
-                    class="h-full rounded-full bg-amber transition-[width]"
-                    style={"width:#{enrich_pct(@enrich_rare)}%"}
-                  />
-                </div>
-              </div>
-
-              <p :if={@youtube_note} class="mt-1.5 text-caption text-ink-muted">{@youtube_note}</p>
-              <p :if={@youtube_failed > 0} class="mt-1.5 text-caption text-coral">
-                {@youtube_failed} download(s) falharam de vez — <.link
-                  navigate={~p"/jobs?state=failed&worker=DownloadWorker"}
-                  class="underline"
-                >ver quais foram (música e motivo) e re-tentar ou limpar</.link>.
-              </p>
-              <p class="mt-1 text-caption text-ink-faint">
-                Baixar é offline (não gasta cota). Enriquecer chama o Soundcharts (cota) e gera sugestões na Central de Revisão.
-              </p>
-              <p class="text-caption text-ink-faint">
-                Os botões de IA/análise são seguros de re-rodar: faixas já resolvidas, classificadas ou analisadas são puladas.
-              </p>
-              <.link
-                navigate={~p"/jobs"}
-                class="mt-1 inline-block text-caption text-primary hover:underline"
-              >
-                Ver downloads em andamento em Jobs →
-              </.link>
-            </.panel>
-          </div>
-
-          <div id="dashboard-insights" class="grid grid-cols-1 gap-5 lg:grid-cols-2 2xl:grid-cols-4">
-            <.panel title="Distribuição por gênero">
-              <div :if={@genres != []} class="space-y-2">
+            <.panel :if={@genres != []} title="Gêneros">
+              <div class="space-y-2">
                 <.bar_row
                   :for={{key, n} <- @genres}
                   label={folder_label(key)}
@@ -530,11 +225,10 @@ defmodule BeatgridWeb.DashboardLive do
                   color={folder_color(key)}
                 />
               </div>
-              <.empty :if={@genres == []} />
             </.panel>
 
-            <.panel title="Top artistas">
-              <div :if={@artists != []} class="space-y-2">
+            <.panel :if={@artists != []} title="Artistas mais presentes">
+              <div class="space-y-2">
                 <.bar_row
                   :for={{artist, n} <- @artists}
                   label={artist}
@@ -543,30 +237,29 @@ defmodule BeatgridWeb.DashboardLive do
                   color="var(--color-primary)"
                 />
               </div>
-              <.empty :if={@artists == []} />
             </.panel>
 
-            <.panel title="Faixas de BPM">
-              <div :if={@bpm != []}>
-                <div class="flex items-end gap-1" style="height:120px">
-                  <div
-                    :for={{_b, n} <- @bpm}
-                    class="flex-1 rounded-t-[4px]"
-                    style={"height:#{pct(n, max_count(@bpm))}%;min-height:6px;background:linear-gradient(180deg,var(--color-primary),var(--color-primary-deep))"}
-                  >
+            <.panel :if={@bpm != []} title="Andamento · BPM">
+              <ol class="flex gap-1 overflow-x-auto" aria-label="Quantidade de faixas por andamento">
+                <li
+                  :for={{b, n} <- @bpm}
+                  class="min-w-6 max-w-11 flex-1 text-center"
+                  title={"De #{b} a menos de #{b + 5} BPM · #{track_count(n)}"}
+                >
+                  <span class="sr-only">De {b} a menos de {b + 5} BPM, {track_count(n)}</span>
+                  <div aria-hidden="true" class="flex h-24 items-end">
+                    <div
+                      class="w-full rounded-t-xs bg-primary/60"
+                      style={"height:#{pct(n, max_count(@bpm))}%"}
+                    />
                   </div>
-                </div>
-                <div class="mt-1 flex gap-1">
-                  <span :for={{b, _n} <- @bpm} class="flex-1 text-center text-[9px] text-ink-faint">
-                    {b}
-                  </span>
-                </div>
-              </div>
-              <.empty :if={@bpm == []} />
+                  <span aria-hidden="true" class="font-mono text-caption text-ink-faint">{b}</span>
+                </li>
+              </ol>
             </.panel>
 
-            <.panel title="Décadas">
-              <div :if={@decades != []} class="space-y-2">
+            <.panel :if={@decades != []} title="Décadas">
+              <div class="space-y-2">
                 <.bar_row
                   :for={{d, n} <- @decades}
                   label={decade_label(d)}
@@ -575,16 +268,333 @@ defmodule BeatgridWeb.DashboardLive do
                   color="var(--color-info)"
                 />
               </div>
-              <.empty :if={@decades == []} />
             </.panel>
-          </div>
+            <p
+              :if={@genres == [] and @artists == [] and @bpm == [] and @decades == []}
+              class="border-y border-white/8 py-4 text-body text-ink-muted"
+            >
+              Ainda não há dados de repertório.
+              <.link navigate={~p"/"} class="ml-1 text-primary hover:underline">Abrir biblioteca</.link>
+            </p>
+          </section>
 
-          <.panel id="dashboard-gaps" title="Lacunas no repertório (IA)">
+          <details
+            id="dashboard-tools"
+            phx-mounted={JS.ignore_attributes("open")}
+            class="group/tools rounded-lg border border-white/8 bg-rail"
+          >
+            <summary class="flex min-h-11 cursor-pointer list-none items-center gap-2.5 px-3 py-2.5 text-body-lg font-medium text-ink-secondary hover:text-ink sm:px-4">
+              <span class="hero-wrench-screwdriver size-4 text-ink-muted" aria-hidden="true" />
+              Importação e manutenção
+              <span :if={@youtube_failed > 0} class="ml-auto text-body-sm text-coral">
+                Downloads com falha · <span class="font-mono">{@youtube_failed}</span>
+              </span>
+              <span
+                class={[
+                  "hero-chevron-down size-4 shrink-0 text-ink-muted group-open/tools:rotate-180",
+                  @youtube_failed == 0 && "ml-auto"
+                ]}
+                aria-hidden="true"
+              />
+            </summary>
+
+            <div class="space-y-3 border-t border-white/6 p-3 sm:p-4">
+              <dl
+                id="dashboard-kpis"
+                aria-label="Identificação das faixas"
+                class="flex flex-wrap gap-x-5 gap-y-2 text-body-sm"
+              >
+                <div
+                  :for={
+                    {label, count} <- [
+                      {"Com metadados", @overview.resolved},
+                      {"Sem identificação", @overview.unresolved},
+                      {"Truncadas", @overview.truncated},
+                      {"Confiança alta", conf(@overview.by_confidence, :high)},
+                      {"Confiança baixa", conf(@overview.by_confidence, :low)}
+                    ]
+                  }
+                  class="flex items-baseline gap-1.5"
+                >
+                  <dt class="text-ink-muted">{label}</dt>
+                  <dd class="font-mono text-ink">{count}</dd>
+                </div>
+              </dl>
+              <div class="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]">
+                <.panel id="dashboard-operations" title="Operações">
+                  <div class="rounded-lg border border-white/6 bg-base/45 p-2 sm:p-3">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                      <div class="min-w-0 flex-1">
+                        <div class="flex flex-col gap-1 text-body-sm sm:flex-row sm:items-center sm:justify-between">
+                          <span class="text-ink-secondary">Análise de áudio local (BPM + tom)</span>
+                          <span class="font-mono text-ink-muted">
+                            {@analysis.analyzed}/{@analysis.total} analisadas
+                          </span>
+                        </div>
+                        <div class="mt-1.5 h-[7px] rounded-full bg-white/5">
+                          <div
+                            class="h-full rounded-full bg-green transition-all"
+                            style={"width:#{pct(@analysis.analyzed, @analysis.total)}%"}
+                          >
+                          </div>
+                        </div>
+                        <p :if={@analysis_note} class="mt-1.5 text-caption text-ink-muted">
+                          {@analysis_note}
+                        </p>
+                      </div>
+                      <button
+                        phx-click="analyze_library"
+                        disabled={@analysis.analyzed >= @analysis.total}
+                        class="w-full shrink-0 whitespace-normal break-words rounded-md bg-primary-deep px-2 py-1.5 text-center text-body-sm font-semibold text-white disabled:opacity-40 sm:w-auto sm:px-3.5"
+                      >
+                        Analisar faltantes ({max(@analysis.total - @analysis.analyzed, 0)})
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="mt-3 rounded-lg border border-white/6 bg-base/45 p-2 sm:p-3">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                      <div class="min-w-0 flex-1">
+                        <div class="flex flex-col gap-1 text-body-sm sm:flex-row sm:items-center sm:justify-between">
+                          <span class="text-ink-secondary">Loudness (LUFS)</span>
+                          <span class="font-mono text-ink-muted">
+                            {@loudness.measured}/{@loudness.total} medidas
+                          </span>
+                        </div>
+                        <div class="mt-1.5 h-[7px] rounded-full bg-white/5">
+                          <div
+                            class="bg-amber h-full rounded-full transition-all"
+                            style={"width:#{pct(@loudness.measured, @loudness.total)}%"}
+                          >
+                          </div>
+                        </div>
+                        <p :if={@loudness_note} class="mt-1.5 text-caption text-ink-muted">
+                          {@loudness_note}
+                        </p>
+                      </div>
+                      <button
+                        phx-click="analyze_loudness"
+                        disabled={@loudness.measured >= @loudness.total}
+                        class="text-amber w-full shrink-0 whitespace-normal break-words rounded-md bg-amber/20 px-2 py-1.5 text-center text-body-sm font-semibold disabled:opacity-40 sm:w-auto sm:px-3.5"
+                      >
+                        Analisar loudness ({max(@loudness.total - @loudness.measured, 0)})
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="mt-3 rounded-lg border border-white/6 bg-base/45 p-2 sm:p-3">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                      <div class="min-w-0 flex-1">
+                        <span class="text-body-sm text-ink-secondary">Ajuste de ganho</span>
+                        <p class="mt-1 text-caption text-ink-muted">
+                          Ajusta o volume das faixas medidas em LUFS e guarda uma cópia dos originais.
+                        </p>
+                      </div>
+                      <button
+                        phx-click="apply_gain"
+                        disabled={@gain_pending == 0}
+                        class="w-full shrink-0 whitespace-normal break-words rounded-md bg-amber/15 px-2 py-1.5 text-center text-body-sm font-semibold text-amber disabled:opacity-40 sm:w-auto sm:px-3.5"
+                      >
+                        Aplicar ganho ({@gain_pending})
+                      </button>
+                      <button
+                        :if={@gain_undo_batch}
+                        phx-click="restore_gain_backup"
+                        class="w-full shrink-0 whitespace-normal break-words rounded-md border border-amber/30 bg-input px-2 py-1.5 text-center text-body-sm font-semibold text-amber hover:bg-amber/10 sm:w-auto sm:px-3.5"
+                      >
+                        Restaurar originais
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="mt-3 rounded-lg border border-white/6 bg-base/45 p-2 sm:p-3">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                      <div class="min-w-0 flex-1">
+                        <div class="flex flex-col gap-1 text-body-sm sm:flex-row sm:items-center sm:justify-between">
+                          <span class="text-ink-secondary">Marcadores (saída/entrada/seções)</span>
+                          <span class="font-mono text-ink-muted">
+                            {@markers.mapped}/{@markers.total} com marcadores
+                          </span>
+                        </div>
+                        <div class="mt-1.5 h-[7px] rounded-full bg-white/5">
+                          <div
+                            class="h-full rounded-full bg-primary transition-all"
+                            style={"width:#{pct(@markers.mapped, @markers.total)}%"}
+                          >
+                          </div>
+                        </div>
+                        <p :if={@markers_queue > 0} class="mt-1.5 text-caption text-primary">
+                          Analisando: {@markers_queue} na fila — os sets pegam os pontos novos sozinhos.
+                        </p>
+                        <p :if={@markers_note} class="mt-1.5 text-caption text-ink-muted">
+                          {@markers_note}
+                        </p>
+                      </div>
+                      <div class="flex w-full shrink-0 flex-col gap-1.5 sm:w-auto sm:min-w-max">
+                        <button
+                          phx-click="map_markers"
+                          disabled={@markers_unmapped == 0}
+                          class="w-full whitespace-normal break-words rounded-md bg-primary/15 px-2 py-1.5 text-center text-body-sm font-semibold text-primary disabled:opacity-40 sm:w-auto sm:px-3.5"
+                        >
+                          Mapear faltantes ({@markers_unmapped})
+                        </button>
+                        <button
+                          phx-click="remap_markers"
+                          disabled={@markers_queue > 0}
+                          data-confirm="Re-analisar TODAS as faixas com o detector novo? Marcadores manuais são preservados; os automáticos serão recalculados em background."
+                          title="Rollout de um detector novo: recalcula intro/saída/seções de toda a biblioteca"
+                          class="w-full whitespace-normal break-words rounded-md border border-white/10 px-2 py-1.5 text-center text-body-sm font-semibold text-ink-secondary hover:text-ink disabled:opacity-40 sm:w-auto sm:px-3.5"
+                        >
+                          {if @markers_queue > 0, do: "Re-mapeando…", else: "Re-mapear tudo"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="mt-3 rounded-lg border border-white/6 bg-base/45 p-2 sm:p-3">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                      <div class="min-w-0 flex-1">
+                        <div class="flex flex-col gap-1 text-body-sm sm:flex-row sm:items-center sm:justify-between">
+                          <span class="text-ink-secondary">Backup da curadoria (banco)</span>
+                          <span class={[
+                            "font-mono",
+                            (backup_stale?(@backup) && "text-amber") || "text-ink-muted"
+                          ]}>
+                            {backup_label(@backup)}
+                          </span>
+                        </div>
+                        <p class="mt-1 text-caption text-ink-muted">
+                          Sets, marcadores manuais, ratings e decisões vivem só no banco — o dump
+                          diário (5h) guarda os 14 últimos em <span class="font-mono">_Backups/DB</span>.
+                          Restaurar é manual: passe o mouse no botão pra ver o comando.
+                        </p>
+                        <p :if={@backup_note} class="mt-1.5 text-caption text-ink-muted">
+                          {@backup_note}
+                        </p>
+                      </div>
+                      <button
+                        phx-click="db_backup"
+                        title={
+                          (@backup && Beatgrid.Backup.restore_command(@backup)) ||
+                            "Nenhum backup ainda"
+                        }
+                        class="w-full shrink-0 whitespace-normal break-words rounded-md border border-white/10 px-2 py-1.5 text-center text-body-sm font-semibold text-ink-secondary hover:text-ink sm:w-auto sm:px-3.5"
+                      >
+                        Backup agora
+                      </button>
+                    </div>
+                  </div>
+                </.panel>
+
+                <.panel id="dashboard-imports" title="Importar do YouTube">
+                  <form id="youtube-form" phx-submit="download_youtube" class="space-y-2">
+                    <textarea
+                      name="urls"
+                      rows="3"
+                      aria-label="URLs do YouTube para baixar"
+                      placeholder="Cole URLs do YouTube (uma por linha) ou uma URL de playlist…"
+                      class="w-full rounded-md border border-white/8 bg-input px-3 py-2 text-body-sm focus:border-primary/50 focus:outline-none"
+                    ></textarea>
+                    <div class="flex justify-end">
+                      <button class="rounded-md bg-primary-deep px-3.5 py-1.5 text-body-sm font-semibold text-white">
+                        Baixar
+                      </button>
+                    </div>
+                  </form>
+
+                  <div class="mt-2 flex flex-col gap-3 border-t border-white/6 pt-2 sm:flex-row sm:items-center sm:justify-between">
+                    <span class="break-words text-body-sm text-ink-secondary">
+                      Pendentes de enriquecimento: {@youtube_pending}
+                    </span>
+                    <button
+                      phx-click="enrich_youtube"
+                      disabled={
+                        enrich_running?(@enrich) or @youtube_pending == 0 or
+                          not Beatgrid.Integrations.configured?(:soundcharts)
+                      }
+                      class="w-full whitespace-normal break-words rounded-md border border-white/10 bg-input px-2 py-1.5 text-center text-body-sm text-ink-secondary hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed sm:w-auto sm:px-3"
+                    >
+                      {if enrich_running?(@enrich),
+                        do: "Enriquecendo…",
+                        else: "Enriquecer pendentes (#{@youtube_pending})"}
+                    </button>
+                    <.integration_gate key={:soundcharts} />
+                  </div>
+
+                  <div
+                    :if={enrich_running?(@enrich)}
+                    class="mt-2 rounded-lg border border-white/8 bg-base px-3 py-2"
+                  >
+                    <p class="text-body-sm text-ink-secondary">{enrich_label(@enrich)}</p>
+                    <div class="mt-1.5 h-1.5 w-full rounded-full bg-white/5">
+                      <div
+                        class="h-full rounded-full bg-primary transition-[width]"
+                        style={"width:#{enrich_pct(@enrich)}%"}
+                      />
+                    </div>
+                  </div>
+
+                  <div class="mt-4 flex flex-col gap-3 border-t border-white/6 pt-2 sm:flex-row sm:items-center sm:justify-between">
+                    <span class="text-body-sm text-ink-secondary">
+                      Soundcharts não achou / raras: {@rare_pending}
+                    </span>
+                    <button
+                      phx-click="enrich_rare"
+                      disabled={enrich_running?(@enrich_rare) or @rare_pending == 0}
+                      class="w-full whitespace-normal break-words rounded-md border border-white/10 bg-input px-2 py-1.5 text-center text-body-sm text-ink-secondary hover:text-ink disabled:opacity-40 sm:w-auto sm:px-3"
+                    >
+                      {if enrich_running?(@enrich_rare),
+                        do: "Enriquecendo raras…",
+                        else: "Enriquecer raras (IA + análise) (#{@rare_pending})"}
+                    </button>
+                  </div>
+
+                  <div
+                    :if={enrich_running?(@enrich_rare)}
+                    class="mt-2 rounded-lg border border-white/8 bg-base px-3 py-2"
+                  >
+                    <p class="text-body-sm text-ink-secondary">{enrich_label(@enrich_rare)}</p>
+                    <div class="mt-1.5 h-1.5 w-full rounded-full bg-white/5">
+                      <div
+                        class="h-full rounded-full bg-amber transition-[width]"
+                        style={"width:#{enrich_pct(@enrich_rare)}%"}
+                      />
+                    </div>
+                  </div>
+
+                  <p :if={@youtube_note} class="mt-1.5 text-caption text-ink-muted">
+                    {@youtube_note}
+                  </p>
+                  <p :if={@youtube_failed > 0} class="mt-1.5 text-caption text-coral">
+                    {@youtube_failed} download(s) falharam de vez — <.link
+                      navigate={~p"/jobs?state=failed&worker=DownloadWorker"}
+                      class="underline"
+                    >ver quais foram (música e motivo) e re-tentar ou limpar</.link>.
+                  </p>
+                  <p class="mt-1 text-caption text-ink-faint">
+                    Baixar é offline (não gasta cota). Enriquecer chama o Soundcharts (cota) e gera sugestões na Central de Revisão.
+                  </p>
+                  <p class="text-caption text-ink-faint">
+                    Faixas já identificadas ficam fora da próxima busca.
+                  </p>
+                  <.link
+                    navigate={~p"/jobs"}
+                    class="mt-1 inline-block text-caption text-primary hover:underline"
+                  >
+                    Ver downloads em andamento em Jobs →
+                  </.link>
+                </.panel>
+              </div>
+            </div>
+          </details>
+
+          <.panel id="dashboard-gaps" title="Lacunas no repertório">
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div class="flex flex-wrap items-center gap-1.5">
                 <button
                   :for={f <- @folders}
                   type="button"
+                  aria-pressed={to_string(f.key == @gaps_folder)}
                   phx-click="select_folder"
                   phx-value-folder={f.key}
                   class={[
@@ -615,34 +625,23 @@ defmodule BeatgridWeb.DashboardLive do
                   class="size-2 rounded-full bg-white/90 motion-safe:animate-pulse"
                   aria-hidden="true"
                 ></span>
-                {if @recommending?, do: "Gerando…", else: "Buscar lacunas (IA)"}
+                {if @recommending?, do: "Gerando…", else: "Buscar sugestões"}
               </button>
             </div>
 
             <p class="mt-2 text-caption text-ink-faint">
-              Sugestões de faixas que faltam nesta pasta, geradas pela IA (não gasta cota). Ficam salvas aqui até você baixar ou dispensar.
+              A IA sugere faixas para a pasta selecionada, sem consumir cota do Soundcharts.
             </p>
 
             <div :if={@recs != []} class="mt-3 grid gap-2 lg:grid-cols-2">
               <.rec_row :for={rec <- @recs} rec={rec} />
             </div>
 
-            <div
-              :if={@recs == [] and @recommending?}
-              class="mt-3 flex items-center gap-2 rounded-lg border border-primary/25 bg-primary/8 px-3 py-3 text-body-sm text-ink-secondary"
-            >
-              <span
-                class="size-2.5 rounded-full bg-primary motion-safe:animate-pulse"
-                aria-hidden="true"
-              ></span>
-              Gerando sugestões com a IA… isso pode levar alguns segundos.
-            </div>
-
             <p
               :if={@recs == [] and not @recommending?}
               class="mt-3 rounded-lg border border-dashed border-white/8 px-3 py-4 text-center text-body-sm text-ink-faint"
             >
-              Nenhuma sugestão salva para esta pasta. Clique em <span class="text-ink-secondary">Buscar lacunas (IA)</span>.
+              Nenhuma sugestão salva para esta pasta.
             </p>
           </.panel>
         </div>
@@ -651,23 +650,6 @@ defmodule BeatgridWeb.DashboardLive do
     """
   end
 
-  attr :label, :string, required: true
-  attr :value, :integer, required: true
-  attr :tone, :atom, default: :info
-
-  defp status_pill(assigns) do
-    ~H"""
-    <div class={["rounded-lg border px-3 py-2", status_pill_class(@tone)]}>
-      <p class="truncate text-[10px] font-semibold uppercase text-ink-faint">{@label}</p>
-      <p class="mt-0.5 font-mono text-[18px] font-semibold text-ink">{@value}</p>
-    </div>
-    """
-  end
-
-  defp status_pill_class(:ok), do: "border-green/20 bg-green/8"
-  defp status_pill_class(:alert), do: "border-amber/35 bg-amber/10"
-  defp status_pill_class(_tone), do: "border-primary/25 bg-primary/10"
-
   attr :id, :string, default: nil
   attr :title, :string, required: true
   slot :inner_block, required: true
@@ -675,7 +657,7 @@ defmodule BeatgridWeb.DashboardLive do
   defp panel(assigns) do
     ~H"""
     <section id={@id} class="rounded-lg border border-white/6 bg-surface p-3 sm:p-4">
-      <p class="mb-3 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{@title}</p>
+      <h2 class="mb-3 text-body-lg font-semibold text-ink">{@title}</h2>
       {render_slot(@inner_block)}
     </section>
     """
@@ -751,19 +733,13 @@ defmodule BeatgridWeb.DashboardLive do
   defp bar_row(assigns) do
     ~H"""
     <div class="flex items-center gap-2.5">
-      <span class="w-16 shrink-0 truncate text-[12px] text-ink-secondary sm:w-28">{@label}</span>
+      <span title={@label} class="w-2/5 shrink-0 truncate text-body text-ink-secondary">{@label}</span>
       <div class="h-[7px] min-w-0 flex-1 rounded-full bg-white/5">
         <div class="h-full rounded-full" style={"width:#{pct(@value, @max)}%;background:#{@color}"}>
         </div>
       </div>
       <span class="w-6 shrink-0 text-right font-mono text-[11px] text-ink-muted sm:w-8">{@value}</span>
     </div>
-    """
-  end
-
-  defp empty(assigns) do
-    ~H"""
-    <p class="text-body-sm text-ink-faint">Sem dados ainda.</p>
     """
   end
 end
