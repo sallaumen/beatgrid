@@ -49,12 +49,11 @@ async function decode(trackId, src, ctx) {
   const bps = 50
   const total = Math.ceil(audio.duration * bps)
   const peaks = new Float32Array(total)
-  const samplesPerBucket = Math.floor(audio.sampleRate / bps)
   for (let i = 0; i < total; i++) {
     let max = 0
-    const start = i * samplesPerBucket
-    const end = Math.min(start + samplesPerBucket, ch0.length)
-    for (let j = start; j < end; j += 4) {
+    const start = Math.ceil(i * audio.sampleRate / bps)
+    const end = Math.min(Math.ceil((i + 1) * audio.sampleRate / bps), ch0.length)
+    for (let j = start; j < end; j++) {
       const a = Math.abs(ch0[j])
       if (a > max) max = a
       const b = Math.abs(ch1[j])
