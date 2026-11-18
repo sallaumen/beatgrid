@@ -32,6 +32,22 @@ defmodule BeatgridWeb.DashboardLiveTest do
     assert html =~ ~s(id="dashboard-gaps")
   end
 
+  test "repertoire leads the page and maintenance stays in a keyboard-accessible disclosure", %{
+    conn: conn
+  } do
+    {:ok, view, _html} = live(conn, ~p"/painel")
+
+    assert has_element?(
+             view,
+             "#dashboard-insights ~ details:not([open]) > summary",
+             "Importação e manutenção"
+           )
+
+    assert has_element?(view, "#dashboard-insights", "Ainda não há dados de repertório.")
+    assert has_element?(view, "details #dashboard-operations button[phx-click=db_backup]")
+    assert has_element?(view, "details #dashboard-imports form[phx-submit=download_youtube]")
+  end
+
   test "shows headline KPIs and the genre / artist distributions", %{conn: conn} do
     insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB")
 
@@ -48,11 +64,25 @@ defmodule BeatgridWeb.DashboardLiveTest do
     {:ok, _view, html} = live(conn, ~p"/painel")
 
     assert html =~ "Painel"
-    assert html =~ "Total"
-    assert html =~ "Resolvidas"
+    assert html =~ "2 faixas na biblioteca"
+    assert html =~ "Com metadados"
     assert html =~ "MPB"
     assert html =~ "Jobim"
     assert html =~ "1970s"
+  end
+
+  test "the tempo chart includes a library analyzed offline", %{conn: conn} do
+    for bpm <- [112.0, 115.0, 118.0], do: insert(:track, bpm_detected: bpm)
+
+    {:ok, view, _html} = live(conn, ~p"/painel")
+
+    assert has_element?(view, "#dashboard-insights li", "De 110 a menos de 115 BPM, 1 faixa")
+    assert has_element?(view, "#dashboard-insights li", "De 115 a menos de 120 BPM, 2 faixas")
+
+    track = insert(:track)
+    {:ok, _track} = Tracks.update(track, %{bpm_detected: 121.0})
+    Beatgrid.Analysis.broadcast_tick()
+    assert has_element?(view, "#dashboard-insights li", "De 120 a menos de 125 BPM, 1 faixa")
   end
 
   test "Mapear marcadores enqueues a worker per unmapped present track", %{conn: conn} do
@@ -85,7 +115,7 @@ defmodule BeatgridWeb.DashboardLiveTest do
 
     {:ok, _view, html} = live(conn, ~p"/painel")
 
-    assert html =~ "Lacunas no repertório (IA)"
+    assert html =~ "Lacunas no repertório"
     assert html =~ "Elis Regina"
     assert html =~ "Águas de Março"
     assert html =~ "essencial MPB"
@@ -208,7 +238,7 @@ defmodule BeatgridWeb.DashboardLiveTest do
       )
 
     {:ok, view, html} = live(conn, ~p"/painel")
-    assert html =~ "Apply gain (1)"
+    assert html =~ "Aplicar ganho (1)"
 
     html = view |> element("button[phx-click=apply_gain]") |> render_click()
 
@@ -250,7 +280,7 @@ defmodule BeatgridWeb.DashboardLiveTest do
     end)
 
     {:ok, view, html} = live(conn, ~p"/painel")
-    assert html =~ "Restore gain backup"
+    assert html =~ "Restaurar originais"
 
     html = view |> element("button[phx-click=restore_gain_backup]") |> render_click()
 
