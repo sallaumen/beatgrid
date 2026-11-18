@@ -835,26 +835,31 @@ defmodule BeatgridWeb.DiscotecagemLive do
           <div
             id="dj-waves"
             phx-update="ignore"
-            class="mb-1 overflow-hidden rounded-xl border border-white/8"
-            style="background:linear-gradient(180deg,#0e0f15,#0b0c10)"
+            class="mb-1 divide-y divide-white/8 overflow-hidden rounded-xl border border-white/8 bg-deep"
           >
-            <div class="relative">
-              <canvas id="dj-wave-a" class="block w-full cursor-crosshair" style="height:44px"></canvas>
-              <span
-                class="pointer-events-none absolute left-2 top-1 text-[9px] font-bold uppercase tracking-wider"
-                style="color:#8b7bf0"
-              >
-                A
-              </span>
-            </div>
-            <div class="relative border-t border-white/5">
-              <canvas id="dj-wave-b" class="block w-full cursor-crosshair" style="height:44px"></canvas>
-              <span
-                class="pointer-events-none absolute left-2 top-1 text-[9px] font-bold uppercase tracking-wider"
-                style="color:#2d9cff"
-              >
-                B
-              </span>
+            <div :for={d <- ["a", "b"]} class="grid grid-cols-[5rem_minmax(0,1fr)] items-stretch">
+              <div class="flex min-w-0 flex-col justify-center border-r border-white/8 bg-surface px-2">
+                <span class={[
+                  "text-[9px] font-bold uppercase tracking-wider",
+                  if(d == "a", do: "text-primary", else: "text-info")
+                ]}>
+                  Deck {String.upcase(d)}
+                </span>
+                <span
+                  id={"dj-media-status-#{d}"}
+                  role="status"
+                  aria-label={"Estado do deck #{String.upcase(d)}"}
+                  data-state="empty"
+                  class="dj-wave-status relative text-caption font-medium text-ink-muted data-[state=loading]:text-amber data-[state=error]:text-coral data-[state=playing]:text-ink"
+                >
+                  Vazio
+                </span>
+              </div>
+              <canvas
+                id={"dj-wave-#{d}"}
+                aria-label={"Forma de onda do deck #{String.upcase(d)}"}
+                class="block h-11 w-full cursor-crosshair"
+              ></canvas>
             </div>
           </div>
 
@@ -1100,6 +1105,23 @@ defmodule BeatgridWeb.DiscotecagemLive do
       </div>
 
       <style>
+        @media (prefers-reduced-motion: no-preference) {
+          .dj-wave-status[data-state="loading"]::after {
+            content: "";
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            width: 0.75rem;
+            height: 2px;
+            background: currentColor;
+            animation: dj-buffer-activity 750ms cubic-bezier(0.45, 0, 0.55, 1) alternate infinite;
+          }
+          @keyframes dj-buffer-activity {
+            to {
+              transform: translateX(1.5rem);
+            }
+          }
+        }
         #dj-echo-light[data-on="true"] {
           background: #ffb020;
           box-shadow: 0 0 12px #ffb020, 0 0 3px #ffb020;
@@ -1186,6 +1208,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
       <script :type={Phoenix.LiveView.ColocatedHook} name=".DjConsole">
         import {createEngine} from "@/js/dj/engine.js"
+        import {paintDeckStatus} from "@/js/dj/deck_status.js"
         import {loadPeaks, drawWave} from "@/js/dj/waveform.js"
 
         const ACCENTS = {a: "#8b7bf0", b: "#2d9cff"}
@@ -1229,6 +1252,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
             this.setId = this.el.dataset.setId || null
             this.tracks = {a: null, b: null}
             this.waves = {a: null, b: null}
+            this.reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)")
+            this.mediaReadouts = {a: byId("dj-media-status-a"), b: byId("dj-media-status-b")}
             this.hint = null
             this.pendingHint = null
             this.cursor = -1
@@ -2087,6 +2112,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
             const dur = deck.el.duration
               ? deck.el.duration * 1000
               : (track && track.duration_ms) || 0
+            const scratchPosition = this.engine.scratchPosSec(d)
+            paintDeckStatus(this.mediaReadouts[d], deck, scratchPosition)
             const pos = deck.positionMs()
             const elapsed = byId(`dj-el-${d}`)
             const rem = byId(`dj-rem-${d}`)
@@ -2119,9 +2146,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
             // playing, the scratch read-head when scratching (so the disquinho
             // turns back and forth WITH the scratch, as one thing). ~1.8 s/rev.
             const vinyl = byId(`dj-vinyl-${d}`)
-            if (vinyl) {
-              const scratchS = this.engine.scratchPosSec(d)
-              const posS = scratchS != null ? scratchS : deck.el.currentTime || 0
+            if (vinyl && !this.reducedMotion.matches) {
+              const posS = scratchPosition ?? (deck.el.currentTime || 0)
               const deg = ((posS / 1.8) * 360) % 360
               vinyl.style.transform = `translate(-50%,-50%) rotate(${deg}deg)`
             }

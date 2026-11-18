@@ -51,6 +51,19 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert html =~ "dj-cue-device"
   end
 
+  test "the two waveform lanes expose independent media status before a load", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/discotecagem")
+
+    for deck <- ["a", "b"] do
+      assert has_element?(view, "#dj-waves #dj-media-status-#{deck}[role=status]", "Vazio")
+
+      assert has_element?(
+               view,
+               ~s(#dj-wave-#{deck}[aria-label="Forma de onda do deck #{String.upcase(deck)}"])
+             )
+    end
+  end
+
   # The scratch engine lives entirely in the `.DjConsole` colocated hook, which
   # wires itself to these elements by id at mount. When a layout change moves the
   # scratch panel around the DOM (as the viewport-fit work did), nothing tells us
