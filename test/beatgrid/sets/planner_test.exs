@@ -418,4 +418,16 @@ defmodule Beatgrid.Sets.PlannerTest do
 
     assert length(Sets.tracks(set)) == 2
   end
+
+  test "an obsolete reference cannot broaden a replacement plan or clear the set", %{set: set} do
+    original = track(tag_title: "Manter")
+    {:ok, _} = Sets.append(set, original)
+
+    assert {:error, %{code: :no_candidates}} =
+             Sets.plan(set, %{"reference_set_id" => "referência antiga"})
+
+    assert [kept] = Sets.tracks(set)
+    assert kept.id == original.id
+    assert original.id in Sets.cross_set_track_ids(["desconhecido", set.id])
+  end
 end
