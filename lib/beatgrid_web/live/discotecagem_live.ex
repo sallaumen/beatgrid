@@ -74,7 +74,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
     # mas a sequência para na faixa atual.
     {:noreply,
      socket
-     |> assign(set: nil, entries: [], played: MapSet.new())
+     |> assign(set: nil, entries: [], played: MapSet.new(), preflight: nil)
      |> push_event("dj_set", %{id: nil})
      |> push_hint(nil)}
   end
@@ -646,19 +646,18 @@ defmodule BeatgridWeb.DiscotecagemLive do
     ~H"""
     <.app_shell flash={@flash} active={:discotecagem} socket={@socket}>
       <div class="mx-auto max-w-7xl px-4 py-3">
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <div class="flex items-baseline gap-3">
-            <h1 class="text-[22px] font-semibold tracking-tight">Discotecagem</h1>
-            <p class="hidden text-[11px] text-ink-muted xl:block">
-              Dois decks, transições visíveis — na tela e na controladora.
-            </p>
-          </div>
-          <div class="flex flex-wrap items-center gap-2">
-            <form id="dj-set-picker" phx-change="select_set">
+        <header class="flex flex-wrap items-center gap-x-5 gap-y-2.5 border-b border-white/8 pb-3">
+          <h1 class="text-[22px] font-semibold tracking-tight">Discotecagem</h1>
+          <div
+            role="group"
+            aria-label="Preparação do set"
+            class="flex w-full min-w-0 items-center gap-1.5 sm:w-auto sm:min-w-48 sm:flex-1"
+          >
+            <form id="dj-set-picker" phx-change="select_set" class="min-w-0 flex-1 sm:max-w-64">
               <select
                 name="set_id"
                 aria-label="Escolher set"
-                class="h-9 rounded-lg border border-white/10 bg-input px-3 text-[12px] text-ink focus:border-primary/60 focus:outline-none"
+                class="h-9 w-full min-w-0 truncate rounded-lg border border-white/10 bg-input px-2 text-body text-ink"
               >
                 <option value="">Escolher set…</option>
                 <option :for={s <- @sets} value={s.id} selected={@set && @set.id == s.id}>
@@ -669,54 +668,61 @@ defmodule BeatgridWeb.DiscotecagemLive do
             <button
               :if={@set}
               type="button"
-              phx-click="play_set"
-              class="flex h-9 items-center gap-1.5 rounded-lg bg-primary/15 px-3 text-[12px] font-semibold text-primary hover:bg-primary/25"
+              phx-click={if @preflight, do: "close_preflight", else: "preflight"}
+              aria-expanded={to_string(!is_nil(@preflight))}
+              aria-controls={@preflight && "dj-preflight"}
+              title="Conferir arquivos, marcadores e BPM do set"
+              class="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-2 text-body-sm font-medium text-ink-secondary hover:bg-white/5 hover:text-ink"
             >
-              ▶ Tocar set
+              <.icon name="hero-clipboard-document-check" class="size-4" /> Conferir
             </button>
+          </div>
+          <div role="group" aria-label="Transporte" class="flex flex-wrap items-center gap-1.5">
             <button
               :if={@set}
               type="button"
-              phx-click="preflight"
-              title="Checagem pré-viagem: arquivos, marcadores e BPM de cada faixa do set"
-              class="flex h-9 items-center gap-1.5 rounded-lg border border-white/10 px-3 text-[12px] font-semibold text-ink-secondary hover:text-ink"
+              phx-click="play_set"
+              class="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary-deep px-3 text-body font-semibold text-white hover:bg-primary-deep/90"
             >
-              ✈ Checar
-            </button>
-            <button
-              id="dj-trip-toggle"
-              type="button"
-              title="Modo Viagem: tela limpa com o essencial gigante (mouse e teclado)"
-              class="flex h-9 items-center gap-1.5 rounded-lg border border-white/10 px-3 text-[12px] font-semibold text-ink-secondary hover:text-ink"
-            >
-              🚐 Viagem
+              <.icon name="hero-play-solid" class="size-3.5" /> Tocar set
             </button>
             <button
               type="button"
               phx-click="toggle_auto"
               aria-pressed={to_string(@auto?)}
-              title="Com AUTO ligado, o console dispara as transições sozinho na janela marcada."
+              title="Com AUTO ligado, o console dispara as transições na janela marcada."
               class={[
-                "flex h-9 items-center gap-1.5 rounded-lg border px-3 text-[11px] font-bold uppercase tracking-wider",
-                @auto? && "border-amber/50 bg-amber/15 text-amber",
-                !@auto? && "border-white/10 bg-input text-ink-faint hover:text-ink"
+                "inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-body-sm font-semibold",
+                @auto? && "border-amber/30 bg-amber/10 text-amber",
+                !@auto? && "border-white/10 text-ink-muted hover:text-ink"
               ]}
             >
-              <span class={["size-1.5 rounded-full", (@auto? && "bg-amber") || "bg-white/20"]}></span>
+              <span class={["size-1.5 rounded-full", (@auto? && "bg-amber") || "bg-ink-faint"]}></span>
               Auto
             </button>
             <button
               type="button"
               phx-click="stop_all"
-              class="flex h-9 items-center rounded-lg border border-coral/30 bg-coral/10 px-3 text-[11px] font-bold uppercase tracking-wider text-coral hover:bg-coral/20"
+              aria-label="Parar os dois decks"
+              class="inline-flex h-9 items-center gap-1.5 rounded-lg border border-coral/30 px-2.5 text-body-sm font-semibold text-coral hover:bg-coral/10"
             >
-              Stop
+              <.icon name="hero-stop-solid" class="size-3.5" /> Parar
+            </button>
+            <button
+              id="dj-trip-toggle"
+              type="button"
+              title="Modo viagem em tela cheia"
+              class="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-body-sm font-medium text-ink-muted hover:bg-white/5 hover:text-ink"
+            >
+              <.icon name="hero-arrows-pointing-out" class="size-4" /> Viagem
             </button>
           </div>
-        </div>
+        </header>
 
-        <div
+        <section
           :if={@preflight}
+          id="dj-preflight"
+          aria-label="Conferência do set"
           class={[
             "mt-3 rounded-xl border p-3",
             (@preflight.issues == [] && "border-green/30 bg-green/5") || "border-amber/30 bg-amber/5"
@@ -725,8 +731,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
           <div class="flex items-center justify-between">
             <p class="text-body-sm font-semibold">
               {if @preflight.issues == [],
-                do: "✈ Tudo pronto: #{@preflight.total} faixas checadas, nenhum problema.",
-                else: "✈ #{length(@preflight.issues)} de #{@preflight.total} faixas com pendência:"}
+                do: "#{@preflight.total} faixas conferidas. Tudo pronto.",
+                else: "#{length(@preflight.issues)} de #{@preflight.total} faixas com pendência"}
             </p>
             <button
               type="button"
@@ -734,7 +740,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               aria-label="Fechar checagem"
               class="inline-flex min-h-6 items-center text-ink-faint hover:text-ink"
             >
-              ✕
+              <.icon name="hero-x-mark" class="size-4" />
             </button>
           </div>
           <ul :if={@preflight.issues != []} class="mt-1.5 space-y-0.5">
@@ -744,7 +750,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               — {Enum.map_join(issue.problems, " · ", &preflight_label/1)}
             </li>
           </ul>
-        </div>
+        </section>
 
         <%!-- -mb-20 cancels the app shell's pb-20 so the console fills to the very
         bottom (no wasted 80px); the lists reclaim it and the page fits the fold. --%>
