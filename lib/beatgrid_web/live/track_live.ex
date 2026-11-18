@@ -486,8 +486,8 @@ defmodule BeatgridWeb.TrackLive do
   # Parse ms (no crash on junk), re-read the track fresh (no lost update), mutate, reload.
   defp mutate_markers(socket, ms, fun) do
     with {:ok, n} <- to_ms(ms),
-         track when not is_nil(track) <- Tracks.get_with_song(socket.assigns.track.id) do
-      {:ok, _} = fun.(track, n)
+         track when not is_nil(track) <- Tracks.get_with_song(socket.assigns.track.id),
+         {:ok, _} <- fun.(track, n) do
       Playback.broadcast_markers_changed(track.id)
       reload(socket)
     else
