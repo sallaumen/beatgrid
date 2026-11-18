@@ -81,8 +81,10 @@ defmodule Beatgrid.Sets.RecSetQuery do
   def track_ids_in([]), do: []
 
   def track_ids_in(set_ids) do
+    ids = for id <- set_ids, {:ok, uuid} <- [Ecto.UUID.cast(id)], do: uuid
+
     SetTrack
-    |> where([st], st.rec_set_id in ^set_ids)
+    |> where([st], st.rec_set_id in ^ids)
     |> distinct([st], st.track_id)
     |> select([st], st.track_id)
     |> Repo.all()
