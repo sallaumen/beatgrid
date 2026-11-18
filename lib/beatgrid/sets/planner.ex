@@ -48,7 +48,7 @@ defmodule Beatgrid.Sets.Planner do
         set: set,
         config: config,
         preset: preset,
-        count: min(plan_count(config, preset), length(pool)),
+        count: min(plan_count(config, preset, pool), length(pool)),
         pool: pool,
         gold_pool: Enum.filter(pool, &Gold.gold?/1)
       }
@@ -91,11 +91,20 @@ defmodule Beatgrid.Sets.Planner do
   defp maybe_clear(set, :replace), do: Sets.clear_quiet(set)
   defp maybe_clear(set, :append), do: set
 
-  defp plan_count(config, preset) do
+  defp plan_count(config, preset, pool) do
     config
-    |> PlanConfig.count(&Sets.estimate_count_for_duration(&1, preset: preset.key))
+    |> PlanConfig.count(&estimate_from_pool(pool, &1, preset))
     |> min(preset.max_tracks)
     |> max(1)
+  end
+
+  defp estimate_from_pool(pool, minutes, preset) do
+    durations = for %{duration_ms: ms} <- pool, is_integer(ms) and ms > 0, do: ms
+
+    case durations do
+      [] -> Sets.estimate_count_for_duration(minutes, preset: preset.key)
+      known -> max(2, ceil(minutes * 60_000 * length(known) / Enum.sum(known)))
+    end
   end
 
   defp fill_slot(ctx, slot, index, {exclude, artists, prev, since_gold}) do
