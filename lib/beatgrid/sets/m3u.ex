@@ -22,8 +22,13 @@ defmodule Beatgrid.Sets.M3u do
 
   defp extinf(track, root) do
     secs = if track.duration_ms, do: div(track.duration_ms, 1000), else: -1
-    artist = track.tag_artist || "—"
-    title = track.tag_title || track.filename
+    artist = display_text(track.tag_artist, "—")
+    title = display_text(track.tag_title, track.filename)
     ["#EXTINF:#{secs},#{artist} - #{title}", Path.join(root, track.rel_path)]
+  end
+
+  defp display_text(value, fallback) do
+    value = String.trim(value || "")
+    String.replace(if(value == "", do: fallback, else: value), ~r/[\r\n]+/u, " ")
   end
 end
