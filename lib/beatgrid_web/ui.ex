@@ -363,9 +363,7 @@ defmodule BeatgridWeb.UI do
             aria-expanded="false"
             aria-controls="app-destinations"
             phx-click={JS.toggle_attribute({"aria-expanded", "true", "false"})}
-            phx-window-keydown={
-              JS.exec("data-dismiss", to: "nav:focus-within #mobile-nav-toggle[aria-expanded=true]")
-            }
+            phx-window-keydown={JS.exec("data-dismiss", to: "#mobile-nav-toggle[aria-expanded=true]")}
             phx-key="Escape"
             data-dismiss={JS.set_attribute({"aria-expanded", "false"}) |> JS.focus()}
             class="flex min-h-11 items-center gap-2 rounded-md px-2 text-body font-medium text-ink-secondary hover:bg-white/5 md:hidden"
