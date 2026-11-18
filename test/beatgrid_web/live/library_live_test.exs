@@ -53,6 +53,22 @@ defmodule BeatgridWeb.LibraryLiveTest do
     refute filtered =~ "Asa Branca"
   end
 
+  test "the compact menu controls the same destinations as the desktop rail", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    assert has_element?(
+             view,
+             "button[aria-expanded=false][aria-controls=app-destinations]",
+             "Menu"
+           )
+
+    for path <- ["/", "/set", "/discotecagem", "/painel", "/ajustes"] do
+      assert has_element?(view, "#app-destinations a[href='#{path}']")
+    end
+
+    assert has_element?(view, "#app-destinations a[aria-current=page]", "Biblioteca")
+  end
+
   test "renders the grouped, collapsible navigation rail", %{conn: conn} do
     {:ok, _view, html} = live(conn, ~p"/")
 

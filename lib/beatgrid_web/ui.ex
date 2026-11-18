@@ -343,24 +343,40 @@ defmodule BeatgridWeb.UI do
   def app_shell(assigns) do
     ~H"""
     <BeatgridWeb.Layouts.flash_group flash={@flash} />
-    <div class="flex min-h-screen bg-base text-ink">
+    <div class="flex min-h-screen flex-col bg-base text-ink md:flex-row">
       <nav
         aria-label="Navegação principal"
-        class="flex w-[216px] shrink-0 flex-col gap-5 border-r border-white/6 bg-rail px-3 py-4 transition-[width] duration-200 ease-out nav-collapsed:w-[68px] nav-collapsed:px-2"
+        class="group/nav flex w-full shrink-0 flex-col border-b border-white/6 bg-rail px-3 py-1 md:w-[216px] md:gap-5 md:border-r md:border-b-0 md:py-4 md:motion-safe:transition-[width] md:motion-safe:duration-200 md:motion-safe:ease-out md:nav-collapsed:w-[68px] md:nav-collapsed:px-2"
       >
-        <div class="flex items-center gap-2.5 px-1 nav-collapsed:justify-center nav-collapsed:px-0">
+        <div class="flex items-center gap-2.5 px-1 md:nav-collapsed:justify-center md:nav-collapsed:px-0">
           <div
-            class="size-9 shrink-0 rounded-[10px]"
+            aria-hidden="true"
+            class="size-6 shrink-0 md:size-9 rounded-[10px]"
             style="background:linear-gradient(145deg,#6c5ce7,#8b7bf0);box-shadow:0 6px 18px rgba(108,92,231,.45)"
           />
-          <span class="flex-1 truncate text-[15px] font-semibold tracking-tight nav-collapsed:hidden">
+          <span class="flex-1 truncate text-[15px] font-semibold tracking-tight md:nav-collapsed:hidden">
             Beatgrid
           </span>
+          <button
+            id="mobile-nav-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="app-destinations"
+            phx-click={JS.toggle_attribute({"aria-expanded", "true", "false"})}
+            phx-window-keydown={
+              JS.exec("data-dismiss", to: "nav:focus-within #mobile-nav-toggle[aria-expanded=true]")
+            }
+            phx-key="Escape"
+            data-dismiss={JS.set_attribute({"aria-expanded", "false"}) |> JS.focus()}
+            class="flex min-h-11 items-center gap-2 rounded-md px-2 text-body font-medium text-ink-secondary hover:bg-white/5 md:hidden"
+          >
+            <span class="hero-bars-3 size-4" aria-hidden="true" /> Menu
+          </button>
           <button
             type="button"
             data-nav-toggle
             aria-label="Recolher menu lateral"
-            class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-white/5 hover:text-ink nav-collapsed:hidden"
+            class="hidden size-7 shrink-0 md:flex items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-white/5 hover:text-ink md:nav-collapsed:hidden"
           >
             <span class="hero-chevron-double-left size-4" aria-hidden="true" />
           </button>
@@ -370,20 +386,25 @@ defmodule BeatgridWeb.UI do
           type="button"
           data-nav-toggle
           aria-label="Expandir menu lateral"
-          class="mx-auto hidden size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-white/5 hover:text-ink nav-collapsed:flex"
+          class="mx-auto hidden size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-white/5 hover:text-ink md:nav-collapsed:flex"
         >
           <span class="hero-chevron-double-right size-4" aria-hidden="true" />
         </button>
 
-        <div :for={section <- nav_sections()} class="flex flex-col gap-1">
-          <p class="px-2 pb-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint nav-collapsed:hidden">
-            {section.title}
-          </p>
-          <div
-            class="mx-auto my-1 hidden h-px w-7 rounded-full bg-white/8 nav-collapsed:block"
-            aria-hidden="true"
-          />
-          <.nav_item :for={item <- section.items} item={item} active={@active == item.key} />
+        <div
+          id="app-destinations"
+          class="hidden max-h-[55dvh] grid-cols-2 gap-3 overflow-y-auto border-t border-white/6 py-2 group-has-[[aria-expanded=true]]/nav:grid md:flex md:max-h-none md:flex-col md:gap-5 md:overflow-visible md:border-0 md:py-0"
+        >
+          <div :for={section <- nav_sections()} class="flex flex-col gap-1">
+            <p class="px-2 pb-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint md:nav-collapsed:hidden">
+              {section.title}
+            </p>
+            <div
+              class="mx-auto my-1 hidden h-px w-7 rounded-full bg-white/8 md:nav-collapsed:block"
+              aria-hidden="true"
+            />
+            <.nav_item :for={item <- section.items} item={item} active={@active == item.key} />
+          </div>
         </div>
       </nav>
       <main class="min-w-0 flex-1 pb-20">{render_slot(@inner_block)}</main>
@@ -483,26 +504,29 @@ defmodule BeatgridWeb.UI do
     ~H"""
     <.link
       navigate={@item.href}
+      phx-click={
+        JS.set_attribute({"aria-expanded", "false"}, to: "#mobile-nav-toggle[aria-expanded=true]")
+      }
       title={@item.label}
       aria-label={@item.label}
       aria-current={@active && "page"}
       class={[
-        "relative flex items-center gap-3 rounded-lg px-2.5 py-2 transition-colors",
-        "nav-collapsed:flex-col nav-collapsed:gap-1 nav-collapsed:px-1 nav-collapsed:py-2.5",
+        "relative flex min-h-11 items-center gap-3 md:min-h-0 rounded-lg px-2.5 py-2 transition-colors",
+        "md:nav-collapsed:flex-col md:nav-collapsed:gap-1 md:nav-collapsed:px-1 md:nav-collapsed:py-2.5",
         @active && "bg-primary/12 text-primary",
         !@active && "text-ink-muted hover:bg-white/5 hover:text-ink"
       ]}
     >
       <span
         :if={@active}
-        class="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-primary nav-collapsed:hidden"
+        class="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-primary md:nav-collapsed:hidden"
         aria-hidden="true"
       />
       <span class={[@item.icon, "size-5 shrink-0"]} aria-hidden="true" />
-      <span class="truncate text-[13px] font-medium tracking-tight nav-collapsed:hidden">
+      <span class="truncate text-[13px] font-medium tracking-tight md:nav-collapsed:hidden">
         {@item.label}
       </span>
-      <span class="hidden text-[9px] font-semibold uppercase tracking-wider nav-collapsed:block">
+      <span class="hidden text-[9px] font-semibold uppercase tracking-wider md:nav-collapsed:block">
         {@item.short}
       </span>
     </.link>
