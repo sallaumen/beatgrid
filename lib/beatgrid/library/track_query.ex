@@ -100,6 +100,22 @@ defmodule Beatgrid.Library.TrackQuery do
     filters |> library_base() |> select([t], t.id) |> Repo.all()
   end
 
+  @doc "Present tracks grouped by positive effective BPM in buckets of the given width."
+  @spec bpm_histogram(pos_integer()) :: %{integer() => non_neg_integer()}
+  def bpm_histogram(bucket) do
+    tempos = library_base(%{}) |> select(^%{bpm: effective_bpm()})
+
+    from(t in subquery(tempos),
+      where: t.bpm > 0,
+      select:
+        {selected_as(fragment("(floor(? / ?) * ?)::int", t.bpm, ^bucket, ^bucket), :bucket),
+         count()},
+      group_by: selected_as(:bucket)
+    )
+    |> Repo.all()
+    |> Map.new()
+  end
+
   # The shared filtered base (join + WHERE chain), without sort/pagination/preload —
   # so list, count, and ids all share one filter definition.
   defp library_base(filters) do
