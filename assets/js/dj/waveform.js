@@ -9,6 +9,12 @@
 // leave a revisited deck permanently unable to scratch until a page reload.
 const clips = new Map()
 const MAX_CLIPS = 4
+const platterTracks = new Map()
+
+export function retainScratch(platter, trackId) {
+  if (trackId == null) platterTracks.delete(platter)
+  else platterTracks.set(platter, trackId)
+}
 
 export function loadPeaks(trackId, src, ctx) {
   let clip = clips.get(trackId)
@@ -22,7 +28,14 @@ export function loadPeaks(trackId, src, ctx) {
     })
   }
   clips.set(trackId, clip)
-  if (clips.size > MAX_CLIPS) clips.delete(clips.keys().next().value)
+  if (clips.size > MAX_CLIPS) {
+    const mounted = new Set(platterTracks.values())
+    for (const id of clips.keys()) {
+      if (mounted.has(id)) continue
+      clips.delete(id)
+      break
+    }
+  }
   return clip.ready
 }
 

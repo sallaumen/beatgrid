@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import {loadPeaks, getScratchPcm} from "../../assets/js/dj/waveform.js"
+import {loadPeaks, getScratchPcm, retainScratch} from "../../assets/js/dj/waveform.js"
 
 function audioFixture(t, left, right, sampleRate) {
   const fetch = t.mock.method(globalThis, "fetch", async () => new Response(new ArrayBuffer(0)))
@@ -30,4 +30,18 @@ test("returning to a track restores scratch PCM and shares one decode between de
   assert.equal(a, b)
   assert.deepEqual(getScratchPcm("record"), samples)
   assert.equal(fetch.mock.callCount(), 6)
+})
+
+test("browsing on the idle platter keeps the other platter scratchable until it is released", async t => {
+  const owner = {}
+  const samples = Float32Array.of(1)
+  const {ctx} = audioFixture(t, samples, samples, 8000)
+  retainScratch(owner, "on-air")
+  t.after(() => retainScratch(owner, null))
+  await loadPeaks("on-air", "on-air", ctx)
+  for (let n = 0; n < 6; n++) await loadPeaks("preview" + n, "preview", ctx)
+  assert.deepEqual(getScratchPcm("on-air"), samples)
+  retainScratch(owner, null)
+  await loadPeaks("replacement", "replacement", ctx)
+  assert.equal(getScratchPcm("on-air"), null)
 })
