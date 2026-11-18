@@ -106,6 +106,70 @@ defmodule BeatgridWeb.RecSetLiveTest do
     assert set.target_style == "forro_roots"
   end
 
+  test "an invalid rename keeps the editor open and a subsequent valid name saves", %{conn: conn} do
+    {:ok, set} = Sets.create("Original")
+    {:ok, view, _} = live(conn, ~p"/set/#{set.id}")
+
+    for invalid <- ["", String.duplicate("a", 256)] do
+      view |> form("#set-name", %{name: invalid}) |> render_change()
+      assert Sets.get(set.id).name == "Original"
+      assert has_element?(view, "#set-name [aria-invalid=true]")
+    end
+
+    view |> form("#set-name", %{name: "Baile de sexta"}) |> render_submit()
+    assert Sets.get(set.id).name == "Baile de sexta"
+    refute has_element?(view, "#set-name [aria-invalid=true]")
+  end
+
+  test "duplicating a set removed in another tab returns to the remaining set", %{conn: conn} do
+    {:ok, other} = Sets.create("Outro baile")
+    {:ok, set} = Sets.create("Removido")
+    {:ok, view, _} = live(conn, ~p"/set/#{set.id}")
+    {:ok, _} = Sets.delete(set)
+
+    view |> element("button[phx-click=duplicate_set]") |> render_click()
+    assert_patch(view, ~p"/set/#{other.id}")
+    assert has_element?(view, "#set-name input[value='Outro baile']")
+    assert render(view) =~ "Esse set já foi excluído."
+    assert [remaining] = Sets.list()
+    assert remaining.id == other.id
+  end
+
+  test "stale name, style and delete controls recover when another tab deletes the set", %{
+    conn: conn
+  } do
+    {:ok, remaining} = Sets.create("Outro baile")
+
+    for action <- [:rename, :style, :delete] do
+      {:ok, gone} = Sets.create("Baile antigo")
+      {:ok, view, _} = live(conn, ~p"/set/#{gone.id}")
+      {:ok, _} = Sets.delete(gone)
+
+      case action do
+        :rename -> view |> form("#set-name", %{name: "Novo nome"}) |> render_submit()
+        :style -> view |> form("#target-style") |> render_change(%{style: "forro_roots"})
+        :delete -> view |> element("button[phx-click=delete_set]") |> render_click()
+      end
+
+      assert_patch(view, ~p"/set/#{remaining.id}")
+      assert has_element?(view, "#set-name input[value='Outro baile']")
+      assert render(view) =~ "Esse set já foi excluído."
+    end
+  end
+
+  test "an async plan finishing after the editor was cleared cannot reload the deleted set" do
+    {:ok, set} = Sets.create("Fim do baile")
+
+    socket =
+      Phoenix.Component.assign(%Phoenix.LiveView.Socket{}, set: nil, planning_set_id: set.id)
+
+    assert {:noreply, finished} =
+             BeatgridWeb.RecSetLive.handle_async(:plan, {:ok, {:ok, set}}, socket)
+
+    assert is_nil(finished.assigns.set)
+    assert is_nil(finished.assigns.planning_set_id)
+  end
+
   @tag :tmp_dir
   test "filling a section appends tracks tagged with the role", %{conn: conn} do
     track_with("8A", 120.0, tag_title: "P1")
@@ -122,6 +186,25 @@ defmodule BeatgridWeb.RecSetLiveTest do
     assert [%{role: "pico"}, %{role: "pico"}] = Sets.entries(set)
     # the section label is shown in the list
     assert render(view) =~ "Pico"
+  end
+
+  @tag :tmp_dir
+  test "replacing a set with no matching candidates keeps its sequence and transitions", %{
+    conn: conn
+  } do
+    first = track_with("8A", 120.0, tag_title: "Opening")
+    last = track_with("9A", 122.0, tag_title: "Closing")
+    {:ok, set} = Sets.create_filled("Baile", [first, last])
+    {:ok, _} = Sets.connect(set, last, %{"type" => "echo"})
+    before = Sets.entries(set)
+    {:ok, view, _} = live(conn, ~p"/set/#{set.id}")
+
+    open_panel(view, "plan")
+    view |> form("#plan-set-form") |> render_submit(%{fill_mode: "replace", bpm_min: "220"})
+    html = render_async(view)
+
+    assert Sets.entries(set) == before
+    assert html =~ "Nenhuma faixa atende aos critérios"
   end
 
   @tag :tmp_dir
@@ -318,6 +401,23 @@ defmodule BeatgridWeb.RecSetLiveTest do
 
   # --- mixing console (Task 4: state + events) ---
 
+  test "the opening preview and section fill both honor the console BPM window", %{conn: conn} do
+    allowed = track_with("8A", 112.0, tag_title: "Dentro da faixa")
+    blocked = track_with("8A", 150.0, tag_title: "Fora da faixa")
+    {:ok, set} = Sets.create("Filtrado")
+    {:ok, view, _} = live(conn, ~p"/set/#{set.id}")
+    open_panel(view, "console")
+    open_panel(view, "candidates")
+    view |> form("form[phx-change=set_filters]", %{bpm_max: "120"}) |> render_change()
+
+    assert has_element?(view, "button[phx-click=append][phx-value-track='#{allowed.id}']")
+    refute has_element?(view, "button[phx-click=append][phx-value-track='#{blocked.id}']")
+    open_panel(view, "fill")
+    view |> form("#section-fill") |> render_submit(%{role: "pico", count: "2"})
+    assert [%{track: %{id: id}, role: "pico"}] = Sets.entries(set)
+    assert id == allowed.id
+  end
+
   @tag :tmp_dir
   test "adjusting a weight fader recomputes candidates (order changes)", %{conn: conn} do
     prev = track_with("8A", 120.0, tag_title: "Prev", norm_title: "prev")
@@ -439,6 +539,26 @@ defmodule BeatgridWeb.RecSetLiveTest do
     # /set defaults to the most recent; /set/:id loads the requested one.
     {:ok, _view, html} = live(conn, ~p"/set/#{older.id}")
     assert html =~ ~s(value="Primeiro")
+  end
+
+  test "selecting, duplicating and creating a set put the edited set in the address", %{
+    conn: conn
+  } do
+    {:ok, first} = Sets.create("Primeiro")
+    {:ok, second} = Sets.create("Segundo")
+    {:ok, view, _} = live(conn, ~p"/set/#{first.id}")
+    view |> element("[phx-click=select_set][phx-value-id='#{second.id}']") |> render_click()
+    assert_patch(view, ~p"/set/#{second.id}")
+
+    view |> element("button[phx-click=duplicate_set]") |> render_click()
+    copy = Enum.find(Sets.list(), &(&1.name == "Segundo (cópia)"))
+    assert_patch(view, ~p"/set/#{copy.id}")
+
+    view |> element("button[phx-click=new_set]") |> render_click()
+    created = Enum.find(Sets.list(), &(&1.name == "Novo set"))
+    assert_patch(view, ~p"/set/#{created.id}")
+    {:ok, reopened, _} = live(conn, ~p"/set/#{created.id}")
+    assert has_element?(reopened, "#set-name input[value='Novo set']")
   end
 
   @tag :tmp_dir
@@ -610,6 +730,45 @@ defmodule BeatgridWeb.RecSetLiveTest do
     view |> element("button[phx-click=toggle_breather]") |> render_click()
     entry_b = Enum.find(Sets.entries(set), &(&1.track.id == b.id))
     refute Map.has_key?(entry_b.transition, "breather")
+  end
+
+  test "scratch transitions have distinct controls and changing type keeps the breather override",
+       %{conn: conn} do
+    a = track_with("8A", 120.0, tag_title: "A")
+    b = track_with("8A", 121.0, tag_title: "B")
+    {:ok, set} = Sets.create_filled("Salão", [a, b])
+    {:ok, _} = Sets.set_breather(set, b, true)
+    {:ok, view, _} = live(conn, ~p"/set/#{set.id}")
+
+    for {type, label} <- [
+          {"scratch_cut", "rasgo"},
+          {"spinback", "rebobina"},
+          {"chirp", "chirp"},
+          {"transform", "transf"},
+          {"scribble", "risca"}
+        ] do
+      assert has_element?(view, "button[phx-value-type='#{type}']", label)
+    end
+
+    view |> element("button[phx-value-type=chirp]") |> render_click()
+    assert [%{}, %{transition: %{"type" => "chirp", "breather" => true}}] = Sets.entries(set)
+    assert has_element?(view, "button[phx-value-type=chirp][aria-pressed=true]")
+  end
+
+  test "a breather click from an outdated list recovers if the receiving track was removed", %{
+    conn: conn
+  } do
+    a = track_with("8A", 120.0, tag_title: "A")
+    b = track_with("8A", 121.0, tag_title: "B")
+    {:ok, set} = Sets.create_filled("Salão", [a, b])
+    {:ok, view, _} = live(conn, ~p"/set/#{set.id}")
+    :ok = Sets.remove(set, b)
+
+    html =
+      view |> element("[phx-click=toggle_breather][phx-value-track='#{b.id}']") |> render_click()
+
+    assert html =~ "Faixa não encontrada"
+    refute has_element?(view, "[phx-click=toggle_breather][phx-value-track='#{b.id}']")
   end
 
   test "a pair the DJ taught shows the learned exit with the 📌 badge", %{conn: conn} do
