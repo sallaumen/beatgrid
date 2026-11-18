@@ -350,10 +350,12 @@ defmodule BeatgridWeb.UI do
         class="group/nav flex w-full shrink-0 flex-col border-b border-white/6 bg-rail px-3 py-1 md:w-[216px] md:gap-5 md:border-r md:border-b-0 md:py-4 md:motion-safe:transition-[width] md:motion-safe:duration-200 md:motion-safe:ease-out md:nav-collapsed:w-[68px] md:nav-collapsed:px-2"
       >
         <div class="flex items-center gap-2.5 px-1 md:nav-collapsed:justify-center md:nav-collapsed:px-0">
-          <div
-            aria-hidden="true"
-            class="size-6 shrink-0 md:size-9 rounded-[10px]"
-            style="background:linear-gradient(145deg,#6c5ce7,#8b7bf0);box-shadow:0 6px 18px rgba(108,92,231,.45)"
+          <img
+            src="/images/logo.svg"
+            alt=""
+            width="36"
+            height="36"
+            class="size-6 shrink-0 md:size-9"
           />
           <span class="flex-1 truncate text-[15px] font-semibold tracking-tight md:nav-collapsed:hidden">
             Beatgrid
@@ -364,9 +366,7 @@ defmodule BeatgridWeb.UI do
             aria-expanded="false"
             aria-controls="app-destinations"
             phx-click={JS.toggle_attribute({"aria-expanded", "true", "false"})}
-            phx-window-keydown={
-              JS.exec("data-dismiss", to: "nav:focus-within #mobile-nav-toggle[aria-expanded=true]")
-            }
+            phx-window-keydown={JS.exec("data-dismiss", to: "#mobile-nav-toggle[aria-expanded=true]")}
             phx-key="Escape"
             data-dismiss={JS.set_attribute({"aria-expanded", "false"}) |> JS.focus()}
             class="flex min-h-11 items-center gap-2 rounded-md px-2 text-body font-medium text-ink-secondary hover:bg-white/5 md:hidden"
