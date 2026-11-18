@@ -32,7 +32,7 @@ defmodule Beatgrid.Dashboard.ReadModel do
       overview: Repertoire.overview(),
       genres: Repertoire.genre_distribution() |> Enum.sort_by(fn {_key, count} -> -count end),
       artists: Repertoire.top_artists(10),
-      bpm: Repertoire.bpm_histogram(5) |> Enum.sort_by(fn {bucket, _count} -> bucket end),
+      bpm: tempo_distribution(),
       decades:
         Repertoire.decade_distribution() |> Enum.sort_by(fn {decade, _count} -> decade end),
       analysis: Analysis.progress(),
@@ -59,6 +59,8 @@ defmodule Beatgrid.Dashboard.ReadModel do
     |> Map.merge(gaps(gaps_folder))
   end
 
+  defp tempo_distribution, do: Repertoire.bpm_histogram() |> Enum.sort()
+
   @doc "Returns the selected folder's recommendation gaps plus per-folder counts."
   @spec gaps(String.t() | nil) :: map()
   def gaps(folder) do
@@ -73,7 +75,8 @@ defmodule Beatgrid.Dashboard.ReadModel do
 
   @doc "Returns assign patches for PubSub progress events consumed by the dashboard."
   @spec refresh(term()) :: {:ok, map()} | :ignore
-  def refresh(:analysis_tick), do: {:ok, %{analysis: Analysis.progress()}}
+  def refresh(:analysis_tick),
+    do: {:ok, %{analysis: Analysis.progress(), bpm: tempo_distribution()}}
 
   def refresh(:backup_tick), do: {:ok, %{backup: Backup.latest(), backup_note: nil}}
 

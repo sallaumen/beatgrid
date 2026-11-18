@@ -71,6 +71,20 @@ defmodule BeatgridWeb.DashboardLiveTest do
     assert html =~ "1970s"
   end
 
+  test "the tempo chart includes a library analyzed offline", %{conn: conn} do
+    for bpm <- [112.0, 115.0, 118.0], do: insert(:track, bpm_detected: bpm)
+
+    {:ok, view, _html} = live(conn, ~p"/painel")
+
+    assert has_element?(view, "#dashboard-insights li", "De 110 a menos de 115 BPM, 1 faixa")
+    assert has_element?(view, "#dashboard-insights li", "De 115 a menos de 120 BPM, 2 faixas")
+
+    track = insert(:track)
+    {:ok, _track} = Tracks.update(track, %{bpm_detected: 121.0})
+    Beatgrid.Analysis.broadcast_tick()
+    assert has_element?(view, "#dashboard-insights li", "De 120 a menos de 125 BPM, 1 faixa")
+  end
+
   test "Mapear marcadores enqueues a worker per unmapped present track", %{conn: conn} do
     insert(:track, status: :present, rel_path: "u1.mp3", cue_points: [])
     insert(:track, status: :present, rel_path: "u2.mp3", cue_points: [])
