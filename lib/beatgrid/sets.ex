@@ -216,31 +216,22 @@ defmodule Beatgrid.Sets do
   @spec preflight(RecSet.t()) :: %{total: non_neg_integer(), issues: [map()]}
   def preflight(%RecSet{id: id}) do
     entries = RecSetQuery.ordered_entries(id)
-    last = length(entries)
-    # The boundary OUT of each track is the NEXT entry's incoming transition —
-    # a respiro there means the track plays to its real end (no outro needed).
-    exits = entries |> Enum.map(& &1.transition) |> Enum.drop(1) |> Kernel.++([nil])
+    following = Enum.drop(entries, 1) ++ [nil]
 
     issues =
       entries
-      |> Enum.zip(exits)
-      |> Enum.with_index(1)
-      |> Enum.map(fn {{entry, exit_transition}, pos} ->
-        entry_issues(entry.track, pos, last, exit_transition)
-      end)
+      |> Enum.zip(following)
+      |> Enum.map(fn {entry, next} -> entry_issues(entry, next) end)
       |> Enum.reject(&(&1.problems == []))
 
-    %{total: last, issues: issues}
+    %{total: length(entries), issues: issues}
   end
 
-  defp entry_issues(track, pos, last, exit_transition) do
-    breather_out? =
-      is_map(exit_transition) and breather?(%{position: pos + 1, transition: exit_transition})
-
+  defp entry_issues(%{track: track, position: pos}, next) do
     checks = [
       arquivo_sumido: not File.exists?(Path.join(Library.library_root(), track.rel_path)),
       fora_da_biblioteca: track.status != :present,
-      sem_saida: pos != last and not breather_out? and is_nil(Marker.outro(track)),
+      sem_saida: missing_exit?(track, next),
       sem_bpm: is_nil(Library.effective(track).bpm)
     ]
 
@@ -249,6 +240,13 @@ defmodule Beatgrid.Sets do
       title: track.tag_title || track.filename,
       problems: for({key, true} <- checks, do: key)
     }
+  end
+
+  defp missing_exit?(_outgoing, nil), do: false
+
+  defp missing_exit?(outgoing, next) do
+    {_ms, source} = TransitionTiming.exit_point(outgoing, effective_transition(next))
+    source == :fallback
   end
 
   defp build_hint(outgoing, %{track: track} = entry) do
