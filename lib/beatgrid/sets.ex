@@ -235,6 +235,7 @@ defmodule Beatgrid.Sets do
 
   defp entry_issues(track, pos, last, exit_transition) do
     next = %{position: pos + 1, transition: exit_transition}
+
     checks = [
       arquivo_sumido: not File.exists?(Path.join(Library.library_root(), track.rel_path)),
       fora_da_biblioteca: track.status != :present,
