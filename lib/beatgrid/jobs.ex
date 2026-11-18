@@ -32,6 +32,19 @@ defmodule Beatgrid.Jobs do
   defp maybe_filter_worker(query, worker),
     do: where(query, [j], j.worker == ^"Beatgrid.Workers.#{worker}")
 
+  @doc "Whether this folder already has a recommendation search in flight."
+  @spec folder_recommendation_pending?(String.t() | nil) :: boolean()
+  def folder_recommendation_pending?(nil), do: false
+
+  def folder_recommendation_pending?(folder) do
+    Oban.Job.query(
+      worker: Beatgrid.Workers.RecommendWorker,
+      state: Oban.Job.unique_states(:incomplete),
+      args: %{scope: "folder", folder: folder}
+    )
+    |> Repo.exists?()
+  end
+
   @doc "Re-queues every failed (discarded/cancelled) job, optionally of one `worker`. Returns the count."
   @spec retry_failed(String.t() | nil) :: non_neg_integer()
   def retry_failed(worker \\ nil) do

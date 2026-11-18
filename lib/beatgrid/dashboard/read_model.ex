@@ -5,7 +5,7 @@ defmodule Beatgrid.Dashboard.ReadModel do
   enqueueing and mutations belong to `Beatgrid.Dashboard.Commands`.
   """
 
-  alias Beatgrid.{Analysis, Backup, Loudness, Markers, Repertoire, YouTube}
+  alias Beatgrid.{Analysis, Backup, Jobs, Loudness, Markers, Repertoire, YouTube}
   alias Beatgrid.Library.GenreFolders
 
   @doc "Subscribes the caller to every topic that can change the dashboard snapshot."
@@ -53,8 +53,7 @@ defmodule Beatgrid.Dashboard.ReadModel do
       enrich: nil,
       rare_pending: YouTube.rare_unfiled_count(),
       enrich_rare: nil,
-      folders: folders,
-      recommending?: false
+      folders: folders
     }
     |> Map.merge(gaps(gaps_folder))
   end
@@ -66,6 +65,7 @@ defmodule Beatgrid.Dashboard.ReadModel do
 
     %{
       gaps_folder: folder,
+      recommending?: Jobs.folder_recommendation_pending?(folder),
       gap_counts: Enum.frequencies_by(gaps, & &1.genre_folder),
       recs: Enum.filter(gaps, &(&1.genre_folder == folder))
     }
