@@ -79,6 +79,21 @@ function booth(t) {
   return {a, b, engine, hint, breath, advances, ends, tick: ms => t.mock.timers.tick(ms)}
 }
 
+async function scratchBooth(t, id) {
+  const commands = []
+  globalThis.AudioWorkletNode = class extends AudioNodeStub {
+    port = {postMessage: message => commands.push(message)}
+  }
+  t.after(() => { delete globalThis.AudioWorkletNode })
+  const rig = booth(t)
+  t.mock.method(globalThis, "fetch", async () => new Response(new ArrayBuffer(0)))
+  const samples = new Float32Array(8 * 8000)
+  await loadPeaks(id, id, {decodeAudioData: async () => ({
+    sampleRate: 8000, duration: 8, numberOfChannels: 1, getChannelData: () => samples
+  })})
+  return {...rig, commands}
+}
+
 test("a missed AUTO window still waits the full breather after ended", t => {
   const {a, b, hint, breath, advances, tick} = booth(t)
   hint(breath)
@@ -727,19 +742,8 @@ test("a loop seek completing after the pad is released does not suppress AUTO", 
 })
 
 test("a hot cue under a held jog moves the scratch head and the released platter together", async t => {
-  const commands = []
-  globalThis.AudioWorkletNode = class extends AudioNodeStub {
-    port = {postMessage: message => commands.push(message)}
-  }
-  t.after(() => { delete globalThis.AudioWorkletNode })
-  const {engine, b} = booth(t)
-  const track = {id: "vinyl", src: "vinyl"}
-  engine.loadDeck("b", track)
-  t.mock.method(globalThis, "fetch", async () => new Response(new ArrayBuffer(0)))
-  const samples = new Float32Array(8 * 8000)
-  await loadPeaks(track.id, track.src, {decodeAudioData: async () => ({
-    sampleRate: 8000, duration: 8, numberOfChannels: 1, getChannelData: () => samples
-  })})
+  const {engine, b, commands} = await scratchBooth(t, "vinyl")
+  engine.loadDeck("b", {id: "vinyl", src: "vinyl"})
   engine.jogTouch("b", true)
   engine.cueTo("b", 6500)
   assert.equal(engine.scratchPosSec("b"), 6.5)
@@ -771,4 +775,16 @@ test("pausing the incoming deck during a blend leaves the outgoing record on air
   assert.equal(b.paused, true)
   assert.equal(engine.sessionDeck(), "a")
   assert.equal(engine.snapshot().xfadePos, 0)
+})
+
+test("releasing the scratch pad starts the waiting AUTO track at its prepared entry", async t => {
+  const {engine, a, b, advances, hint} = await scratchBooth(t, "scratch-entry")
+  hint({type: "cut", from_ms: 48_000, to_ms: 5000}, "scratch-entry")
+  assert.equal(engine.startAutoScratch("b", "baby").ok, true)
+  a.end()
+  assert.equal(b.plays, 0)
+  engine.stopAutoScratch("b")
+  assert.equal(b.plays, 1)
+  assert.equal(b.currentTime, 5)
+  assert.deepEqual(advances.map(event => event.toTrackId), ["scratch-entry"])
 })
