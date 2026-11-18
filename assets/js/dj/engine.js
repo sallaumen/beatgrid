@@ -200,7 +200,7 @@ class Deck {
     this.cueMs = markers.length ? Math.min(...markers.map(m => m.ms)) : atMs
     const token = ++this.loadToken
     this.trackId = track.id
-    this.bpm = track.bpm || null
+    this.bpm = Number.isFinite(track.bpm) && track.bpm > 0 ? track.bpm : null
     this.durationMs = track.duration_ms || null
     this.loop = {on: false, startMs: null, endMs: null, beats: null}
     // Beat-synced default so the manual echo send sounds musical right away.

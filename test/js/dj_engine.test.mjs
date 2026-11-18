@@ -748,3 +748,14 @@ test("a hot cue under a held jog moves the scratch head and the released platter
   assert.equal(b.currentTime, 6.5)
   assert.equal(b.paused, true)
 })
+
+test("invalid stored tempo is displayed as unknown and uses the fallback beat length", t => {
+  const {engine} = booth(t)
+  for (const bpm of [-120, NaN, Infinity]) {
+    engine.loadDeck("b", {id: "bad-tempo", src: "record", bpm})
+    assert.equal(engine.decks.b.bpm, null)
+    engine.beatLoop("b", 4)
+    assert.equal(engine.loopState("b").endMs - engine.loopState("b").startMs, 2000)
+    assert.equal(engine.sync("b"), false)
+  }
+})
