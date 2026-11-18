@@ -759,3 +759,16 @@ test("invalid stored tempo is displayed as unknown and uses the fallback beat le
     assert.equal(engine.sync("b"), false)
   }
 })
+
+test("pausing the incoming deck during a blend leaves the outgoing record on air", t => {
+  const {engine, a, b, hint, tick} = booth(t)
+  hint({type: "crossfade", from_ms: 48_000})
+  a.at(48)
+  tick(500)
+  engine.playPause("b")
+  tick(12_000)
+  assert.equal(a.paused, false)
+  assert.equal(b.paused, true)
+  assert.equal(engine.sessionDeck(), "a")
+  assert.equal(engine.snapshot().xfadePos, 0)
+})
