@@ -791,6 +791,24 @@ defmodule BeatgridWeb.RecSetLiveTest do
     assert html =~ "sai 2:00 📌"
   end
 
+  test "adding a search result after another tab deletes the set keeps the editor usable", %{
+    conn: conn
+  } do
+    {:ok, surviving} = Sets.create("Próximo baile")
+    {:ok, deleted} = Sets.create("Rascunho")
+    track = track_with("8A", 112.0, tag_title: "Sanfona", norm_title: "sanfona")
+    {:ok, view, _} = live(conn, ~p"/set/#{deleted.id}")
+    open_panel(view, "search")
+    view |> form("#track-search", %{q: "Sanfona"}) |> render_change()
+
+    {:ok, _} = Sets.delete(deleted)
+    view |> element("#search-results [phx-value-track='#{track.id}']") |> render_click()
+
+    assert_patch(view, ~p"/set/#{surviving.id}")
+    assert render(view) =~ "Esse set já foi excluído"
+    assert Sets.tracks(surviving) == []
+  end
+
   test "hostile move/weight payloads are ignored, never crash the view", %{conn: conn} do
     {:ok, set} = Sets.create("Blindado")
     track = track_with("8A", 120.0, tag_title: "Firme")
