@@ -177,14 +177,12 @@ defmodule BeatgridWeb.PlayerLive do
   # cue mutation, then update the player synchronously + tell the track's page. The fresh
   # read carries the song preload, which Repo.update keeps, so now_playing stays complete.
   defp mutate_markers(socket, id, fun) do
-    case Tracks.get_with_song(id) do
-      nil ->
-        socket
-
-      fresh ->
-        {:ok, updated} = fun.(fresh)
-        Playback.broadcast_markers_changed(id)
-        socket |> assign(now_playing: updated) |> push_markers()
+    with fresh when not is_nil(fresh) <- Tracks.get_with_song(id),
+         {:ok, updated} <- fun.(fresh) do
+      Playback.broadcast_markers_changed(id)
+      socket |> assign(now_playing: updated) |> push_markers()
+    else
+      _ -> socket
     end
   end
 
