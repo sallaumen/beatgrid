@@ -251,7 +251,7 @@ defmodule Beatgrid.Sets do
       is_map(exit_transition) and breather?(%{position: pos + 1, transition: exit_transition})
 
     checks = [
-      arquivo_sumido: not File.exists?(Path.join(Library.library_root(), track.rel_path)),
+      arquivo_sumido: not File.regular?(Path.join(Library.library_root(), track.rel_path)),
       fora_da_biblioteca: track.status != :present,
       sem_saida: pos != last and not breather_out? and is_nil(Marker.outro(track)),
       sem_bpm: is_nil(Library.effective(track).bpm)
