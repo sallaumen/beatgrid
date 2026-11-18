@@ -141,7 +141,7 @@ defmodule Beatgrid.Library.Tracks do
   def rename_marker(track, position_ms, label) do
     edit_cues(track, fn cues ->
       Enum.map(cues, fn
-        %{"ms" => ^position_ms} = marker -> Map.put(marker, "label", normalize_label(label))
+        %{"ms" => ^position_ms} = marker -> manual_edit(marker, "label", normalize_label(label))
         marker -> marker
       end)
     end)
@@ -153,8 +153,11 @@ defmodule Beatgrid.Library.Tracks do
   def set_marker_type(track, position_ms, type) do
     edit_cues(track, fn cues ->
       Enum.map(cues, fn
-        %{"ms" => ^position_ms} = marker -> Map.put(marker, "type", Marker.normalize_type(type))
-        marker -> marker
+        %{"ms" => ^position_ms} = marker ->
+          manual_edit(marker, "type", Marker.normalize_type(type))
+
+        marker ->
+          marker
       end)
     end)
   end
@@ -165,8 +168,18 @@ defmodule Beatgrid.Library.Tracks do
   def replace_auto_markers(track, auto_markers) do
     edit_cues(track, fn cues ->
       manual = Enum.reject(cues, &Marker.auto?/1)
-      Enum.sort_by(manual ++ auto_markers, & &1["ms"])
+      edited = MapSet.new(manual, &{&1["ms"], Marker.type(&1)})
+      detected = Enum.reject(auto_markers, &MapSet.member?(edited, {&1["ms"], Marker.type(&1)}))
+      Enum.sort_by(manual ++ detected, & &1["ms"])
     end)
+  end
+
+  defp manual_edit(marker, field, value) do
+    if marker[field] == value do
+      marker
+    else
+      marker |> Map.put(field, value) |> Map.put("source", "manual")
+    end
   end
 
   defp normalize_label(nil), do: nil

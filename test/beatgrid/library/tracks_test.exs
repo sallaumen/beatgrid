@@ -313,4 +313,16 @@ defmodule Beatgrid.Library.TracksTest do
     {:ok, _} = Tracks.remove_marker(original, 8200)
     assert Enum.map(Tracks.get(original.id).cue_points, & &1["ms"]) == [1200, 9000]
   end
+
+  test "redetection keeps an automatic cue explicitly renamed by the DJ only once" do
+    {:ok, track} = Tracks.upsert_by_path(attrs())
+    intro = %{"type" => "intro", "ms" => 3000, "source" => "auto"}
+    {:ok, detected} = Tracks.replace_auto_markers(track, [intro])
+    {:ok, _} = Tracks.rename_marker(detected, 3000, "Minha entrada")
+    {:ok, again} = Tracks.replace_auto_markers(track, [intro])
+    assert [%{"ms" => 3000, "label" => "Minha entrada", "type" => "intro"}] = again.cue_points
+    {:ok, _} = Tracks.set_marker_type(again, 3000, "outro")
+    {:ok, revised} = Tracks.replace_auto_markers(track, [])
+    assert [%{"type" => "outro", "source" => "manual"}] = revised.cue_points
+  end
 end
