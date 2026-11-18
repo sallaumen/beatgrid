@@ -63,7 +63,7 @@ defmodule Beatgrid.Sets.TransitionChooser do
         {"fade", "Baixando a energia — fade suave entre as faixas."}
 
       is_nil(a.camelot) or is_nil(b.camelot) ->
-        {"crossfade", "BPMs próximos — tom desconhecido em uma das faixas."}
+        {"crossfade", "Mix casado pelo BPM. Tom desconhecido em uma das faixas."}
 
       harm >= 0.5 ->
         {"crossfade", "BPMs próximos e tons compatíveis — mix casado no overlap."}
