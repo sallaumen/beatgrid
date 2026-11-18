@@ -1588,7 +1588,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     if (scratch[deckId].active) return {ok: false, reason: "busy"}
     if (!scratchArm(deckId)) return {ok: false, reason: "not_ready"}
     const s = scratch[deckId]
-    const center = deck.el.currentTime * sr
+    const center = deck.platterTime() * sr
     const a = {
       pattern,
       rate: s.rate,
@@ -2089,7 +2089,11 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     jogTouch,
     jogTurn,
     startAutoScratch,
-    stopAutoScratch,
+    stopAutoScratch(deckId) {
+      if (!autoScratch[deckId]) return
+      stopAutoScratch(deckId)
+      releaseDeck(decks[deckId])
+    },
     setAutoScratchRate,
     scratchReady,
     scratchPosSec,
