@@ -78,9 +78,17 @@ defmodule BeatgridWeb.PlayerLive do
   def handle_event("toggle_markers", _params, socket),
     do: {:noreply, assign(socket, show_markers: !socket.assigns.show_markers)}
 
+  def handle_event(
+        "add_marker",
+        %{"track_id" => target},
+        %{assigns: %{now_playing: %{id: current}}} = socket
+      )
+      when target != current,
+      do: {:noreply, socket}
+
   # Cue-point markers always target the now-playing track. The hook supplies the
   # current playback position (ms) for add; rename/remove come from the popover.
-  # `to_ms` rejects crafted/empty payloads (no crash); `mutate_markers` re-reads the
+  # The position parser rejects invalid input, and `mutate_markers` re-reads the
   # track fresh (no lost update vs a concurrent track-page edit) and updates the lane
   # synchronously instead of waiting for the broadcast echo.
   def handle_event("add_marker", %{"ms" => ms}, %{assigns: %{now_playing: %{id: id}}} = socket) do

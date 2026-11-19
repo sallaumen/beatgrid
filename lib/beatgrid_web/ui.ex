@@ -114,6 +114,14 @@ defmodule BeatgridWeb.UI do
     """
   end
 
+  @doc "Plays this file in the current tab, or toggles it when it is already selected there."
+  def toggle_track(detail) do
+    JS.dispatch("beatgrid:play",
+      to: "#player-audio",
+      detail: Map.put(detail, :toggle_if_current, true)
+    )
+  end
+
   @doc """
   A round ▶ button that plays a track in the global player (`#player-audio`).
   `preview` jumps to the backend-configured offset; otherwise it starts at 0.
@@ -136,15 +144,7 @@ defmodule BeatgridWeb.UI do
     ~H"""
     <button
       type="button"
-      phx-click={
-        if @playing?,
-          do: JS.dispatch("beatgrid:toggle", to: "#player-audio"),
-          else:
-            JS.dispatch("beatgrid:play",
-              to: "#player-audio",
-              detail: %{src: @src, id: @track_id, preview: @preview, set_id: @set_id}
-            )
-      }
+      phx-click={toggle_track(%{src: @src, id: @track_id, preview: @preview, set_id: @set_id})}
       class={[
         "flex shrink-0 items-center justify-center rounded-full",
         !@playing? && "bg-primary/15 text-primary hover:bg-primary/25",
@@ -199,15 +199,7 @@ defmodule BeatgridWeb.UI do
       <.cover src={@src} artist={@artist} size={@size} />
       <button
         type="button"
-        phx-click={
-          if @playing?,
-            do: JS.dispatch("beatgrid:toggle", to: "#player-audio"),
-            else:
-              JS.dispatch("beatgrid:play",
-                to: "#player-audio",
-                detail: %{src: @play_src, id: @track_id, preview: @preview}
-              )
-        }
+        phx-click={toggle_track(%{src: @play_src, id: @track_id, preview: @preview})}
         class={[
           "absolute inset-0 items-center justify-center text-[12px] text-white",
           @playing? && "flex bg-black/40",
