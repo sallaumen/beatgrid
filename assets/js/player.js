@@ -1,6 +1,8 @@
 export default {
   mounted() {
     const a = this.el
+    const lifetime = new AbortController()
+    const on = (target, event, fn) => target.addEventListener(event, fn, {signal: lifetime.signal})
     const offset = parseInt(a.dataset.previewOffsetMs || "20000", 10)
     const minDur = parseInt(a.dataset.previewMinMs || "25000", 10)
     const byId = (id) => document.getElementById(id)
@@ -15,12 +17,17 @@ export default {
     this.loadingAudio = false
     this.activeSetId = null
     let autoplayOnLoad = false
+    let selection = null
 
     const safePlay = (el) => {
+      const token = this.playToken
       const attempt = el.play()
       if (attempt && typeof attempt.catch === "function") {
         attempt.catch((err) => {
-          if (!err || err.name === "AbortError") return
+          if (token !== this.playToken || !err || err.name === "AbortError") return
+          setIcon("▶")
+          setPlaying(false)
+          this.pushEvent("playback_paused", {})
           console.warn("Beatgrid playback failed", err)
         })
       }
@@ -61,15 +68,16 @@ export default {
     // "Mark now": the button (player or track page) dispatches this; we read the
     // live position and let the server persist it on the now-playing track. Ignore
     // it when nothing has loaded/played yet, so we never store a junk 0:00 cue.
-    a.addEventListener("beatgrid:add-marker", () => {
+    on(a, "beatgrid:add-marker", () => {
       if (!a.duration || a.currentTime <= 0) return
       this.pushEvent("add_marker", {ms: Math.round(a.currentTime * 1000)})
     })
-    a.addEventListener("beatgrid:seek", (e) => { if (a.duration) a.currentTime = e.detail.ms / 1000 })
+    on(a, "beatgrid:seek", (e) => { if (a.duration) a.currentTime = e.detail.ms / 1000 })
 
     // Load + play a src. `atMs` (jump to a marker) wins; else a preview jumps
     // to the configured offset for long tracks; otherwise start at 0.
     const playSrc = (src, preview, atMs) => {
+      selection = {src, preview, atMs}
       this.playToken++
       const token = this.playToken
       autoplayOnLoad = true
@@ -93,7 +101,7 @@ export default {
       const absoluteSrc = new URL(src, window.location.href).href
       this.loadingAudio = true
       a._pendingStart = start
-      if ((a.currentSrc === absoluteSrc || a.src === absoluteSrc) && a.readyState >= 1) {
+      if (!a.error && a.currentSrc === absoluteSrc && a.src === absoluteSrc && a.readyState >= 1) {
         start()
       } else {
         a.src = src
@@ -104,7 +112,7 @@ export default {
 
     // User-initiated play from a page (may carry a set_id for set playback, or
     // an at_ms to start straight at a cue-point marker).
-    a.addEventListener("beatgrid:play", (e) => {
+    on(a, "beatgrid:play", (e) => {
       this.activeSetId = e.detail.set_id || null
       playSrc(e.detail.src, e.detail.preview, e.detail.at_ms)
       this.pushEvent("now_playing", {id: e.detail.id, set_id: e.detail.set_id || null})
@@ -114,8 +122,11 @@ export default {
     // so just play the next src (full track), no now_playing push.
     this.handleEvent("play_track", ({src}) => playSrc(src, false))
 
-    a.addEventListener("beatgrid:toggle", () => {
-      if (this.loadingAudio) {
+    on(a, "beatgrid:toggle", () => {
+      if (!selection) return
+      if (a.error) {
+        playSrc(selection.src, selection.preview, selection.atMs)
+      } else if (this.loadingAudio) {
         autoplayOnLoad = !autoplayOnLoad
         if (!autoplayOnLoad) this.pushEvent("playback_paused", {})
       } else if (a.paused) {
@@ -124,15 +135,17 @@ export default {
         a.pause()
       }
     })
-    a.addEventListener("beatgrid:stop", () => {
+    const stop = () => {
       this.playToken++
+      selection = null
       this.activeSetId = null
       this.loadingAudio = false
       clearPendingStart()
       a.pause()
       a.removeAttribute("src")
       a.load()
-    })
+    }
+    on(a, "beatgrid:stop", stop)
 
     const requestAdvance = () => {
       const hasSet = this.activeSetId != null
@@ -145,40 +158,43 @@ export default {
     // for pages mounted mid-playback.
     const setPlaying = (on) => { document.body.dataset.playing = on ? "true" : "false" }
 
-    a.addEventListener("play", () => {
+    on(a, "play", () => {
       setIcon("⏸")
       setPlaying(true)
       this.pushEvent("playback_playing", {set_id: this.activeSetId || null})
       window.dispatchEvent(new CustomEvent("beatgrid:playing", {detail: {source: "player-audio"}}))
     })
-    a.addEventListener("pause", () => {
+    on(a, "pause", () => {
       setIcon("▶")
       setPlaying(false)
       if (!this.loadingAudio) this.pushEvent("playback_paused", {})
       window.dispatchEvent(new CustomEvent("beatgrid:paused"))
     })
-    a.addEventListener("ended", () => {
+    on(a, "ended", () => {
       setIcon("▶")
       setPlaying(false)
       this.pushEvent("playback_paused", {})
       window.dispatchEvent(new CustomEvent("beatgrid:paused"))
       requestAdvance()
     })
-    a.addEventListener("error", () => {
+    on(a, "error", () => {
+      if (!selection || !a.error) return
+      clearPendingStart()
+      this.loadingAudio = false
       setIcon("▶")
       setPlaying(false)
-      if (!this.loadingAudio) this.pushEvent("playback_paused", {})
+      this.pushEvent("playback_paused", {})
       console.warn("Beatgrid media error", a.error)
     })
 
-    a.addEventListener("loadedmetadata", () => {
+    on(a, "loadedmetadata", () => {
       const seek = byId("player-seek")
       const dur = byId("player-duration")
       if (seek) { seek.max = Math.floor(a.duration || 0); seek.value = 0 }
       if (dur) dur.textContent = fmt(a.duration)
       renderMarkers()
     })
-    a.addEventListener("timeupdate", () => {
+    on(a, "timeupdate", () => {
       const seek = byId("player-seek")
       const el = byId("player-elapsed")
       if (el) el.textContent = fmt(a.currentTime)
@@ -186,14 +202,25 @@ export default {
     })
 
     const seek = byId("player-seek")
-    if (seek) seek.addEventListener("input", () => { a.currentTime = Number(seek.value) })
+    if (seek) on(seek, "input", () => { a.currentTime = Number(seek.value) })
     const vol = byId("player-volume")
-    if (vol) vol.addEventListener("input", () => { a.volume = Number(vol.value) / 100 })
+    if (vol) on(vol, "input", () => { a.volume = Number(vol.value) / 100 })
 
-    window.addEventListener("beatgrid:playing", (e) => {
+    on(window, "beatgrid:playing", (e) => {
       if (e.detail.source === "player-audio") return
       autoplayOnLoad = false
       a.pause()
     })
-  }
+
+    this.release = () => {
+      lifetime.abort()
+      stop()
+      setPlaying(false)
+      if (lane) lane.innerHTML = ""
+    }
+  },
+
+  destroyed() {
+    this.release()
+  },
 }
