@@ -7,6 +7,7 @@ const origin = "https://beatgrid.test"
 class Media extends EventTarget {
   dataset = {previewOffsetMs: "20000", previewMinMs: "25000"}
   paused = true
+  ended = false
   readyState = 0
   duration = NaN
   currentTime = 0
@@ -17,6 +18,7 @@ class Media extends EventTarget {
     this.pause()
     this.readyState = 0
     this.duration = NaN
+    this.ended = false
     this.currentTime = 0
   }
 
@@ -30,6 +32,7 @@ class Media extends EventTarget {
   play() {
     if (this.paused) {
       this.paused = false
+      this.ended = false
       this.dispatchEvent(new Event("play"))
     }
     return Promise.resolve()
@@ -151,4 +154,65 @@ test("teardown cancels pending audio and a remounted player handles each action 
   const pause = t.mock.method(media, "pause")
   browser.dispatchEvent(new CustomEvent("beatgrid:playing", {detail: {source: "dj-console"}}))
   assert.equal(pause.mock.callCount(), 0)
+})
+
+function end(media) {
+  media.paused = media.ended = true
+  media.currentTime = media.duration
+  media.dispatchEvent(new Event("ended"))
+}
+
+function advanceRequest(pushes) {
+  return pushes.findLast(([name]) => name === "track_ended")?.[1]
+}
+
+test("a delayed advance cannot replace a fresh preview, a stopped player or the booth", t => {
+  const {select, signal, media, browser, listeners, pushes} = fixture(t)
+  for (const action of ["preview", "stop", "booth"]) {
+    select("one", {set_id: "baile"})
+    media.metadata()
+    end(media)
+    const request = advanceRequest(pushes)
+    assert.equal(request.track_id, "one")
+    assert.equal(request.set_id, "baile")
+    assert.equal(typeof request.play_token, "number")
+    if (action === "preview") select("one")
+    if (action === "stop") signal("stop")
+    if (action === "booth") {
+      browser.dispatchEvent(new CustomEvent("beatgrid:playing", {detail: {source: "dj-console"}}))
+    }
+    listeners.play_track({id: "two", src: "/audio/two", set_id: "baile", after_token: request.play_token})
+    assert.notEqual(media.src, "/audio/two")
+  }
+})
+
+test("playing the last track again stays outside the finished set", t => {
+  const {select, signal, media, listeners, pushes} = fixture(t)
+  select("one", {set_id: "baile"})
+  media.metadata()
+  end(media)
+  const first = advanceRequest(pushes)
+  listeners.play_track({id: "two", src: "/audio/two", set_id: "baile", after_token: first.play_token})
+  media.metadata()
+  assert.deepEqual(pushes.at(-1), ["playback_playing", {track_id: "two", set_id: "baile"}])
+  end(media)
+  const second = advanceRequest(pushes)
+  assert.equal(second.track_id, "two")
+  assert.notEqual(first.play_token, second.play_token)
+  listeners.player_set_finished({after_token: second.play_token})
+  signal("toggle")
+  assert.deepEqual(pushes.at(-1), ["playback_playing", {track_id: "two", set_id: null}])
+  end(media)
+  assert.equal(pushes.filter(([name]) => name === "track_ended").length, 2)
+})
+
+test("a pending request still accepts a legacy play_track reply without a token", t => {
+  const {select, media, listeners} = fixture(t)
+  select("one", {set_id: "baile"})
+  media.metadata()
+  end(media)
+  listeners.play_track({id: "two", src: "/audio/two"})
+  media.metadata()
+  assert.equal(media.currentSrc, origin + "/audio/two")
+  assert.equal(media.paused, false)
 })
