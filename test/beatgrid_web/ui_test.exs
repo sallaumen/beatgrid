@@ -52,7 +52,7 @@ defmodule BeatgridWeb.UITest do
   end
 
   describe "cover_play/1" do
-    test "overlays a play button that targets the global player" do
+    test "the cover keeps its preview button visible and focusable before hover" do
       html =
         render_component(&BeatgridWeb.UI.cover_play/1,
           play_src: "/audio/xyz",
@@ -64,7 +64,26 @@ defmodule BeatgridWeb.UITest do
       assert html =~ "beatgrid:play"
       assert html =~ "#player-audio"
       assert html =~ "xyz"
-      assert html =~ "group-hover/cover"
+      doc = LazyHTML.from_fragment(html)
+      button = LazyHTML.query(doc, "button")
+      [classes] = LazyHTML.attribute(button, "class")
+      assert LazyHTML.attribute(button, "type") == ["button"]
+      refute "hidden" in String.split(classes)
+      assert LazyHTML.attribute(button, "tabindex") != ["-1"]
+      assert html =~ "hero-play-solid"
+    end
+
+    test "the current track keeps its labeled control with reduced motion" do
+      html =
+        render_component(&BeatgridWeb.UI.cover_play/1,
+          play_src: "/audio/xyz",
+          track_id: "xyz",
+          playing?: true
+        )
+
+      assert html =~ ~s(aria-label="Tocar ou pausar")
+      assert html =~ "#player-audio"
+      assert html =~ "motion-safe:animate-spin"
     end
   end
 
