@@ -49,7 +49,7 @@ export default {
       if (!lane) return
       lane.innerHTML = ""
       const durMs = (a.duration || 0) * 1000
-      if (!durMs) return
+      if (!durMs || this.loadingAudio) return
       const COLORS = {cue: "#ffb020", intro: "#5ad1a0", outro: "#ff5d6c"}
       this._markers.forEach((m) => {
         if (m.ms < 0 || m.ms > durMs) return
@@ -67,7 +67,17 @@ export default {
         lane.appendChild(tick)
       })
     }
-    this.handleEvent("player_markers", ({markers}) => { this._markers = markers || []; renderMarkers() })
+    let legacyNextMarkers = null
+    this.handleEvent("player_markers", ({track_id, markers}) => {
+      if (!selection || (track_id != null && track_id !== selection.id)) return
+      // An older server sends untagged markers immediately before its play_track reply.
+      if (track_id == null && this.lastAdvanceToken === this.playToken) {
+        legacyNextMarkers = markers
+        return
+      }
+      this._markers = markers || []
+      renderMarkers()
+    })
     // "Mark now": the button (player or track page) dispatches this; we read the
     // live position and let the server persist it on the now-playing track. Ignore
     // it when nothing has loaded/played yet, so we never store a junk 0:00 cue.
@@ -79,7 +89,9 @@ export default {
 
     // Load + play a src. `atMs` (jump to a marker) wins; else a preview jumps
     // to the configured offset for long tracks; otherwise start at 0.
-    const playSrc = (track) => {
+    const playSrc = (track, initialMarkers = []) => {
+      if (selection?.id !== track.id) this._markers = initialMarkers
+      legacyNextMarkers = null
       selection = track
       const {src, preview, at_ms: atMs} = track
       this.playToken++
@@ -92,6 +104,7 @@ export default {
         a.removeEventListener("loadedmetadata", start)
         if (token !== this.playToken) return
         this.loadingAudio = false
+        renderMarkers()
         const durMs = (a.duration || 0) * 1000
         if (atMs != null) a.currentTime = atMs / 1000
         else a.currentTime = (preview && durMs >= minDur) ? offset / 1000 : 0
@@ -127,7 +140,8 @@ export default {
       (token == null || token === this.playToken)
 
     this.handleEvent("play_track", ({id, src, set_id, after_token}) => {
-      if (matchesAdvance(after_token)) playSrc({id, src, set_id: set_id ?? selection.set_id})
+      if (!matchesAdvance(after_token)) return
+      playSrc({id, src, set_id: set_id ?? selection.set_id}, legacyNextMarkers || [])
     })
     this.handleEvent("player_set_finished", ({after_token}) => {
       if (matchesAdvance(after_token)) selection = {...selection, set_id: null}
@@ -213,7 +227,6 @@ export default {
       const dur = byId("player-duration")
       if (seek) { seek.max = Math.floor(a.duration || 0); seek.value = 0 }
       if (dur) dur.textContent = fmt(a.duration)
-      renderMarkers()
     })
     on(a, "timeupdate", () => {
       const seek = byId("player-seek")

@@ -48,11 +48,16 @@ class Media extends EventTarget {
   removeAttribute(name) { delete this[name] }
 }
 
-function fixture(t) {
+function fixture(t, lane = null) {
   const media = new Media()
   const browser = Object.assign(new EventTarget(), {location: {href: origin}})
   const body = {dataset: {}}
-  const globals = {window: browser, document: {body, getElementById: () => null}}
+  const document = {
+    body,
+    getElementById: id => id === "player-marker-lane" ? lane : null,
+    createElement: () => Object.assign(new EventTarget(), {style: {}}),
+  }
+  const globals = {window: browser, document}
   for (const [key, value] of Object.entries(globals)) {
     const old = Object.getOwnPropertyDescriptor(globalThis, key)
     Object.defineProperty(globalThis, key, {configurable: true, value})
@@ -215,4 +220,42 @@ test("a pending request still accepts a legacy play_track reply without a token"
   media.metadata()
   assert.equal(media.currentSrc, origin + "/audio/two")
   assert.equal(media.paused, false)
+})
+
+test("the seek lane keeps only the selected song's markers during rapid track changes", t => {
+  const lane = {
+    ticks: [],
+    set innerHTML(_value) { this.ticks = [] },
+    appendChild(button) { this.ticks.push(button) },
+  }
+  const labels = () => lane.ticks.map(tick => tick.title)
+  const {select, media, listeners, pushes} = fixture(t, lane)
+  const markers = (id, label) =>
+    listeners.player_markers({track_id: id, markers: [{ms: 1000, label}]})
+  select("one")
+  media.metadata()
+  markers("one", "Rabeca")
+  assert.deepEqual(labels(), ["Rabeca"])
+  select("two", {set_id: "baile"})
+  media.metadata()
+  assert.deepEqual(labels(), [])
+  markers("two", "Refrão")
+  markers("one", "Rabeca")
+  assert.deepEqual(labels(), ["Refrão"])
+
+  // A set advance may deliver the new markers before the new audio's metadata.
+  end(media)
+  const request = advanceRequest(pushes)
+  listeners.play_track({id: "one", src: "/audio/one", after_token: request.play_token, set_id: "baile"})
+  markers("one", "Solo")
+  assert.deepEqual(labels(), [])
+  media.metadata()
+  assert.deepEqual(labels(), ["Solo"])
+
+  // A pre-token server sent the incoming cues first, without a track_id.
+  end(media)
+  listeners.player_markers({markers: [{ms: 2000, label: "Ponte"}]})
+  listeners.play_track({id: "two", src: "/audio/two"})
+  media.metadata()
+  assert.deepEqual(labels(), ["Ponte"])
 })
