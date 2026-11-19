@@ -146,11 +146,11 @@ defmodule BeatgridWeb.LibraryLiveTest do
       assert before?(html, "Slow", "Fast")
 
       # clicking BPM sorts ascending → slow (90) before fast (150)
-      asc = view |> element("button[phx-value-by='bpm']") |> render_click()
+      asc = view |> element("#library-rows button[phx-value-by='bpm']") |> render_click()
       assert before?(asc, "Slow", "Fast")
 
       # clicking BPM again toggles to descending → fast (150) before slow (90)
-      desc = view |> element("button[phx-value-by='bpm']") |> render_click()
+      desc = view |> element("#library-rows button[phx-value-by='bpm']") |> render_click()
       assert before?(desc, "Fast", "Slow")
     end
   end
@@ -343,6 +343,35 @@ defmodule BeatgridWeb.LibraryLiveTest do
 
     assert html =~ "now-playing-disc"
     assert html =~ "ring-primary/40"
+  end
+
+  test "compact filters reopen with the chosen folder and keep its result in the list", %{
+    conn: conn
+  } do
+    insert(:track, tag_title: "No forró", genre_folder: "forro_roots")
+    insert(:track, tag_title: "Na MPB", genre_folder: "mpb")
+    {:ok, view, _html} = live(conn, ~p"/")
+    toggle = "#library-filter-toggle"
+
+    assert has_element?(
+             view,
+             "#{toggle}[aria-controls=library-filter-panel][aria-expanded=false]"
+           )
+
+    view |> element(toggle) |> render_click()
+    assert has_element?(view, "#{toggle}[aria-expanded=true]")
+    view |> element("#library-filter-panel button[phx-value-key=mpb]") |> render_click()
+    view |> element(toggle) |> render_click()
+    assert has_element?(view, "#{toggle}[aria-expanded=false]")
+    assert has_element?(view, "#library-rows", "Na MPB")
+    refute has_element?(view, "#library-rows", "No forró")
+
+    view |> element(toggle) |> render_click()
+
+    assert has_element?(
+             view,
+             "#library-filter-panel button[phx-value-key=mpb][aria-pressed=true]"
+           )
   end
 
   test "the table shows the manual BPM/key override, not the Soundcharts value", %{conn: conn} do

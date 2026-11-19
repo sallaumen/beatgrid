@@ -121,6 +121,13 @@ html, body { color-scheme: dark; background: var(--bg-base); color: var(--text-p
 .lib-grid { grid-template-columns: 38px minmax(160px, 1fr) 118px 46px 52px 46px 92px 28px; }
 .lib-grid.is-selecting { grid-template-columns: 24px 38px minmax(160px, 1fr) 118px 46px 52px 46px 92px 28px; }
 
+/* In compact rows the track, tempo, key and action menu stay within reach.
+   The filter drawer also offers every sort key. */
+@media (width < 64rem) {
+  .lib-grid { grid-template-columns: 38px minmax(0, 1fr) 38px 34px 28px; }
+  .lib-grid.is-selecting { grid-template-columns: 22px 38px minmax(0, 1fr) 38px 34px 28px; }
+}
+
 @media (min-width: 1400px) {
   .lib-grid { grid-template-columns: 38px minmax(200px, 1fr) 130px 52px 56px 80px 52px 64px 100px 28px; }
   .lib-grid.is-selecting { grid-template-columns: 24px 38px minmax(200px, 1fr) 130px 52px 56px 80px 52px 64px 100px 28px; }
