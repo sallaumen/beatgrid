@@ -129,3 +129,26 @@ test("a rejected play releases quiet mode only for the still-current track", asy
   await Promise.resolve()
   assert.equal(pushes.at(-1)[0], "playback_paused")
 })
+
+test("teardown cancels pending audio and a remounted player handles each action once", t => {
+  const {hook, select, media, pushes, browser} = fixture(t)
+  select("old", {set_id: "baile"})
+  hook.destroyed?.()
+  media.metadata()
+  assert.equal(media.paused, true)
+
+  const oldEvents = pushes.length
+  const newEvents = []
+  const newHook = Object.assign(Object.create(Player), {
+    el: media, pushEvent: (...msg) => newEvents.push(msg), handleEvent() {},
+  })
+  newHook.mounted()
+  select("new")
+  media.metadata()
+  assert.deepEqual(newEvents.map(([name]) => name), ["now_playing", "playback_playing"])
+  assert.equal(pushes.length, oldEvents)
+  newHook.destroyed()
+  const pause = t.mock.method(media, "pause")
+  browser.dispatchEvent(new CustomEvent("beatgrid:playing", {detail: {source: "dj-console"}}))
+  assert.equal(pause.mock.callCount(), 0)
+})
