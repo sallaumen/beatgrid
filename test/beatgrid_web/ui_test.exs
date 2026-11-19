@@ -100,7 +100,7 @@ defmodule BeatgridWeb.UITest do
       assert html =~ "hero-play-solid"
     end
 
-    test "the current track still toggles playback with reduced motion" do
+    test "the current track keeps its labeled control with reduced motion" do
       html =
         render_component(&BeatgridWeb.UI.cover_play/1,
           play_src: "/audio/xyz",
@@ -108,7 +108,7 @@ defmodule BeatgridWeb.UITest do
           playing?: true
         )
 
-      assert html =~ "beatgrid:toggle"
+      assert html =~ ~s(aria-label="Tocar ou pausar")
       assert html =~ "#player-audio"
       assert html =~ "motion-safe:animate-spin"
     end
