@@ -92,3 +92,40 @@ test("the booth can take over while the sticky preview is still loading", t => {
   assert.equal(media.paused, false)
   assert.equal(media.currentTime, 20)
 })
+
+test("a media error during loading releases the set and lets the DJ retry at the preview point", t => {
+  const {select, signal, media, pushes} = fixture(t)
+  t.mock.method(console, "warn", () => {})
+  select("one", {set_id: "baile"})
+  media.error = {code: 2}
+  media.dispatchEvent(new Event("error"))
+  assert.equal(pushes.at(-1)[0], "playback_paused")
+
+  // A failed media resource requires a fresh load for a real retry.
+  media.metadata()
+  assert.equal(media.paused, true)
+  signal("toggle")
+  assert.equal(media.readyState, 0)
+  media.error = null
+  media.metadata()
+  assert.equal(media.currentTime, 20)
+  assert.equal(media.paused, false)
+})
+
+test("a rejected play releases quiet mode only for the still-current track", async t => {
+  const {select, media, pushes} = fixture(t)
+  t.mock.method(console, "warn", () => {})
+  const blocked = []
+  media.play = () => new Promise((_, reject) => blocked.push(reject))
+  select("one", {set_id: "baile"})
+  media.metadata()
+  select("two", {set_id: "baile"})
+  media.metadata()
+
+  blocked[0](new Error("old attempt"))
+  await Promise.resolve()
+  assert.equal(pushes.some(([name]) => name === "playback_paused"), false)
+  blocked[1](new Error("play was blocked"))
+  await Promise.resolve()
+  assert.equal(pushes.at(-1)[0], "playback_paused")
+})

@@ -15,12 +15,17 @@ export default {
     this.loadingAudio = false
     this.activeSetId = null
     let autoplayOnLoad = false
+    let selection = null
 
     const safePlay = (el) => {
+      const token = this.playToken
       const attempt = el.play()
       if (attempt && typeof attempt.catch === "function") {
         attempt.catch((err) => {
-          if (!err || err.name === "AbortError") return
+          if (token !== this.playToken || !err || err.name === "AbortError") return
+          setIcon("▶")
+          setPlaying(false)
+          this.pushEvent("playback_paused", {})
           console.warn("Beatgrid playback failed", err)
         })
       }
@@ -70,6 +75,7 @@ export default {
     // Load + play a src. `atMs` (jump to a marker) wins; else a preview jumps
     // to the configured offset for long tracks; otherwise start at 0.
     const playSrc = (src, preview, atMs) => {
+      selection = {src, preview, atMs}
       this.playToken++
       const token = this.playToken
       autoplayOnLoad = true
@@ -93,7 +99,7 @@ export default {
       const absoluteSrc = new URL(src, window.location.href).href
       this.loadingAudio = true
       a._pendingStart = start
-      if ((a.currentSrc === absoluteSrc || a.src === absoluteSrc) && a.readyState >= 1) {
+      if (!a.error && a.currentSrc === absoluteSrc && a.src === absoluteSrc && a.readyState >= 1) {
         start()
       } else {
         a.src = src
@@ -115,7 +121,10 @@ export default {
     this.handleEvent("play_track", ({src}) => playSrc(src, false))
 
     a.addEventListener("beatgrid:toggle", () => {
-      if (this.loadingAudio) {
+      if (!selection) return
+      if (a.error) {
+        playSrc(selection.src, selection.preview, selection.atMs)
+      } else if (this.loadingAudio) {
         autoplayOnLoad = !autoplayOnLoad
         if (!autoplayOnLoad) this.pushEvent("playback_paused", {})
       } else if (a.paused) {
@@ -126,6 +135,7 @@ export default {
     })
     a.addEventListener("beatgrid:stop", () => {
       this.playToken++
+      selection = null
       this.activeSetId = null
       this.loadingAudio = false
       clearPendingStart()
@@ -165,9 +175,12 @@ export default {
       requestAdvance()
     })
     a.addEventListener("error", () => {
+      if (!selection || !a.error) return
+      clearPendingStart()
+      this.loadingAudio = false
       setIcon("▶")
       setPlaying(false)
-      if (!this.loadingAudio) this.pushEvent("playback_paused", {})
+      this.pushEvent("playback_paused", {})
       console.warn("Beatgrid media error", a.error)
     })
 
