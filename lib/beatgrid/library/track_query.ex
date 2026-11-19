@@ -83,6 +83,7 @@ defmodule Beatgrid.Library.TrackQuery do
     filters
     |> library_base()
     |> sorted(filters)
+    |> order_by([t], asc: t.id)
     |> paginate(filters)
     |> preload([song: s], soundcharts_song: s)
     |> Repo.all()

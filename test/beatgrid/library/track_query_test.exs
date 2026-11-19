@@ -233,6 +233,25 @@ defmodule Beatgrid.Library.TrackQueryTest do
       assert page_3 == [e.id]
     end
 
+    test "pages contain each tied track exactly once under default and BPM sorting" do
+      tracks =
+        insert_list(36, :track,
+          tags: ["versions"],
+          norm_artist: "mesmo artista",
+          norm_title: "mesma faixa",
+          bpm_manual: 125.0
+        )
+
+      for filters <- [%{tag: "versions"}, %{tag: "versions", sort: {:bpm, :desc}}] do
+        paged_ids =
+          for offset <- 0..35//7,
+              track <- TrackQuery.library(Map.merge(filters, %{limit: 7, offset: offset})),
+              do: track.id
+
+        assert Enum.sort(paged_ids) == Enum.sort(Enum.map(tracks, & &1.id))
+      end
+    end
+
     test "count_library/1 counts all matching rows, ignoring limit/offset" do
       assert TrackQuery.count_library(%{}) == 5
       assert TrackQuery.count_library(%{limit: 2, offset: 0}) == 5
