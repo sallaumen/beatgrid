@@ -22,6 +22,9 @@ defmodule Beatgrid.Playback do
   @doc "Clear the now-playing pointer (nothing playing) and broadcast."
   defdelegate clear_now_playing(), to: NowPlaying, as: :clear
 
+  @doc "Release the calling player’s now-playing pointer."
+  defdelegate release_now_playing(), to: NowPlaying, as: :release
+
   @doc "Reset the pointer to empty without broadcasting (player teardown)."
   defdelegate reset_now_playing(), to: NowPlaying, as: :reset
 

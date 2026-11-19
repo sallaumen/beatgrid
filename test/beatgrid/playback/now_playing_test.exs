@@ -1,5 +1,5 @@
 defmodule Beatgrid.Playback.NowPlayingTest do
-  # async: false — a single global Agent shared across the node.
+  # async: false — a single global pointer shared across the node.
   use ExUnit.Case, async: false
 
   alias Beatgrid.Playback.NowPlaying
@@ -28,6 +28,21 @@ defmodule Beatgrid.Playback.NowPlayingTest do
     NowPlaying.put(%{track_id: "t2", set_id: nil})
 
     refute_receive {:now_playing, _}, 50
+  end
+
+  test "losing the process that owns the audio clears the highlight in other tabs" do
+    NowPlaying.subscribe()
+
+    owner =
+      spawn(fn ->
+        NowPlaying.put(%{track_id: "gone", set_id: nil})
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive {:now_playing, %{track_id: "gone"}}
+    Process.exit(owner, :kill)
+    assert_receive {:now_playing, %{track_id: nil, set_id: nil}}
+    assert NowPlaying.get() == %{track_id: nil, set_id: nil}
   end
 
   test "clear resets the pointer and broadcasts the empty state" do

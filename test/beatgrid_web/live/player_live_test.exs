@@ -76,6 +76,18 @@ defmodule BeatgridWeb.PlayerLiveTest do
     refute html =~ "Sina"
   end
 
+  test "closing the older player preserves the same track in the newer tab", %{conn: conn} do
+    track = insert(:track)
+    {:ok, first, _} = live_isolated(conn, BeatgridWeb.PlayerLive)
+    {:ok, second, _} = live_isolated(conn, BeatgridWeb.PlayerLive)
+    for view <- [first, second], do: render_hook(view, "now_playing", %{"id" => track.id})
+
+    render_click(first, "close")
+    assert Playback.now_playing().track_id == track.id
+    render_click(second, "close")
+    assert Playback.now_playing().track_id == nil
+  end
+
   test "now_playing with a set stores the pointer and shows a chip linking to the set", %{
     conn: conn
   } do
