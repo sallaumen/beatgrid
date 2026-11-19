@@ -338,7 +338,7 @@ defmodule Beatgrid.Library.TrackQuery do
 
   @doc """
   Candidates for the set scorer: present, not in `exclude`, carrying at least one
-  mixing signal (Soundcharts match, detected key or detected BPM), optionally gated
+  mixing signal (Soundcharts match, manual or detected key/BPM), optionally gated
   by `:min_rating` / `:exclude_styles`, with the song preloaded.
   """
   @spec mixing_candidates([Ecto.UUID.t()], keyword()) :: [Track.t()]
@@ -349,8 +349,8 @@ defmodule Beatgrid.Library.TrackQuery do
     |> where([t], t.id not in ^exclude)
     |> where(
       [t],
-      not is_nil(t.soundcharts_song_id) or not is_nil(t.camelot_detected) or
-        not is_nil(t.bpm_detected)
+      not is_nil(t.soundcharts_song_id) or not is_nil(t.camelot_manual) or
+        not is_nil(t.bpm_manual) or not is_nil(t.camelot_detected) or not is_nil(t.bpm_detected)
     )
     |> bpm_window(opts[:bpm_min], opts[:bpm_max])
     |> min_rating(opts[:min_rating])
@@ -414,7 +414,9 @@ defmodule Beatgrid.Library.TrackQuery do
   defp allow_styles(q, [_ | _] = keys), do: where(q, [t], t.genre_folder in ^keys)
   defp allow_styles(q, _), do: q
 
-  defp exclude_styles(q, [_ | _] = keys), do: where(q, [t], t.genre_folder not in ^keys)
+  defp exclude_styles(q, [_ | _] = keys),
+    do: where(q, [t], is_nil(t.genre_folder) or t.genre_folder not in ^keys)
+
   defp exclude_styles(q, _), do: q
 
   @doc "The oldest present track exactly matching a normalized artist + title pair."
