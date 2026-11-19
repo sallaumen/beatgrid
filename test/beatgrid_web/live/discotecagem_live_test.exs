@@ -146,6 +146,23 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     refute has_element?(view, "#dj-preflight")
   end
 
+  test "deleting the checked set in another tab disarms the queue and leaves the current track on air",
+       %{conn: conn} do
+    {set, [a, _b]} = set_with_tracks([{"Baião", 112.0}, {"Xote", 116.0}])
+    view = open_console(conn, set)
+    render_click(view, "play_set")
+    render_hook(view, "deck_started", %{"track_id" => a.id, "deck" => "a"})
+    render_click(view, "preflight")
+    assert has_element?(view, "#dj-preflight")
+
+    {:ok, _} = Sets.delete(set)
+    assert_push_event(view, "dj_set", %{id: nil})
+    assert_push_event(view, "dj_hint_clear", %{})
+    refute has_element?(view, "#dj-preflight")
+    refute has_element?(view, "#dj-set-picker option[value='#{set.id}']")
+    assert Playback.now_playing() == %{track_id: a.id, set_id: nil}
+  end
+
   test "checking a set reports missing audio and the report can be dismissed", %{conn: conn} do
     {set, [_a, _b]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}])
     view = open_console(conn, set)

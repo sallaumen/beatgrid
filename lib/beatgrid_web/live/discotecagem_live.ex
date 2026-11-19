@@ -71,15 +71,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
   # ── seleção e partida ────────────────────────────────────────────────────────
 
   @impl true
-  def handle_event("select_set", %{"set_id" => ""}, socket) do
-    # Sem set, a dica antiga não pode continuar armada — a reprodução segue,
-    # mas a sequência para na faixa atual.
-    {:noreply,
-     socket
-     |> assign(set: nil, entries: [], predecessors: nil, played: MapSet.new(), preflight: nil)
-     |> push_event("dj_set", %{id: nil})
-     |> push_hint(nil)}
-  end
+  def handle_event("select_set", %{"set_id" => ""}, socket),
+    do: {:noreply, clear_selected_set(socket)}
 
   def handle_event("select_set", %{"set_id" => id}, socket) do
     case Sets.get(id) do
@@ -409,24 +402,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
   # ANTES da transição disparar — a raiz do bug da festa, agora coberta.
   @impl true
   def handle_info({:set_changed, set_id}, %{assigns: %{set: %{id: set_id} = set}} = socket) do
-    old_entries = socket.assigns.entries
     entries = Sets.entries(set)
-    report = socket.assigns.preflight && Sets.preflight(entries)
-    socket = assign(socket, entries: entries, preflight: report)
 
-    outgoing = active_track(socket)
-
-    if outgoing && socket.assigns.playing? && outgoing.id == socket.assigns.pointer_id do
-      predecessors =
-        case Enum.split_while(old_entries, &(&1.track.id != outgoing.id)) do
-          {_, []} -> socket.assigns.predecessors
-          {before, _} -> Enum.map(Enum.reverse(before), & &1.track.id)
-        end
-
-      hint = Sets.live_hint(entries, outgoing, predecessors)
-      {:noreply, socket |> assign(predecessors: predecessors) |> push_hint(hint)}
+    if entries == [] and is_nil(Sets.get(set_id)) do
+      {:noreply, socket |> assign(sets: Sets.list()) |> clear_selected_set()}
     else
-      {:noreply, socket}
+      {:noreply, refresh_queue(socket, entries)}
     end
   end
 
@@ -450,6 +431,41 @@ defmodule BeatgridWeb.DiscotecagemLive do
   def terminate(_reason, _socket), do: :ok
 
   # ── helpers ──────────────────────────────────────────────────────────────────
+
+  defp clear_selected_set(socket) do
+    %{set: set, playing?: playing?, pointer_id: track_id} = socket.assigns
+
+    if playing? and not is_nil(set) and
+         Playback.now_playing() == %{set_id: set.id, track_id: track_id} do
+      Playback.set_now_playing(%{set_id: nil, track_id: track_id})
+    end
+
+    socket
+    |> assign(set: nil, entries: [], predecessors: nil, played: MapSet.new(), preflight: nil)
+    |> push_event("dj_set", %{id: nil})
+    |> push_hint(nil)
+  end
+
+  defp refresh_queue(socket, entries) do
+    old_entries = socket.assigns.entries
+    report = socket.assigns.preflight && Sets.preflight(entries)
+    socket = assign(socket, entries: entries, preflight: report)
+
+    outgoing = active_track(socket)
+
+    if outgoing && socket.assigns.playing? && outgoing.id == socket.assigns.pointer_id do
+      predecessors =
+        case Enum.split_while(old_entries, &(&1.track.id != outgoing.id)) do
+          {_, []} -> socket.assigns.predecessors
+          {before, _} -> Enum.map(Enum.reverse(before), & &1.track.id)
+        end
+
+      hint = Sets.live_hint(entries, outgoing, predecessors)
+      socket |> assign(predecessors: predecessors) |> push_hint(hint)
+    else
+      socket
+    end
+  end
 
   # A Biblioteca fica sempre visível — carrega assim que estiver vazia (mount,
   # troca de lista ativa), não só quando a aba estava aberta.
