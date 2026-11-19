@@ -230,7 +230,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
   end
 
   def handle_event("stop_all", _params, socket) do
-    Playback.clear_now_playing()
+    Playback.release_now_playing()
     Playback.deactivate_quiet_mode()
 
     {:noreply,
@@ -424,7 +424,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
   # o player global pode estar tocando — não tocamos no ponteiro dele.
   @impl true
   def terminate(_reason, %{assigns: %{playing?: true}}) do
-    Playback.clear_now_playing()
+    Playback.release_now_playing()
     Playback.deactivate_quiet_mode()
   end
 

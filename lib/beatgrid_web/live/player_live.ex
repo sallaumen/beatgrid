@@ -36,7 +36,7 @@ defmodule BeatgridWeb.PlayerLive do
       nil ->
         # The track vanished (deleted / stale row) — clear so no page ghosts a
         # highlight for a track the player can't show.
-        Playback.clear_now_playing()
+        Playback.release_now_playing()
         Playback.deactivate_quiet_mode()
         {:noreply, assign(socket, now_playing: nil, playing_set: nil)}
 
@@ -66,7 +66,7 @@ defmodule BeatgridWeb.PlayerLive do
   end
 
   def handle_event("close", _params, socket) do
-    Playback.clear_now_playing()
+    Playback.release_now_playing()
     Playback.deactivate_quiet_mode()
     {:noreply, assign(socket, now_playing: nil, playing_set: nil, show_markers: false)}
   end
@@ -134,11 +134,10 @@ defmodule BeatgridWeb.PlayerLive do
   # Ignore everything else on the topic (our own {:now_playing, _} echoes, other tracks).
   def handle_info(_msg, socket), do: {:noreply, socket}
 
-  # On teardown (refresh / tab close) the audio is gone — reset the pointer (silent,
-  # no live subscribers to notify) so a freshly-mounted page won't read a stale one.
+  # The tab lost its audio. Another tab or the booth may have taken over already.
   @impl true
   def terminate(_reason, _socket) do
-    Playback.reset_now_playing()
+    Playback.release_now_playing()
     Playback.deactivate_quiet_mode()
   end
 
