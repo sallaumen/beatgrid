@@ -155,6 +155,39 @@ defmodule BeatgridWeb.LibraryLiveTest do
     end
   end
 
+  test "search and rating keep each other's criteria when either form changes", %{conn: conn} do
+    for {title, artist, rating} <- [
+          {"Sina", "Djavan", 8},
+          {"Oceano", "Djavan", 3},
+          {"Romaria", "Elis", 9}
+        ] do
+      insert(:track,
+        status: :present,
+        tag_title: title,
+        tag_artist: artist,
+        norm_artist: String.downcase(artist),
+        norm_title: String.downcase(title),
+        rating: rating
+      )
+    end
+
+    {:ok, view, _html} = live(conn, ~p"/")
+    view |> form("#library-search", %{search: "Djavan"}) |> render_change()
+    view |> form("#library-filters", %{rating_min: "7"}) |> render_change()
+
+    assert has_element?(view, "#library-rows", "Sina")
+    refute has_element?(view, "#library-rows", "Oceano")
+    refute has_element?(view, "#library-rows", "Romaria")
+    assert has_element?(view, "#library-search input[value=Djavan]")
+
+    view |> form("#library-search", %{search: ""}) |> render_change()
+    assert has_element?(view, "#library-rows", "Romaria")
+    refute has_element?(view, "#library-rows", "Oceano")
+
+    view |> form("#library-filters", %{rating_min: ""}) |> render_change()
+    assert has_element?(view, "#library-rows", "Oceano")
+  end
+
   describe "extended filter rail" do
     test "the key dialog lets a keyboard user choose and clear every Camelot key", %{conn: conn} do
       for {title, key} <- [{"Sina", "8A"}, {"Romaria", "9A"}] do

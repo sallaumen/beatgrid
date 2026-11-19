@@ -107,17 +107,12 @@ defmodule BeatgridWeb.LibraryLive do
 
   def handle_event("filter", params, socket) do
     filters =
-      socket.assigns.filters
-      |> put_filter(:search, params["search"])
-      |> put_filter(:rating_min, params["rating_min"])
-      |> put_filter(:rating_max, params["rating_max"])
-      |> put_filter(:bpm_min, params["bpm_min"])
-      |> put_filter(:bpm_max, params["bpm_max"])
-      |> put_filter(:energy_min, params["energy_min"])
-      |> put_filter(:energy_max, params["energy_max"])
+      for key <- ~w(search rating_min rating_max bpm_min bpm_max energy_min energy_max)a,
+          {:ok, value} <- [Map.fetch(params, Atom.to_string(key))],
+          reduce: socket.assigns.filters do
+        current -> put_filter(current, key, value)
+      end
 
-    # `camelot` / `camelot_compatible` are managed by the Tom wheel popover
-    # (set_camelot / toggle_camelot_compatible), not this form.
     {:noreply, socket |> assign(filters: filters) |> load_tracks()}
   end
 
