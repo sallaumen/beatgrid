@@ -15,9 +15,12 @@ export default {
     this.playToken = 0
     this.lastAdvanceToken = null
     this.loadingAudio = false
-    this.activeSetId = null
     let autoplayOnLoad = false
     let selection = null
+    const notifyPaused = () => {
+      if (selection) this.pushEvent("playback_paused", {track_id: selection.id})
+    }
+    const setPlaying = (on) => { document.body.dataset.playing = on ? "true" : "false" }
 
     const safePlay = (el) => {
       const token = this.playToken
@@ -27,7 +30,7 @@ export default {
           if (token !== this.playToken || !err || err.name === "AbortError") return
           setIcon("▶")
           setPlaying(false)
-          this.pushEvent("playback_paused", {})
+          notifyPaused()
           console.warn("Beatgrid playback failed", err)
         })
       }
@@ -46,7 +49,7 @@ export default {
       if (!lane) return
       lane.innerHTML = ""
       const durMs = (a.duration || 0) * 1000
-      if (!durMs) return
+      if (!durMs || this.loadingAudio) return
       const COLORS = {cue: "#ffb020", intro: "#5ad1a0", outro: "#ff5d6c"}
       this._markers.forEach((m) => {
         if (m.ms < 0 || m.ms > durMs) return
@@ -64,7 +67,17 @@ export default {
         lane.appendChild(tick)
       })
     }
-    this.handleEvent("player_markers", ({markers}) => { this._markers = markers || []; renderMarkers() })
+    let legacyNextMarkers = null
+    this.handleEvent("player_markers", ({track_id, markers}) => {
+      if (!selection || (track_id != null && track_id !== selection.id)) return
+      // An older server sends untagged markers immediately before its play_track reply.
+      if (track_id == null && this.lastAdvanceToken === this.playToken) {
+        legacyNextMarkers = markers
+        return
+      }
+      this._markers = markers || []
+      renderMarkers()
+    })
     // "Mark now": the button (player or track page) dispatches this; we read the
     // live position and let the server persist it on the now-playing track. Ignore
     // it when nothing has loaded/played yet, so we never store a junk 0:00 cue.
@@ -76,8 +89,11 @@ export default {
 
     // Load + play a src. `atMs` (jump to a marker) wins; else a preview jumps
     // to the configured offset for long tracks; otherwise start at 0.
-    const playSrc = (src, preview, atMs) => {
-      selection = {src, preview, atMs}
+    const playSrc = (track, initialMarkers = []) => {
+      if (selection?.id !== track.id) this._markers = initialMarkers
+      legacyNextMarkers = null
+      selection = track
+      const {src, preview, at_ms: atMs} = track
       this.playToken++
       const token = this.playToken
       autoplayOnLoad = true
@@ -88,6 +104,7 @@ export default {
         a.removeEventListener("loadedmetadata", start)
         if (token !== this.playToken) return
         this.loadingAudio = false
+        renderMarkers()
         const durMs = (a.duration || 0) * 1000
         if (atMs != null) a.currentTime = atMs / 1000
         else a.currentTime = (preview && durMs >= minDur) ? offset / 1000 : 0
@@ -113,22 +130,37 @@ export default {
     // User-initiated play from a page (may carry a set_id for set playback, or
     // an at_ms to start straight at a cue-point marker).
     on(a, "beatgrid:play", (e) => {
-      this.activeSetId = e.detail.set_id || null
-      playSrc(e.detail.src, e.detail.preview, e.detail.at_ms)
-      this.pushEvent("now_playing", {id: e.detail.id, set_id: e.detail.set_id || null})
+      playSrc(e.detail)
+      this.pushEvent("now_playing", {id: selection.id, set_id: selection.set_id || null})
     })
 
-    // Server-initiated auto-advance: the server already updated now_playing,
-    // so just play the next src (full track), no now_playing push.
-    this.handleEvent("play_track", ({src}) => playSrc(src, false))
+    // Only the selection whose ending requested the next song may accept the reply.
+    const matchesAdvance = (token) =>
+      selection?.set_id && this.lastAdvanceToken === this.playToken &&
+      (token == null || token === this.playToken)
 
+    this.handleEvent("play_track", ({id, src, set_id, after_token}) => {
+      if (!matchesAdvance(after_token)) return
+      playSrc({id, src, set_id: set_id ?? selection.set_id}, legacyNextMarkers || [])
+    })
+    this.handleEvent("player_set_finished", ({after_token}) => {
+      if (matchesAdvance(after_token)) selection = {...selection, set_id: null}
+    })
+
+    const cancelAdvance = () => {
+      if (this.lastAdvanceToken === this.playToken) {
+        this.playToken++
+        this.lastAdvanceToken = null
+      }
+    }
     on(a, "beatgrid:toggle", () => {
       if (!selection) return
+      cancelAdvance()
       if (a.error) {
-        playSrc(selection.src, selection.preview, selection.atMs)
+        playSrc(selection)
       } else if (this.loadingAudio) {
         autoplayOnLoad = !autoplayOnLoad
-        if (!autoplayOnLoad) this.pushEvent("playback_paused", {})
+        if (!autoplayOnLoad) notifyPaused()
       } else if (a.paused) {
         safePlay(a)
       } else {
@@ -138,7 +170,8 @@ export default {
     const stop = () => {
       this.playToken++
       selection = null
-      this.activeSetId = null
+      setIcon("▶")
+      setPlaying(false)
       this.loadingAudio = false
       clearPendingStart()
       a.pause()
@@ -148,32 +181,34 @@ export default {
     on(a, "beatgrid:stop", stop)
 
     const requestAdvance = () => {
-      const hasSet = this.activeSetId != null
-      if (!hasSet || this.lastAdvanceToken === this.playToken) return
+      if (!selection?.set_id || this.lastAdvanceToken === this.playToken) return
       this.lastAdvanceToken = this.playToken
-      this.pushEvent("track_ended", {})
+      this.pushEvent("track_ended", {
+        track_id: selection.id, set_id: selection.set_id, play_token: this.playToken,
+      })
     }
 
     // Body flag drives the now-playing disc spin (CSS), pause-aware + correct
     // for pages mounted mid-playback.
-    const setPlaying = (on) => { document.body.dataset.playing = on ? "true" : "false" }
-
     on(a, "play", () => {
+      if (!selection || a.paused) return
       setIcon("⏸")
       setPlaying(true)
-      this.pushEvent("playback_playing", {set_id: this.activeSetId || null})
+      this.pushEvent("playback_playing", {track_id: selection.id, set_id: selection.set_id || null})
       window.dispatchEvent(new CustomEvent("beatgrid:playing", {detail: {source: "player-audio"}}))
     })
     on(a, "pause", () => {
+      if (!a.paused || !selection) return
       setIcon("▶")
       setPlaying(false)
-      if (!this.loadingAudio) this.pushEvent("playback_paused", {})
+      if (!this.loadingAudio) notifyPaused()
       window.dispatchEvent(new CustomEvent("beatgrid:paused"))
     })
     on(a, "ended", () => {
+      if (!a.ended || this.loadingAudio || !selection) return
       setIcon("▶")
       setPlaying(false)
-      this.pushEvent("playback_paused", {})
+      notifyPaused()
       window.dispatchEvent(new CustomEvent("beatgrid:paused"))
       requestAdvance()
     })
@@ -183,7 +218,7 @@ export default {
       this.loadingAudio = false
       setIcon("▶")
       setPlaying(false)
-      this.pushEvent("playback_paused", {})
+      notifyPaused()
       console.warn("Beatgrid media error", a.error)
     })
 
@@ -192,7 +227,6 @@ export default {
       const dur = byId("player-duration")
       if (seek) { seek.max = Math.floor(a.duration || 0); seek.value = 0 }
       if (dur) dur.textContent = fmt(a.duration)
-      renderMarkers()
     })
     on(a, "timeupdate", () => {
       const seek = byId("player-seek")
@@ -208,6 +242,7 @@ export default {
 
     on(window, "beatgrid:playing", (e) => {
       if (e.detail.source === "player-audio") return
+      cancelAdvance()
       autoplayOnLoad = false
       a.pause()
     })
@@ -215,7 +250,6 @@ export default {
     this.release = () => {
       lifetime.abort()
       stop()
-      setPlaying(false)
       if (lane) lane.innerHTML = ""
     }
   },
