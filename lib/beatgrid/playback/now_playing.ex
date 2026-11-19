@@ -1,12 +1,12 @@
 defmodule Beatgrid.Playback.NowPlaying do
   @moduledoc """
   The app-wide "now playing" pointer: which track (and, if any, which set) is loaded
-  in the global player. A tiny `Agent` (single-user, single-node app) so every
+  in the global player. The owning player is monitored so every
   LiveView can read it **on mount** (`get/0`) and stay in sync via a PubSub broadcast
   (`subscribe/0`). Holds only `%{track_id, set_id}` — the *pointer*, never a track
   list; play/pause is transient client state and intentionally not stored here.
   """
-  use Agent
+  use GenServer
 
   alias Phoenix.PubSub
 
@@ -17,41 +17,65 @@ defmodule Beatgrid.Playback.NowPlaying do
   @markers_topic "markers"
   @empty %{track_id: nil, set_id: nil}
 
-  def start_link(_opts), do: Agent.start_link(fn -> @empty end, name: __MODULE__)
+  def start_link(_opts), do: GenServer.start_link(__MODULE__, nil, name: __MODULE__)
 
   @doc "Current pointer: `%{track_id, set_id}` (either may be nil)."
   @spec get() :: %{track_id: term() | nil, set_id: term() | nil}
-  def get, do: Agent.get(__MODULE__, & &1)
+  def get, do: GenServer.call(__MODULE__, :get)
 
-  @doc "Set the pointer and broadcast `{:now_playing, state}` on the topic. Returns the state."
-  @spec put(%{optional(:track_id) => term(), optional(:set_id) => term()}) :: %{
-          track_id: term() | nil,
-          set_id: term() | nil
-        }
-  def put(state) do
-    norm = %{track_id: state[:track_id], set_id: state[:set_id]}
+  @doc "Claim the pointer, broadcasting only if the selected track or set changed."
+  @spec put(map()) :: %{track_id: term() | nil, set_id: term() | nil}
+  def put(state),
+    do: GenServer.call(__MODULE__, {:put, %{track_id: state[:track_id], set_id: state[:set_id]}})
 
-    changed? =
-      Agent.get_and_update(__MODULE__, fn
-        ^norm -> {false, norm}
-        _current -> {true, norm}
-      end)
-
-    if changed?, do: PubSub.broadcast(Beatgrid.PubSub, @topic, {:now_playing, norm})
-    norm
-  end
-
-  @doc "Clear the pointer (nothing playing) and broadcast."
+  @doc "Clear the pointer unconditionally."
   @spec clear() :: %{track_id: nil, set_id: nil}
   def clear, do: put(@empty)
 
-  @doc """
-  Reset the pointer to empty WITHOUT broadcasting — for player teardown (refresh /
-  tab close), where the audio is already gone and there are no live subscribers to
-  notify. Keeps a freshly-mounted page from reading a stale pointer.
-  """
+  @doc "Clear the pointer if this player still owns it."
+  @spec release() :: :ok
+  def release, do: GenServer.call(__MODULE__, :release)
+
+  @doc "Unconditionally reset the pointer without broadcasting."
   @spec reset() :: :ok
-  def reset, do: Agent.update(__MODULE__, fn _ -> @empty end)
+  def reset, do: GenServer.call(__MODULE__, :reset)
+
+  @impl true
+  def init(_opts), do: {:ok, %{pointer: @empty, owner: nil, ref: nil}}
+
+  @impl true
+  def handle_call(:get, _from, state), do: {:reply, state.pointer, state}
+
+  def handle_call({:put, pointer}, {pid, _tag}, state) do
+    owner = if pointer.track_id, do: pid
+    {:reply, pointer, publish(state, pointer, owner)}
+  end
+
+  def handle_call(:release, {pid, _tag}, %{owner: pid} = state),
+    do: {:reply, :ok, publish(state, @empty, nil)}
+
+  def handle_call(:release, _from, state), do: {:reply, :ok, state}
+
+  def handle_call(:reset, _from, state),
+    do: {:reply, :ok, %{monitor_owner(state, nil) | pointer: @empty}}
+
+  @impl true
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{ref: ref} = state),
+    do: {:noreply, publish(state, @empty, nil)}
+
+  defp publish(state, pointer, owner) do
+    if pointer != state.pointer,
+      do: PubSub.broadcast(Beatgrid.PubSub, @topic, {:now_playing, pointer})
+
+    %{monitor_owner(state, owner) | pointer: pointer}
+  end
+
+  defp monitor_owner(%{owner: owner} = state, owner), do: state
+
+  defp monitor_owner(state, owner) do
+    if state.ref, do: Process.demonitor(state.ref, [:flush])
+    %{state | owner: owner, ref: owner && Process.monitor(owner)}
+  end
 
   @doc "Subscribe the calling process to now-playing updates."
   @spec subscribe() :: :ok | {:error, term()}
