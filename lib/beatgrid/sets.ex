@@ -458,7 +458,12 @@ defmodule Beatgrid.Sets do
   end
 
   @spec delete(RecSet.t()) :: {:ok, RecSet.t()} | {:error, Ecto.Changeset.t() | Error.t()}
-  def delete(%RecSet{id: id}), do: with_locked_set(id, &Repo.delete/1)
+  def delete(%RecSet{id: id}) do
+    with {:ok, set} <- with_locked_set(id, &Repo.delete/1) do
+      broadcast_set_changed(id)
+      {:ok, set}
+    end
+  end
 
   @doc """
   Duplicates a set into a fresh `"<name> (cópia)"` — same target style and every
