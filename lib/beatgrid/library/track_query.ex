@@ -202,16 +202,32 @@ defmodule Beatgrid.Library.TrackQuery do
   defp apply_filter(q, :unclassified, _v), do: where(q, [t], is_nil(t.genre_folder))
 
   defp apply_filter(q, :search, v) do
-    # A UUID matches the track by id directly (a reliable fallback when name search
-    # fails). Otherwise normalize the query the same way `norm_*` are stored
-    # (accent-stripped + downcased) so "Marinês"/"Gogó" match "marines"/"gogo".
-    case Ecto.UUID.cast(String.trim(v)) do
-      {:ok, id} ->
-        where(q, [t], t.id == ^id)
+    term = String.trim(v)
 
-      :error ->
-        like = "%#{Normalize.normalize(v)}%"
-        where(q, [t], ilike(t.norm_artist, ^like) or ilike(t.norm_title, ^like))
+    case Ecto.UUID.cast(term) do
+      # Ecto also casts any 16-byte binary; only a printed UUID is an id here.
+      {:ok, id} when byte_size(term) == 36 -> where(q, [t], t.id == ^id)
+      _ when term == "" -> q
+      _ -> where(q, ^text_match(term))
+    end
+  end
+
+  defp text_match(term) do
+    literal =
+      dynamic(
+        [t],
+        fragment("strpos(lower(?), lower(?)) > 0", t.tag_artist, ^term) or
+          fragment("strpos(lower(coalesce(?, ?)), lower(?)) > 0", t.tag_title, t.filename, ^term)
+      )
+
+    # The dedup normalizer drops non-Latin letters. Keep those searches literal.
+    normalized = Normalize.normalize(term)
+
+    if normalized == "" or Regex.match?(~r/(?!\p{Latin})\p{L}/u, term) do
+      literal
+    else
+      pattern = "%#{normalized}%"
+      dynamic([t], ^literal or ilike(t.norm_artist, ^pattern) or ilike(t.norm_title, ^pattern))
     end
   end
 

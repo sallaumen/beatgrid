@@ -52,6 +52,35 @@ defmodule Beatgrid.Library.TrackQueryTest do
       assert [%{id: ^id}] = TrackQuery.library(%{search: t.id})
     end
 
+    test "a 16-byte artist name is searchable as text" do
+      artist = "Forro dos Santos"
+      track = insert(:track, tag_artist: artist, norm_artist: "forro dos santos")
+      assert [%{id: id}] = TrackQuery.library(%{search: artist})
+      assert id == track.id
+    end
+
+    test "a file without a title is searchable by its displayed filename" do
+      track = insert(:track, filename: "Ensaio de São Luís.wav", norm_title: "")
+      insert(:track, filename: "Ensaio de São Luís.mp3", tag_title: "Outro título")
+      insert(:track, filename: "Ensaio de São Luís.flac", status: :missing)
+
+      filters = %{search: " ensaio DE São "}
+      assert [%{id: id}] = TrackQuery.library(filters)
+      assert id == track.id
+      assert TrackQuery.library_ids(filters) == [id]
+      assert TrackQuery.count_library(filters) == 1
+    end
+
+    test "punctuation and non-Latin names match their literal text" do
+      track = insert(:track, tag_title: "東京 100%", norm_title: "100")
+      insert(:track, tag_title: "Outra 100", norm_title: "outra 100")
+
+      for term <- ["東京", "東京 100", "%"] do
+        assert [%{id: id}] = TrackQuery.library(%{search: term})
+        assert id == track.id
+      end
+    end
+
     test "no filters returns all present tracks" do
       insert(:track, status: :present)
       insert(:track, status: :present)
