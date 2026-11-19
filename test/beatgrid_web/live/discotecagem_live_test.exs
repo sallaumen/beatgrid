@@ -123,6 +123,46 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert has_element?(view, "button[phx-click=stop_all]")
   end
 
+  test "an open preparation report follows edits in the set editor, including an emptied queue",
+       %{conn: conn} do
+    {set, [first]} = set_with_tracks([{"Abertura", 100.0}])
+    view = open_console(conn, set)
+    view |> element("button[phx-click=preflight]") |> render_click()
+    assert has_element?(view, "#dj-preflight li", "Abertura")
+
+    next = insert(:track, status: :present, tag_title: "Saideira")
+    {:ok, _} = Sets.append(set, next)
+    assert has_element?(view, "#dj-preflight li", "Saideira")
+    :ok = Sets.remove(set, first)
+    refute has_element?(view, "#dj-preflight li", "Abertura")
+
+    :ok = Sets.remove(set, next)
+    assert has_element?(view, "#dj-preflight", "O set está vazio.")
+    refute has_element?(view, "#dj-preflight li")
+
+    view |> element("button[aria-controls=dj-preflight]") |> render_click()
+    {:ok, _} = Sets.append(set, first)
+    assert has_element?(view, "#dj-queue-list li", "Abertura")
+    refute has_element?(view, "#dj-preflight")
+  end
+
+  test "deleting the checked set in another tab disarms the queue and leaves the current track on air",
+       %{conn: conn} do
+    {set, [a, _b]} = set_with_tracks([{"Baião", 112.0}, {"Xote", 116.0}])
+    view = open_console(conn, set)
+    render_click(view, "play_set")
+    render_hook(view, "deck_started", %{"track_id" => a.id, "deck" => "a"})
+    render_click(view, "preflight")
+    assert has_element?(view, "#dj-preflight")
+
+    {:ok, _} = Sets.delete(set)
+    assert_push_event(view, "dj_set", %{id: nil})
+    assert_push_event(view, "dj_hint_clear", %{})
+    refute has_element?(view, "#dj-preflight")
+    refute has_element?(view, "#dj-set-picker option[value='#{set.id}']")
+    assert Playback.now_playing() == %{track_id: a.id, set_id: nil}
+  end
+
   test "checking a set reports missing audio and the report can be dismissed", %{conn: conn} do
     {set, [_a, _b]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}])
     view = open_console(conn, set)

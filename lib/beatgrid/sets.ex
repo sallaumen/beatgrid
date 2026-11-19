@@ -120,15 +120,15 @@ defmodule Beatgrid.Sets do
   @spec tracks(RecSet.t()) :: [Library.Track.t()]
   def tracks(%RecSet{id: id}), do: RecSetQuery.ordered_tracks(id)
 
+  @type entry :: %{
+          track: Library.Track.t(),
+          role: String.t() | nil,
+          position: integer(),
+          transition: map() | nil
+        }
+
   @doc "The set's entries (track + section role) in order — what the screen renders."
-  @spec entries(RecSet.t()) :: [
-          %{
-            track: Library.Track.t(),
-            role: String.t() | nil,
-            position: integer(),
-            transition: map() | nil
-          }
-        ]
+  @spec entries(RecSet.t()) :: [entry()]
   def entries(%RecSet{id: id}), do: RecSetQuery.ordered_entries(id)
 
   @doc """
@@ -224,11 +224,12 @@ defmodule Beatgrid.Sets do
   @doc """
   Pre-trip check: walks the set's CURRENT entries and reports what would bite
   mid-set — missing files, tracks out of the library, no mix-out marker, no
-  BPM. The console shows the list BEFORE the DJ leaves home.
+  BPM. Pass the ordered entries when the caller already holds a fresh queue.
   """
-  @spec preflight(RecSet.t()) :: %{total: non_neg_integer(), issues: [map()]}
-  def preflight(%RecSet{id: id}) do
-    entries = RecSetQuery.ordered_entries(id)
+  @spec preflight(RecSet.t() | [entry()]) :: %{total: non_neg_integer(), issues: [map()]}
+  def preflight(%RecSet{} = set), do: set |> entries() |> preflight()
+
+  def preflight(entries) when is_list(entries) do
     last = length(entries)
     # The boundary OUT of each track is the NEXT entry's incoming transition —
     # a respiro there means the track plays to its real end (no outro needed).
@@ -457,7 +458,12 @@ defmodule Beatgrid.Sets do
   end
 
   @spec delete(RecSet.t()) :: {:ok, RecSet.t()} | {:error, Ecto.Changeset.t() | Error.t()}
-  def delete(%RecSet{id: id}), do: with_locked_set(id, &Repo.delete/1)
+  def delete(%RecSet{id: id}) do
+    with {:ok, set} <- with_locked_set(id, &Repo.delete/1) do
+      broadcast_set_changed(id)
+      {:ok, set}
+    end
+  end
 
   @doc """
   Duplicates a set into a fresh `"<name> (cópia)"` — same target style and every
