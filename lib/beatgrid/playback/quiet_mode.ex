@@ -2,9 +2,9 @@ defmodule Beatgrid.Playback.QuietMode do
   @moduledoc """
   Pauses background work while a set is actively playing.
 
-  The activator (the console LiveView) is monitored: if it dies without
-  deactivating — a crash, a killed tab, anything that skips `terminate` —
-  background work resumes on its own instead of staying paused forever.
+  Each player holds a claim while it needs silence. Closing a tab or pausing a
+  preview releases only its claim. Work resumes when the last player releases
+  it or its monitored process exits.
 
   This is intentionally small and process-local: Beatgrid is a single-user local
   app, and audio smoothness matters more than continuing background throughput
@@ -23,7 +23,7 @@ defmodule Beatgrid.Playback.QuietMode do
   def activate(server \\ __MODULE__), do: GenServer.call(server, {:activate, self()})
 
   @spec deactivate(GenServer.server()) :: :ok | {:error, term()}
-  def deactivate(server \\ __MODULE__), do: GenServer.call(server, :deactivate)
+  def deactivate(server \\ __MODULE__), do: GenServer.call(server, {:deactivate, self()})
 
   @spec active?(GenServer.server()) :: boolean()
   def active?(server \\ __MODULE__), do: GenServer.call(server, :active?)
@@ -32,40 +32,46 @@ defmodule Beatgrid.Playback.QuietMode do
   def init(opts) do
     {:ok,
      %{
-       active?: false,
-       owner_ref: nil,
+       owners: %{},
        controller: Keyword.get(opts, :controller),
        scope: Keyword.get(opts, :scope)
      }}
   end
 
   @impl GenServer
-  def handle_call({:activate, owner}, _from, %{active?: false} = state) do
-    ref = Process.monitor(owner)
-    {:reply, controller(state).pause(scope(state)), %{state | active?: true, owner_ref: ref}}
-  end
-
   def handle_call({:activate, owner}, _from, state) do
-    Process.demonitor(state.owner_ref, [:flush])
-    {:reply, :ok, %{state | owner_ref: Process.monitor(owner)}}
+    result = if map_size(state.owners) == 0, do: controller(state).pause(scope(state)), else: :ok
+    owners = Map.put_new_lazy(state.owners, owner, fn -> Process.monitor(owner) end)
+    {:reply, result, %{state | owners: owners}}
   end
 
-  def handle_call(:deactivate, _from, %{active?: true} = state) do
-    Process.demonitor(state.owner_ref, [:flush])
-    {:reply, controller(state).resume(scope(state)), %{state | active?: false, owner_ref: nil}}
+  def handle_call({:deactivate, owner}, _from, state) do
+    {result, state} = release(state, owner)
+    {:reply, result, state}
   end
 
-  def handle_call(:deactivate, _from, state), do: {:reply, :ok, state}
+  def handle_call(:active?, _from, state), do: {:reply, map_size(state.owners) > 0, state}
 
-  def handle_call(:active?, _from, state), do: {:reply, state.active?, state}
-
-  @impl GenServer
-  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{owner_ref: ref} = state) do
-    controller(state).resume(scope(state))
-    {:noreply, %{state | active?: false, owner_ref: nil}}
+  @impl true
+  def handle_info({:DOWN, ref, :process, pid, _reason}, %{owners: owners} = state)
+      when is_map_key(owners, pid) and :erlang.map_get(pid, owners) == ref do
+    {_result, state} = release(state, pid)
+    {:noreply, state}
   end
 
   def handle_info(_msg, state), do: {:noreply, state}
+
+  defp release(state, owner) do
+    case Map.pop(state.owners, owner) do
+      {nil, _owners} ->
+        {:ok, state}
+
+      {ref, owners} ->
+        Process.demonitor(ref, [:flush])
+        result = if map_size(owners) == 0, do: controller(state).resume(scope(state)), else: :ok
+        {result, %{state | owners: owners}}
+    end
+  end
 
   defp controller(%{controller: controller}) when is_atom(controller) and not is_nil(controller),
     do: controller
