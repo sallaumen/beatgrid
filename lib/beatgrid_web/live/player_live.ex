@@ -217,8 +217,10 @@ defmodule BeatgridWeb.PlayerLive do
 
   defp to_ms(_ms), do: :error
 
-  defp load_playing_set(id) do
-    with {:ok, uuid} <- Ecto.UUID.cast(id), %{} = set <- Sets.get(uuid) do
+  defp load_playing_set(nil), do: nil
+
+  defp load_playing_set(set_id) do
+    with {:ok, uuid} <- Ecto.UUID.cast(set_id), %{} = set <- Sets.get(uuid) do
       Map.take(set, [:id, :name])
     else
       _ -> nil
