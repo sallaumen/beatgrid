@@ -189,6 +189,36 @@ defmodule BeatgridWeb.LibraryLiveTest do
   end
 
   describe "extended filter rail" do
+    test "the key dialog lets a keyboard user choose and clear every Camelot key", %{conn: conn} do
+      for {title, key} <- [{"Sina", "8A"}, {"Romaria", "9A"}] do
+        insert(:track,
+          tag_title: title,
+          status: :present,
+          soundcharts_song: build(:soundcharts_song, camelot: key)
+        )
+      end
+
+      {:ok, view, _html} = live(conn, ~p"/")
+      view |> element("#library-wheel-toggle") |> render_click()
+      assert has_element?(view, "#library-wheel[role=dialog][aria-modal=true][phx-key=Escape]")
+
+      for n <- 1..12, mode <- ~w(A B) do
+        assert has_element?(view, ~s|#library-wheel-code option[value="#{n}#{mode}"]|)
+      end
+
+      choice = form(view, "#library-wheel-choice", %{code: "8A"})
+      render_change(choice)
+      render_change(choice)
+      assert has_element?(view, "#library-rows", "Sina")
+      refute has_element?(view, "#library-rows", "Romaria")
+
+      view |> form("#library-wheel-choice", %{code: ""}) |> render_change()
+      assert has_element?(view, "#library-rows", "Romaria")
+      render_keydown(view, "close_tom_wheel", %{"key" => "Escape"})
+      refute has_element?(view, "#library-wheel")
+      assert has_element?(view, "#library-wheel-toggle[aria-expanded=false]")
+    end
+
     test "the Tom wheel filters by the clicked key and widens to compatibles", %{conn: conn} do
       insert(:track,
         status: :present,
