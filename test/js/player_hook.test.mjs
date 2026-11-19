@@ -259,3 +259,48 @@ test("the seek lane keeps only the selected song's markers during rapid track ch
   media.metadata()
   assert.deepEqual(labels(), ["Ponte"])
 })
+
+test("a track control plays its file locally and toggles it in place on later clicks", t => {
+  const {select, media, pushes} = fixture(t)
+  const click = (id, params = {}) => select(id, {toggle_if_current: true, ...params})
+  click("one")
+  media.metadata()
+  assert.equal(media.currentTime, 20)
+
+  click("two", {preview: false, set_id: "baile"})
+  media.metadata()
+  assert.equal(media.src, "/audio/two")
+  assert.equal(media.currentTime, 0)
+  assert.equal(media.paused, false)
+  media.currentTime = 38
+  click("two")
+  assert.equal(media.paused, true)
+  click("two")
+  assert.equal(media.paused, false)
+  assert.equal(media.currentTime, 38)
+  assert.deepEqual(pushes.at(-1), ["playback_playing", {track_id: "two", set_id: "baile"}])
+
+  // A cue jump or a different file version explicitly selects the source again.
+  select("two", {src: "/audio/two/original", at_ms: 5500})
+  media.metadata()
+  assert.equal(media.currentTime, 5.5)
+  click("two", {preview: false})
+  media.metadata()
+  assert.equal(media.src, "/audio/two")
+  assert.equal(media.currentTime, 0)
+  assert.equal(media.paused, false)
+})
+
+test("marking a position from a track page only uses that song's local audio", t => {
+  const {select, signal, media, pushes} = fixture(t)
+  select("one")
+  media.metadata()
+  media.currentTime = 14
+  const mark = id => media.dispatchEvent(new CustomEvent("beatgrid:add-marker", {detail: {track_id: id}}))
+  mark("two")
+  assert.equal(pushes.some(([name]) => name === "add_marker"), false)
+  mark("one")
+  signal("add-marker")
+  const markers = pushes.filter(([name]) => name === "add_marker")
+  assert.deepEqual(markers, Array(2).fill(["add_marker", {track_id: "one", ms: 14000}]))
+})

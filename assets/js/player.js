@@ -81,9 +81,10 @@ export default {
     // "Mark now": the button (player or track page) dispatches this; we read the
     // live position and let the server persist it on the now-playing track. Ignore
     // it when nothing has loaded/played yet, so we never store a junk 0:00 cue.
-    on(a, "beatgrid:add-marker", () => {
-      if (!a.duration || a.currentTime <= 0) return
-      this.pushEvent("add_marker", {ms: Math.round(a.currentTime * 1000)})
+    on(a, "beatgrid:add-marker", ({detail}) => {
+      if (!selection || this.loadingAudio || !a.duration || a.currentTime <= 0) return
+      if (detail?.track_id && detail.track_id !== selection.id) return
+      this.pushEvent("add_marker", {track_id: selection.id, ms: Math.round(a.currentTime * 1000)})
     })
     on(a, "beatgrid:seek", (e) => { if (a.duration) a.currentTime = e.detail.ms / 1000 })
 
@@ -127,13 +128,6 @@ export default {
       }
     }
 
-    // User-initiated play from a page (may carry a set_id for set playback, or
-    // an at_ms to start straight at a cue-point marker).
-    on(a, "beatgrid:play", (e) => {
-      playSrc(e.detail)
-      this.pushEvent("now_playing", {id: selection.id, set_id: selection.set_id || null})
-    })
-
     // Only the selection whose ending requested the next song may accept the reply.
     const matchesAdvance = (token) =>
       selection?.set_id && this.lastAdvanceToken === this.playToken &&
@@ -153,7 +147,7 @@ export default {
         this.lastAdvanceToken = null
       }
     }
-    on(a, "beatgrid:toggle", () => {
+    const toggle = () => {
       if (!selection) return
       cancelAdvance()
       if (a.error) {
@@ -166,7 +160,20 @@ export default {
       } else {
         a.pause()
       }
+    }
+    on(a, "beatgrid:toggle", toggle)
+
+    on(a, "beatgrid:play", ({detail: track}) => {
+      // A cover can be highlighted by another tab. Toggle only this tab's matching audio.
+      if (track.toggle_if_current && selection?.id === track.id && selection.src === track.src &&
+          (!track.set_id || track.set_id === selection.set_id)) {
+        toggle()
+      } else {
+        playSrc(track)
+        this.pushEvent("now_playing", {id: track.id, set_id: track.set_id || null})
+      }
     })
+
     const stop = () => {
       this.playToken++
       selection = null

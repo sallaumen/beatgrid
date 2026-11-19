@@ -580,13 +580,7 @@ defmodule BeatgridWeb.TrackLive do
                 <button
                   type="button"
                   phx-click={
-                    if @track.id == @playing_track_id,
-                      do: JS.dispatch("beatgrid:toggle", to: "#player-audio"),
-                      else:
-                        JS.dispatch("beatgrid:play",
-                          to: "#player-audio",
-                          detail: %{src: ~p"/audio/#{@track.id}", id: @track.id, preview: false}
-                        )
+                    toggle_track(%{src: ~p"/audio/#{@track.id}", id: @track.id, preview: false})
                   }
                   class="inline-flex items-center justify-center gap-2 rounded-full bg-primary-deep px-4 py-2 text-[13px] font-semibold text-white shadow-lg shadow-primary/25 hover:bg-primary-deep/90"
                   title="Tocar no player global"
@@ -597,7 +591,12 @@ defmodule BeatgridWeb.TrackLive do
                 </button>
                 <button
                   type="button"
-                  phx-click={JS.dispatch("beatgrid:add-marker", to: "#player-audio")}
+                  phx-click={
+                    JS.dispatch("beatgrid:add-marker",
+                      to: "#player-audio",
+                      detail: %{track_id: @track.id}
+                    )
+                  }
                   disabled={@track.id != @playing_track_id}
                   class="inline-flex items-center justify-center gap-1.5 rounded-full border border-amber/40 bg-amber/10 px-3 py-2 text-[12px] font-semibold text-amber hover:bg-amber/20 disabled:cursor-not-allowed disabled:opacity-40"
                   title={
@@ -717,7 +716,12 @@ defmodule BeatgridWeb.TrackLive do
                   </button>
                   <button
                     type="button"
-                    phx-click={JS.dispatch("beatgrid:add-marker", to: "#player-audio")}
+                    phx-click={
+                      JS.dispatch("beatgrid:add-marker",
+                        to: "#player-audio",
+                        detail: %{track_id: @track.id}
+                      )
+                    }
                     disabled={@track.id != @playing_track_id}
                     class="rounded-md border border-amber/40 bg-amber/10 px-2.5 py-1 text-[11px] font-semibold text-amber hover:bg-amber/20 disabled:cursor-not-allowed disabled:opacity-40"
                     title="Marcar a posição atual do player"

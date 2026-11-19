@@ -242,6 +242,20 @@ defmodule BeatgridWeb.PlayerLiveTest do
       assert_push_event(view, "player_markers", %{markers: [%{"ms" => 5000, "label" => "intro"}]})
     end
 
+    test "a late cue cannot write the previous position onto another track", %{conn: conn} do
+      previous = insert(:track)
+      current = insert(:track)
+      {:ok, view, _html} = live_isolated(conn, BeatgridWeb.PlayerLive)
+      render_hook(view, "now_playing", %{"id" => previous.id})
+      render_hook(view, "now_playing", %{"id" => current.id})
+
+      render_hook(view, "add_marker", %{"track_id" => previous.id, "ms" => 2500})
+      render_hook(view, "add_marker", %{"track_id" => current.id, "ms" => 7500})
+
+      assert [%{"ms" => 7500}] = Tracks.get(current.id).cue_points
+      assert Tracks.get(previous.id).cue_points == []
+    end
+
     test "add_marker stores a cue at the live position on the now-playing track", %{conn: conn} do
       track = insert(:track, tag_title: "M")
       {:ok, view, _html} = live_isolated(conn, BeatgridWeb.PlayerLive)
