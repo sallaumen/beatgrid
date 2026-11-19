@@ -41,27 +41,31 @@ defmodule BeatgridWeb.PlayerLive do
         {:noreply, assign(socket, now_playing: nil, playing_set: nil)}
 
       track ->
-        set_id = blank_to_nil(params["set_id"])
+        set = load_playing_set(params["set_id"])
+        set_id = set && set.id
         Playback.set_now_playing(%{track_id: id, set_id: set_id})
         sync_quiet_mode(set_id)
 
         {:noreply,
          socket
-         |> assign(now_playing: track, playing_set: load_playing_set(set_id))
+         |> assign(now_playing: track, playing_set: set)
          |> push_markers()}
     end
   end
 
-  def handle_event("track_ended", _params, socket), do: advance(socket)
+  def handle_event("track_ended", params, socket) do
+    if current_media?(socket, params),
+      do: advance(socket, params["play_token"]),
+      else: {:noreply, socket}
+  end
 
-  def handle_event("playback_playing", %{"set_id" => set_id}, socket) do
-    set_id = blank_to_nil(set_id) || (socket.assigns.playing_set && socket.assigns.playing_set.id)
-    sync_quiet_mode(set_id)
+  def handle_event("playback_playing", params, socket) do
+    if current_media?(socket, params), do: sync_quiet_mode(socket.assigns.playing_set)
     {:noreply, socket}
   end
 
-  def handle_event("playback_paused", _params, socket) do
-    Playback.deactivate_quiet_mode()
+  def handle_event("playback_paused", params, socket) do
+    if current_media?(socket, params), do: Playback.deactivate_quiet_mode()
     {:noreply, socket}
   end
 
@@ -146,12 +150,19 @@ defmodule BeatgridWeb.PlayerLive do
   # pointer is `(set_id, current track)` and `next_after` reads the live order, so a
   # reorder is honored with no re-sync. At the end of the set, drop the set context
   # (no more auto-advance) but keep the last track shown. No set ⇒ nothing to do.
-  defp advance(%{assigns: %{playing_set: %{id: set_id}, now_playing: %{id: current_id}}} = socket) do
+  defp advance(
+         %{assigns: %{playing_set: %{id: set_id}, now_playing: %{id: current_id}}} = socket,
+         token
+       ) do
     case Sets.next_after(set_id, current_id) do
       nil ->
         Playback.set_now_playing(%{track_id: current_id, set_id: nil})
         Playback.deactivate_quiet_mode()
-        {:noreply, assign(socket, playing_set: nil)}
+
+        {:noreply,
+         socket
+         |> assign(playing_set: nil)
+         |> push_event("player_set_finished", %{after_token: token})}
 
       next ->
         Playback.set_now_playing(%{track_id: next.id, set_id: set_id})
@@ -160,17 +171,22 @@ defmodule BeatgridWeb.PlayerLive do
         {:noreply,
          socket
          |> assign(now_playing: next)
-         |> push_markers()
-         |> push_event("play_track", %{src: ~p"/audio/#{next.id}", id: next.id})}
+         |> push_event("play_track", %{
+           src: ~p"/audio/#{next.id}",
+           id: next.id,
+           set_id: set_id,
+           after_token: token
+         })
+         |> push_markers()}
     end
   end
 
-  defp advance(socket), do: {:noreply, socket}
+  defp advance(socket, _token), do: {:noreply, socket}
 
   # Push the now-playing track's cue points to the hook, which draws the seek-lane ticks.
   defp push_markers(socket) do
-    markers = (socket.assigns.now_playing && socket.assigns.now_playing.cue_points) || []
-    push_event(socket, "player_markers", %{markers: markers})
+    track = socket.assigns.now_playing
+    push_event(socket, "player_markers", %{track_id: track.id, markers: track.cue_points || []})
   end
 
   # Re-read the track fresh (so a concurrent track-page edit isn't clobbered), apply the
@@ -201,17 +217,22 @@ defmodule BeatgridWeb.PlayerLive do
 
   defp to_ms(_ms), do: :error
 
-  defp load_playing_set(nil), do: nil
-
-  defp load_playing_set(set_id) do
-    case Sets.get(set_id) do
-      nil -> nil
-      set -> %{id: set.id, name: set.name}
+  defp load_playing_set(id) do
+    with {:ok, uuid} <- Ecto.UUID.cast(id), %{} = set <- Sets.get(uuid) do
+      Map.take(set, [:id, :name])
+    else
+      _ -> nil
     end
   end
 
-  defp blank_to_nil(value) when value in [nil, ""], do: nil
-  defp blank_to_nil(value), do: value
+  # Mounted clients from before media identities were added omit these fields.
+  defp current_media?(%{assigns: %{now_playing: track, playing_set: set}}, params) do
+    matches_id?(params, "track_id", track) and matches_id?(params, "set_id", set)
+  end
+
+  defp matches_id?(params, key, record) do
+    not Map.has_key?(params, key) or params[key] == (record && record.id)
+  end
 
   defp sync_quiet_mode(nil), do: Playback.deactivate_quiet_mode()
   defp sync_quiet_mode(_set_id), do: Playback.activate_quiet_mode()
