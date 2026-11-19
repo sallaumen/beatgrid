@@ -132,12 +132,14 @@ defmodule BeatgridWeb.LibraryLive do
   def handle_event("close_tom_wheel", _params, socket),
     do: {:noreply, assign(socket, tom_wheel_open: false)}
 
-  # Click a wedge: set that Camelot code as the filter; clicking the active one
-  # (or the empty "limpar") clears it. Results refresh live behind the popover.
+  # A wedge toggles. The native picker reports an absolute selection, including
+  # a repeated value after a LiveView form recovery.
   def handle_event("set_camelot", %{"code" => code}, socket) do
-    value = if code in ["", socket.assigns.filters[:camelot]], do: nil, else: code
-    {:noreply, socket |> update_filter(:camelot, value) |> load_tracks()}
+    change_key_filter(socket, toggle(socket.assigns.filters[:camelot], code))
   end
+
+  def handle_event("choose_camelot", %{"code" => code}, socket),
+    do: change_key_filter(socket, code)
 
   def handle_event("toggle_camelot_compatible", _params, socket) do
     value = if socket.assigns.filters[:camelot_compatible] == true, do: nil, else: true
@@ -494,11 +496,11 @@ defmodule BeatgridWeb.LibraryLive do
 
   defp base_filters(socket), do: Map.put(socket.assigns.filters, :sort, socket.assigns.sort)
 
-  defp update_filter(socket, key, nil),
-    do: assign(socket, filters: Map.delete(socket.assigns.filters, key))
+  defp change_key_filter(socket, code),
+    do: {:noreply, socket |> update_filter(:camelot, code) |> load_tracks()}
 
   defp update_filter(socket, key, val),
-    do: assign(socket, filters: Map.put(socket.assigns.filters, key, val))
+    do: assign(socket, filters: put_filter(socket.assigns.filters, key, val))
 
   defp toggle(current, val), do: if(current == val, do: nil, else: val)
   defp put_filter(filters, key, val) when val in [nil, ""], do: Map.delete(filters, key)
@@ -620,7 +622,13 @@ defmodule BeatgridWeb.LibraryLive do
               !@filters_open? && "hidden"
             ]}
           >
-            <.filters_panel filters={@filters} folders={@folders} tags={@all_tags} sort={@sort} />
+            <.filters_panel
+              filters={@filters}
+              folders={@folders}
+              tags={@all_tags}
+              sort={@sort}
+              wheel_open?={@tom_wheel_open}
+            />
           </aside>
 
           <section
@@ -664,19 +672,33 @@ defmodule BeatgridWeb.LibraryLive do
             }
           </script>
 
-          <div :if={@tom_wheel_open} class="fixed inset-0 z-20" phx-click="close_tom_wheel" />
           <div
             :if={@tom_wheel_open}
-            class="absolute left-[15.5rem] top-3 z-30 w-[324px] rounded-2xl border border-white/10 bg-surface p-4 shadow-lg"
+            class="fixed inset-0 z-20 bg-black/40 xl:bg-transparent"
+            phx-click="close_tom_wheel"
+            aria-hidden="true"
+          />
+          <.focus_wrap
+            :if={@tom_wheel_open}
+            id="library-wheel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="library-wheel-title"
+            phx-window-keydown="close_tom_wheel"
+            phx-key="Escape"
+            phx-mounted={JS.focus(to: "#library-wheel-code")}
+            phx-remove={JS.focus(to: "#library-wheel-toggle")}
+            class="fixed inset-x-3 top-1/2 z-30 mx-auto max-h-[calc(100dvh_-_2rem)] max-w-[324px] -translate-y-1/2 overflow-y-auto rounded-lg border border-white/10 bg-surface p-4 shadow-lg xl:absolute xl:inset-x-auto xl:left-[15.5rem] xl:top-3 xl:max-h-[calc(100%_-_1.5rem)] xl:w-[324px] xl:translate-y-0"
           >
-            <div class="mb-1 flex items-center justify-between">
-              <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+            <div class="mb-2 flex items-center justify-between">
+              <h2 id="library-wheel-title" class="text-body-lg font-semibold text-ink">
                 Roda harmônica
-              </span>
+              </h2>
               <button
                 phx-click="close_tom_wheel"
-                class="text-ink-muted hover:text-ink"
-                aria-label="Fechar"
+                type="button"
+                class="grid size-8 place-items-center rounded-md text-ink-muted hover:text-ink"
+                aria-label="Fechar roda harmônica"
               >
                 <span class="hero-x-mark size-4" />
               </button>
@@ -685,25 +707,15 @@ defmodule BeatgridWeb.LibraryLive do
               selected={@filters[:camelot]}
               compatible?={@filters[:camelot_compatible] == true}
             />
-            <div class="mt-2 flex items-center justify-between">
-              <label class="flex cursor-pointer items-center gap-2 text-[12px] text-ink-muted">
-                <input
-                  type="checkbox"
-                  checked={@filters[:camelot_compatible] == true}
-                  phx-click="toggle_camelot_compatible"
-                  class="rounded border-white/20 bg-input"
-                /> incluir compatíveis
-              </label>
-              <button
-                :if={@filters[:camelot]}
-                phx-click="set_camelot"
-                phx-value-code=""
-                class="text-[12px] text-ink-muted hover:text-ink"
-              >
-                limpar tom
-              </button>
-            </div>
-          </div>
+            <label class="mt-2 flex cursor-pointer items-center gap-2 text-body text-ink-muted">
+              <input
+                type="checkbox"
+                checked={@filters[:camelot_compatible] == true}
+                phx-click="toggle_camelot_compatible"
+                class="rounded border-white/20 bg-input"
+              /> incluir compatíveis
+            </label>
+          </.focus_wrap>
         </div>
 
         <.batch_bar
@@ -724,6 +736,7 @@ defmodule BeatgridWeb.LibraryLive do
   attr :tags, :list, default: []
 
   attr :sort, :any, required: true
+  attr :wheel_open?, :boolean, required: true
 
   defp filters_panel(assigns) do
     assigns = assign(assigns, confidences: @confidences)
@@ -849,8 +862,12 @@ defmodule BeatgridWeb.LibraryLive do
     <div class="mt-4">
       <p class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Tom</p>
       <button
+        id="library-wheel-toggle"
         type="button"
         phx-click="toggle_tom_wheel"
+        aria-label={"Escolher tom, #{@filters[:camelot] || "qualquer"}"}
+        aria-haspopup="dialog"
+        aria-expanded={to_string(@wheel_open?)}
         class="flex w-full items-center justify-between rounded-md border border-white/8 bg-input px-2 py-1.5 text-body-sm hover:border-primary/50"
       >
         <span class="flex items-center gap-2 font-mono">
@@ -1623,11 +1640,22 @@ defmodule BeatgridWeb.LibraryLive do
     assigns = assign(assigns, wedges: camelot_wedges(), neighbors: neighbors)
 
     ~H"""
+    <form id="library-wheel-choice" phx-change="choose_camelot">
+      <select
+        id="library-wheel-code"
+        name="code"
+        aria-label="Tom Camelot"
+        class="w-full rounded-md border border-white/8 bg-input px-2 py-1.5 font-mono text-body text-ink"
+      >
+        <option value="" selected={is_nil(@selected)}>Qualquer tom</option>
+        <option :for={w <- @wedges} value={w.code} selected={w.code == @selected}>{w.code}</option>
+      </select>
+    </form>
     <svg
       viewBox="0 0 280 280"
       class="mx-auto w-full max-w-[300px]"
-      role="img"
-      aria-label="Roda harmônica Camelot"
+      aria-hidden="true"
+      focusable="false"
     >
       <path
         :for={w <- @wedges}
