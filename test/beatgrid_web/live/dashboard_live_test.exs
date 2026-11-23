@@ -125,7 +125,7 @@ defmodule BeatgridWeb.DashboardLiveTest do
     assert render(view) =~ "Gilberto Gil"
   end
 
-  test "Baixar enqueues a YouTube download and marks the gap imported", %{conn: conn} do
+  test "a suggested track opens a version review without importing", %{conn: conn} do
     insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB")
 
     rec =
@@ -139,11 +139,9 @@ defmodule BeatgridWeb.DashboardLiveTest do
       )
 
     {:ok, view, _html} = live(conn, ~p"/painel")
-    view |> element("button[phx-click=download_rec][phx-value-id='#{rec.id}']") |> render_click()
-
-    assert_enqueued(worker: ExpandWorker)
-    assert Repertoire.get_recommendation(rec.id).status == :imported
-    assert render(view) =~ "baixada"
+    assert has_element?(view, "a[href='/importados?recomendacao=#{rec.id}']", "Conferir versões")
+    refute_enqueued(worker: ExpandWorker)
+    assert Repertoire.get_recommendation(rec.id).status == :new
   end
 
   test "Dispensar hides a gap and marks it dismissed", %{conn: conn} do
@@ -258,17 +256,9 @@ defmodule BeatgridWeb.DashboardLiveTest do
     assert File.read!(Path.join(root, rel_path)) == "original-audio"
   end
 
-  test "the YouTube panel enqueues downloads from pasted URLs", %{conn: conn} do
-    {:ok, view, html} = live(conn, ~p"/painel")
-    assert html =~ "Importar do YouTube"
-
-    html =
-      view
-      |> form("#youtube-form")
-      |> render_submit(%{urls: "https://y/1\nhttps://y/2"})
-
-    assert html =~ "na fila"
-    assert html =~ ~s(href="/jobs")
+  test "the YouTube panel opens the shared import review", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/painel")
+    assert has_element?(view, "#dashboard-imports a[href='/importados']", "Conferir links")
   end
 
   test "enriching pending YouTube imports enqueues an EnrichWorker batch job", %{conn: conn} do

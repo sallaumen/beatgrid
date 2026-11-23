@@ -24,6 +24,28 @@ defmodule Beatgrid.Jobs do
     |> Repo.all()
   end
 
+  @doc "All downloads in a reviewed batch, including jobs reused by Oban uniqueness."
+  @spec downloads_in_batch(String.t()) :: [Oban.Job.t()]
+  def downloads_in_batch(batch) do
+    Oban.Job
+    |> maybe_filter_worker("DownloadWorker")
+    |> where([j], ^batch in j.tags)
+    |> order_by([j], asc: j.id)
+    |> Repo.all()
+  end
+
+  @doc "Attach a second review batch to an in-flight download without changing its state."
+  @spec follow_download(Oban.Job.t(), String.t() | nil) :: {:ok, Oban.Job.t()}
+  def follow_download(%Oban.Job{conflict?: true} = job, batch) when is_binary(batch) do
+    Oban.Job
+    |> where([j], j.id == ^job.id and ^batch not in j.tags)
+    |> Repo.update_all(push: [tags: batch])
+
+    {:ok, job}
+  end
+
+  def follow_download(job, _batch), do: {:ok, job}
+
   defp maybe_filter_states(query, nil), do: query
   defp maybe_filter_states(query, states), do: where(query, [j], j.state in ^states)
 

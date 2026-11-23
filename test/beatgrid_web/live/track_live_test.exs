@@ -617,7 +617,7 @@ defmodule BeatgridWeb.TrackLiveTest do
     refute render(view) =~ "Caetano Veloso"
   end
 
-  test "Baixar on a match enqueues a YouTube download and marks it imported", %{conn: conn} do
+  test "a suggested match opens a version review without importing", %{conn: conn} do
     track =
       insert(:track,
         status: :present,
@@ -638,11 +638,9 @@ defmodule BeatgridWeb.TrackLiveTest do
       )
 
     {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
-    view |> element("button[phx-click=download_rec][phx-value-id='#{rec.id}']") |> render_click()
-
-    assert_enqueued(worker: ExpandWorker)
-    assert Repertoire.get_recommendation(rec.id).status == :imported
-    assert render(view) =~ "baixada"
+    assert has_element?(view, "a[href='/importados?recomendacao=#{rec.id}']", "Conferir versões")
+    refute_enqueued(worker: ExpandWorker)
+    assert Repertoire.get_recommendation(rec.id).status == :new
   end
 
   test "Dispensar on a match hides it and marks it dismissed", %{conn: conn} do

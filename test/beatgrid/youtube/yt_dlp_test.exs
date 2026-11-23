@@ -44,6 +44,13 @@ defmodule Beatgrid.YouTube.YtDlpTest do
   end
 
   describe "parse_entries/1" do
+    test "a temporary media address is never handed to the download worker" do
+      assert [%{url: "https://www.youtube.com/watch?v=ZvODpklNB2c"}] =
+               YtDlp.parse_entries(
+                 "ZvODpklNB2c\tQueijinho\thttps://cdn.googlevideo.com/videoplayback?expire=1\tNA"
+               )
+    end
+
     test "parses flat-playlist tab lines into entries, carrying the playlist title" do
       out =
         "abc\tFirst Song\thttps://youtu.be/abc\tMinha Playlist\n" <>
@@ -123,14 +130,21 @@ defmodule Beatgrid.YouTube.YtDlpTest do
     test "runs yt-dlp and returns parsed items", %{dir: dir} do
       fake(dir, ~s|printf 'abc\\tDjavan - Sina\\thttps://youtu.be/abc\\n'\n|)
 
-      assert {:ok, [item]} = YtDlp.download("https://youtu.be/abc", dir)
+      assert {:ok, [item]} = YtDlp.download("https://youtu.be/ZvODpklNB2c", dir)
       assert item.title == "Djavan - Sina"
       assert item.path == Path.join(dir, "abc.mp3")
     end
 
+    test "an explicit playlist can only be listed, never passed to a single download", %{dir: dir} do
+      fake(dir, "exit 0")
+
+      assert {:error, %Beatgrid.Error{code: :invalid_link}} =
+               YtDlp.download("https://www.youtube.com/playlist?list=PLabc", dir)
+    end
+
     test "returns {:error, :timeout} instead of hanging", %{dir: dir} do
       fake(dir, "sleep 5\n", timeout_ms: 200)
-      assert {:error, :timeout} = YtDlp.download("u", dir)
+      assert {:error, :timeout} = YtDlp.download("https://youtu.be/ZvODpklNB2c", dir)
     end
   end
 end

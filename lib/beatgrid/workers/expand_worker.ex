@@ -25,6 +25,7 @@ defmodule Beatgrid.Workers.ExpandWorker do
       {:ok, _count} -> :ok
       # A URL that expands to nothing stays empty on retry — permanent, per the
       # worker law ({:cancel} for gone/invalid entities, {:error} for transient).
+      {:error, %Beatgrid.Error{code: :invalid_link} = error} -> {:cancel, error}
       {:error, :no_entries} -> {:cancel, :no_entries}
       {:error, reason} -> {:error, reason}
     end

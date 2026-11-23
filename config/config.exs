@@ -76,6 +76,7 @@ config :beatgrid, Beatgrid.Audio.Analyzer, adapter: Beatgrid.Audio.LibrosaCli
 config :beatgrid, Beatgrid.Audio.MarkerDetector, adapter: Beatgrid.Audio.MarkerDetectorCli
 config :beatgrid, Beatgrid.Audio.Loudness, adapter: Beatgrid.Audio.FfmpegLoudness
 config :beatgrid, Beatgrid.Audio.GainApplier, adapter: Beatgrid.Audio.GainApplierCli
+config :beatgrid, Beatgrid.Spotify.Playlist, adapter: Beatgrid.Spotify.Embed
 config :beatgrid, Beatgrid.YouTube.Downloader, adapter: Beatgrid.YouTube.YtDlp
 config :beatgrid, Beatgrid.Video.FrameSampler, adapter: Beatgrid.Video.FrameSampler.FfmpegCli
 config :beatgrid, Beatgrid.Recognition, adapter: Beatgrid.Recognition.Audd

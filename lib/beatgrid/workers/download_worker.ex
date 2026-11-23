@@ -20,37 +20,59 @@ defmodule Beatgrid.Workers.DownloadWorker do
     ]
 
   alias Beatgrid.YouTube
+  alias Beatgrid.YouTube.Link
 
   @spec enqueue(String.t(), keyword()) :: {:ok, Oban.Job.t()} | {:error, term()}
   def enqueue(url, opts \\ []) do
-    %{
+    args = %{
       url: url,
       video_id: opts[:video_id],
+      recommendation_id: opts[:recommendation_id],
       title: opts[:title],
       playlist_url: opts[:playlist_url],
       playlist_index: opts[:playlist_index],
       playlist_title: opts[:playlist_title]
     }
-    |> new()
-    |> Oban.insert()
+
+    batch = opts[:batch_id]
+
+    with {:ok, job} <- Oban.insert(new(args, tags: List.wrap(batch))) do
+      Beatgrid.Jobs.follow_download(job, batch)
+    end
   end
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"url" => url} = args}) do
+    # Old jobs may contain an expiring media URL. Their video ID is durable.
+    url =
+      case Link.video(args["video_id"]) do
+        {:video, _} = video -> Link.url(video)
+        :invalid -> url
+      end
+
     case YouTube.download_and_ingest(url, playlist(args)) do
       {:ok, _count} ->
+        mark_imported(args["recommendation_id"])
         YouTube.broadcast_tick()
         :ok
 
       {:error, %Beatgrid.Error{code: :rate_limited} = error} ->
         {:error, error}
 
-      {:error, %Beatgrid.Error{code: :video_unavailable} = error} ->
+      {:error, %Beatgrid.Error{code: code} = error}
+      when code in [:video_unavailable, :verification_required, :invalid_link] ->
         {:cancel, error}
 
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp mark_imported(nil), do: :ok
+
+  defp mark_imported(id) do
+    if rec = Beatgrid.Repertoire.get_recommendation(id),
+      do: Beatgrid.Repertoire.set_recommendation_status(rec, :imported)
   end
 
   # Rebuilds the playlist provenance from the job args (nil for a single video).

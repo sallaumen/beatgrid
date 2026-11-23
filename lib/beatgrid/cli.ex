@@ -8,6 +8,15 @@ defmodule Beatgrid.Cli do
 
   @type cmd_result :: {binary(), non_neg_integer()}
 
+  @doc "Prefer the Beatgrid-local yt-dlp installation, then the system executable."
+  @spec yt_dlp() :: String.t()
+  def yt_dlp do
+    private_bin =
+      Path.join([:filename.basedir(:user_data, "beatgrid"), "yt-dlp", "bin", "yt-dlp"])
+
+    System.find_executable(private_bin) || "yt-dlp"
+  end
+
   @spec run((-> cmd_result), pos_integer()) ::
           {:ok, cmd_result} | {:error, :timeout} | {:error, {:exit, term()}}
   def run(fun, timeout_ms) do

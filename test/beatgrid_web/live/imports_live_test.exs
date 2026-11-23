@@ -1,5 +1,5 @@
 defmodule BeatgridWeb.ImportsLiveTest do
-  use BeatgridWeb.ConnCase, async: false
+  use BeatgridWeb.ConnCase, async: false, oban: true
 
   import Phoenix.LiveViewTest
   import Beatgrid.Factory
@@ -7,6 +7,9 @@ defmodule BeatgridWeb.ImportsLiveTest do
   alias Beatgrid.Library.Tracks
   alias Beatgrid.Sets
 
+  import Mox
+  setup :set_mox_global
+  setup :verify_on_exit!
   setup :isolate_library_root
 
   defp playlist_track(title, playlist_url, index, playlist_title) do
@@ -130,20 +133,106 @@ defmodule BeatgridWeb.ImportsLiveTest do
     assert [%{transition: nil}, %{transition: %{"enabled" => true}}] = Sets.entries(set)
   end
 
-  test "botão importar revela o form e o submit dá o retorno de baixando", %{conn: conn} do
-    {:ok, view, _} = live(conn, ~p"/importados")
-    refute has_element?(view, "form[phx-submit=import_playlist]")
+  test "reviewing a watch link with a radio only queues the confirmed video", %{conn: conn} do
+    url = "https://www.youtube.com/watch?v=ZvODpklNB2c"
 
-    view |> element("button[phx-click=toggle_import]") |> render_click()
-    assert has_element?(view, "form[phx-submit=import_playlist]")
+    expect(Beatgrid.YouTube.DownloaderMock, :list_entries, fn ^url ->
+      {:ok, [%{id: "ZvODpklNB2c", title: "Mestre Zinho - Queijinho do amor", url: url}]}
+    end)
+
+    {:ok, view, _} = live(conn, ~p"/importados")
 
     view
-    |> form("form[phx-submit=import_playlist]", %{"url" => "https://youtube.com/playlist?list=X"})
+    |> form("#link-preview", %{urls: url <> "&list=RDZvODpklNB2c&start_radio=1"})
     |> render_submit()
 
-    # the success path enqueues the download and closes the form (the enqueue
-    # itself is covered in YouTubeTest)
-    refute has_element?(view, "form[phx-submit=import_playlist]")
+    assert render_async(view) =~ "Mestre Zinho - Queijinho do amor"
+    refute_enqueued(worker: Beatgrid.Workers.DownloadWorker)
+    refute_enqueued(worker: Beatgrid.Workers.ExpandWorker)
+    view |> form("#confirm-downloads") |> render_submit()
+    assert_enqueued(worker: Beatgrid.Workers.DownloadWorker, args: %{url: url, playlist_url: nil})
+    assert has_element?(view, "#download-activity", "Na fila")
+    batch_url = assert_patch(view)
+    assert batch_url =~ "/importados?lote="
+    {:ok, reloaded, _} = live(conn, batch_url)
+    assert has_element?(reloaded, "#download-activity", "Queijinho do amor")
+  end
+
+  test "a reviewed subset preserves its original playlist positions", %{conn: conn} do
+    url = "https://www.youtube.com/playlist?list=PLabc"
+
+    entries =
+      for {id, title} <- [{"aaaaaaaaaaa", "Primeira"}, {"bbbbbbbbbbb", "Segunda"}] do
+        %{
+          id: id,
+          title: title,
+          url: "https://www.youtube.com/watch?v=" <> id,
+          playlist_title: "Festa"
+        }
+      end
+
+    expect(Beatgrid.YouTube.DownloaderMock, :list_entries, fn ^url -> {:ok, entries} end)
+    {:ok, view, _} = live(conn, ~p"/importados")
+    view |> form("#link-preview", %{urls: url}) |> render_submit()
+    assert render_async(view) =~ "Festa"
+    render_submit(view, "confirm_downloads", %{"ids" => ["bbbbbbbbbbb", "unreviewed"]})
+    assert [job] = all_enqueued(worker: Beatgrid.Workers.DownloadWorker)
+    assert job.args["playlist_index"] == 2
+    assert job.args["video_id"] == "bbbbbbbbbbb"
+  end
+
+  test "a second batch follows an already queued video without starting another job", %{
+    conn: conn
+  } do
+    url = "https://www.youtube.com/watch?v=ZvODpklNB2c"
+
+    stub(Beatgrid.YouTube.DownloaderMock, :list_entries, fn ^url ->
+      {:ok, [%{id: "ZvODpklNB2c", title: "Queijinho", url: url}]}
+    end)
+
+    for _ <- 1..2 do
+      {:ok, view, _} = live(conn, ~p"/importados")
+      view |> form("#link-preview", %{urls: url}) |> render_submit()
+      render_async(view)
+      view |> form("#confirm-downloads") |> render_submit()
+      assert_patch(view)
+      assert has_element?(view, "#download-activity", "Queijinho")
+    end
+
+    assert [_] = all_enqueued(worker: Beatgrid.Workers.DownloadWorker)
+  end
+
+  test "Spotify references offer concrete video versions with no automatic selection", %{
+    conn: conn
+  } do
+    expect(Beatgrid.Spotify.PlaylistMock, :fetch, fn "2qq0JHZ3xzT6YNlVAWIr73" ->
+      {:ok,
+       %{
+         title: "balanço venenoso",
+         tracks: [%{artist: "Joaozinho Do Exu", title: "Queijinho do Amor"}]
+       }}
+    end)
+
+    expect(
+      Beatgrid.YouTube.DownloaderMock,
+      :list_entries,
+      fn "ytsearch3:Joaozinho Do Exu Queijinho do Amor" ->
+        {:ok, [%{id: "aaaaaaaaaaa", title: "Versão ao vivo", playlist_title: "Resultados"}]}
+      end
+    )
+
+    {:ok, view, _} = live(conn, ~p"/importados")
+
+    view
+    |> form("#link-preview", %{urls: "https://open.spotify.com/playlist/2qq0JHZ3xzT6YNlVAWIr73"})
+    |> render_submit()
+
+    assert render_async(view) =~ "balanço venenoso"
+    view |> element("button[phx-click=find_version]") |> render_click()
+    assert render_async(view) =~ "Versão ao vivo"
+    assert has_element?(view, "#confirm-downloads button[disabled]", "Baixar 0 faixas")
+    refute has_element?(view, "#confirm-downloads input[checked]")
+    refute_enqueued(worker: Beatgrid.Workers.DownloadWorker)
   end
 
   test "hostile sort/filter payloads are ignored, never crash the view", %{conn: conn} do
