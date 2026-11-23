@@ -527,7 +527,7 @@ defmodule BeatgridWeb.RecSetLive do
   end
 
   defp with_current_set(socket, fun) do
-    case socket.assigns.set && Sets.get(socket.assigns.set.id) do
+    case Sets.get(socket.assigns.set.id) do
       nil -> missing_set(socket)
       set -> fun.(set)
     end
