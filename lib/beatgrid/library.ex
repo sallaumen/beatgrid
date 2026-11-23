@@ -6,7 +6,7 @@ defmodule Beatgrid.Library do
   reflects and edits it. It owns library initialization and the file-moving
   primitives (relocate, quarantine) that back the organization workflow.
   """
-  alias Beatgrid.{Gold, Operations, Tagging}
+  alias Beatgrid.{Gold, Operations, Repo, Tagging}
   alias Beatgrid.Library.{FileInfo, GenreFolders, MetadataAI, Normalize, Track, Tracks}
   alias Beatgrid.Workers.{AnalyzeWorker, LoudnessWorker, MarkerAnalyzeWorker}
   alias Beatgrid.YouTube.TitleParser
@@ -81,68 +81,87 @@ defmodule Beatgrid.Library do
   `%{"source_path" => abs, "artist" => a, "title" => t}` — `artist`/`title` may be
   blank (then the file's tags stand). Returns `%{imported: n, skipped: m}`.
   """
-  @spec import_files([map()], String.t(), keyword()) ::
-          %{imported: non_neg_integer(), skipped: non_neg_integer()}
+  @spec import_files([map()], String.t(), keyword()) :: map()
   def import_files(items, batch_id, _opts \\ []) do
-    File.mkdir_p!(abs_path("_Inbox"))
-    seen = library_hashes()
     total = length(items)
+    initial = %{imported: 0, skipped: 0, failed: 0, failures: []}
+    progress = %{batch_id: batch_id, status: :running, total: total, done: 0, imported: 0}
+    broadcast_import(progress)
 
-    broadcast_import(%{batch_id: batch_id, status: :running, done: 0, total: total, imported: 0})
-
-    {summary, _seen, _done} =
-      Enum.reduce(items, {%{imported: 0, skipped: 0}, seen, 0}, fn item, {acc, seen, done} ->
-        {acc, seen} = import_one_override(item, acc, seen)
-        done = done + 1
-
-        broadcast_import(%{
-          batch_id: batch_id,
-          status: :running,
-          done: done,
-          total: total,
-          imported: acc.imported
-        })
-
-        {acc, seen, done}
+    summary =
+      items
+      |> Enum.with_index(1)
+      |> Enum.reduce(initial, fn {item, done}, acc ->
+        acc = record_import(import_reviewed(item), item, acc)
+        broadcast_import(%{progress | done: done, imported: acc.imported})
+        acc
       end)
 
-    broadcast_import(%{
-      batch_id: batch_id,
-      status: :done,
-      done: total,
-      total: total,
-      imported: summary.imported,
-      skipped: summary.skipped
-    })
-
+    broadcast_import(Map.merge(%{progress | done: total, status: :done}, summary))
     summary
   end
 
-  defp import_one_override(%{"source_path" => src} = item, acc, seen) do
-    info = FileInfo.read(src)
-    sha = info[:content_sha256]
+  defp record_import({:ok, key}, _item, acc), do: Map.update!(acc, key, &(&1 + 1))
 
-    if is_binary(sha) and MapSet.member?(seen, sha) do
-      {Map.update!(acc, :skipped, &(&1 + 1)), seen}
+  defp record_import({:error, reason}, item, acc) do
+    failure = %{file: Path.basename(item["source_path"]), reason: inspect(reason)}
+    %{acc | failed: acc.failed + 1, failures: [failure | acc.failures]}
+  end
+
+  defp import_reviewed(%{"source_path" => src} = item) do
+    with {:ok, %{type: :regular}} <- File.stat(src),
+         :ok <- File.mkdir_p(abs_path("_Inbox")) do
+      stage = abs_path(Path.join("_Inbox", ".#{Uniq.UUID.uuid7()}.part"))
+
+      try do
+        # Probe and hash exactly the bytes we will publish, even if the source
+        # changes during the copy. The original name supplies its extension.
+        with :ok <- File.cp(src, stage) do
+          info = FileInfo.read(stage, filename: Path.basename(src))
+          commit_copy(stage, info, item)
+        end
+      after
+        File.rm(stage)
+      end
     else
-      filename = truthful_filename(info)
-      dest_rel = ensure_unique(Path.join("_Inbox", filename))
-      File.cp!(src, abs_path(dest_rel))
+      {:ok, _} -> {:error, :not_a_file}
+      error -> error
+    end
+  end
 
-      attrs =
-        info
-        |> Map.merge(%{
-          filename: filename,
-          rel_path: dest_rel,
-          source_playlist: "import",
-          status: :present,
-          last_scanned_at: DateTime.truncate(DateTime.utc_now(), :second)
-        })
-        |> overlay_names(item)
+  defp commit_copy(stage, info, item) do
+    Repo.transact(fn ->
+      # The import queue can run multiple batches. Serialize only publication,
+      # after the slow copy/probe, so the dedup and filename decisions are current.
+      lock_publication()
 
-      {:ok, track} = Tracks.upsert_by_path(attrs)
-      :ok = enqueue_track_analysis(track)
-      {Map.update!(acc, :imported, &(&1 + 1)), MapSet.put(seen, sha)}
+      cond do
+        is_nil(info.content_sha256) -> {:error, :unreadable}
+        item["sha256"] && item["sha256"] != info.content_sha256 -> {:error, :source_changed}
+        Tracks.present_hash?(info.content_sha256) -> {:ok, :skipped}
+        true -> publish_copy(stage, info, item)
+      end
+    end)
+  end
+
+  defp publish_copy(stage, info, item) do
+    dest_rel = ensure_unique(Path.join("_Inbox", truthful_filename(info)), info.content_sha256)
+
+    attrs =
+      info
+      |> Map.merge(%{
+        filename: Path.basename(dest_rel),
+        rel_path: dest_rel,
+        source_playlist: "import",
+        status: :present,
+        last_scanned_at: DateTime.utc_now(:second)
+      })
+      |> overlay_names(item)
+
+    with {:ok, track} <- Tracks.upsert_by_path(attrs),
+         :ok <- enqueue_track_analysis(track),
+         :ok <- File.rename(stage, abs_path(dest_rel)) do
+      {:ok, :imported}
     end
   end
 
@@ -150,10 +169,10 @@ defmodule Beatgrid.Library do
   # suite right away (same contract as the YouTube download flow) instead of
   # waiting for a manual Painel sweep.
   defp enqueue_track_analysis(track) do
-    {:ok, _} = AnalyzeWorker.enqueue(track.id)
-    {:ok, _} = LoudnessWorker.enqueue(track.id)
-    {:ok, _} = MarkerAnalyzeWorker.enqueue(track.id)
-    :ok
+    with {:ok, _} <- AnalyzeWorker.enqueue(track.id),
+         {:ok, _} <- LoudnessWorker.enqueue(track.id),
+         {:ok, _} <- MarkerAnalyzeWorker.enqueue(track.id),
+         do: :ok
   end
 
   # A source with a lying extension (a .mpeg that is an mp3, an .mp4 that is an
@@ -307,15 +326,24 @@ defmodule Beatgrid.Library do
   def clear_gold_manual(%Track{} = track), do: Tracks.update(track, %{gold_manual: nil})
 
   @doc """
-  Apaga a faixa de vez: remove o arquivo do disco e o registro. Arquivo ausente
-  (`:enoent`) ainda remove o registro. Único hard-delete do app (só `/importados`).
+  Deletes the confirmed track and its file. A missing file still allows removal
+  of the catalogue entry. Returns an error when the supplied track path is stale.
   """
   @spec hard_delete(Track.t()) :: {:ok, Track.t()} | {:error, term()}
   def hard_delete(%Track{} = track) do
-    case File.rm(abs_path(track.rel_path)) do
-      :ok -> Tracks.delete(track)
-      {:error, :enoent} -> Tracks.delete(track)
-      {:error, reason} -> {:error, reason}
+    Repo.transact(fn ->
+      with {:ok, current} <- lock_source(track),
+           {:ok, deleted} <- Tracks.delete(current),
+           :ok <- remove_if_present(abs_path(current.rel_path)) do
+        {:ok, deleted}
+      end
+    end)
+  end
+
+  defp remove_if_present(path) do
+    case File.rm(path) do
+      {:error, :enoent} -> :ok
+      result -> result
     end
   end
 
@@ -413,7 +441,7 @@ defmodule Beatgrid.Library do
   @spec rename(Track.t(), String.t()) :: {:ok, Track.t()} | {:error, term()}
   def rename(track, new_filename) do
     with {:ok, safe} <- safe_filename(new_filename) do
-      dest_rel = Path.join(Path.dirname(track.rel_path), safe)
+      dest_rel = replace_filename(track.rel_path, safe)
       do_move(track, dest_rel, %{})
     end
   end
@@ -457,18 +485,38 @@ defmodule Beatgrid.Library do
   end
 
   defp do_move(track, dest_rel, extra_attrs) do
-    src = abs_path(track.rel_path)
+    Repo.transact(fn ->
+      lock_publication()
 
-    with :ok <- check_source(src),
-         unique_rel = ensure_unique(dest_rel),
-         dest = abs_path(unique_rel),
-         :ok <- check_within_root(dest),
+      with {:ok, current} <- lock_source(track),
+           :ok <- check_source(abs_path(current.rel_path)) do
+        move_file(current, dest_rel, extra_attrs)
+      end
+    end)
+  end
+
+  defp move_file(%Track{rel_path: rel} = track, rel, extra_attrs),
+    do: Tracks.update(track, extra_attrs)
+
+  defp move_file(track, dest_rel, extra_attrs) do
+    unique_rel = ensure_unique(dest_rel)
+    dest = abs_path(unique_rel)
+    attrs = Map.merge(extra_attrs, %{rel_path: unique_rel, filename: Path.basename(unique_rel)})
+
+    with :ok <- check_within_root(dest),
+         {:ok, moved} <- Tracks.update(track, attrs),
          :ok <- File.mkdir_p(Path.dirname(dest)),
-         :ok <- File.rename(src, dest) do
-      Tracks.update(
-        track,
-        Map.merge(extra_attrs, %{rel_path: unique_rel, filename: Path.basename(unique_rel)})
-      )
+         :ok <- File.rename(abs_path(track.rel_path), dest) do
+      {:ok, moved}
+    end
+  end
+
+  defp lock_publication, do: Repo.query!("SELECT pg_advisory_xact_lock(918253107)")
+
+  defp lock_source(track) do
+    case Tracks.lock_at_path(track.id, track.rel_path) do
+      nil -> {:error, :source_missing}
+      current -> {:ok, current}
     end
   end
 
@@ -488,16 +536,25 @@ defmodule Beatgrid.Library do
 
   defp abs_path(rel), do: Path.join(library_root(), rel)
 
-  @doc "Returns `rel` untouched, or bumped with a numeric suffix until no file exists there."
+  @doc "Returns the first path free both on disk and in the catalogue."
   @spec unique_rel_path(String.t()) :: String.t()
   def unique_rel_path(rel), do: ensure_unique(rel)
 
-  defp ensure_unique(rel) do
-    if File.exists?(abs_path(rel)), do: ensure_unique(bump(rel)), else: rel
+  defp ensure_unique(rel, restore_sha \\ nil) do
+    if File.exists?(abs_path(rel)) or reserved_path?(rel, restore_sha),
+      do: ensure_unique(bump(rel), restore_sha),
+      else: rel
+  end
+
+  defp reserved_path?(rel, restore_sha) do
+    case Tracks.get_by_path(rel) do
+      nil -> false
+      %{status: :missing, content_sha256: ^restore_sha} when is_binary(restore_sha) -> false
+      _ -> true
+    end
   end
 
   defp bump(rel) do
-    dir = Path.dirname(rel)
     ext = Path.extname(rel)
     base = Path.basename(rel, ext)
 
@@ -507,7 +564,14 @@ defmodule Beatgrid.Library do
         _ -> {base, 2}
       end
 
-    Path.join(dir, "#{stem} (#{next})#{ext}")
+    replace_filename(rel, "#{stem} (#{next})#{ext}")
+  end
+
+  defp replace_filename(rel, name) do
+    case Path.dirname(rel) do
+      "." -> name
+      dir -> Path.join(dir, name)
+    end
   end
 
   defp import_one(file, source_dir, acc, seen) do
@@ -517,11 +581,12 @@ defmodule Beatgrid.Library do
     if is_binary(sha) and MapSet.member?(seen, sha) do
       {Map.update!(acc, :skipped, &(&1 + 1)), seen}
     else
-      dest_rel = ensure_unique(Path.join("_Inbox", info.filename))
+      dest_rel = ensure_unique(Path.join("_Inbox", info.filename), sha)
       File.cp!(file, abs_path(dest_rel))
 
       attrs =
         Map.merge(info, %{
+          filename: Path.basename(dest_rel),
           rel_path: dest_rel,
           source_playlist: source_playlist(file, source_dir),
           status: :present,

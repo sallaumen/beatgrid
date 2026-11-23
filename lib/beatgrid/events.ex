@@ -12,7 +12,7 @@ defmodule Beatgrid.Events do
   | `loudness`        | `Beatgrid.Loudness`               | `{:loudness_tick}`                                  | Painel                         |
   | `markers_progress` | `Beatgrid.Markers`               | `{:markers_tick}`                                   | Painel                         |
   | `backup`          | `Beatgrid.Backup`                 | `{:backup_tick}`                                    | Painel                         |
-  | `youtube`         | `Beatgrid.YouTube`                | `{:youtube_tick}`                                   | Painel                         |
+  | `youtube`         | `Beatgrid.YouTube`                | `{:youtube_tick}`                                   | Painel, Importados                         |
   | `enrich`          | `Beatgrid.YouTube` (`_enrich`)    | `{:enrich_progress, enrich_progress()}`             | Painel, Detalhe da faixa       |
   | `reevaluate`      | `Beatgrid.Review`                 | `{:reevaluate_progress, reevaluate_progress()}`, `{:re_resolve_done, re_resolve_done()}`, `{:review_applied, batch_result()}` | Central de Revisão |
   | `operations`      | `Beatgrid.Operations`             | `{:batch_undone, undo_result()}`                    | Central de Revisão, Biblioteca |
@@ -21,7 +21,7 @@ defmodule Beatgrid.Events do
   | `dedup`           | `Beatgrid.Dedup`                  | `{:dedup_progress, dedup_progress()}`               | Duplicatas                     |
   | `recommendations` | `Beatgrid.Repertoire`             | `{:recommend_progress, recommend_progress()}`       | Painel, Detalhe da faixa       |
   | `now_playing`     | `Beatgrid.Playback`               | `{:now_playing, now_playing()}`                     | Player + todas as telas        |
-  | `markers`         | `Beatgrid.Playback` (`_markers`)  | `{:markers_changed, track_id}`                      | Player, Detalhe da faixa       |
+  | `markers`         | `Beatgrid.Playback` (`_markers`)  | `{:markers_changed, track_id}`                      | Player, Detalhe da faixa, Discotecagem |
   | `sets:<id>`       | `Beatgrid.Sets` (`subscribe_set`) | `{:set_changed, set_id}`                            | Discotecagem (hint revalidation) |
   """
 
@@ -88,7 +88,9 @@ defmodule Beatgrid.Events do
           :done => non_neg_integer(),
           :total => non_neg_integer(),
           :imported => non_neg_integer(),
-          optional(:skipped) => non_neg_integer()
+          optional(:skipped) => non_neg_integer(),
+          optional(:failed) => non_neg_integer(),
+          optional(:failures) => [map()]
         }
 
   @typedoc """

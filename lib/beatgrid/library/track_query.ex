@@ -27,8 +27,28 @@ defmodule Beatgrid.Library.TrackQuery do
     |> Repo.all()
   end
 
+  @spec present_title_matches([String.t()]) :: [map()]
+  def present_title_matches(titles) do
+    from(t in Track,
+      where: t.status == :present and t.norm_title in ^titles,
+      order_by: t.rel_path,
+      select: map(t, [:id, :rel_path, :norm_artist, :norm_title])
+    )
+    |> Repo.all()
+  end
+
+  @spec present_hash?(String.t()) :: boolean()
+  def present_hash?(sha),
+    do: Repo.exists?(from t in Track, where: t.status == :present and t.content_sha256 == ^sha)
+
   @spec get(Ecto.UUID.t()) :: Track.t() | nil
   def get(id), do: Repo.get(Track, id)
+
+  @doc "Locks the track if it still occupies the expected path for a disk operation."
+  @spec lock_at_path(Ecto.UUID.t(), String.t()) :: Track.t() | nil
+  def lock_at_path(id, rel_path) do
+    Repo.one(from t in Track, where: t.id == ^id and t.rel_path == ^rel_path, lock: "FOR UPDATE")
+  end
 
   @spec get_with_song(Ecto.UUID.t()) :: Track.t() | nil
   def get_with_song(id) do

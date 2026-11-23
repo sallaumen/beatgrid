@@ -31,7 +31,7 @@ defmodule BeatgridWeb.LibraryLive do
   @wheel_cy 140
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(params, _session, socket) do
     if connected?(socket) do
       Library.subscribe_import()
       Operations.subscribe()
@@ -53,7 +53,7 @@ defmodule BeatgridWeb.LibraryLive do
        folder_menu: nil,
        tom_wheel_open: false,
        move_toast: nil,
-       import: nil,
+       import: if(params["importar"] == "1", do: browse(%{open: true})),
        import_progress: nil,
        import_toast: nil,
        playing_track_id: np.track_id,
@@ -290,7 +290,8 @@ defmodule BeatgridWeb.LibraryLive do
   def handle_event("show_import", _params, socket),
     do: {:noreply, assign(socket, import: browse(%{open: true}, SourceBrowser.start_dir()))}
 
-  def handle_event("hide_import", _params, socket), do: {:noreply, assign(socket, import: nil)}
+  def handle_event("hide_import", _params, socket),
+    do: {:noreply, socket |> cancel_async(:preview) |> assign(import: nil)}
 
   # --- import: read-only enrich-before-import preview (writes nothing) ---
 
@@ -327,7 +328,8 @@ defmodule BeatgridWeb.LibraryLive do
 
   # --- import: commit — enqueue the copying ImportWorker with the reviewed overrides ---
 
-  def handle_event("run_import", params, socket) do
+  def handle_event("run_import", params, %{assigns: %{import: %{rows: rows}}} = socket)
+      when is_list(rows) do
     import_state = socket.assigns.import
     items = items_from_params(params, import_state.rows)
 
@@ -347,13 +349,15 @@ defmodule BeatgridWeb.LibraryLive do
     end
   end
 
+  def handle_event("run_import", _params, socket), do: {:noreply, socket}
+
   def handle_event("dismiss_import_toast", _params, socket),
     do: {:noreply, assign(socket, import_toast: nil)}
 
   # Intentionally NOT an Oban job: the preview is a read-only dry run feeding
   # this modal — if the tab dies, nothing is lost and the user just re-opens it.
   defp start_preview(socket, source, prefs) do
-    ai? = Map.get(prefs, :ai, true)
+    ai? = Map.get(prefs, :ai, false)
 
     state =
       socket.assigns.import
@@ -396,6 +400,9 @@ defmodule BeatgridWeb.LibraryLive do
   end
 
   @impl true
+  def handle_async(:preview, _result, %{assigns: %{import: state}} = socket)
+      when not is_map_key(state, :loading), do: {:noreply, socket}
+
   def handle_async(:preview, {:ok, {:ok, rows}}, socket) do
     state = Map.merge(socket.assigns.import, %{loading: false, rows: rows, error: nil})
     {:noreply, assign(socket, import: state)}
@@ -454,18 +461,25 @@ defmodule BeatgridWeb.LibraryLive do
   # appear in `params["items"]` and are dropped here for good measure.
   defp items_from_params(params, rows) do
     edits = params["items"] || %{}
-    dupe_paths = rows |> Enum.filter(& &1.duplicate) |> MapSet.new(& &1.source_path)
 
-    edits
-    |> Map.values()
-    |> Enum.reject(&MapSet.member?(dupe_paths, &1["source_path"]))
-    |> Enum.map(fn e ->
+    for {row, index} <- Enum.with_index(rows),
+        not row.duplicate,
+        edit = edits[to_string(index)],
+        is_map(edit),
+        edit["source_path"] == row.source_path do
       %{
-        "source_path" => e["source_path"],
-        "artist" => String.trim(e["artist"] || ""),
-        "title" => String.trim(e["title"] || "")
+        "source_path" => row.source_path,
+        "sha256" => row.sha256,
+        "artist" => String.trim(edit["artist"] || ""),
+        "title" => String.trim(edit["title"] || "")
       }
-    end)
+    end
+  end
+
+  defp import_summary(%{failed: failed} = p) when failed > 0 do
+    files = p.failures |> Enum.take(3) |> Enum.map_join(", ", & &1.file)
+
+    "#{p.imported} importada(s), #{p.skipped} duplicada(s), #{failed} com falha (#{files}). Confira os arquivos e tente novamente."
   end
 
   defp import_summary(%{imported: n}) when n > 0, do: "#{n} faixa(s) importada(s)."
@@ -1342,7 +1356,7 @@ defmodule BeatgridWeb.LibraryLive do
               <input
                 type="checkbox"
                 name="ai"
-                checked={Map.get(@import, :ai, true)}
+                checked={Map.get(@import, :ai, false)}
                 class="rounded border-white/20 bg-input"
               /> Refinar títulos com IA
             </label>
@@ -1460,11 +1474,10 @@ defmodule BeatgridWeb.LibraryLive do
         <div
           :for={{row, i} <- Enum.with_index(@rows)}
           class={[
-            "grid items-center gap-2 rounded-lg px-2 py-2",
+            "grid grid-cols-2 items-center gap-2 rounded-lg px-2 py-2 md:grid-cols-[1fr_1fr_1.2fr_60px_60px]",
             row.duplicate && "opacity-50",
             !row.duplicate && "bg-base"
           ]}
-          style="grid-template-columns:1fr 1fr 1.2fr 60px 60px"
         >
           <%= if row.duplicate do %>
             <span class="truncate text-body-sm text-ink-muted">{row.artist || "—"}</span>
@@ -1513,7 +1526,10 @@ defmodule BeatgridWeb.LibraryLive do
             Importar {length(@new_rows)} faixa(s){if @soundcharts, do: " + Soundcharts", else: ""}
           </button>
         </div>
-        <p :if={@new_rows == []} class="pt-3 text-body-sm text-ink-faint">
+        <p :if={@rows == []} class="pt-3 text-body-sm text-ink-muted">
+          Nenhum arquivo de áudio encontrado nesta pasta.
+        </p>
+        <p :if={@rows != [] and @new_rows == []} class="pt-3 text-body-sm text-ink-faint">
           Nada novo para importar — tudo já está na biblioteca.
         </p>
       </form>

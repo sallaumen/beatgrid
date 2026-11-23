@@ -110,7 +110,14 @@ defmodule BeatgridWeb.LibraryLiveImportTest do
     assert_enqueued(
       worker: ImportWorker,
       args: %{
-        items: [%{source_path: new_file, artist: "Djavan", title: "Sina (editado)"}],
+        items: [
+          %{
+            source_path: new_file,
+            sha256: "a81835154802d331b2e9e39908c14afbd2489b72aac0e7acc614c085bc603a86",
+            artist: "Djavan",
+            title: "Sina (editado)"
+          }
+        ],
         resolve_soundcharts: true
       }
     )

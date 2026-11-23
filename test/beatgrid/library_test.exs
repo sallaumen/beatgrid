@@ -34,6 +34,20 @@ defmodule Beatgrid.LibraryTest do
   end
 
   describe "rename/2 path safety" do
+    @tag :tmp_dir
+    test "saving an unchanged root-level filename leaves it in place", %{tmp_dir: root} do
+      track = insert(:track, rel_path: "song.mp3", filename: "song.mp3")
+      File.write!(Path.join(root, track.rel_path), "song")
+
+      assert {:ok, same} = Library.rename(track, "song.mp3")
+      assert same.rel_path == "song.mp3"
+      assert File.ls!(root) == ["song.mp3"]
+
+      assert {:ok, renamed} = Library.rename(same, "new.mp3")
+      assert renamed.rel_path == "new.mp3"
+      assert File.read!(Path.join(root, renamed.rel_path)) == "song"
+    end
+
     # safe_filename/1 rejects before any disk access, so these need no library_root.
     test "rejects a filename containing path components or traversal" do
       track = %Track{rel_path: "MPB/song.mp3", filename: "song.mp3"}
@@ -106,6 +120,26 @@ defmodule Beatgrid.LibraryTest do
   end
 
   describe "hard_delete/1" do
+    @tag :tmp_dir
+    test "a stale deletion leaves both the moved track and the replacement audio intact", %{
+      tmp_dir: root
+    } do
+      original = insert(:track, rel_path: "first.mp3", filename: "first.mp3")
+      first_path = Path.join(root, original.rel_path)
+      File.write!(first_path, "original")
+      assert {:ok, moved} = Library.rename(original, "second.mp3")
+
+      replacement = insert(:track, rel_path: original.rel_path, filename: "first.mp3")
+      File.write!(first_path, "another recording")
+
+      assert {:error, _} = Library.hard_delete(original)
+      assert Tracks.get(moved.id).rel_path == moved.rel_path
+      assert File.read!(Path.join(root, moved.rel_path)) == "original"
+
+      assert File.read!(Path.join(root, Tracks.get(replacement.id).rel_path)) ==
+               "another recording"
+    end
+
     @tag :tmp_dir
     test "remove arquivo e registro", %{tmp_dir: root} do
       File.mkdir_p!(Path.join(root, "_Inbox"))

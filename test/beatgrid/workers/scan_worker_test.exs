@@ -21,4 +21,15 @@ defmodule Beatgrid.Workers.ScanWorkerTest do
     assert {:ok, %Oban.Job{}} = ScanWorker.enqueue(root: "/tmp/somewhere", mark_missing: false)
     assert_enqueued(worker: ScanWorker, args: %{"root" => "/tmp/somewhere"})
   end
+
+  @tag :tmp_dir
+  test "an unavailable library is retried without marking its tracks missing", %{tmp_dir: root} do
+    track = insert(:track, rel_path: "MPB/song.mp3", status: :present)
+    unavailable = Path.join(root, "unmounted")
+
+    result = perform_job(ScanWorker, %{"root" => unavailable})
+
+    assert Tracks.get(track.id).status == :present
+    assert {:error, %Beatgrid.Error{details: %{path: ^unavailable, reason: :enoent}}} = result
+  end
 end
