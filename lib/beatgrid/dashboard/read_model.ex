@@ -1,62 +1,73 @@
 defmodule Beatgrid.Dashboard.ReadModel do
   @moduledoc """
-  The dashboard's read side: the full snapshot, the gaps breakdown, and the
-  assign patches derived from PubSub progress events. No command lives here —
-  enqueueing and mutations belong to `Beatgrid.Dashboard.Commands`.
+  Repertoire and maintenance snapshots, recommendation gaps, and updates
+  from PubSub progress events.
   """
 
-  alias Beatgrid.{Analysis, Backup, Loudness, Markers, Repertoire, YouTube}
+  alias Beatgrid.{Analysis, Backup, Jobs, Loudness, Markers, Repertoire, YouTube}
   alias Beatgrid.Library.GenreFolders
 
-  @doc "Subscribes the caller to every topic that can change the dashboard snapshot."
+  @doc "Subscribes the caller to recommendation progress."
   @spec subscribe() :: :ok
-  def subscribe do
+  def subscribe, do: Repertoire.subscribe()
+
+  @doc "Subscribes the caller to library maintenance progress."
+  @spec subscribe_maintenance() :: :ok
+  def subscribe_maintenance do
     Analysis.subscribe()
     Backup.subscribe()
     Loudness.subscribe()
     Markers.subscribe()
     YouTube.subscribe()
     YouTube.subscribe_enrich()
-    Repertoire.subscribe()
     :ok
   end
 
-  @doc "Returns the complete read model used by the dashboard LiveView."
+  @doc "Returns the repertoire overview and recommendation gaps."
   @spec snapshot(String.t() | nil) :: map()
   def snapshot(selected_folder \\ nil) do
     folders = GenreFolders.list()
     gaps_folder = selected_folder || folders |> List.first() |> then(&(&1 && &1.key))
 
     %{
-      page_title: "Painel",
+      page_title: "Repertório",
       overview: Repertoire.overview(),
       genres: Repertoire.genre_distribution() |> Enum.sort_by(fn {_key, count} -> -count end),
       artists: Repertoire.top_artists(10),
       bpm: Repertoire.bpm_histogram(5) |> Enum.sort_by(fn {bucket, _count} -> bucket end),
       decades:
         Repertoire.decade_distribution() |> Enum.sort_by(fn {decade, _count} -> decade end),
+      folders: folders
+    }
+    |> Map.merge(gaps(gaps_folder))
+  end
+
+  @doc "Returns the library maintenance snapshot."
+  @spec maintenance_snapshot() :: map()
+  def maintenance_snapshot do
+    %{
+      page_title: "Manutenção",
       analysis: Analysis.progress(),
       analysis_note: nil,
       loudness: Loudness.progress(),
       gain_pending: Loudness.gain_pending_count(),
       gain_undo_batch: Loudness.latest_gain_batch(),
+      gain_note: nil,
       loudness_note: nil,
       markers: Markers.progress(),
       markers_queue: Markers.queued_count(),
       markers_unmapped: Markers.unmapped_count(),
       markers_note: nil,
       backup: Backup.latest(),
+      backup_keep: Backup.keep(),
       backup_note: nil,
       youtube_pending: YouTube.pending_count(),
       youtube_failed: YouTube.failed_download_count(),
       youtube_note: nil,
       enrich: nil,
       rare_pending: YouTube.rare_unfiled_count(),
-      enrich_rare: nil,
-      folders: folders,
-      recommending?: false
+      enrich_rare: nil
     }
-    |> Map.merge(gaps(gaps_folder))
   end
 
   @doc "Returns the selected folder's recommendation gaps plus per-folder counts."
@@ -66,6 +77,7 @@ defmodule Beatgrid.Dashboard.ReadModel do
 
     %{
       gaps_folder: folder,
+      recommending?: Jobs.folder_recommendation_pending?(folder),
       gap_counts: Enum.frequencies_by(gaps, & &1.genre_folder),
       recs: Enum.filter(gaps, &(&1.genre_folder == folder))
     }

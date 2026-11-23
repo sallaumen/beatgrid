@@ -13,7 +13,7 @@ defmodule BeatgridWeb.AjustesLiveTest do
   end
 
   test "renders every tunable with the default badge and the library root", %{conn: conn} do
-    {:ok, _view, html} = live(conn, ~p"/ajustes")
+    {:ok, view, html} = live(conn, ~p"/ajustes")
 
     assert html =~ "Ajustes"
     assert html =~ "Alvo de loudness"
@@ -23,6 +23,18 @@ defmodule BeatgridWeb.AjustesLiveTest do
     assert html =~ "auto-arquivar"
     assert html =~ "padrão"
     assert html =~ Beatgrid.Library.library_root()
+    assert has_element?(view, "h2", "Sets e discotecagem")
+    assert has_element?(view, "h2", "Áudio e backup")
+    assert has_element?(view, "h2", "Curadoria")
+  end
+
+  test "links preferences back to library maintenance", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/ajustes")
+
+    assert {:error, {:live_redirect, %{to: "/manutencao"}}} =
+             view
+             |> element("#ajustes-maintenance")
+             |> render_click()
   end
 
   test "saving an override takes effect immediately and can be restored", %{conn: conn} do

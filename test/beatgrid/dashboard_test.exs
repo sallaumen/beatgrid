@@ -50,7 +50,7 @@ defmodule Beatgrid.DashboardTest do
 
     snapshot = Dashboard.snapshot("mpb")
 
-    assert snapshot.page_title == "Painel"
+    assert snapshot.page_title == "Repertório"
     assert snapshot.overview.total == 1
     assert snapshot.gaps_folder == "mpb"
     assert snapshot.gap_counts == %{"mpb" => 1, "roots" => 1}
@@ -90,7 +90,7 @@ defmodule Beatgrid.DashboardTest do
 
     assert {:ok, patch} = Dashboard.run(:remap_markers)
 
-    assert patch.markers_note =~ "Re-mapeando 2"
+    assert patch.markers_note =~ "Remapeando 2"
     assert_enqueued(worker: MarkerAnalyzeWorker, args: %{track_id: fresh.id})
     assert_enqueued(worker: MarkerAnalyzeWorker, args: %{track_id: mapped.id})
   end
@@ -108,14 +108,14 @@ defmodule Beatgrid.DashboardTest do
 
     assert patch.gain_pending == 1
     assert patch.gain_undo_batch
-    assert patch.loudness_note == "1 track(s) queued for gain application."
+    assert patch.gain_note == "1 faixa(s) na fila para ajuste de ganho."
     assert_enqueued(worker: GainApplyWorker, args: %{track_id: eligible.id})
   end
 
   test "run({:restore_gain_backup, nil}) returns the no-backup note" do
     assert {:ok, patch} = Dashboard.run({:restore_gain_backup, nil})
 
-    assert patch == %{loudness_note: "No gain backup is available to restore."}
+    assert patch == %{gain_note: "Nenhum ajuste de ganho disponível para desfazer."}
   end
 
   test "run({:download_youtube, urls}) enqueues submitted URLs" do
@@ -204,7 +204,7 @@ defmodule Beatgrid.DashboardTest do
 
     assert {:ok, patch} = Dashboard.run({:restore_gain_backup, batch_id})
 
-    assert patch.loudness_note == "1 gain backup(s) restored."
+    assert patch.gain_note == "Áudio original restaurado em 1 faixa(s)."
     assert File.read!(Path.join(root, rel_path)) == "original-audio"
     assert Tracks.get(track.id).gain_applied_at == nil
   end

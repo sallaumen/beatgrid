@@ -20,7 +20,7 @@ defmodule Beatgrid.Dashboard.Commands do
     note =
       if count > 0,
         do: "#{count} faixa(s) enfileirada(s) — analisando em segundo plano…",
-        else: "Tudo já analisado. ✔"
+        else: "Todas as faixas já foram analisadas."
 
     {:ok, %{analysis: Analysis.progress(), analysis_note: note}}
   end
@@ -31,7 +31,8 @@ defmodule Beatgrid.Dashboard.Commands do
     note =
       if count == 0,
         do: "Tudo já mapeado — nenhuma faixa sem marcadores.",
-        else: "Mapeando marcadores de #{count} faixa(s) em background — acompanhe em Jobs."
+        else:
+          "Mapeando marcadores de #{count} faixa(s) em segundo plano. Acompanhe na fila de tarefas."
 
     {:ok, Map.put(markers_patch(), :markers_note, note)}
   end
@@ -43,10 +44,10 @@ defmodule Beatgrid.Dashboard.Commands do
           "Já teve backup na última hora — o arquivo está em _Backups/DB."
 
         {:ok, _job} ->
-          "Backup rodando em background — o card atualiza quando terminar."
+          "Backup em andamento. A data será atualizada quando terminar."
 
         {:error, _reason} ->
-          "Não consegui enfileirar o backup — veja os logs."
+          "Não consegui enfileirar o backup. Consulte a fila de tarefas."
       end
 
     {:ok, %{backup_note: note}}
@@ -55,7 +56,7 @@ defmodule Beatgrid.Dashboard.Commands do
   def run(:remap_markers, _opts) do
     {:ok, count} = Markers.enqueue_all()
 
-    note = "Re-mapeando #{count} faixa(s) com o detector novo — acompanhe em Jobs."
+    note = "Remapeando #{count} faixa(s). Acompanhe na fila de tarefas."
     {:ok, Map.put(markers_patch(), :markers_note, note)}
   end
 
@@ -65,7 +66,7 @@ defmodule Beatgrid.Dashboard.Commands do
     note =
       if count > 0,
         do: "#{count} faixa(s) na fila — medindo loudness em segundo plano…",
-        else: "Loudness de tudo já medido. ✔"
+        else: "O loudness de todas as faixas já foi medido."
 
     {:ok, %{loudness: Loudness.progress(), loudness_note: note}}
   end
@@ -75,34 +76,34 @@ defmodule Beatgrid.Dashboard.Commands do
 
     note =
       if count > 0,
-        do: "#{count} track(s) queued for gain application.",
-        else: "No tracks need gain application."
+        do: "#{count} faixa(s) na fila para ajuste de ganho.",
+        else: "Nenhuma faixa precisa de ajuste de ganho."
 
     {:ok,
      %{
        gain_pending: Loudness.gain_pending_count(),
        gain_undo_batch: if(count > 0, do: batch_id, else: Loudness.latest_gain_batch()),
-       loudness_note: note
+       gain_note: note
      }}
   end
 
   def run({:restore_gain_backup, nil}, _opts),
-    do: {:ok, %{loudness_note: "No gain backup is available to restore."}}
+    do: {:ok, %{gain_note: "Nenhum ajuste de ganho disponível para desfazer."}}
 
   def run({:restore_gain_backup, batch_id}, _opts) do
     {:ok, %{undone: undone, failed: failed}} = Operations.undo_batch(batch_id)
 
     note =
       if failed == 0,
-        do: "#{undone} gain backup(s) restored.",
-        else: "#{undone} gain backup(s) restored; #{failed} restore(s) failed."
+        do: "Áudio original restaurado em #{undone} faixa(s).",
+        else: "Áudio original restaurado em #{undone} faixa(s). Falha em #{failed}."
 
     {:ok,
      %{
        loudness: Loudness.progress(),
        gain_pending: Loudness.gain_pending_count(),
        gain_undo_batch: Loudness.latest_gain_batch(),
-       loudness_note: note
+       gain_note: note
      }}
   end
 
@@ -145,7 +146,7 @@ defmodule Beatgrid.Dashboard.Commands do
         rec ->
           YouTube.enqueue("ytsearch1:" <> (rec.youtube_query || ""))
           Repertoire.set_recommendation_status(rec, :imported)
-          "#{rec.artist} — #{rec.song}: na fila — veja em Jobs."
+          "#{rec.artist} — #{rec.song}: na fila. Consulte a fila de tarefas."
       end
 
     {:ok, Map.put(ReadModel.gaps(folder), :youtube_note, note)}
@@ -187,10 +188,10 @@ defmodule Beatgrid.Dashboard.Commands do
   defp enrich_queued_patch(_pending), do: %{enrich: %{status: :queued}, youtube_note: nil}
 
   defp enrich_conflict_note("rare"),
-    do: "Já existe um enriquecimento de raras em andamento — veja em Jobs."
+    do: "Já existe um enriquecimento de raras em andamento. Consulte a fila de tarefas."
 
   defp enrich_conflict_note(_pending),
-    do: "Já existe um enriquecimento em andamento — veja em Jobs."
+    do: "Já existe um enriquecimento em andamento. Consulte a fila de tarefas."
 
   defp enrich_error_note("rare"), do: "Não foi possível iniciar o enriquecimento das raras."
   defp enrich_error_note(_pending), do: "Não foi possível iniciar o enriquecimento."

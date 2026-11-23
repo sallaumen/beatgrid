@@ -46,6 +46,19 @@ defmodule Beatgrid.Jobs do
 
   def follow_download(job, _batch), do: {:ok, job}
 
+  @doc "Whether a folder already has a recommendation search in flight."
+  @spec folder_recommendation_pending?(String.t() | nil) :: boolean()
+  def folder_recommendation_pending?(nil), do: false
+
+  def folder_recommendation_pending?(folder) do
+    Oban.Job.query(
+      worker: Beatgrid.Workers.RecommendWorker,
+      state: Oban.Job.unique_states(:incomplete),
+      args: %{scope: "folder", folder: folder}
+    )
+    |> Repo.exists?()
+  end
+
   defp maybe_filter_states(query, nil), do: query
   defp maybe_filter_states(query, states), do: where(query, [j], j.state in ^states)
 
