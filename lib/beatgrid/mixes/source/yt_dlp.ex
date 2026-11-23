@@ -102,7 +102,7 @@ defmodule Beatgrid.Mixes.Source.YtDlp do
 
   defp nil_if_blank(s), do: if(String.trim(s) in ["", "NA"], do: nil, else: s)
 
-  defp executable, do: config()[:executable] || "yt-dlp"
+  defp executable, do: config()[:executable] || Cli.yt_dlp()
   defp timeout, do: config()[:timeout_ms] || @default_timeout_ms
   defp config, do: Application.get_env(:beatgrid, __MODULE__, [])
 end

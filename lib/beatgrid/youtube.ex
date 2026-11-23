@@ -121,10 +121,26 @@ defmodule Beatgrid.YouTube do
   def download_and_ingest(url, playlist \\ nil) do
     dest = Path.join(Library.library_root(), "_Inbox")
 
-    with {:ok, items} <- @adapter.download(url, dest) do
-      ingested = items |> Enum.map(&ingest(&1, playlist)) |> Enum.count(&match?({:ok, _}, &1))
-      {:ok, ingested}
+    case @adapter.download(url, dest) do
+      {:ok, [%{path: path} = item]} ->
+        with {:ok, %{type: :regular, size: size}} when size > 0 <- File.stat(path),
+             {:ok, _track} <- ingest(item, playlist) do
+          {:ok, 1}
+        else
+          {:error, reason} -> {:error, reason}
+          _ -> missing_audio()
+        end
+
+      {:ok, _items} ->
+        missing_audio()
+
+      error ->
+        error
     end
+  end
+
+  defp missing_audio do
+    {:error, Beatgrid.Error.new(:missing_audio, "O download não gerou um arquivo de áudio.")}
   end
 
   @doc """

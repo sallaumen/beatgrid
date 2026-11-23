@@ -4,6 +4,15 @@ defmodule Beatgrid.YtDlpErrorTest do
   alias Beatgrid.Error
   alias Beatgrid.YtDlpError
 
+  test "a refused audio download carries the HTTP status and a recovery hint" do
+    error =
+      YtDlpError.from_exit(1, "ERROR: unable to download video data: HTTP Error 403: Forbidden")
+
+    assert %Error{code: :download_denied} = error
+    assert error.message =~ "403"
+    assert error.message =~ "yt-dlp"
+  end
+
   test "a 429 classifies as rate-limited, keeping 429 in the message for the backoff grep" do
     error = YtDlpError.from_exit(1, "HTTP Error 429: Too Many Requests")
 

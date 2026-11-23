@@ -1,7 +1,6 @@
 defmodule Beatgrid.YouTube.Downloader do
   @moduledoc """
-  Port for downloading audio from a YouTube URL. A single URL may be one video or
-  a whole playlist, so `download/2` returns a list of items (one per track).
+  Lists video metadata for review and downloads one confirmed video at a time.
   """
   @type item :: %{
           path: String.t(),

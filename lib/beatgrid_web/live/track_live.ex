@@ -272,21 +272,6 @@ defmodule BeatgridWeb.TrackLive do
     {:noreply, assign(socket, recommending?: true)}
   end
 
-  def handle_event("download_rec", %{"id" => id}, socket) do
-    toast =
-      case Repertoire.get_recommendation(id) do
-        nil ->
-          socket.assigns.toast
-
-        rec ->
-          YouTube.enqueue("ytsearch1:" <> (rec.youtube_query || ""))
-          Repertoire.set_recommendation_status(rec, :imported)
-          {:ok, "#{rec.artist} — #{rec.song}: na fila — veja em Jobs."}
-      end
-
-    {:noreply, assign(socket, recs: load_recs(socket.assigns.track.id), toast: toast)}
-  end
-
   def handle_event("dismiss_rec", %{"id" => id}, socket) do
     case Repertoire.get_recommendation(id) do
       nil -> :ok
@@ -1157,14 +1142,12 @@ defmodule BeatgridWeb.TrackLive do
         >
           Buscar no YouTube <span class="text-ink-faint" aria-hidden="true">↗</span>
         </a>
-        <button
-          type="button"
-          phx-click="download_rec"
-          phx-value-id={@rec.id}
-          class="inline-flex items-center gap-1 rounded-md bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/25"
+        <.link
+          navigate={~p"/importados?recomendacao=#{@rec.id}"}
+          class="inline-flex items-center rounded-md bg-primary/15 px-2.5 py-1 text-body-sm font-semibold text-primary-soft"
         >
-          ↓ {if @rec.status == :imported, do: "Baixar de novo", else: "Baixar"}
-        </button>
+          Conferir versões
+        </.link>
         <button
           type="button"
           phx-click="dismiss_rec"

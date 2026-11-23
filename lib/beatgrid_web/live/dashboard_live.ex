@@ -54,10 +54,6 @@ defmodule BeatgridWeb.DashboardLive do
      )}
   end
 
-  def handle_event("download_youtube", %{"urls" => urls}, socket) do
-    {:noreply, apply_dashboard_result(socket, Dashboard.run({:download_youtube, urls}))}
-  end
-
   def handle_event("enrich_youtube", _params, socket) do
     {:noreply, apply_dashboard_result(socket, Dashboard.run(:enrich_youtube))}
   end
@@ -73,16 +69,6 @@ defmodule BeatgridWeb.DashboardLive do
   def handle_event("fetch_gaps", _params, socket) do
     {:noreply,
      apply_dashboard_result(socket, Dashboard.run({:fetch_gaps, socket.assigns.gaps_folder}))}
-  end
-
-  def handle_event("download_rec", %{"id" => id}, socket) do
-    result =
-      Dashboard.run({:download_recommendation, id},
-        folder: socket.assigns.gaps_folder,
-        current_note: socket.assigns.youtube_note
-      )
-
-    {:noreply, apply_dashboard_result(socket, result)}
   end
 
   def handle_event("dismiss_rec", %{"id" => id}, socket) do
@@ -422,20 +408,10 @@ defmodule BeatgridWeb.DashboardLive do
             </.panel>
 
             <.panel id="dashboard-imports" title="Importar do YouTube">
-              <form id="youtube-form" phx-submit="download_youtube" class="space-y-2">
-                <textarea
-                  name="urls"
-                  rows="3"
-                  aria-label="URLs do YouTube para baixar"
-                  placeholder="Cole URLs do YouTube (uma por linha) ou uma URL de playlist…"
-                  class="w-full rounded-md border border-white/8 bg-input px-3 py-2 text-body-sm focus:border-primary/50 focus:outline-none"
-                ></textarea>
-                <div class="flex justify-end">
-                  <button class="rounded-md bg-primary-deep px-3.5 py-1.5 text-body-sm font-semibold text-white">
-                    Baixar
-                  </button>
-                </div>
-              </form>
+              <.link
+                navigate={~p"/importados"}
+                class="inline-flex rounded-sm bg-primary-deep px-4 py-2 text-body-sm font-semibold text-white"
+              >Conferir links e acompanhar downloads</.link>
 
               <div class="mt-2 flex flex-col gap-3 border-t border-white/6 pt-2 sm:flex-row sm:items-center sm:justify-between">
                 <span class="break-words text-body-sm text-ink-secondary">
@@ -722,14 +698,12 @@ defmodule BeatgridWeb.DashboardLive do
         >
           Buscar no YouTube <span class="text-ink-faint" aria-hidden="true">↗</span>
         </a>
-        <button
-          type="button"
-          phx-click="download_rec"
-          phx-value-id={@rec.id}
-          class="inline-flex items-center gap-1 rounded-md bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/25"
+        <.link
+          navigate={~p"/importados?recomendacao=#{@rec.id}"}
+          class="inline-flex items-center rounded-md bg-primary/15 px-2.5 py-1 text-body-sm font-semibold text-primary-soft"
         >
-          ↓ {if @rec.status == :imported, do: "Baixar de novo", else: "Baixar"}
-        </button>
+          Conferir versões
+        </.link>
         <button
           type="button"
           phx-click="dismiss_rec"

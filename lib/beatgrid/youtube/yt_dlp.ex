@@ -2,7 +2,7 @@ defmodule Beatgrid.YouTube.YtDlp do
   @moduledoc """
   Downloader adapter backed by the `yt-dlp` CLI. Extracts audio to mp3 into the
   destination dir and `--print`s one `id<TAB>title<TAB>url` line per track (a
-  playlist URL expands to many), from which we derive each file's path.
+  single confirmed video), from which we derive the file path.
 
   Same hardening as the other CLI adapters: stdin from `/dev/null` (so it can't
   block waiting for input) and a generous timeout (downloads are legitimately long).
@@ -10,6 +10,7 @@ defmodule Beatgrid.YouTube.YtDlp do
   @behaviour Beatgrid.YouTube.Downloader
 
   alias Beatgrid.Cli
+  alias Beatgrid.YouTube.Link
   alias Beatgrid.YtDlpError
 
   @sep "\t"
@@ -17,15 +18,29 @@ defmodule Beatgrid.YouTube.YtDlp do
   @default_timeout_ms 600_000
   # Listing is metadata-only (no download) — a short timeout is plenty.
   @list_timeout_ms 60_000
-  # How much of yt-dlp's output to keep in an error (enough to include the real ERROR line).
-  @error_excerpt 1_000
 
   @impl Beatgrid.YouTube.Downloader
   def download(url, dest_dir) do
-    File.mkdir_p!(dest_dir)
+    case Link.parse(url) do
+      {:video, _} = video -> download_video(Link.url(video), dest_dir)
+      _ -> invalid_link()
+    end
+  end
+
+  defp invalid_link,
+    do:
+      {:error,
+       Beatgrid.Error.new(:invalid_link, "O download precisa de um link de vídeo do YouTube.")}
+
+  defp download_video(url, dest_dir) do
+    with :ok <- File.mkdir_p(dest_dir), do: extract(url, dest_dir)
+  end
+
+  defp extract(url, dest_dir) do
     template = Path.join(dest_dir, "%(id)s.%(ext)s")
 
     cli_args = [
+      "--no-playlist",
       "-x",
       "--audio-format",
       "mp3",
@@ -34,6 +49,7 @@ defmodule Beatgrid.YouTube.YtDlp do
       "after_move:%(id)s#{@sep}%(title)s#{@sep}%(webpage_url)s#{@sep}%(view_count)s#{@sep}%(upload_date)s",
       "-o",
       template,
+      "--",
       url
     ]
 
@@ -44,7 +60,7 @@ defmodule Beatgrid.YouTube.YtDlp do
         {:ok, parse(out, dest_dir)}
 
       {:ok, {out, code}} ->
-        {:error, YtDlpError.from_exit(code, String.slice(out, 0, @error_excerpt))}
+        {:error, YtDlpError.from_exit(code, out)}
 
       {:error, {:exit, reason}} ->
         {:error, {:yt_dlp_exception, inspect(reason)}}
@@ -56,10 +72,40 @@ defmodule Beatgrid.YouTube.YtDlp do
 
   @impl Beatgrid.YouTube.Downloader
   def list_entries(url) do
+    case Link.parse(url) do
+      {:video, id} -> list_video(id)
+      {:playlist, _} = playlist -> list_cli(Link.url(playlist))
+      _ -> list_search(url)
+    end
+  end
+
+  # oEmbed supplies the public title even when YouTube is throttling audio extraction.
+  defp list_video(id) do
+    url = Link.url({:video, id})
+
+    case Req.get("https://www.youtube.com/oembed",
+           params: [url: url, format: "json"],
+           retry: false,
+           receive_timeout: 8_000
+         ) do
+      {:ok, %{status: 200, body: %{"title" => title}}} when is_binary(title) ->
+        {:ok, [%{id: id, title: title, url: url, playlist_title: nil}]}
+
+      _ ->
+        list_cli(url)
+    end
+  end
+
+  defp list_search("ytsearch1:" <> query) when query != "", do: list_cli("ytsearch1:" <> query)
+  defp list_search("ytsearch3:" <> query) when query != "", do: list_cli("ytsearch3:" <> query)
+  defp list_search(_), do: invalid_link()
+
+  defp list_cli(url) do
     cli_args = [
       "--flat-playlist",
       "--print",
-      "%(id)s#{@sep}%(title)s#{@sep}%(url)s#{@sep}%(playlist_title)s",
+      "%(id)s#{@sep}%(title)s#{@sep}%(webpage_url)s#{@sep}%(playlist_title)s",
+      "--",
       url
     ]
 
@@ -70,7 +116,7 @@ defmodule Beatgrid.YouTube.YtDlp do
         {:ok, parse_entries(out)}
 
       {:ok, {out, code}} ->
-        {:error, YtDlpError.from_exit(code, String.slice(out, 0, @error_excerpt))}
+        {:error, YtDlpError.from_exit(code, out)}
 
       {:error, {:exit, reason}} ->
         {:error, {:yt_dlp_exception, inspect(reason)}}
@@ -107,7 +153,7 @@ defmodule Beatgrid.YouTube.YtDlp do
     do: %{id: id, title: title, url: entry_url(id, url), playlist_title: playlist_title}
 
   defp entry_url(id, url) do
-    if String.starts_with?(url, "http"),
+    if URI.parse(url).host in ~w(www.youtube.com youtube.com youtu.be m.youtube.com music.youtube.com),
       do: url,
       else: "https://www.youtube.com/watch?v=#{id}"
   end
@@ -156,7 +202,7 @@ defmodule Beatgrid.YouTube.YtDlp do
     end
   end
 
-  defp executable, do: config()[:executable] || "yt-dlp"
+  defp executable, do: config()[:executable] || Cli.yt_dlp()
   defp timeout, do: config()[:timeout_ms] || @default_timeout_ms
   defp config, do: Application.get_env(:beatgrid, __MODULE__, [])
 end
