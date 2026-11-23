@@ -15,12 +15,22 @@ defmodule BeatgridWeb.JobsLiveTest do
     |> Beatgrid.Repo.update!()
   end
 
+  test "choosing the task type keeps the current status in the URL", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/jobs?state=failed")
+    assert has_element?(view, "main h1", "Fila de tarefas")
+    view |> form("#task-type", worker: "DownloadWorker") |> render_change()
+    assert_patch(view, ~p"/jobs?state=failed&worker=DownloadWorker")
+    assert has_element?(view, "#task-type option[selected]", "Baixar do YouTube")
+    view |> form("#task-type", worker: "") |> render_change()
+    assert_patch(view, ~p"/jobs?state=failed")
+  end
+
   test "lists jobs with state and args, and a retry button for failed ones", %{conn: conn} do
     insert_job(%{"url" => "https://y/bad"}, "discarded")
 
     {:ok, _view, html} = live(conn, ~p"/jobs")
 
-    assert html =~ "Jobs"
+    assert html =~ "Fila de tarefas"
     # Worker module is rendered with a friendly PT action label AND the real
     # module name (a small mono tag), so the user gets both.
     assert html =~ "Baixar"
@@ -48,7 +58,7 @@ defmodule BeatgridWeb.JobsLiveTest do
     assert html =~ "Trio Nordestino - Forró Pesado"
     refute html =~ "https://y/alive"
     refute html =~ "biblioteca inteira"
-    assert html =~ "Re-tentar todas"
+    assert html =~ "Tentar todas novamente"
 
     view |> element("button[phx-click=retry_all_failed]") |> render_click()
 

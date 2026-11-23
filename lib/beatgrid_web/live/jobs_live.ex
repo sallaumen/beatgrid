@@ -18,7 +18,7 @@ defmodule BeatgridWeb.JobsLive do
   def mount(_params, _session, socket) do
     if connected?(socket), do: Process.send_after(self(), :refresh, @refresh_ms)
 
-    {:ok, assign(socket, states: @states, expanded: MapSet.new())}
+    {:ok, assign(socket, page_title: "Fila de tarefas", states: @states, expanded: MapSet.new())}
   end
 
   # URL-driven filters (`?state=failed&worker=DownloadWorker`) so the Painel can
@@ -48,6 +48,10 @@ defmodule BeatgridWeb.JobsLive do
   end
 
   @impl true
+  def handle_event("filter_worker", %{"worker" => name}, socket) do
+    {:noreply, push_patch(socket, to: jobs_path(socket.assigns.filter, valid_worker(name)))}
+  end
+
   def handle_event("retry", %{"id" => id}, socket) do
     Jobs.retry(String.to_integer(id))
     {:noreply, assign_jobs(socket)}
@@ -60,7 +64,9 @@ defmodule BeatgridWeb.JobsLive do
 
   def handle_event("retry_all_failed", _params, socket) do
     count = Jobs.retry_failed(socket.assigns.worker)
-    {:noreply, socket |> put_flash(:info, "#{count} job(s) re-enfileirado(s).") |> assign_jobs()}
+
+    {:noreply,
+     socket |> put_flash(:info, "Tarefas recolocadas na fila: #{count}.") |> assign_jobs()}
   end
 
   def handle_event("clear_all_failed", _params, socket) do
@@ -131,42 +137,54 @@ defmodule BeatgridWeb.JobsLive do
     ~H"""
     <.app_shell flash={@flash} active={:jobs} socket={@socket}>
       <header class="border-b border-white/6 bg-rail px-6 py-3">
-        <h1 class="text-[22px] font-semibold">Jobs</h1>
+        <h1 class="text-[22px] font-semibold">Fila de tarefas</h1>
         <p class="text-ink-muted text-body-sm">
-          Tarefas em segundo plano (downloads, análise, IA, Soundcharts). Atualiza sozinho.
+          Acompanhe downloads, análises e importações em segundo plano.
         </p>
       </header>
 
       <div class="mx-auto max-w-[1600px] px-6 py-6">
+        <form id="task-type" phx-change="filter_worker" class="mb-4 flex items-center gap-2">
+          <label for="worker-filter" class="text-body font-medium">Tipo de tarefa</label>
+          <select
+            id="worker-filter"
+            name="worker"
+            class="rounded-md border border-white/10 bg-input px-3 py-2 text-body"
+          >
+            <option value="">Todos os tipos</option>
+            <option
+              :for={{name, label} <- worker_options(@worker)}
+              value={name}
+              selected={name == @worker}
+            >
+              {label}
+            </option>
+          </select>
+        </form>
         <div class="flex flex-wrap items-center gap-1.5">
           <.link
             patch={jobs_path(nil, @worker)}
-            class={["rounded-sm border px-2.5 py-1 text-[12px]", chip_class(@filter == nil)]}
+            aria-current={is_nil(@filter) && "true"}
+            class={["rounded-sm border px-2.5 py-1 text-body", chip_class(@filter == nil)]}
           >
             Todas
           </.link>
           <.link
             patch={jobs_path("failed", @worker)}
-            class={["rounded-sm border px-2.5 py-1 text-[12px]", chip_class(@filter == "failed")]}
+            aria-current={@filter == "failed" && "true"}
+            class={["rounded-sm border px-2.5 py-1 text-body", chip_class(@filter == "failed")]}
           >
             Falhas
           </.link>
           <.link
             :for={s <- @states}
             patch={jobs_path(s, @worker)}
-            class={["rounded-sm border px-2.5 py-1 text-[12px]", chip_class(@filter == s)]}
+            aria-current={@filter == s && "true"}
+            class={["rounded-sm border px-2.5 py-1 text-body", chip_class(@filter == s)]}
           >
             {state_label(s)}
           </.link>
-          <.link
-            :if={@worker}
-            patch={jobs_path(@filter, nil)}
-            class="rounded-sm border border-primary/40 bg-primary/10 px-2.5 py-1 text-[12px] text-primary"
-            title="Remover o filtro de tarefa"
-          >
-            {worker_label("." <> @worker)} ✕
-          </.link>
-          <span class="text-ink-faint ml-auto font-mono text-caption">{length(@jobs)} tarefa(s)</span>
+          <span class="text-ink-faint ml-auto font-mono text-caption">Exibindo {length(@jobs)} de até 100 tarefas</span>
         </div>
 
         <div
@@ -174,20 +192,21 @@ defmodule BeatgridWeb.JobsLive do
           class="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-coral/25 bg-coral/5 px-3 py-2"
         >
           <span class="text-body-sm text-ink-secondary">
-            {length(@jobs)} falha(s) nesta lista — cada linha diz qual música/URL falhou e por quê.
+            As ações em lote abrangem todas as falhas do tipo de tarefa selecionado.
           </span>
           <button
             phx-click="retry_all_failed"
+            data-confirm="Tentar novamente todas as tarefas com falha deste filtro?"
             class="rounded-md bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary hover:bg-primary/25"
           >
-            Re-tentar todas
+            Tentar todas novamente
           </button>
           <button
             phx-click="clear_all_failed"
-            data-confirm="Limpar todas as falhas listadas? Elas somem do histórico (nenhum arquivo é tocado)."
+            data-confirm="Limpar do histórico todas as falhas deste filtro, inclusive as que estão fora desta página?"
             class="rounded-md bg-white/6 px-2.5 py-1 text-[11px] font-semibold text-ink-muted hover:bg-white/10"
           >
-            Limpar todas
+            Limpar histórico de falhas
           </button>
         </div>
 
@@ -255,7 +274,7 @@ defmodule BeatgridWeb.JobsLive do
                       phx-value-id={j.id}
                       class="rounded-md bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary hover:bg-primary/25"
                     >
-                      Re-tentar
+                      Tentar novamente
                     </button>
                     <button
                       :if={j.state in ["available", "scheduled", "executing", "retryable"]}
@@ -309,6 +328,10 @@ defmodule BeatgridWeb.JobsLive do
   # replacement for the technical name.
   @worker_labels %{
     "AnalyzeWorker" => "Analisar áudio",
+    "DbBackupWorker" => "Salvar backup da biblioteca",
+    "IntegrityCheckWorker" => "Verificar arquivos de áudio",
+    "MixCutWorker" => "Recortar faixa de set gravado",
+    "MoveBatchWorker" => "Mover faixas selecionadas",
     "DownloadWorker" => "Baixar do YouTube",
     "ExpandWorker" => "Expandir playlist",
     "ImportWorker" => "Importar arquivos",
@@ -330,6 +353,15 @@ defmodule BeatgridWeb.JobsLive do
     "MixDownloadWorker" => "Baixar set online",
     "MixRecognizeWorker" => "Reconhecer faixas do set online"
   }
+
+  defp worker_options(selected) do
+    labels =
+      if selected,
+        do: Map.put_new(@worker_labels, selected, selected),
+        else: @worker_labels
+
+    Enum.sort_by(labels, fn {_name, label} -> label end)
+  end
 
   defp worker_label(worker) do
     name = worker_name(worker)
