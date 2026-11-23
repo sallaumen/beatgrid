@@ -59,7 +59,7 @@ defmodule BeatgridWeb.ReviewLiveApplyTest do
     |> element("button[phx-click=toggle_select][phx-value-id='#{rename.id}']")
     |> render_click()
 
-    view |> element("button[phx-value-tab=classifications]") |> render_click()
+    view |> element("a[href='/revisao?aba=classifications']") |> render_click()
 
     view
     |> element("button[phx-click=toggle_select][phx-value-id='#{move.id}']")
@@ -114,7 +114,7 @@ defmodule BeatgridWeb.ReviewLiveApplyTest do
     {:ok, _} = NameSync.set_reason(r, "[audit:verify] soundcharts: A - B")
 
     {:ok, view, _html} = live(conn, ~p"/revisao")
-    view |> element("button[phx-value-tab=auditoria]") |> render_click()
+    view |> element("a[href='/revisao?aba=auditoria']") |> render_click()
     view |> element("button[phx-click=quarantine][phx-value-id='#{r.id}']") |> render_click()
 
     assert File.exists?(Path.join(root, "_Quarantine/bad.mp3"))
@@ -147,7 +147,7 @@ defmodule BeatgridWeb.ReviewLiveApplyTest do
     end)
 
     {:ok, view, _html} = live(conn, ~p"/revisao")
-    view |> element("button[phx-value-tab=auditoria]") |> render_click()
+    view |> element("a[href='/revisao?aba=auditoria']") |> render_click()
 
     html =
       view |> element("button[phx-click=re_resolve][phx-value-id='#{r.id}']") |> render_click()

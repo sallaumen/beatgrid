@@ -529,7 +529,7 @@ defmodule BeatgridWeb.TrackLive do
                   <h1 class="min-w-0 truncate text-[24px] font-semibold leading-tight sm:text-[28px]">
                     {title(@track)}
                   </h1>
-                  <.ouro_badge track={@track} interactive />
+                  <.track_gold_toggle track={@track} />
                   <span
                     :if={@track.id == @playing_track_id}
                     class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary"
@@ -1184,6 +1184,32 @@ defmodule BeatgridWeb.TrackLive do
     """
   end
 
+  attr :track, :map, required: true
+
+  defp track_gold_toggle(assigns) do
+    {gold?, _reason} = Beatgrid.Gold.effective(assigns.track)
+    assigns = assign(assigns, gold?: gold?)
+
+    ~H"""
+    <button
+      type="button"
+      phx-click="toggle_gold"
+      aria-pressed={if @gold?, do: "true", else: "false"}
+      class={[
+        "inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-body-sm font-semibold focus-visible:outline-primary",
+        @gold? && "border-amber/40 text-amber",
+        not @gold? && "border-white/10 bg-input text-ink-secondary hover:text-ink"
+      ]}
+    >
+      <span aria-hidden="true">
+        <.ouro_badge :if={@gold?} track={@track} />
+        <span :if={not @gold?} class="hero-star size-3.5" />
+      </span>
+      Ouro
+    </button>
+    """
+  end
+
   attr :label, :string, required: true
   attr :value, :any, required: true
   attr :class, :string, default: ""
@@ -1250,11 +1276,11 @@ defmodule BeatgridWeb.TrackLive do
           type="button"
           phx-click="edit_field"
           phx-value-field={@field}
-          class="shrink-0 rounded p-1 text-ink-muted hover:text-ink focus-visible:outline-primary"
+          class="ml-auto inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-body-sm text-ink-muted hover:text-ink focus-visible:outline-primary"
           aria-label={"Editar #{@label}"}
           title={"Editar #{@label}"}
         >
-          <span class="hero-pencil-square size-3.5" />
+          <span class="hero-pencil-square size-3.5" aria-hidden="true" /> Editar
         </button>
       </span>
     </div>
