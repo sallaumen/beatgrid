@@ -16,7 +16,7 @@ defmodule BeatgridWeb.GenresLiveTest do
     assert has_element?(view, "a[href='/revisao?aba=classifications']", "Revisar classificações")
 
     {:ok, review, _html} = live(conn, ~p"/revisao?aba=classifications")
-    assert has_element?(review, "button[phx-value-tab=classifications][aria-pressed=true]")
+    assert has_element?(review, "a[href='/revisao?aba=classifications'][aria-current=page]")
   end
 
   test "lists folders and saves an edited description", %{conn: conn} do

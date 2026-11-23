@@ -124,7 +124,10 @@ defmodule BeatgridWeb.TrackLiveTest do
     {:ok, view, html} = live(conn, ~p"/track/#{track.id}")
     assert html =~ "Editar faixa"
 
-    view |> element(~s|button[phx-click=edit_field][phx-value-field=title]|) |> render_click()
+    view
+    |> element(~s|button[phx-value-field=title][aria-label="Editar Título"]|, "Editar")
+    |> render_click()
+
     view |> form("form[phx-submit=save_field]", %{value: "Novo Nome"}) |> render_submit()
     t = Tracks.get(track.id)
     assert t.tag_title == "Novo Nome"
@@ -773,13 +776,14 @@ defmodule BeatgridWeb.TrackLiveTest do
     {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
 
     # a clickable Ouro control exists even when the track is NOT gold yet (so it can be added)
-    assert has_element?(view, "button[phx-click=toggle_gold]")
+    assert has_element?(view, "button[phx-click=toggle_gold][aria-pressed=false]", "Ouro")
 
     # one click flags it as Ouro (manual override) — a personally-rare track
     view |> element("button[phx-click=toggle_gold]") |> render_click()
     reloaded = Tracks.get(track.id)
     refute is_nil(reloaded.gold_manual)
     assert {true, _} = Beatgrid.Gold.effective(reloaded)
+    assert has_element?(view, "button[phx-click=toggle_gold][aria-pressed=true]", "Ouro")
 
     # clicking again reverts to automatic
     view |> element("button[phx-click=toggle_gold]") |> render_click()

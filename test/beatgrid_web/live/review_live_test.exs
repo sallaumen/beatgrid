@@ -176,7 +176,9 @@ defmodule BeatgridWeb.ReviewLiveTest do
     assert render(view) =~ "Aplicar 1 no disco"
   end
 
-  test "the classification tab shows AI suggestions with their rationale", %{conn: conn} do
+  test "review queues follow the URL and preserve selections when revisiting them", %{conn: conn} do
+    rename = pending_rename()
+
     t =
       insert(:track, rel_path: "_Inbox/x.mp3", filename: "x.mp3", tag_title: "X", tag_artist: "Y")
 
@@ -192,10 +194,28 @@ defmodule BeatgridWeb.ReviewLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/revisao")
 
-    html = view |> element("button[phx-value-tab=classifications]") |> render_click()
+    assert has_element?(
+             view,
+             "nav[aria-label='Tipos de revisão'] a[href='/revisao'][aria-current=page]"
+           )
+
+    view |> element(select_btn(rename.id)) |> render_click()
+
+    html =
+      view
+      |> element("a[href='/revisao?aba=classifications'][data-phx-link-state=push]")
+      |> render_click()
+
+    assert_patch(view, ~p"/revisao?aba=classifications")
+    assert has_element?(view, "a[href='/revisao?aba=classifications'][aria-current=page]")
     assert has_element?(view, "a[href='/generos']", "Editar critérios de gênero")
     assert html =~ "soa como MPB"
     assert html =~ "IA:"
+    assert html =~ "Aplicar 1 no disco"
+
+    assert render_patch(view, ~p"/revisao") =~ "Djavan - Sina.mp3"
+    assert render(view) =~ "Aplicar 1 no disco"
+    assert render_patch(view, ~p"/revisao?aba=classifications") =~ "soa como MPB"
   end
 
   test "card play controls target the global player", %{conn: conn} do
@@ -212,7 +232,7 @@ defmodule BeatgridWeb.ReviewLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/revisao")
 
-    html = view |> element("button[phx-value-tab=auditoria]") |> render_click()
+    html = view |> element("a[href='/revisao?aba=auditoria']") |> render_click()
     assert html =~ "verify/title"
 
     view |> element("button[phx-click=dismiss_audit][phx-value-id='#{r.id}']") |> render_click()

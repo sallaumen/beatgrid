@@ -9,7 +9,7 @@ defmodule BeatgridWeb.ReviewLive do
   alias Beatgrid.Workers.{ReevaluateWorker, ReResolveWorker, ReviewApplyWorker, UndoBatchWorker}
 
   @impl true
-  def mount(params, _session, socket) do
+  def mount(_params, _session, socket) do
     if connected?(socket) do
       Review.subscribe()
       Operations.subscribe()
@@ -22,8 +22,6 @@ defmodule BeatgridWeb.ReviewLive do
      socket
      |> assign(
        page_title: "Revisão de sugestões",
-       tab: tab_atom(params["aba"]),
-       editing: nil,
        toast: nil,
        applying?: false,
        selected: MapSet.new(),
@@ -45,12 +43,13 @@ defmodule BeatgridWeb.ReviewLive do
   # --- navigation ---
 
   @impl true
-  def handle_event("switch_tab", %{"tab" => tab}, socket) do
-    {:noreply, assign(socket, tab: tab_atom(tab), editing: nil)}
+  def handle_params(params, _uri, socket) do
+    {:noreply, assign(socket, tab: tab_atom(params["aba"]), editing: nil)}
   end
 
   # --- selection (ephemeral; no DB writes, so the list never reorders) ---
 
+  @impl true
   def handle_event("toggle_select", %{"id" => id}, socket) do
     {:noreply, update(socket, :selected, &toggle(&1, id))}
   end
@@ -273,19 +272,19 @@ defmodule BeatgridWeb.ReviewLive do
 
           <nav aria-label="Tipos de revisão" class="mt-3 flex flex-wrap gap-1">
             <.tab
-              id="renames"
+              path={~p"/revisao"}
               label="Renomeações"
               count={length(@renames)}
               active={@tab == :renames}
             />
             <.tab
-              id="classifications"
+              path={~p"/revisao?aba=classifications"}
               label="Classificação"
               count={length(@classifications)}
               active={@tab == :classifications}
             />
             <.tab
-              id="auditoria"
+              path={~p"/revisao?aba=auditoria"}
               label="Auditoria"
               count={length(rename_items(:auditoria, @renames))}
               active={@tab == :auditoria}
@@ -512,17 +511,16 @@ defmodule BeatgridWeb.ReviewLive do
     """
   end
 
-  attr :id, :string, required: true
+  attr :path, :string, required: true
   attr :label, :string, required: true
   attr :count, :integer, required: true
   attr :active, :boolean, required: true
 
   defp tab(assigns) do
     ~H"""
-    <button
-      phx-click="switch_tab"
-      phx-value-tab={@id}
-      aria-pressed={if @active, do: "true", else: "false"}
+    <.link
+      patch={@path}
+      aria-current={@active && "page"}
       class={[
         "flex items-center gap-2 rounded-t-md px-3.5 py-2 text-body-sm font-medium transition-colors",
         @active && "bg-surface text-ink",
@@ -537,7 +535,7 @@ defmodule BeatgridWeb.ReviewLive do
       ]}>
         {@count}
       </span>
-    </button>
+    </.link>
     """
   end
 
