@@ -643,7 +643,7 @@ defmodule BeatgridWeb.RecSetLive do
   def render(assigns) do
     ~H"""
     <.app_shell flash={@flash} active={:sets} socket={@socket}>
-      <h1 class="border-b border-white/6 bg-rail px-4 py-2 text-heading font-semibold">
+      <h1 class="border-b border-white/6 bg-rail px-4 py-2 text-[18px] font-semibold">
         Montagem de sets
       </h1>
       <div class="flex min-w-0 flex-col lg:h-[calc(100dvh_-_8rem)] lg:flex-row">
@@ -752,7 +752,7 @@ defmodule BeatgridWeb.RecSetLive do
                   }
                   class="text-green rounded-md bg-green/15 px-3 py-1.5 text-body-sm font-semibold hover:bg-green/25"
                 >
-                  Ouvir set
+                  Tocar set
                 </button>
                 <button
                   :if={length(@entries) > 1}
