@@ -20,7 +20,7 @@ defmodule BeatgridWeb.RecSetLive do
     {:ok,
      socket
      |> assign(
-       page_title: "REC SET",
+       page_title: "Montagem de sets",
        toast: nil,
        search_query: "",
        search_results: [],
@@ -643,10 +643,16 @@ defmodule BeatgridWeb.RecSetLive do
   def render(assigns) do
     ~H"""
     <.app_shell flash={@flash} active={:sets} socket={@socket}>
-      <div class="flex h-[calc(100vh_-_5rem)]">
-        <aside :if={@sets_open} class="flex w-60 shrink-0 flex-col border-r border-white/6 bg-rail">
+      <h1 class="border-b border-white/6 bg-rail px-4 py-2 text-[18px] font-semibold">
+        Montagem de sets
+      </h1>
+      <div class="flex min-w-0 flex-col lg:h-[calc(100dvh_-_8rem)] lg:flex-row">
+        <aside
+          :if={@sets_open}
+          class="flex w-full shrink-0 flex-col border-b border-white/6 bg-rail lg:w-48 lg:border-r lg:border-b-0 xl:w-56"
+        >
           <div class="flex items-center justify-between px-4 py-3">
-            <h2 class="text-[18px] font-semibold">Sets</h2>
+            <h2 class="text-body-lg font-semibold">Meus sets</h2>
             <div class="flex items-center gap-1.5">
               <button
                 phx-click="new_set"
@@ -664,7 +670,7 @@ defmodule BeatgridWeb.RecSetLive do
               </button>
             </div>
           </div>
-          <div class="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+          <div class="max-h-40 min-h-0 flex-1 overflow-y-auto px-2 pb-3 lg:max-h-none">
             <button
               :for={s <- @sets}
               phx-click="select_set"
@@ -699,9 +705,10 @@ defmodule BeatgridWeb.RecSetLive do
           phx-click="toggle_sets"
           title="Mostrar lista de sets"
           aria-label="Mostrar lista de sets"
-          class="flex shrink-0 items-start border-r border-white/6 bg-rail px-1 pt-4 text-ink-faint hover:text-ink"
+          class="flex shrink-0 items-center justify-center gap-2 border-b border-white/6 bg-rail px-2 py-2 text-body-sm text-ink-muted hover:text-ink lg:items-start lg:border-r lg:border-b-0"
         >
-          <span class="hero-chevron-double-right size-4" />
+          <span class="hero-chevron-double-right size-4" aria-hidden="true" />
+          <span class="lg:sr-only">Mostrar meus sets</span>
         </button>
 
         <div :if={is_nil(@set)} class="flex-1">
@@ -710,11 +717,11 @@ defmodule BeatgridWeb.RecSetLive do
 
         <div
           :if={@set}
-          class="flex min-w-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden"
+          class="flex min-w-0 flex-1 flex-col overflow-y-auto xl:flex-row xl:overflow-hidden"
         >
-          <section class="min-w-0 flex-1 px-6 py-5 lg:overflow-y-auto">
-            <header class="flex items-center justify-between gap-3">
-              <form id="set-name" phx-change="rename" class="flex-1">
+          <section class="min-w-0 flex-1 px-4 py-4 lg:overflow-y-auto">
+            <header class="flex flex-wrap items-center gap-3">
+              <form id="set-name" phx-change="rename" class="min-w-0 grow basis-56">
                 <input
                   name="name"
                   value={@set.name}
@@ -723,7 +730,13 @@ defmodule BeatgridWeb.RecSetLive do
                   class="w-full bg-transparent text-[22px] font-semibold"
                 />
               </form>
-              <div class="flex shrink-0 items-center gap-2">
+              <div class="flex min-w-0 flex-wrap items-center gap-2">
+                <.link
+                  navigate={~p"/discotecagem?set=#{@set.id}"}
+                  class="rounded-md bg-primary-deep px-3 py-1.5 text-body-sm font-semibold text-white"
+                >
+                  Abrir na discotecagem
+                </.link>
                 <button
                   :if={@entries != []}
                   phx-click={
@@ -739,7 +752,7 @@ defmodule BeatgridWeb.RecSetLive do
                   }
                   class="text-green rounded-md bg-green/15 px-3 py-1.5 text-body-sm font-semibold hover:bg-green/25"
                 >
-                  ▶ Tocar set
+                  Tocar set
                 </button>
                 <button
                   :if={length(@entries) > 1}
@@ -748,7 +761,7 @@ defmodule BeatgridWeb.RecSetLive do
                   class="rounded-md border border-primary/40 bg-primary/10 px-3 py-1.5 text-body-sm font-semibold text-primary hover:bg-primary/20 disabled:opacity-40"
                   title="Reorganiza as faixas atuais no arco de energia (ouro nos picos) e reconecta"
                 >
-                  ↻ Remixar
+                  Remixar
                 </button>
                 <button
                   :if={length(@entries) > 1}
@@ -756,7 +769,7 @@ defmodule BeatgridWeb.RecSetLive do
                   class="rounded-md border border-primary/40 bg-primary/10 px-3 py-1.5 text-body-sm font-semibold text-primary hover:bg-primary/20"
                   title="Conectar todas as faixas com transições sugeridas (BPM/marcadores)"
                 >
-                  ⛓ Conectar todas
+                  Conectar todas
                 </button>
                 <button
                   phx-click="export"
@@ -770,7 +783,7 @@ defmodule BeatgridWeb.RecSetLive do
                   class="rounded-md px-2 py-1.5 text-body-sm text-ink-muted hover:text-primary"
                   title="Cria uma cópia deste set — faça backup antes de editar"
                 >
-                  ⧉ Duplicar
+                  Duplicar
                 </button>
                 <button
                   phx-click="delete_set"
@@ -1059,8 +1072,8 @@ defmodule BeatgridWeb.RecSetLive do
 
   defp rail_width(open_panels) do
     if MapSet.size(open_panels) == 0,
-      do: "w-full lg:w-80",
-      else: "w-full lg:w-[560px] xl:w-[640px] 2xl:w-[720px]"
+      do: "w-full xl:w-72",
+      else: "w-full xl:w-[400px] 2xl:w-[520px]"
   end
 
   defp console_subtitle(nil), do: "ajuste o peso de cada critério"
@@ -1127,7 +1140,7 @@ defmodule BeatgridWeb.RecSetLive do
     ~H"""
     <form id="plan-set-form" phx-submit="plan_set" class="space-y-3 p-4">
       <div>
-        <h3 class="text-body-sm font-semibold text-ink">Planning Studio</h3>
+        <h3 class="text-body-sm font-semibold text-ink">Planejamento automático</h3>
         <p class="mt-1 text-caption text-ink-muted">
           Um preset é o ponto de partida — ele preenche os controles e você ajusta o que quiser.
         </p>

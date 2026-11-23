@@ -35,7 +35,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
   @library_page 50
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(params, _session, socket) do
     {:ok,
      socket
      |> assign(
@@ -62,7 +62,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
        lib_tracks: [],
        midi: %{connected: false, name: nil}
      )
-     |> ensure_library_loaded()}
+     |> ensure_library_loaded()
+     |> adopt_resync_set(params["set"])}
   end
 
   # ── seleção e partida ────────────────────────────────────────────────────────
@@ -430,9 +431,11 @@ defmodule BeatgridWeb.DiscotecagemLive do
   defp get_track(_id), do: nil
 
   defp adopt_resync_set(socket, set_id) when is_binary(set_id) do
-    case Sets.get(set_id) do
-      nil -> socket
-      set -> socket |> subscribe_once(set.id) |> assign(set: set, entries: Sets.entries(set))
+    with {:ok, id} <- Ecto.UUID.cast(set_id),
+         %{} = set <- Sets.get(id) do
+      socket |> subscribe_once(set.id) |> assign(set: set, entries: Sets.entries(set))
+    else
+      _ -> socket
     end
   end
 
@@ -747,6 +750,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
         bottom (no wasted 80px); the lists reclaim it and the page fits the fold. --%>
         <div
           id="dj-console"
+          data-set-id={@set && @set.id}
           phx-hook=".DjConsole"
           data-auto={to_string(@auto?)}
           data-rail-tab={@rail_tab}
@@ -1216,6 +1220,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
         export default {
           mounted() {
+            this.setId = this.el.dataset.setId || null
             this.tracks = {a: null, b: null}
             this.waves = {a: null, b: null}
             this.hint = null
