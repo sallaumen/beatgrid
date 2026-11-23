@@ -24,6 +24,20 @@ defmodule Beatgrid.Workers.ImportWorkerTest do
   end
 
   @tag :tmp_dir
+  test "a source removed after review is reported and the remaining tracks complete", %{
+    tmp_dir: root
+  } do
+    stub_healthy()
+    file = Path.join(root, "available.mp3")
+    File.write!(file, "music")
+    Library.subscribe_import()
+    items = Enum.map([Path.join(root, "missing.mp3"), file], &%{"source_path" => &1})
+    assert {:error, _} = perform_job(ImportWorker, %{items: items, batch_id: "partial"})
+    assert_receive {:import_progress, %{status: :done, imported: 1, failed: 1, done: 2}}
+    assert File.read!(Path.join(root, "_Inbox/available.mp3")) == "music"
+  end
+
+  @tag :tmp_dir
   test "imports the items with overrides and broadcasts progress", %{tmp_dir: root} do
     src = Path.join(root, "src")
     File.mkdir_p!(src)

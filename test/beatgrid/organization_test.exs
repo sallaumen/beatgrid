@@ -76,6 +76,49 @@ defmodule Beatgrid.OrganizationTest do
 
   describe "quarantine/1" do
     @tag :tmp_dir
+    test "a stale move cannot take a new recording from the old source path", %{tmp_dir: root} do
+      original = insert(:track, rel_path: "_Inbox/song.mp3", filename: "song.mp3")
+      source = Path.join(root, original.rel_path)
+      File.write!(source, "original")
+      assert {:ok, moved} = Library.rename(original, "renamed.mp3")
+
+      replacement = insert(:track, rel_path: original.rel_path, filename: "song.mp3")
+      File.write!(source, "replacement")
+      assert {:error, _} = Library.quarantine(original)
+      assert Tracks.get(original.id).rel_path == moved.rel_path
+      assert File.read!(Path.join(root, Tracks.get(replacement.id).rel_path)) == "replacement"
+    end
+
+    @tag :tmp_dir
+    test "a blocked destination rolls back the track path", %{tmp_dir: root} do
+      track = insert(:track, rel_path: "_Inbox/song.mp3", filename: "song.mp3")
+      File.write!(Path.join(root, track.rel_path), "song")
+      File.write!(Path.join(root, "occupied"), "regular file")
+
+      assert {:error, _} = Library.relocate(track, "occupied/song.mp3", nil)
+      assert Tracks.get(track.id).rel_path == track.rel_path
+      assert File.read!(Path.join(root, track.rel_path)) == "song"
+    end
+
+    @tag :tmp_dir
+    test "a missing file's reserved path cannot strand another track during a move", %{
+      tmp_dir: root
+    } do
+      old =
+        insert(:track, rel_path: "_Quarantine/song.mp3", filename: "song.mp3", status: :missing)
+
+      track = insert(:track, rel_path: "_Inbox/song.mp3", filename: "song.mp3")
+      File.write!(Path.join(root, track.rel_path), "incoming")
+
+      assert {:ok, moved} = Library.quarantine(track)
+      assert moved.rel_path == "_Quarantine/song (2).mp3"
+      assert File.read!(Path.join(root, moved.rel_path)) == "incoming"
+      assert Tracks.get(track.id).rel_path == moved.rel_path
+      assert Tracks.get(old.id).status == :missing
+      refute File.exists?(Path.join(root, old.rel_path))
+    end
+
+    @tag :tmp_dir
     test "moves a track into _Quarantine and flags its status", %{tmp_dir: root} do
       File.write!(Path.join(root, "_Inbox/bad.mp3"), "x")
       track = insert(:track, rel_path: "_Inbox/bad.mp3", filename: "bad.mp3")

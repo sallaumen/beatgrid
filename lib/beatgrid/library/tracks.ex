@@ -11,7 +11,10 @@ defmodule Beatgrid.Library.Tracks do
   alias Beatgrid.Repo
 
   defdelegate get(id), to: TrackQuery
+  defdelegate lock_at_path(id, rel_path), to: TrackQuery
   defdelegate get_with_song(id), to: TrackQuery
+  defdelegate present_title_matches(titles), to: TrackQuery
+  defdelegate present_hash?(sha), to: TrackQuery
   defdelegate get_by_path(rel_path), to: TrackQuery
   defdelegate all_tags(), to: TrackQuery
 

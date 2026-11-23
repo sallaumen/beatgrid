@@ -4,7 +4,7 @@ defmodule Beatgrid.Library.FileInfo do
   without any path-derived organization fields. Shared by the scanner and the
   importer (each adds its own `rel_path`, `source_playlist`, etc.).
   """
-  alias Beatgrid.Audio
+  alias Beatgrid.{Audio, Error}
   alias Beatgrid.Library.Quality
 
   @audio_exts ~w(.mp3 .m4a .flac .wav .aac .ogg)
@@ -16,15 +16,27 @@ defmodule Beatgrid.Library.FileInfo do
 
   @doc "Lists audio files under `root`, recursively (absolute paths)."
   @spec audio_files(String.t()) :: [String.t()]
-  def audio_files(root), do: root |> walk() |> Enum.filter(&audio?/1)
+  def audio_files(root), do: for({:ok, path} <- walk(root), audio?(path), do: path)
+
+  @doc "Lists playable tracks and quarantine entries, excluding backups and the mix cache."
+  @spec library_audio_files(String.t()) :: {:ok, [String.t()]} | {:error, Error.t()}
+  def library_audio_files(root) do
+    Enum.reduce_while(walk(root, ["_Backups", "_Mixes"]), {:ok, []}, fn
+      {:ok, path}, {:ok, paths} ->
+        {:cont, {:ok, if(audio?(path), do: [path | paths], else: paths)}}
+
+      {:error, _} = error, _ ->
+        {:halt, error}
+    end)
+  end
 
   @doc """
   Lists import candidates under `root`: audio files by extension, plus container
   files (`.mp4`, `.mpeg`, …) whose probe finds an audio stream. The scanner keeps
-  using `audio_files/1` — the library itself never holds lying extensions.
+  using audio extensions for the managed library.
   """
   @spec importable_files(String.t()) :: [String.t()]
-  def importable_files(root), do: root |> walk() |> Enum.filter(&importable?/1)
+  def importable_files(root), do: for({:ok, path} <- walk(root), importable?(path), do: path)
 
   @doc """
   Cheap extension-only screen: could this file be importable? Used by listings
@@ -44,13 +56,14 @@ defmodule Beatgrid.Library.FileInfo do
   defp probed_audio?(path), do: match?({:ok, _metadata}, Audio.read_metadata(path))
 
   @doc "Attributes for one file: identity, audio properties, tags, and quality issues."
-  @spec read(String.t()) :: map()
-  def read(abs) do
+  @spec read(String.t(), keyword()) :: map()
+  def read(abs, opts \\ []) do
+    filename = opts[:filename] || Path.basename(abs)
     metadata = Audio.read_metadata(abs)
 
     %{
-      filename: Path.basename(abs),
-      format: format_from_ext(abs),
+      filename: filename,
+      format: format_from_ext(filename),
       file_size_bytes: file_size(abs),
       content_sha256: sha256(abs),
       quality_issues: Quality.detect(metadata)
@@ -105,19 +118,35 @@ defmodule Beatgrid.Library.FileInfo do
     end)
   end
 
-  defp walk(dir) do
+  defp walk(dir, excluded \\ []) do
     case File.ls(dir) do
-      {:ok, entries} -> Enum.flat_map(entries, &classify(Path.join(dir, &1)))
-      {:error, _reason} -> []
+      {:ok, entries} -> Stream.flat_map(entries -- excluded, &classify(Path.join(dir, &1)))
+      {:error, reason} -> [listing_error(dir, reason)]
     end
   end
 
   defp classify(path) do
-    cond do
-      File.dir?(path) -> walk(path)
-      File.regular?(path) -> [path]
-      true -> []
+    case File.stat(path) do
+      {:ok, %{type: :directory}} -> walk(path)
+      {:ok, %{type: :regular}} -> [{:ok, path}]
+      {:ok, _other} -> []
+      {:error, :enoent} -> missing_entry(path)
+      {:error, reason} -> [listing_error(path, reason)]
     end
+  end
+
+  # A dangling link isn't an audio file. A listed entry that disappeared,
+  # however, means the scan did not get a complete view of this directory.
+  defp missing_entry(path) do
+    case File.lstat(path) do
+      {:ok, %{type: :symlink}} -> []
+      _ -> [listing_error(path, :enoent)]
+    end
+  end
+
+  defp listing_error(path, reason) do
+    {:error,
+     Error.new(:scan_unavailable, "Cannot read library entry", %{path: path, reason: reason})}
   end
 
   defp merge_metadata(attrs, {:ok, m}) do
@@ -161,9 +190,12 @@ defmodule Beatgrid.Library.FileInfo do
   end
 
   defp sha256(abs) do
-    case File.read(abs) do
-      {:ok, binary} -> :sha256 |> :crypto.hash(binary) |> Base.encode16(case: :lower)
-      {:error, _reason} -> nil
-    end
+    abs
+    |> File.stream!(65_536)
+    |> Enum.reduce(:crypto.hash_init(:sha256), &:crypto.hash_update(&2, &1))
+    |> :crypto.hash_final()
+    |> Base.encode16(case: :lower)
+  rescue
+    File.Error -> nil
   end
 end

@@ -4,6 +4,7 @@ defmodule Beatgrid.Library.Scanner do
   quality via `FileInfo`), deriving organization fields from each file's path.
   Optionally marks tracks whose files have disappeared as `:missing`.
   """
+  alias Beatgrid.Error
   alias Beatgrid.Library.{FileInfo, GenreFolders, Tracks}
 
   @doc """
@@ -14,22 +15,29 @@ defmodule Beatgrid.Library.Scanner do
       longer under `root` as `:missing`. Only meaningful for the canonical
       library root.
   """
-  @spec scan(String.t(), keyword()) :: {:ok, %{scanned: non_neg_integer()}}
+  @spec scan(String.t(), keyword()) :: {:ok, %{scanned: non_neg_integer()}} | {:error, Error.t()}
   def scan(root, opts \\ []) do
     root = Path.expand(root)
     folder_index = genre_folder_index()
 
-    scanned_paths =
-      root
-      |> FileInfo.audio_files()
-      |> Enum.map(&scan_file(&1, root, folder_index))
-      |> Enum.reject(&is_nil/1)
-
-    if Keyword.get(opts, :mark_missing, false) do
-      Tracks.mark_missing_except(scanned_paths)
+    with {:ok, files} <- FileInfo.library_audio_files(root),
+         {:ok, scanned_paths} <- scan_files(files, root, folder_index) do
+      if Keyword.get(opts, :mark_missing, false), do: Tracks.mark_missing_except(scanned_paths)
+      {:ok, %{scanned: length(scanned_paths)}}
     end
+  end
 
-    {:ok, %{scanned: length(scanned_paths)}}
+  defp scan_files(files, root, folder_index) do
+    Enum.reduce_while(files, {:ok, []}, fn path, {:ok, paths} ->
+      case scan_file(path, root, folder_index) do
+        {:ok, track} ->
+          {:cont, {:ok, [track.rel_path | paths]}}
+
+        {:error, changeset} ->
+          details = %{path: path, errors: changeset.errors}
+          {:halt, {:error, Error.new(:scan_track_failed, "Cannot update scanned track", details)}}
+      end
+    end)
   end
 
   defp scan_file(abs, root, folder_index) do
@@ -45,11 +53,45 @@ defmodule Beatgrid.Library.Scanner do
         last_scanned_at: DateTime.truncate(DateTime.utc_now(), :second)
       })
 
-    case Tracks.upsert_by_path(attrs) do
-      {:ok, track} -> track.rel_path
-      {:error, _changeset} -> nil
+    case Tracks.get_by_path(rel_path) do
+      nil -> Tracks.upsert_by_path(attrs)
+      track -> Tracks.update(track, preserve_catalogue_fields(attrs, track))
     end
   end
+
+  @editable_tags %{
+    "artist" => :tag_artist,
+    "title" => :tag_title,
+    "album" => :tag_album,
+    "genre" => :tag_genre,
+    "year" => :tag_year
+  }
+
+  defp preserve_catalogue_fields(attrs, track) do
+    edited = Map.take(@editable_tags, track.manual_fields || [])
+
+    attrs
+    |> Map.put(:source_playlist, track.source_playlist || attrs.source_playlist)
+    |> preserve_import(track)
+    |> Map.drop(Map.values(edited))
+  end
+
+  # Reviewed credits, playlist membership and mix cut ranges live in the catalogue.
+  defp preserve_import(attrs, %{source_playlist: source} = previous)
+       when source in ["youtube", "import", "recorte"] do
+    provenance =
+      Map.filter(previous.raw_tags || %{}, fn {key, _} ->
+        String.starts_with?(key, ["youtube_", "recorte_"])
+      end)
+
+    Map.merge(attrs, %{
+      tag_title: previous.tag_title || attrs[:tag_title],
+      tag_artist: previous.tag_artist || attrs[:tag_artist],
+      raw_tags: Map.merge(attrs[:raw_tags] || previous.raw_tags || %{}, provenance)
+    })
+  end
+
+  defp preserve_import(attrs, _), do: attrs
 
   defp status_for("_Quarantine"), do: :quarantined
   defp status_for(_top), do: :present

@@ -34,10 +34,21 @@ defmodule Beatgrid.Workers.ImportWorker do
   def perform(%Oban.Job{args: %{"items" => items, "batch_id" => bid} = args}) do
     summary = Library.import_files(items, bid)
 
-    if args["resolve_soundcharts"] do
+    if args["resolve_soundcharts"] && summary.imported > 0 do
       {:ok, _job} = EnrichWorker.enqueue("pending")
     end
 
-    {:ok, summary}
+    if summary.failed > 0 do
+      files = Enum.map_join(summary.failures, ", ", & &1.file)
+
+      {:error,
+       Beatgrid.Error.new(
+         :import_failed,
+         "Falha ao importar #{files}. Confira os arquivos e tente novamente.",
+         summary
+       )}
+    else
+      {:ok, summary}
+    end
   end
 end

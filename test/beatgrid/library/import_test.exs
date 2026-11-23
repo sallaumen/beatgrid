@@ -23,6 +23,39 @@ defmodule Beatgrid.Library.ImportTest do
   end
 
   @tag :tmp_dir
+  @tag :ffmpeg
+  test "a real audio file survives review, copy, probe and a repeated import", %{tmp_dir: root} do
+    file = Path.join(root, "Show.mp3")
+
+    {_, 0} =
+      System.cmd("ffmpeg", [
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "anullsrc",
+        "-t",
+        "1",
+        "-metadata",
+        "artist=Teste",
+        "-metadata",
+        "title=Show",
+        file
+      ])
+
+    Mox.stub_with(Beatgrid.Audio.Mock, Beatgrid.Audio.Ffprobe)
+    assert {:ok, [row]} = Library.preview_import(file, ai: false)
+    assert row.artist == "Teste"
+    assert row.duration_ms >= 1000
+    item = %{"source_path" => file, "sha256" => row.sha256, "title" => "Show revisado"}
+    assert %{imported: 1, failed: 0} = Library.import_files([item], "real")
+    assert File.read!(file) == File.read!(Path.join(root, "_Inbox/Show.mp3"))
+    assert Tracks.get_by_path("_Inbox/Show.mp3").tag_title == "Show revisado"
+    assert %{imported: 0, skipped: 1} = Library.import_files([item], "repeat")
+  end
+
+  @tag :tmp_dir
   test "copies source audio into _Inbox, records provenance, skips exact duplicates", %{
     tmp_dir: root
   } do
@@ -52,6 +85,23 @@ defmodule Beatgrid.Library.ImportTest do
   end
 
   @tag :tmp_dir
+  test "an imported track's filename matches its copy when the inbox name is taken", %{
+    tmp_dir: root
+  } do
+    source = Path.join(root, "src")
+    File.mkdir_p!(source)
+    File.write!(Path.join(source, "song.mp3"), "new")
+    File.write!(Path.join(root, "_Inbox/song.mp3"), "existing")
+    stub_healthy()
+
+    assert {:ok, %{imported: 1}} = Library.import_from(source)
+    imported = Tracks.get_by_path("_Inbox/song (2).mp3")
+    assert imported.filename == "song (2).mp3"
+    assert File.read!(Path.join(root, imported.rel_path)) == "new"
+    assert File.read!(Path.join(root, "_Inbox/song.mp3")) == "existing"
+  end
+
+  @tag :tmp_dir
   test "does not re-import a file already in the library", %{tmp_dir: root} do
     source = Path.join(root, "src")
     File.mkdir_p!(Path.join(source, "MPBzera"))
@@ -64,6 +114,39 @@ defmodule Beatgrid.Library.ImportTest do
   end
 
   describe "import_files/3" do
+    @tag :tmp_dir
+    test "a missing track recovers its identity only when the replacement matches its audio", %{
+      tmp_dir: root
+    } do
+      source = Path.join(root, "show.mp3")
+      rel = "_Inbox/show.mp3"
+      hash = :crypto.hash(:sha256, "original") |> Base.encode16(case: :lower)
+
+      old =
+        insert(:track,
+          rel_path: rel,
+          filename: "show.mp3",
+          status: :missing,
+          content_sha256: hash,
+          personal_note: "Entrada do set"
+        )
+
+      stub_healthy()
+
+      File.write!(source, "other recording")
+      assert %{imported: 1} = Library.import_files([%{"source_path" => source}], "different")
+      assert Tracks.get(old.id).status == :missing
+      other = Tracks.get_by_path("_Inbox/show (2).mp3")
+      assert other.id != old.id
+      assert is_nil(other.personal_note)
+
+      File.write!(source, "original")
+      assert %{imported: 1} = Library.import_files([%{"source_path" => source}], "original")
+      assert Tracks.get(old.id).status == :present
+      assert Tracks.get(old.id).personal_note == "Entrada do set"
+      assert File.read!(Path.join(root, rel)) == "original"
+    end
+
     @tag :tmp_dir
     test "copies new files with reviewed overrides, skips dup, broadcasts progress", %{
       tmp_dir: root
@@ -142,7 +225,7 @@ defmodule Beatgrid.Library.ImportTest do
       File.write!(savinho, "aac-bytes")
 
       stub(Beatgrid.Audio.Mock, :read_metadata, fn path ->
-        if String.ends_with?(path, ".mpeg"),
+        if File.read!(path) == "mp3-bytes",
           do: {:ok, %Metadata{format_name: "mp3", duration_ms: 159_533}},
           else: {:ok, %Metadata{format_name: "mov,mp4,m4a,3gp,3g2,mj2", duration_ms: 177_393}}
       end)

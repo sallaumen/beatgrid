@@ -10,8 +10,7 @@ defmodule Beatgrid.Workers.ScanWorker do
     root = Map.get(args, "root") || Library.library_root()
     mark_missing = Map.get(args, "mark_missing", true)
 
-    {:ok, _summary} = Scanner.scan(root, mark_missing: mark_missing)
-    :ok
+    with {:ok, _summary} <- Scanner.scan(root, mark_missing: mark_missing), do: :ok
   end
 
   @spec enqueue(keyword()) :: {:ok, Oban.Job.t()} | {:error, term()}
