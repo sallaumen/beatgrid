@@ -1,4 +1,4 @@
-defmodule BeatgridWeb.LibraryLiveImportTest do
+defmodule BeatgridWeb.ImportsLiveLocalTest do
   # async: false — the preview runs an async task that reads the filesystem and the
   # shared sandbox, and these tests override the global :library_root app env.
   use BeatgridWeb.ConnCase, async: false, oban: true
@@ -8,6 +8,7 @@ defmodule BeatgridWeb.LibraryLiveImportTest do
   import Mox
 
   alias Beatgrid.Audio.Metadata
+  alias Beatgrid.Library
   alias Beatgrid.Workers.ImportWorker
 
   setup :set_mox_global
@@ -22,21 +23,41 @@ defmodule BeatgridWeb.LibraryLiveImportTest do
     :ok
   end
 
-  test "clicking Importar opens the import modal", %{conn: conn} do
-    {:ok, view, html} = live(conn, ~p"/")
-    refute html =~ "Importar pasta ou arquivo"
+  test "the Biblioteca shortcut opens the local import page", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/")
+    refute has_element?(view, "#import-source")
 
-    html = view |> element("button[phx-click=show_import]") |> render_click()
+    assert {:ok, imports, html} =
+             view
+             |> element(~s(header a[href="/importados?origem=local"]), "Importar")
+             |> render_click()
+             |> follow_redirect(conn, ~p"/importados?origem=local")
+
     assert html =~ "Importar pasta ou arquivo"
-    assert html =~ "Cole o caminho de uma pasta ou arquivo"
+    assert has_element?(imports, "#import-source")
+    assert has_element?(imports, "#import-browser")
+    refute has_element?(imports, "#link-preview")
   end
 
-  test "the backdrop / ✕ closes the modal", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/")
-    view |> element("button[phx-click=show_import]") |> render_click()
+  test "the old Biblioteca import URL redirects to the local import page", %{conn: conn} do
+    assert {:error, {:redirect, %{to: "/importados?origem=local"}}} =
+             live(conn, ~p"/?importar=1")
+  end
 
-    html = view |> element("div[phx-click=hide_import]") |> render_click()
-    refute html =~ "Importar pasta ou arquivo"
+  test "the source links switch modes with URL patches", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/importados")
+    assert has_element?(view, "#link-preview")
+    refute has_element?(view, "#import-source")
+
+    view |> element("#import-sources a", "Pasta ou arquivo") |> render_click()
+    assert_patch(view, ~p"/importados?origem=local")
+    assert has_element?(view, "#import-source")
+    refute has_element?(view, "#link-preview")
+
+    view |> element("#import-sources a", "YouTube e Spotify") |> render_click()
+    assert_patch(view, ~p"/importados")
+    assert has_element?(view, "#link-preview")
+    refute has_element?(view, "#import-source")
   end
 
   @tag :tmp_dir
@@ -49,8 +70,7 @@ defmodule BeatgridWeb.LibraryLiveImportTest do
       {:ok, %Metadata{title: "Sina", artist: "Djavan", duration_ms: 211_000}}
     end)
 
-    {:ok, view, _html} = live(conn, ~p"/")
-    view |> element("button[phx-click=show_import]") |> render_click()
+    {:ok, view, _html} = live(conn, ~p"/importados?origem=local")
 
     view
     |> form("#import-source", %{source: src})
@@ -64,9 +84,8 @@ defmodule BeatgridWeb.LibraryLiveImportTest do
   end
 
   @tag :tmp_dir
-  test "a bogus path shows the not-found error in the modal", %{conn: conn, tmp_dir: root} do
-    {:ok, view, _html} = live(conn, ~p"/")
-    view |> element("button[phx-click=show_import]") |> render_click()
+  test "a bogus path shows the not-found error", %{conn: conn, tmp_dir: root} do
+    {:ok, view, _html} = live(conn, ~p"/importados?origem=local")
 
     view
     |> form("#import-source", %{source: Path.join(root, "nope")})
@@ -90,8 +109,7 @@ defmodule BeatgridWeb.LibraryLiveImportTest do
       {:ok, %Metadata{title: "Sina", artist: "Djavan", duration_ms: 211_000}}
     end)
 
-    {:ok, view, _html} = live(conn, ~p"/")
-    view |> element("button[phx-click=show_import]") |> render_click()
+    {:ok, view, _html} = live(conn, ~p"/importados?origem=local")
 
     # Preview (with the opt-in Soundcharts box ticked) so we have rows to import.
     view
@@ -122,10 +140,9 @@ defmodule BeatgridWeb.LibraryLiveImportTest do
       }
     )
 
-    # The modal closes and a queued progress bar appears in the header.
-    html = render(view)
-    refute html =~ "Importar pasta ou arquivo"
-    assert html =~ "Importando — na fila"
+    assert render(view) =~ "Importando — na fila"
+    refute has_element?(view, "#import-run")
+    assert has_element?(view, "#import-source")
   end
 
   @tag :tmp_dir
@@ -154,8 +171,7 @@ defmodule BeatgridWeb.LibraryLiveImportTest do
       filename: "sina.mp3"
     )
 
-    {:ok, view, _html} = live(conn, ~p"/")
-    view |> element("button[phx-click=show_import]") |> render_click()
+    {:ok, view, _html} = live(conn, ~p"/importados?origem=local")
 
     view
     |> form("#import-source", %{source: src})
@@ -168,67 +184,77 @@ defmodule BeatgridWeb.LibraryLiveImportTest do
   end
 
   test "a running import-progress event shows a live progress bar", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live(conn, ~p"/importados?origem=local")
 
-    send(
-      view.pid,
-      {:import_progress, %{batch_id: "b1", status: :running, done: 1, total: 3, imported: 1}}
-    )
+    Library.broadcast_import(%{batch_id: "b1", status: :running, done: 1, total: 3, imported: 1})
 
     assert render(view) =~ "Importando 1/3"
   end
 
-  test "a done import-progress event reloads the table, toasts, and clears the bar", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/")
+  test "a done import-progress event shows the result and clears the bar", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/importados?origem=local")
 
-    # Open + put the view into a queued state so we can prove the bar clears.
-    send(
-      view.pid,
-      {:import_progress, %{batch_id: "b1", status: :running, done: 0, total: 1, imported: 0}}
-    )
+    Library.broadcast_import(%{batch_id: "b1", status: :running, done: 0, total: 1, imported: 0})
 
     assert render(view) =~ "Importando"
 
-    # A track now exists; the :done handler re-reads the library table.
-    insert(:track, status: :present, tag_title: "Sina", tag_artist: "Djavan")
-
-    send(
-      view.pid,
-      {:import_progress,
-       %{batch_id: "b1", status: :done, done: 1, total: 1, imported: 1, skipped: 0}}
-    )
+    Library.broadcast_import(%{
+      batch_id: "b1",
+      status: :done,
+      done: 1,
+      total: 1,
+      imported: 1,
+      skipped: 0
+    })
 
     html = render(view)
     assert html =~ "1 faixa(s) importada(s)."
-    assert html =~ "Sina"
     refute html =~ "Importando"
+  end
+
+  test "Biblioteca refreshes after the import finishes", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/")
+    insert(:track, status: :present, tag_title: "Nova faixa")
+
+    Library.broadcast_import(%{
+      batch_id: "b1",
+      status: :done,
+      done: 1,
+      total: 1,
+      imported: 1,
+      skipped: 0
+    })
+
+    assert has_element?(view, "a", "Nova faixa")
+    refute has_element?(view, "#local-import-activity")
   end
 
   describe "folder browser" do
     @tag :tmp_dir
-    test "opening the modal lists the start dir; clicking navigates", %{conn: conn, tmp_dir: root} do
+    test "lists the start directory and lets you open a subfolder", %{conn: conn, tmp_dir: root} do
       shows = Path.join(root, "shows")
       File.mkdir_p!(shows)
       File.write!(Path.join(shows, "Josy - Todo Mundo Bole.mpeg"), "x")
       File.write!(Path.join(root, "capa.jpg"), "x")
 
-      {:ok, view, _html} = live(conn, ~p"/")
-      html = view |> element("button[phx-click=show_import]") |> render_click()
-      # The browser panel exists as soon as the modal opens.
-      assert html =~ "import-browser"
+      {:ok, view, _html} = live(conn, ~p"/importados?origem=local")
+      assert has_element?(view, "#import-browser")
 
       # Navigate to the tmp root: the subdir shows, the jpg does not.
-      html = render_click(view, "browse_to", %{"dir" => root})
+      html = render_click(with_target(view, "#local-import"), "browse_to", %{"dir" => root})
       assert html =~ "shows"
       refute html =~ "capa.jpg"
 
       # Descend into the subdir: the candidate file is listed.
-      html = render_click(view, "browse_to", %{"dir" => shows})
+      html = render_click(with_target(view, "#local-import"), "browse_to", %{"dir" => shows})
       assert html =~ "Josy - Todo Mundo Bole.mpeg"
     end
 
     @tag :tmp_dir
-    test "picking a file previews it immediately", %{conn: conn, tmp_dir: root} do
+    test "picking a file previews it with the current import options", %{
+      conn: conn,
+      tmp_dir: root
+    } do
       file = Path.join(root, "Savinho - Sorrindo e Cantando.mp4")
       File.write!(file, "aac-bytes")
 
@@ -240,18 +266,19 @@ defmodule BeatgridWeb.LibraryLiveImportTest do
         {:ok, %{"titles" => [%{"artist" => "Savinho", "title" => "Sorrindo e Cantando"}]}}
       end)
 
-      {:ok, view, _html} = live(conn, ~p"/")
-      view |> element("button[phx-click=show_import]") |> render_click()
-      render_click(view, "browse_to", %{"dir" => root})
+      {:ok, view, _html} = live(conn, ~p"/importados?origem=local")
+      render_click(with_target(view, "#local-import"), "browse_to", %{"dir" => root})
 
-      render_click(view, "browse_pick", %{"file" => file})
+      view |> form("#import-source", %{ai: "on", soundcharts: "on"}) |> render_change()
+      render_click(with_target(view, "#local-import"), "browse_pick", %{"file" => file})
       html = render_async(view)
       assert html =~ "1 nova(s), 0 duplicada(s)"
       assert html =~ "Savinho"
+      assert html =~ "+ Soundcharts"
     end
 
     @tag :tmp_dir
-    test "importar esta pasta previews the current directory", %{conn: conn, tmp_dir: root} do
+    test "the folder action previews the current directory", %{conn: conn, tmp_dir: root} do
       File.write!(Path.join(root, "a.mp3"), "a")
       File.write!(Path.join(root, "b.mp3"), "b")
 
@@ -259,11 +286,10 @@ defmodule BeatgridWeb.LibraryLiveImportTest do
         {:ok, %Metadata{title: "T", artist: "A", duration_ms: 100_000}}
       end)
 
-      {:ok, view, _html} = live(conn, ~p"/")
-      view |> element("button[phx-click=show_import]") |> render_click()
-      render_click(view, "browse_to", %{"dir" => root})
+      {:ok, view, _html} = live(conn, ~p"/importados?origem=local")
+      render_click(with_target(view, "#local-import"), "browse_to", %{"dir" => root})
 
-      render_click(view, "browse_import_here", %{})
+      render_click(with_target(view, "#local-import"), "browse_import_here", %{})
       html = render_async(view)
       assert html =~ "2 nova(s), 0 duplicada(s)"
     end
@@ -273,10 +299,9 @@ defmodule BeatgridWeb.LibraryLiveImportTest do
       vazio = Path.join(root, "vazio")
       File.mkdir_p!(vazio)
 
-      {:ok, view, _html} = live(conn, ~p"/")
-      view |> element("button[phx-click=show_import]") |> render_click()
+      {:ok, view, _html} = live(conn, ~p"/importados?origem=local")
 
-      html = render_click(view, "browse_to", %{"dir" => vazio})
+      html = render_click(with_target(view, "#local-import"), "browse_to", %{"dir" => vazio})
       assert html =~ "Nada importável aqui"
     end
   end
