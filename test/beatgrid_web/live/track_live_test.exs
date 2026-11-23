@@ -24,6 +24,12 @@ defmodule BeatgridWeb.TrackLiveTest do
     assert html =~ "Sina"
     assert html =~ "Metadados"
 
+    assert has_element?(
+             view,
+             "a[href='/manutencao#maintenance-loudness']",
+             "Medir loudness em Manutenção"
+           )
+
     view |> element(~s|button[phx-value-n="7"]|) |> render_click()
     assert Tracks.get(track.id).rating == 7
 

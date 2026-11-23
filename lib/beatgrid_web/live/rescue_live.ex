@@ -49,7 +49,7 @@ defmodule BeatgridWeb.RescueLive do
            socket
            |> put_flash(
              :info,
-             "Restaurada do backup — valide o som e re-aplique o ganho no Painel."
+             "Faixa restaurada do backup. Confira o áudio antes de reaplicar o ganho em Manutenção."
            )
            |> load()
 
@@ -135,7 +135,7 @@ defmodule BeatgridWeb.RescueLive do
             <button
               :if={restorable_count(@damaged) > 0}
               phx-click="restore_all"
-              data-confirm={"Restaurar #{restorable_count(@damaged)} faixa(s) a partir do backup pré-ganho? Depois valide o som e re-aplique o ganho no Painel."}
+              data-confirm={"Restaurar #{restorable_count(@damaged)} faixa(s) a partir do backup pré-ganho? Depois confira o áudio antes de reaplicar o ganho em Manutenção."}
               class="rounded-lg bg-primary/15 px-3 py-1.5 text-[11px] font-semibold text-primary hover:bg-primary/25"
             >
               Restaurar todas com backup ({restorable_count(@damaged)})
