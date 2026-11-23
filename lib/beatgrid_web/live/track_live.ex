@@ -645,7 +645,13 @@ defmodule BeatgridWeb.TrackLive do
             </div>
 
             <p :if={!@track.loudness_lufs} class="text-ink-faint mt-3 text-caption">
-              Ainda não medido — rode “Analisar loudness” no Painel.
+              Loudness ainda não medido.
+              <.link
+                navigate={~p"/manutencao" <> "#maintenance-loudness"}
+                class="text-primary hover:underline"
+              >
+                Medir loudness em Manutenção
+              </.link>
             </p>
 
             <div :if={@gain_backup} class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
