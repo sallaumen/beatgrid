@@ -72,7 +72,7 @@ defmodule BeatgridWeb.ReviewLiveTest do
 
     {:ok, view, html} = live(conn, ~p"/revisao")
 
-    assert html =~ "Central de Revisão"
+    assert has_element?(view, "h1", "Revisão de sugestões")
     assert html =~ "Renomeações"
     assert html =~ "Classificação"
     assert html =~ "Auditoria"
@@ -193,6 +193,7 @@ defmodule BeatgridWeb.ReviewLiveTest do
     {:ok, view, _html} = live(conn, ~p"/revisao")
 
     html = view |> element("button[phx-value-tab=classifications]") |> render_click()
+    assert has_element?(view, "a[href='/generos']", "Editar critérios de gênero")
     assert html =~ "soa como MPB"
     assert html =~ "IA:"
   end

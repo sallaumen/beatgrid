@@ -11,6 +11,14 @@ defmodule BeatgridWeb.GenresLiveTest do
 
   setup :set_mox_global
 
+  test "links directly to the classification queue", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/generos")
+    assert has_element?(view, "a[href='/revisao?aba=classifications']", "Revisar classificações")
+
+    {:ok, review, _html} = live(conn, ~p"/revisao?aba=classifications")
+    assert has_element?(review, "button[phx-value-tab=classifications][aria-pressed=true]")
+  end
+
   test "lists folders and saves an edited description", %{conn: conn} do
     insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB", description: "old")
 

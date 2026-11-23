@@ -17,9 +17,9 @@ defmodule BeatgridWeb.RescueLiveTest do
 
     {:ok, _view, html} = live(conn, ~p"/resgate")
 
-    assert html =~ "Resgate"
+    assert html =~ "Recuperação de arquivos"
     assert html =~ "íntegras"
-    assert html =~ "Nenhuma faixa danificada conhecida"
+    assert html =~ "Nenhum arquivo danificado identificado"
     assert html =~ "Quarentena vazia"
   end
 
@@ -64,9 +64,15 @@ defmodule BeatgridWeb.RescueLiveTest do
         batch_id: Uniq.UUID.uuid7()
       })
 
-    {:ok, _view, html} = live(conn, ~p"/resgate")
+    {:ok, view, html} = live(conn, ~p"/resgate")
 
-    assert html =~ "Hora do Adeus"
+    assert has_element?(
+             view,
+             "#arquivo-#{ghost.id} a[href='/track/#{ghost.id}']",
+             "Hora do Adeus"
+           )
+
+    assert has_element?(view, "#quarentena a[href='/dedup']", "Revisar duplicatas")
     assert html =~ "arquivo sumido"
     assert html =~ "Restaurar do backup"
     assert html =~ "Restaurar todas com backup (1)"
@@ -75,7 +81,7 @@ defmodule BeatgridWeb.RescueLiveTest do
 
     # this quarantined row has NO file on disk — a ghost gets the truth, not a
     # Restaurar button that would fail
-    assert html =~ "👻 arquivo sumiu"
+    assert html =~ "Arquivo ausente na quarentena"
   end
 
   test "a quarantined row WITH its file keeps the Restaurar button", %{conn: conn} do
@@ -97,7 +103,7 @@ defmodule BeatgridWeb.RescueLiveTest do
     {:ok, _view, html} = live(conn, ~p"/resgate")
 
     assert html =~ "Restaurar"
-    refute html =~ "👻"
+    refute html =~ "Arquivo ausente na quarentena"
   end
 
   test "check_all reports how many tracks went to the queue", %{conn: conn} do
