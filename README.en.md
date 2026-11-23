@@ -97,13 +97,14 @@ pip install librosa                  # optional: offline analysis
 ### Run it
 
 ```sh
-docker compose up -d                 # Postgres (port 5434)
-cp .env.example .env                 # optional: SOUNDCHARTS_* and LIBRARY_ROOT
+cp -n .env.example .env              # keep existing local settings
+docker compose up -d db              # start Beatgrid’s PostgreSQL
 mix setup                            # deps + db + seeds + assets
-mix phx.server                       # http://localhost:4000
+mix phx.server                       # http://localhost:4003
 ```
 
 Point `LIBRARY_ROOT` in `.env` at your music folder (default: `~/Music/DJ`).
+If port 5434 is already in use, set `BEATGRID_DB_PORT` in `.env` before starting the database. Use the same port in `.env.test` for tests.
 
 ### Tests and quality
 
