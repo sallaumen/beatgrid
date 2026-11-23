@@ -1,5 +1,5 @@
 defmodule BeatgridWeb.ImportsLive do
-  @moduledoc "Reviews online imports, follows download batches, and groups imported tracks into playlists."
+  @moduledoc "Reviews local and online imports and follows their background jobs."
   use BeatgridWeb, :live_view
 
   import BeatgridWeb.UI
@@ -9,10 +9,12 @@ defmodule BeatgridWeb.ImportsLive do
   alias Beatgrid.Spotify.Playlist
   alias Beatgrid.YouTube
   alias Beatgrid.YouTube.{Playlists, Preview}
+  alias BeatgridWeb.LocalImportComponent
 
   @impl true
   def mount(params, _session, socket) do
     if connected?(socket) do
+      Library.subscribe_import()
       YouTube.subscribe()
       schedule_refresh()
     end
@@ -26,7 +28,9 @@ defmodule BeatgridWeb.ImportsLive do
     {:ok,
      socket
      |> assign(
-       page_title: "Importados",
+       page_title: "Importações",
+       online_route: ~p"/importados",
+       local_progress_event: nil,
        filters: %{},
        sort: :recent,
        expanded: MapSet.new(),
@@ -43,6 +47,9 @@ defmodule BeatgridWeb.ImportsLive do
   end
 
   @impl true
+  def handle_params(%{"origem" => "local"}, _uri, socket),
+    do: {:noreply, assign(socket, mode: :local)}
+
   def handle_params(params, _uri, socket) do
     batch =
       case Ecto.UUID.cast(params["lote"]) do
@@ -50,7 +57,14 @@ defmodule BeatgridWeb.ImportsLive do
         :error -> nil
       end
 
-    {:noreply, socket |> assign(batch: batch) |> load_activity()}
+    online_route =
+      case Map.take(params, ["lote", "recomendacao"]) do
+        query when map_size(query) == 0 -> ~p"/importados"
+        query -> ~p"/importados?#{query}"
+      end
+
+    {:noreply,
+     socket |> assign(mode: :online, batch: batch, online_route: online_route) |> load_activity()}
   end
 
   defp schedule_refresh, do: Process.send_after(self(), :refresh_downloads, 3_000)
@@ -68,8 +82,16 @@ defmodule BeatgridWeb.ImportsLive do
   @impl true
   def handle_info(:refresh_downloads, socket) do
     schedule_refresh()
-    {:noreply, load_activity(socket)}
+    {:noreply, if(socket.assigns.mode == :online, do: load_activity(socket), else: socket)}
   end
+
+  def handle_info({:import_progress, progress}, socket),
+    do: {:noreply, assign(socket, local_progress_event: progress)}
+
+  def handle_info({:tracks_moved, _result}, socket), do: {:noreply, socket}
+
+  def handle_info({:youtube_tick}, %{assigns: %{mode: :local}} = socket),
+    do: {:noreply, load(socket)}
 
   def handle_info({:youtube_tick}, socket), do: {:noreply, socket |> load_activity() |> load()}
 
@@ -290,247 +312,279 @@ defmodule BeatgridWeb.ImportsLive do
     ~H"""
     <.app_shell flash={@flash} active={:importados} socket={@socket}>
       <div class="px-3 py-4 sm:px-6 sm:py-5">
-        <header class="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <h1 class="text-[22px] font-semibold">Importados</h1>
-          <.link navigate={~p"/?importar=1"} class="text-body-sm text-primary-soft underline">Importar arquivo local</.link>
-        </header>
-        <section
-          class="mb-5 rounded-md border border-white/10 bg-surface p-4"
-          aria-label="Importar de um link"
+        <h1 class="mb-3 text-[22px] font-semibold">Importações</h1>
+        <nav
+          id="import-sources"
+          aria-label="Origem da importação"
+          class="mb-4 flex flex-wrap gap-2 border-b border-white/8 pb-3"
         >
-          <form id="link-preview" phx-submit="preview_links" phx-change="edit_links">
-            <label for="import-urls" class="block text-body font-semibold">Links do YouTube ou playlist do Spotify</label>
-            <p id="link-hint" class="mb-2 text-body-sm text-ink-muted">
-              Cole um link por linha. Para baixar uma playlist do YouTube, use o link da própria playlist.
-            </p>
-            <div class="flex flex-wrap items-end gap-2">
-              <textarea
-                id="import-urls"
-                name="urls"
-                rows="2"
-                aria-describedby="link-hint"
-                placeholder="https://…"
-                class="min-w-0 grow rounded-sm border border-white/10 bg-input px-3 py-2 text-body"
-              >{@urls}</textarea>
-              <button
-                type="submit"
-                disabled={@loading}
-                class="rounded-sm bg-primary-deep px-4 py-2 text-body-sm font-semibold text-white disabled:opacity-50"
-              >Conferir links</button>
-            </div>
-          </form>
-          <p :if={@recommendation} class="mt-3 text-body-sm">
-            {@recommendation.artist} · {@recommendation.song}
-            <button phx-click="find_recommendation" class="ml-2 text-primary-soft underline">Buscar versões</button>
-          </p>
-          <p :if={@loading} role="status" class="mt-3 text-body-sm text-ink-muted">
-            Consultando faixas…
-          </p>
-          <p :if={@error} role="alert" class="mt-3 text-body-sm text-coral-soft">{@error}</p>
+          <.link
+            patch={@online_route}
+            aria-current={@mode == :online && "page"}
+            class={["inline-flex min-h-11 items-center sm:min-h-0", chip_class(@mode == :online)]}
+          >
+            YouTube e Spotify
+          </.link>
+          <.link
+            patch={~p"/importados?origem=local"}
+            aria-current={@mode == :local && "page"}
+            class={["inline-flex min-h-11 items-center sm:min-h-0", chip_class(@mode == :local)]}
+          >
+            Pasta ou arquivo
+          </.link>
+        </nav>
 
-          <a
-            :if={@search}
-            href={"https://www.youtube.com/results?" <> URI.encode_query(%{"search_query" => @search})}
-            target="_blank"
-            rel="noopener"
-            class="mt-2 inline-flex text-body-sm text-primary-soft underline"
-          >
-            Procurar “{@search}” no YouTube
-          </a>
-
-          <form
-            :if={@rows != []}
-            id="confirm-downloads"
-            phx-change="select_downloads"
-            phx-submit="confirm_downloads"
-            class="mt-4 border-t border-white/10 pt-3"
-          >
-            <fieldset>
-              <legend class="mb-2 text-body font-semibold">
-                {if @search, do: "Versões para “#{@search}”", else: "Confira as faixas"}
-              </legend>
-              <div class="max-h-72 overflow-y-auto">
-                <div :for={row <- @rows} class="flex items-center gap-3 border-b border-white/6 py-1">
-                  <label class="flex min-w-0 grow items-center gap-2 py-2 text-body-sm">
-                    <input
-                      type="checkbox"
-                      name="ids[]"
-                      value={row.id}
-                      checked={MapSet.member?(@selected, row.id)}
-                    />
-                    <span class="min-w-0 break-words">
-                      {row.title}
-                      <span :if={row.playlist_title} class="block text-caption text-ink-muted">{row.playlist_title} · faixa {row.playlist_index}</span>
-                    </span>
-                  </label>
-                  <a
-                    href={row.url}
-                    target="_blank"
-                    rel="noopener"
-                    class="text-caption text-primary-soft underline"
-                    aria-label={"Abrir #{row.title} no YouTube"}
-                  >Ver vídeo</a>
-                </div>
-              </div>
-            </fieldset>
-            <button
-              disabled={MapSet.size(@selected) == 0}
-              class="mt-3 rounded-sm bg-primary-deep px-4 py-2 text-body-sm font-semibold text-white disabled:opacity-50"
-            >
-              Baixar {MapSet.size(@selected)} {if MapSet.size(@selected) == 1,
-                do: "faixa",
-                else: "faixas"}
-            </button>
-          </form>
-          <section :if={@spotify} class="mt-4 border-t border-white/10 pt-3">
-            <h2 class="text-body font-semibold">{@spotify.title}</h2>
-            <p class="text-body-sm text-ink-muted">
-              {length(@spotify.tracks)} faixas na prévia pública do Spotify. Escolha uma faixa para conferir as versões no YouTube.
-            </p>
-            <ol class="mt-2 max-h-80 list-decimal overflow-y-auto pl-6">
-              <li
-                :for={{track, index} <- Enum.with_index(@spotify.tracks)}
-                class="border-b border-white/6 py-1 text-body-sm"
-              >
-                <div class="flex flex-wrap items-center justify-between gap-1">
-                  <span>{track.title} · {track.artist}<.link
-                    :if={track.library_id}
-                    navigate={~p"/track/#{track.library_id}"}
-                    class="block py-1 text-caption text-green underline"
-                  >Abrir na biblioteca</.link></span>
-                  <button
-                    type="button"
-                    phx-click="find_version"
-                    phx-value-index={index}
-                    aria-label={"Buscar versões de #{track.title}"}
-                    class="py-2 text-primary-soft underline"
-                  >Buscar versões</button>
-                </div>
-              </li>
-            </ol>
-          </section>
-        </section>
-        <section id="download-activity" class="mb-5">
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <h2 class="text-body font-semibold">
-              {if @batch, do: "Lote de downloads", else: "Downloads recentes"}
-            </h2>
-            <.link
-              navigate={~p"/jobs?worker=DownloadWorker"}
-              class="text-body-sm text-primary-soft underline"
-            >Ver fila e tentativas</.link>
-          </div>
-          <p :if={@batch && @downloads != []} class="mt-1 text-body-sm text-ink-muted" role="status">
-            {@completed} de {length(@downloads)} concluídos.
-            <.link patch={~p"/importados"} class="ml-2 text-primary-soft underline">Ver recentes</.link>
-          </p>
-          <p :if={@downloads == []} class="mt-2 text-body-sm text-ink-muted">
-            Nenhum download recente.
-          </p>
-          <ul class="mt-1 max-h-80 overflow-y-auto">
-            <li
-              :for={job <- @downloads}
-              class="flex flex-wrap items-baseline justify-between gap-x-3 border-b border-white/6 py-2 text-body-sm"
-            >
-              <span class="min-w-0 break-all">{job.args["title"] || job.args["video_id"] ||
-                job.args["url"]}</span>
-              <span class="font-mono text-caption text-ink-muted">{download_state(job.state)}</span>
-              <span :if={issue = download_issue(job)} class="w-full text-caption text-amber">{issue}</span>
-            </li>
-          </ul>
-        </section>
-        <h2 class="mb-2 text-body font-semibold">Faixas importadas do YouTube</h2>
-        <div class="mb-3 flex flex-wrap items-center gap-1.5">
-          <button
-            phx-click="toggle_filter"
-            phx-value-key="unfiled"
-            class={chip_class(@filters[:unfiled] == true)}
-          >
-            Não classificadas
-          </button>
-          <button
-            phx-click="toggle_filter"
-            phx-value-key="unresolved"
-            class={chip_class(@filters[:unresolved] == true)}
-          >
-            Não resolvidas
-          </button>
-          <button
-            phx-click="toggle_filter"
-            phx-value-key="gold"
-            class={chip_class(@filters[:gold] == true)}
-          >
-            ★ Ouro
-          </button>
-          <span class="ml-auto text-caption text-ink-faint">Ordenar:</span>
-          <button phx-click="sort" phx-value-by="recent" class={chip_class(@sort == :recent)}>
-            Recentes
-          </button>
-          <button phx-click="sort" phx-value-by="views" class={chip_class(@sort == :views)}>
-            Views
-          </button>
-          <button phx-click="sort" phx-value-by="published" class={chip_class(@sort == :published)}>
-            Idade
-          </button>
-        </div>
-
-        <div
-          :if={@playlists == [] and @singles == []}
-          class="rounded-xl border border-white/6 bg-surface p-8 text-center text-ink-muted"
-        >
-          Nenhum importado do YouTube por aqui.
-        </div>
-
-        <div
-          :for={pl <- @playlists}
-          class="mb-2 overflow-hidden rounded-xl border border-white/8 bg-surface"
-        >
-          <div class="flex items-center gap-3 px-3 py-2.5">
-            <button
-              phx-click="toggle_playlist"
-              phx-value-key={pl.key}
-              class="flex size-6 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-white/5 hover:text-ink"
-              aria-label={"Expandir/recolher #{pl.title}"}
-              title="Expandir/recolher"
-            >
-              {if MapSet.member?(@expanded, pl.key), do: "▾", else: "▸"}
-            </button>
-            <button
-              phx-click="toggle_playlist"
-              phx-value-key={pl.key}
-              class="min-w-0 flex-1 text-left"
-            >
-              <div class="truncate text-body font-semibold text-ink">{pl.title}</div>
-              <div class="text-caption text-ink-faint">{pl.count} faixas</div>
-            </button>
-            <button
-              phx-click="create_set"
-              phx-value-key={pl.key}
-              class="shrink-0 rounded-md border border-primary/40 bg-primary/15 px-3 py-1.5 text-body-sm font-semibold text-primary hover:bg-primary/25"
-              aria-label={"Criar set com #{pl.title}"}
-              title="Criar um set com estas faixas, na ordem, com transições sugeridas"
-            >
-              Criar set
-            </button>
-          </div>
-          <ul
-            :if={MapSet.member?(@expanded, pl.key)}
-            class="space-y-1 border-t border-white/6 bg-base/40 p-2"
-          >
-            <.track_row :for={track <- pl.tracks} track={track} />
-          </ul>
-        </div>
-
-        <div :if={@singles != []}>
-          <h2 class="mb-1.5 mt-4 text-caption font-semibold uppercase tracking-[0.14em] text-ink-faint">
-            Avulsas
-          </h2>
-          <ul class="space-y-1">
-            <.track_row :for={track <- @singles} track={track} />
-          </ul>
-        </div>
+        <.live_component
+          module={LocalImportComponent}
+          id="local-import"
+          active={@mode == :local}
+          progress_event={@local_progress_event}
+        />
+        <.online_imports :if={@mode == :online} {assigns} />
       </div>
     </.app_shell>
+    """
+  end
+
+  defp online_imports(assigns) do
+    ~H"""
+    <div>
+      <section
+        class="mb-5 rounded-md border border-white/10 bg-surface p-4"
+        aria-label="Importar de um link"
+      >
+        <form id="link-preview" phx-submit="preview_links" phx-change="edit_links">
+          <label for="import-urls" class="block text-body font-semibold">Links do YouTube ou playlist do Spotify</label>
+          <p id="link-hint" class="mb-2 text-body-sm text-ink-muted">
+            Cole um link por linha. Para baixar uma playlist do YouTube, use o link da própria playlist.
+          </p>
+          <div class="flex flex-wrap items-end gap-2">
+            <textarea
+              id="import-urls"
+              name="urls"
+              rows="2"
+              aria-describedby="link-hint"
+              placeholder="https://…"
+              class="min-w-0 grow rounded-sm border border-white/10 bg-input px-3 py-2 text-body"
+            >{@urls}</textarea>
+            <button
+              type="submit"
+              disabled={@loading}
+              class="rounded-sm bg-primary-deep px-4 py-2 text-body-sm font-semibold text-white disabled:opacity-50"
+            >Conferir links</button>
+          </div>
+        </form>
+        <p :if={@recommendation} class="mt-3 text-body-sm">
+          {@recommendation.artist} · {@recommendation.song}
+          <button phx-click="find_recommendation" class="ml-2 text-primary-soft underline">Buscar versões</button>
+        </p>
+        <p :if={@loading} role="status" class="mt-3 text-body-sm text-ink-muted">
+          Consultando faixas…
+        </p>
+        <p :if={@error} role="alert" class="mt-3 text-body-sm text-coral-soft">{@error}</p>
+
+        <a
+          :if={@search}
+          href={"https://www.youtube.com/results?" <> URI.encode_query(%{"search_query" => @search})}
+          target="_blank"
+          rel="noopener"
+          class="mt-2 inline-flex text-body-sm text-primary-soft underline"
+        >
+          Procurar “{@search}” no YouTube
+        </a>
+
+        <form
+          :if={@rows != []}
+          id="confirm-downloads"
+          phx-change="select_downloads"
+          phx-submit="confirm_downloads"
+          class="mt-4 border-t border-white/10 pt-3"
+        >
+          <fieldset>
+            <legend class="mb-2 text-body font-semibold">
+              {if @search, do: "Versões para “#{@search}”", else: "Confira as faixas"}
+            </legend>
+            <div class="max-h-72 overflow-y-auto">
+              <div :for={row <- @rows} class="flex items-center gap-3 border-b border-white/6 py-1">
+                <label class="flex min-w-0 grow items-center gap-2 py-2 text-body-sm">
+                  <input
+                    type="checkbox"
+                    name="ids[]"
+                    value={row.id}
+                    checked={MapSet.member?(@selected, row.id)}
+                  />
+                  <span class="min-w-0 break-words">
+                    {row.title}
+                    <span :if={row.playlist_title} class="block text-caption text-ink-muted">{row.playlist_title} · faixa {row.playlist_index}</span>
+                  </span>
+                </label>
+                <a
+                  href={row.url}
+                  target="_blank"
+                  rel="noopener"
+                  class="text-caption text-primary-soft underline"
+                  aria-label={"Abrir #{row.title} no YouTube"}
+                >Ver vídeo</a>
+              </div>
+            </div>
+          </fieldset>
+          <button
+            disabled={MapSet.size(@selected) == 0}
+            class="mt-3 rounded-sm bg-primary-deep px-4 py-2 text-body-sm font-semibold text-white disabled:opacity-50"
+          >
+            Baixar {MapSet.size(@selected)} {if MapSet.size(@selected) == 1,
+              do: "faixa",
+              else: "faixas"}
+          </button>
+        </form>
+        <section :if={@spotify} class="mt-4 border-t border-white/10 pt-3">
+          <h2 class="text-body font-semibold">{@spotify.title}</h2>
+          <p class="text-body-sm text-ink-muted">
+            {length(@spotify.tracks)} faixas na prévia pública do Spotify. Escolha uma faixa para conferir as versões no YouTube.
+          </p>
+          <ol class="mt-2 max-h-80 list-decimal overflow-y-auto pl-6">
+            <li
+              :for={{track, index} <- Enum.with_index(@spotify.tracks)}
+              class="border-b border-white/6 py-1 text-body-sm"
+            >
+              <div class="flex flex-wrap items-center justify-between gap-1">
+                <span>{track.title} · {track.artist}<.link
+                  :if={track.library_id}
+                  navigate={~p"/track/#{track.library_id}"}
+                  class="block py-1 text-caption text-green underline"
+                >Abrir na biblioteca</.link></span>
+                <button
+                  type="button"
+                  phx-click="find_version"
+                  phx-value-index={index}
+                  aria-label={"Buscar versões de #{track.title}"}
+                  class="py-2 text-primary-soft underline"
+                >Buscar versões</button>
+              </div>
+            </li>
+          </ol>
+        </section>
+      </section>
+      <section id="download-activity" class="mb-5">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h2 class="text-body font-semibold">
+            {if @batch, do: "Lote de downloads", else: "Downloads recentes"}
+          </h2>
+          <.link
+            navigate={~p"/jobs?worker=DownloadWorker"}
+            class="text-body-sm text-primary-soft underline"
+          >Ver fila e tentativas</.link>
+        </div>
+        <p :if={@batch && @downloads != []} class="mt-1 text-body-sm text-ink-muted" role="status">
+          {@completed} de {length(@downloads)} concluídos.
+          <.link patch={~p"/importados"} class="ml-2 text-primary-soft underline">Ver recentes</.link>
+        </p>
+        <p :if={@downloads == []} class="mt-2 text-body-sm text-ink-muted">
+          Nenhum download recente.
+        </p>
+        <ul class="mt-1 max-h-80 overflow-y-auto">
+          <li
+            :for={job <- @downloads}
+            class="flex flex-wrap items-baseline justify-between gap-x-3 border-b border-white/6 py-2 text-body-sm"
+          >
+            <span class="min-w-0 break-all">{job.args["title"] || job.args["video_id"] ||
+              job.args["url"]}</span>
+            <span class="font-mono text-caption text-ink-muted">{download_state(job.state)}</span>
+            <span :if={issue = download_issue(job)} class="w-full text-caption text-amber">{issue}</span>
+          </li>
+        </ul>
+      </section>
+      <h2 class="mb-2 text-body font-semibold">Faixas importadas do YouTube</h2>
+      <div class="mb-3 flex flex-wrap items-center gap-1.5">
+        <button
+          phx-click="toggle_filter"
+          phx-value-key="unfiled"
+          class={chip_class(@filters[:unfiled] == true)}
+        >
+          Não classificadas
+        </button>
+        <button
+          phx-click="toggle_filter"
+          phx-value-key="unresolved"
+          class={chip_class(@filters[:unresolved] == true)}
+        >
+          Não resolvidas
+        </button>
+        <button
+          phx-click="toggle_filter"
+          phx-value-key="gold"
+          class={chip_class(@filters[:gold] == true)}
+        >
+          ★ Ouro
+        </button>
+        <span class="ml-auto text-caption text-ink-faint">Ordenar:</span>
+        <button phx-click="sort" phx-value-by="recent" class={chip_class(@sort == :recent)}>
+          Recentes
+        </button>
+        <button phx-click="sort" phx-value-by="views" class={chip_class(@sort == :views)}>
+          Views
+        </button>
+        <button phx-click="sort" phx-value-by="published" class={chip_class(@sort == :published)}>
+          Idade
+        </button>
+      </div>
+
+      <div
+        :if={@playlists == [] and @singles == []}
+        class="rounded-xl border border-white/6 bg-surface p-8 text-center text-ink-muted"
+      >
+        Nenhum importado do YouTube por aqui.
+      </div>
+
+      <div
+        :for={pl <- @playlists}
+        class="mb-2 overflow-hidden rounded-xl border border-white/8 bg-surface"
+      >
+        <div class="flex items-center gap-3 px-3 py-2.5">
+          <button
+            phx-click="toggle_playlist"
+            phx-value-key={pl.key}
+            class="flex size-6 shrink-0 items-center justify-center rounded text-ink-muted hover:bg-white/5 hover:text-ink"
+            aria-label={"Expandir/recolher #{pl.title}"}
+            title="Expandir/recolher"
+          >
+            {if MapSet.member?(@expanded, pl.key), do: "▾", else: "▸"}
+          </button>
+          <button
+            phx-click="toggle_playlist"
+            phx-value-key={pl.key}
+            class="min-w-0 flex-1 text-left"
+          >
+            <div class="truncate text-body font-semibold text-ink">{pl.title}</div>
+            <div class="text-caption text-ink-faint">{pl.count} faixas</div>
+          </button>
+          <button
+            phx-click="create_set"
+            phx-value-key={pl.key}
+            class="shrink-0 rounded-md border border-primary/40 bg-primary/15 px-3 py-1.5 text-body-sm font-semibold text-primary hover:bg-primary/25"
+            aria-label={"Criar set com #{pl.title}"}
+            title="Criar um set com estas faixas, na ordem, com transições sugeridas"
+          >
+            Criar set
+          </button>
+        </div>
+        <ul
+          :if={MapSet.member?(@expanded, pl.key)}
+          class="space-y-1 border-t border-white/6 bg-base/40 p-2"
+        >
+          <.track_row :for={track <- pl.tracks} track={track} />
+        </ul>
+      </div>
+
+      <div :if={@singles != []}>
+        <h2 class="mb-1.5 mt-4 text-caption font-semibold uppercase tracking-[0.14em] text-ink-faint">
+          Avulsas
+        </h2>
+        <ul class="space-y-1">
+          <.track_row :for={track <- @singles} track={track} />
+        </ul>
+      </div>
+    </div>
     """
   end
 

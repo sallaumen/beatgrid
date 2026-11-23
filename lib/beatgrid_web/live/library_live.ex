@@ -5,12 +5,12 @@ defmodule BeatgridWeb.LibraryLive do
   import BeatgridWeb.UI
 
   alias Beatgrid.Library
-  alias Beatgrid.Library.{GenreFolders, SourceBrowser, TrackQuery, Tracks}
+  alias Beatgrid.Library.{GenreFolders, TrackQuery, Tracks}
   alias Beatgrid.Loudness
   alias Beatgrid.Operations
   alias Beatgrid.Playback
   alias Beatgrid.Soundcharts.Camelot
-  alias Beatgrid.Workers.{ImportWorker, MoveBatchWorker, UndoBatchWorker}
+  alias Beatgrid.Workers.{MoveBatchWorker, UndoBatchWorker}
 
   # "Parecidas" widens the energy window by ±this many points (0–100) around the
   # reference track's effective energy.
@@ -31,7 +31,10 @@ defmodule BeatgridWeb.LibraryLive do
   @wheel_cy 140
 
   @impl true
-  def mount(params, _session, socket) do
+  def mount(%{"importar" => "1"}, _session, socket),
+    do: {:ok, redirect(socket, to: ~p"/importados?origem=local")}
+
+  def mount(_params, _session, socket) do
     if connected?(socket) do
       Library.subscribe_import()
       Operations.subscribe()
@@ -53,9 +56,6 @@ defmodule BeatgridWeb.LibraryLive do
        folder_menu: nil,
        tom_wheel_open: false,
        move_toast: nil,
-       import: if(params["importar"] == "1", do: browse(%{open: true})),
-       import_progress: nil,
-       import_toast: nil,
        playing_track_id: np.track_id,
        all_tags: Tracks.all_tags()
      )
@@ -285,158 +285,11 @@ defmodule BeatgridWeb.LibraryLive do
   def handle_event("dismiss_move_toast", _params, socket),
     do: {:noreply, assign(socket, move_toast: nil)}
 
-  # --- import: open/close the modal ---
-
-  def handle_event("show_import", _params, socket),
-    do: {:noreply, assign(socket, import: browse(%{open: true}, SourceBrowser.start_dir()))}
-
-  def handle_event("hide_import", _params, socket),
-    do: {:noreply, socket |> cancel_async(:preview) |> assign(import: nil)}
-
-  # --- import: read-only enrich-before-import preview (writes nothing) ---
-
-  def handle_event("preview_import", params, socket) do
-    source = String.trim(params["source"] || "")
-    ai? = params["ai"] == "on"
-    soundcharts? = params["soundcharts"] == "on"
-
-    if source == "" do
-      {:noreply, assign(socket, import: browse(%{open: true, error: "Cole um caminho."}))}
-    else
-      {:noreply, start_preview(socket, source, %{ai: ai?, soundcharts: soundcharts?})}
-    end
-  end
-
-  # --- import: the folder browser (server-side — the app browses the DJ's own disk) ---
-
-  def handle_event("browse_to", %{"dir" => dir}, socket) do
-    {:noreply, assign(socket, import: browse(socket.assigns.import, dir))}
-  end
-
-  def handle_event("browse_pick", %{"file" => file}, socket) do
-    {:noreply, start_preview(socket, file, socket.assigns.import)}
-  end
-
-  def handle_event("browse_import_here", _params, socket) do
-    import_state = socket.assigns.import
-
-    case import_state[:browse] do
-      %{dir: dir} -> {:noreply, start_preview(socket, dir, import_state)}
-      _no_browse -> {:noreply, socket}
-    end
-  end
-
-  # --- import: commit — enqueue the copying ImportWorker with the reviewed overrides ---
-
-  def handle_event("run_import", params, %{assigns: %{import: %{rows: rows}}} = socket)
-      when is_list(rows) do
-    import_state = socket.assigns.import
-    items = items_from_params(params, import_state.rows)
-
-    if items == [] do
-      {:noreply, socket}
-    else
-      batch_id = Uniq.UUID.uuid7()
-
-      {:ok, _job} =
-        ImportWorker.enqueue(items, batch_id, resolve_soundcharts: import_state.soundcharts)
-
-      {:noreply,
-       assign(socket,
-         import: nil,
-         import_progress: %{batch_id: batch_id, status: :queued, done: 0, total: length(items)}
-       )}
-    end
-  end
-
-  def handle_event("run_import", _params, socket), do: {:noreply, socket}
-
-  def handle_event("dismiss_import_toast", _params, socket),
-    do: {:noreply, assign(socket, import_toast: nil)}
-
-  # Intentionally NOT an Oban job: the preview is a read-only dry run feeding
-  # this modal — if the tab dies, nothing is lost and the user just re-opens it.
-  defp start_preview(socket, source, prefs) do
-    ai? = Map.get(prefs, :ai, false)
-
-    state =
-      socket.assigns.import
-      |> Map.merge(%{
-        open: true,
-        source: source,
-        ai: ai?,
-        soundcharts: Map.get(prefs, :soundcharts, false),
-        loading: true,
-        error: nil,
-        rows: nil
-      })
-
-    socket
-    |> assign(import: state)
-    |> start_async(:preview, fn -> Library.preview_import(source, ai: ai?) end)
-  end
-
-  # Lists `dir` into the modal state; on failure the panel says so and still
-  # offers the way up. Without a dir, keeps (or seeds) the current listing.
-  defp browse(import_state, dir \\ nil) do
-    dir = dir || get_in(import_state, [:browse, :dir]) || SourceBrowser.start_dir()
-
-    listing =
-      case SourceBrowser.list(dir) do
-        {:ok, listing} ->
-          Map.put(listing, :error, nil)
-
-        {:error, _reason} ->
-          %{
-            dir: dir,
-            parent: Path.dirname(dir),
-            dirs: [],
-            files: [],
-            error: "Não deu para ler esta pasta."
-          }
-      end
-
-    Map.put(import_state, :browse, listing)
-  end
-
   @impl true
-  def handle_async(:preview, _result, %{assigns: %{import: state}} = socket)
-      when not is_map_key(state, :loading), do: {:noreply, socket}
+  def handle_info({:import_progress, %{status: :done}}, socket),
+    do: {:noreply, load_tracks(socket)}
 
-  def handle_async(:preview, {:ok, {:ok, rows}}, socket) do
-    state = Map.merge(socket.assigns.import, %{loading: false, rows: rows, error: nil})
-    {:noreply, assign(socket, import: state)}
-  end
-
-  def handle_async(:preview, {:ok, {:error, :not_found}}, socket) do
-    state =
-      socket.assigns.import
-      |> Map.merge(%{loading: false, rows: nil})
-      |> Map.put(:error, "Caminho não encontrado ou não é áudio.")
-
-    {:noreply, assign(socket, import: state)}
-  end
-
-  def handle_async(:preview, {:exit, _reason}, socket) do
-    state =
-      socket.assigns.import
-      |> Map.merge(%{loading: false, rows: nil})
-      |> Map.put(:error, "Falha ao pré-visualizar.")
-
-    {:noreply, assign(socket, import: state)}
-  end
-
-  @impl true
-  def handle_info({:import_progress, %{status: :done} = p}, socket) do
-    {:noreply,
-     socket
-     |> assign(import_progress: nil, import_toast: import_summary(p))
-     |> load_tracks()}
-  end
-
-  def handle_info({:import_progress, p}, socket) do
-    {:noreply, assign(socket, import_progress: p)}
-  end
+  def handle_info({:import_progress, _progress}, socket), do: {:noreply, socket}
 
   # The background batch move finished — swap the "movendo…" toast for the
   # Desfazer one and refresh the rows.
@@ -455,35 +308,6 @@ defmodule BeatgridWeb.LibraryLive do
   def handle_info({:now_playing, np}, socket) do
     {:noreply, assign(socket, playing_track_id: np.track_id)}
   end
-
-  # Build the Oban-shaped items from the per-row edited inputs. Only NEW rows are
-  # importable; duplicates are previewed greyed-out without inputs, so they never
-  # appear in `params["items"]` and are dropped here for good measure.
-  defp items_from_params(params, rows) do
-    edits = params["items"] || %{}
-
-    for {row, index} <- Enum.with_index(rows),
-        not row.duplicate,
-        edit = edits[to_string(index)],
-        is_map(edit),
-        edit["source_path"] == row.source_path do
-      %{
-        "source_path" => row.source_path,
-        "sha256" => row.sha256,
-        "artist" => String.trim(edit["artist"] || ""),
-        "title" => String.trim(edit["title"] || "")
-      }
-    end
-  end
-
-  defp import_summary(%{failed: failed} = p) when failed > 0 do
-    files = p.failures |> Enum.take(3) |> Enum.map_join(", ", & &1.file)
-
-    "#{p.imported} importada(s), #{p.skipped} duplicada(s), #{failed} com falha (#{files}). Confira os arquivos e tente novamente."
-  end
-
-  defp import_summary(%{imported: n}) when n > 0, do: "#{n} faixa(s) importada(s)."
-  defp import_summary(_p), do: "Nada novo para importar."
 
   # Resets to the first page — used after any filter/sort/move change. Loads page 1
   # (100 rows) + the total count so the header and has-more? are accurate.
@@ -551,15 +375,14 @@ defmodule BeatgridWeb.LibraryLive do
           <div class="flex items-baseline gap-3">
             <h1 class="text-[22px] font-semibold">Biblioteca</h1>
             <span class="font-mono text-body-sm text-ink-muted">{@total} faixas</span>
-            <button
-              phx-click="show_import"
+            <.link
+              navigate={~p"/importados?origem=local"}
               class="rounded-md bg-primary-deep px-3 py-1.5 text-body-sm font-semibold text-white"
             >
               Importar
-            </button>
+            </.link>
           </div>
           <div class="flex items-center gap-3">
-            <.import_progress_bar :if={@import_progress} progress={@import_progress} />
             <%= if @selecting? do %>
               <div class="flex items-center gap-2">
                 <button
@@ -603,7 +426,6 @@ defmodule BeatgridWeb.LibraryLive do
           </div>
         </header>
 
-        <.import_toast :if={@import_toast} message={@import_toast} />
         <.move_toast :if={@move_toast} toast={@move_toast} />
 
         <div class="relative flex min-h-0 flex-1">
@@ -698,8 +520,6 @@ defmodule BeatgridWeb.LibraryLive do
           move_toast={@move_toast}
         />
       </div>
-
-      <.import_modal :if={@import && @import.open} import={@import} />
     </.app_shell>
     """
   end
@@ -1196,35 +1016,6 @@ defmodule BeatgridWeb.LibraryLive do
     """
   end
 
-  attr :progress, :map, required: true
-
-  defp import_progress_bar(assigns) do
-    ~H"""
-    <div class="flex items-center gap-2">
-      <span class="text-caption text-ink-muted">{progress_label(@progress)}</span>
-      <div class="h-[6px] w-32 rounded-full bg-white/5">
-        <div
-          class="h-full rounded-full bg-primary transition-[width]"
-          style={"width:#{progress_pct(@progress)}%"}
-        />
-      </div>
-    </div>
-    """
-  end
-
-  attr :message, :string, required: true
-
-  defp import_toast(assigns) do
-    ~H"""
-    <div class="flex items-center justify-between gap-4 border-b border-green/30 bg-green/10 px-5 py-2">
-      <p class="text-body-sm text-ink">{@message}</p>
-      <button phx-click="dismiss_import_toast" class="text-body-sm text-ink-muted hover:text-ink">
-        ✕
-      </button>
-    </div>
-    """
-  end
-
   # Confirmation bar around a move: "movendo…" while the worker runs, then the
   # result carrying the batch_id behind a "Desfazer", then "desfazendo…".
   attr :toast, :any, required: true
@@ -1322,217 +1113,6 @@ defmodule BeatgridWeb.LibraryLive do
           Limpar
         </button>
       </div>
-    </div>
-    """
-  end
-
-  attr :import, :map, required: true
-
-  defp import_modal(assigns) do
-    ~H"""
-    <div class="fixed inset-0 z-20 flex items-center justify-center p-4">
-      <div class="absolute inset-0 bg-black/60" phx-click="hide_import"></div>
-      <div class="relative max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-white/10 bg-surface p-5">
-        <div class="mb-4 flex items-center justify-between">
-          <h2 class="text-[18px] font-semibold">Importar pasta ou arquivo</h2>
-          <button
-            phx-click="hide_import"
-            aria-label="Fechar importação"
-            class="text-ink-muted hover:text-ink"
-          >✕</button>
-        </div>
-
-        <form id="import-source" phx-submit="preview_import" class="space-y-3">
-          <input
-            type="text"
-            name="source"
-            value={@import[:source]}
-            aria-label="Caminho da pasta ou arquivo"
-            placeholder="Cole o caminho de uma pasta ou arquivo…"
-            class="w-full rounded-md border border-white/8 bg-input px-3 py-2 text-body focus:border-primary/50 focus:outline-none"
-          />
-          <div class="flex flex-wrap items-center gap-4">
-            <label class="flex items-center gap-2 text-body-sm text-ink-secondary">
-              <input
-                type="checkbox"
-                name="ai"
-                checked={Map.get(@import, :ai, false)}
-                class="rounded border-white/20 bg-input"
-              /> Refinar títulos com IA
-            </label>
-            <label class="flex items-center gap-2 text-body-sm text-ink-secondary">
-              <input
-                type="checkbox"
-                name="soundcharts"
-                checked={Map.get(@import, :soundcharts, false)}
-                class="rounded border-white/20 bg-input"
-              /> Resolver no Soundcharts depois (gasta cota)
-            </label>
-            <button class="ml-auto rounded-md bg-primary-deep px-3.5 py-1.5 text-body-sm font-semibold text-white">
-              Pré-visualizar
-            </button>
-          </div>
-        </form>
-
-        <.source_browser :if={@import[:browse]} browse={@import.browse} />
-
-        <p
-          :if={@import[:error]}
-          class="mt-3 rounded-lg border border-coral/25 bg-coral/8 px-3 py-2 text-body-sm text-ink"
-        >
-          ⚠ {@import.error}
-        </p>
-
-        <div
-          :if={@import[:loading]}
-          class="mt-4 flex items-center gap-2 text-body-sm text-ink-muted"
-        >
-          <span class="size-2.5 motion-safe:animate-pulse rounded-full bg-primary"></span>
-          Pré-visualizando…
-        </div>
-
-        <.preview_table :if={@import[:rows]} rows={@import.rows} soundcharts={@import[:soundcharts]} />
-      </div>
-    </div>
-    """
-  end
-
-  # Server-side folder browser: the app is single-user and local, so it walks the
-  # DJ's own disk — no upload, no typing paths by hand. Listing is extension-only
-  # (cheap); the probe happens in the preview.
-  attr :browse, :map, required: true
-
-  defp source_browser(assigns) do
-    ~H"""
-    <div id="import-browser" class="mt-3 rounded-lg border border-white/8">
-      <div class="flex items-center justify-between gap-3 border-b border-white/5 px-3 py-2">
-        <p class="min-w-0 truncate font-mono text-caption text-ink-muted" title={@browse.dir}>
-          {@browse.dir}
-        </p>
-        <button
-          phx-click="browse_import_here"
-          class="shrink-0 rounded-md bg-primary/15 px-2.5 py-1 text-body-sm font-semibold text-primary hover:bg-primary/25"
-        >
-          Importar esta pasta
-        </button>
-      </div>
-
-      <p :if={@browse.error} class="px-3 py-2 text-body-sm text-ink-muted">{@browse.error}</p>
-
-      <div class="max-h-56 divide-y divide-white/5 overflow-y-auto">
-        <button
-          :if={@browse.parent}
-          phx-click="browse_to"
-          phx-value-dir={@browse.parent}
-          class="block w-full px-3 py-1.5 text-left text-body-sm text-ink-muted hover:bg-white/5 hover:text-ink"
-        >
-          ‹ subir
-        </button>
-        <button
-          :for={dir <- @browse.dirs}
-          phx-click="browse_to"
-          phx-value-dir={dir.path}
-          class="block w-full truncate px-3 py-1.5 text-left text-body-sm text-ink-secondary hover:bg-white/5 hover:text-ink"
-        >
-          {dir.name}/
-        </button>
-        <button
-          :for={file <- @browse.files}
-          phx-click="browse_pick"
-          phx-value-file={file.path}
-          class="block w-full truncate px-3 py-1.5 text-left text-body-sm text-ink hover:bg-primary/10"
-        >
-          {file.name}
-        </button>
-        <p
-          :if={!@browse.error && @browse.dirs == [] && @browse.files == []}
-          class="px-3 py-2 text-body-sm text-ink-faint"
-        >
-          Nada importável aqui — entre numa subpasta ou cole um caminho.
-        </p>
-      </div>
-    </div>
-    """
-  end
-
-  attr :rows, :list, required: true
-  attr :soundcharts, :boolean, default: false
-
-  defp preview_table(assigns) do
-    assigns =
-      assigns
-      |> assign(:new_rows, Enum.reject(assigns.rows, & &1.duplicate))
-      |> assign(:dupes, Enum.count(assigns.rows, & &1.duplicate))
-
-    ~H"""
-    <div class="mt-5">
-      <p class="mb-2 text-body-sm text-ink-muted">
-        {length(@new_rows)} nova(s), {@dupes} duplicada(s)
-      </p>
-
-      <form id="import-run" phx-submit="run_import" class="space-y-1">
-        <div
-          :for={{row, i} <- Enum.with_index(@rows)}
-          class={[
-            "grid grid-cols-2 items-center gap-2 rounded-lg px-2 py-2 md:grid-cols-[1fr_1fr_1.2fr_60px_60px]",
-            row.duplicate && "opacity-50",
-            !row.duplicate && "bg-base"
-          ]}
-        >
-          <%= if row.duplicate do %>
-            <span class="truncate text-body-sm text-ink-muted">{row.artist || "—"}</span>
-            <span class="truncate text-body-sm text-ink-muted">{row.title || "—"}</span>
-          <% else %>
-            <input type="hidden" name={"items[#{i}][source_path]"} value={row.source_path} />
-            <input
-              type="text"
-              name={"items[#{i}][artist]"}
-              value={row.artist}
-              aria-label={"Artista de #{row.filename}"}
-              placeholder="Artista"
-              class="w-full rounded-md border border-white/8 bg-input px-2 py-1 text-body-sm focus:border-primary/50 focus:outline-none"
-            />
-            <input
-              type="text"
-              name={"items[#{i}][title]"}
-              value={row.title}
-              aria-label={"Título de #{row.filename}"}
-              placeholder="Título"
-              class="w-full rounded-md border border-white/8 bg-input px-2 py-1 text-body-sm focus:border-primary/50 focus:outline-none"
-            />
-          <% end %>
-          <span class="truncate text-caption text-ink-faint" title={row.filename}>
-            {row.filename}
-            <span
-              :if={row.duplicate}
-              class="ml-1 rounded bg-white/8 px-1.5 py-px text-[10px] text-ink-muted"
-            >
-              duplicada — será pulada
-            </span>
-            <span
-              :if={row.near_dup}
-              class="ml-1 rounded bg-amber/15 px-1.5 py-px text-[10px] font-semibold text-amber"
-              title="Já existe uma faixa com o mesmo artista e título (versão diferente). Você ainda pode importar."
-            >
-              parecida já existe
-            </span>
-          </span>
-          <span class="text-right font-mono text-caption text-ink-muted">{duration(row.duration_ms)}</span>
-          <span class="text-right font-mono text-caption text-ink-faint">{format_label(row.format)}</span>
-        </div>
-
-        <div :if={@new_rows != []} class="flex justify-end pt-3">
-          <button class="rounded-md bg-primary-deep px-4 py-2 text-body-sm font-semibold text-white">
-            Importar {length(@new_rows)} faixa(s){if @soundcharts, do: " + Soundcharts", else: ""}
-          </button>
-        </div>
-        <p :if={@rows == []} class="pt-3 text-body-sm text-ink-muted">
-          Nenhum arquivo de áudio encontrado nesta pasta.
-        </p>
-        <p :if={@rows != [] and @new_rows == []} class="pt-3 text-body-sm text-ink-faint">
-          Nada novo para importar — tudo já está na biblioteca.
-        </p>
-      </form>
     </div>
     """
   end
@@ -1693,22 +1273,4 @@ defmodule BeatgridWeb.LibraryLive do
 
   defp energy_pct(%{soundcharts_song: %{energy: e}}) when is_number(e), do: round(e * 100)
   defp energy_pct(_track), do: 0
-
-  defp progress_label(%{status: :queued}), do: "Importando — na fila…"
-  defp progress_label(%{done: d, total: t}), do: "Importando #{d}/#{t}…"
-
-  defp progress_pct(%{done: d, total: t}) when is_integer(t) and t > 0, do: round(d / t * 100)
-  defp progress_pct(_progress), do: 0
-
-  defp duration(ms) when is_integer(ms) and ms > 0 do
-    secs = div(ms, 1000)
-    "#{div(secs, 60)}:#{String.pad_leading(to_string(rem(secs, 60)), 2, "0")}"
-  end
-
-  defp duration(_ms), do: "—"
-
-  defp format_label(format) when is_atom(format) and not is_nil(format),
-    do: format |> to_string() |> String.upcase()
-
-  defp format_label(_format), do: "—"
 end

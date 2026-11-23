@@ -154,6 +154,15 @@ defmodule BeatgridWeb.ImportsLiveTest do
     assert has_element?(view, "#download-activity", "Na fila")
     batch_url = assert_patch(view)
     assert batch_url =~ "/importados?lote="
+
+    view |> element("#import-sources a", "Pasta ou arquivo") |> render_click()
+    assert_patch(view, ~p"/importados?origem=local")
+    refute has_element?(view, "#download-activity")
+
+    view |> element("#import-sources a", "YouTube e Spotify") |> render_click()
+    assert_patch(view, batch_url)
+    assert has_element?(view, "#download-activity", "Queijinho do amor")
+
     {:ok, reloaded, _} = live(conn, batch_url)
     assert has_element?(reloaded, "#download-activity", "Queijinho do amor")
   end
@@ -241,6 +250,6 @@ defmodule BeatgridWeb.ImportsLiveTest do
     render_click(view, "sort", %{"by" => "not_an_existing_atom_xyz"})
     render_click(view, "toggle_filter", %{"key" => "delete"})
 
-    assert render(view) =~ "Importados"
+    assert has_element?(view, "h1", "Importações")
   end
 end
