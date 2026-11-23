@@ -61,6 +61,15 @@ if config_env() != :test do
   config :beatgrid, Beatgrid.Recognition.Audd, api_token: env!("AUDD_API_TOKEN", :string, nil)
 end
 
+# Tests read only their own optional overrides, never the developer's API credentials.
+if config_env() == :test do
+  source!([".env.test", Map.take(System.get_env(), ["BEATGRID_DB_PORT"])])
+end
+
+if config_env() in [:dev, :test] do
+  config :beatgrid, Beatgrid.Repo, port: env!("BEATGRID_DB_PORT", :integer, 5434)
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||

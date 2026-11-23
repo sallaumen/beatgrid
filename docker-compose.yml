@@ -9,9 +9,9 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: beatgrid_dev
-    # Host port 5434 (5432 = vic-api, 5433 = forrozin_page on this machine).
+    # Defaults to 5434. A machine-local override keeps other databases running.
     ports:
-      - "5434:5432"
+      - "127.0.0.1:${BEATGRID_DB_PORT:-5434}:5432"
     volumes:
       - beatgrid_pg:/var/lib/postgresql/data
     healthcheck:
