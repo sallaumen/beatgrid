@@ -37,6 +37,46 @@ defmodule BeatgridWeb.TrackLiveTest do
     assert Tracks.get(track.id).personal_note == "abertura"
   end
 
+  test "offers recovery for the current missing file", %{conn: conn} do
+    track = insert(:track, status: :present, integrity_status: :missing_file)
+    {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
+
+    assert has_element?(
+             view,
+             "a[href='/resgate#arquivo-#{track.id}']",
+             "Ver recuperação do arquivo"
+           )
+
+    refute has_element?(view, "button#play-track")
+  end
+
+  test "restoring a track backup does not undo other tracks from the batch", %{conn: conn} do
+    batch_id = Ecto.UUID.generate()
+
+    [track, other] =
+      for _ <- 1..2 do
+        track = insert(:track, status: :present)
+
+        {:ok, _operation} =
+          Operations.record(%{
+            track_id: track.id,
+            kind: :gain,
+            status: :applied,
+            from: "-4.2",
+            to: "_Backups/Gain/#{batch_id}/#{track.id}.mp3",
+            batch_id: batch_id
+          })
+
+        track
+      end
+
+    {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
+    view |> element("button[phx-click=restore_gain_backup]") |> render_click()
+
+    assert Operations.latest_gain_operation(other.id).status == :applied
+    assert render(view) =~ "Não foi possível restaurar o backup"
+  end
+
   test "shows original and current loudness plus backup availability", %{conn: conn} do
     track =
       insert(:track,
@@ -76,7 +116,7 @@ defmodule BeatgridWeb.TrackLiveTest do
       )
 
     {:ok, view, html} = live(conn, ~p"/track/#{track.id}")
-    assert html =~ "Dados (editáveis)"
+    assert html =~ "Editar faixa"
 
     view |> element(~s|button[phx-click=edit_field][phx-value-field=title]|) |> render_click()
     view |> form("form[phx-submit=save_field]", %{value: "Novo Nome"}) |> render_submit()
