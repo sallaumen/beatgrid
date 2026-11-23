@@ -14,7 +14,10 @@ defmodule BeatgridWeb.GenresLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, assign_folders(assign(socket, toast: nil, ai_fill: %{}, suggesting: nil))}
+    {:ok,
+     assign_folders(
+       assign(socket, page_title: "Gêneros", toast: nil, ai_fill: %{}, suggesting: nil)
+     )}
   end
 
   # Folders + their in-use flags in one place: the flags come as ONE set (two
@@ -101,12 +104,19 @@ defmodule BeatgridWeb.GenresLive do
   def render(assigns) do
     ~H"""
     <.app_shell flash={@flash} active={:generos} socket={@socket}>
-      <header class="border-b border-white/6 bg-rail px-6 py-3">
-        <h1 class="text-[22px] font-semibold">Gêneros</h1>
-        <p class="text-ink-muted text-body-sm">
-          A descrição de cada pasta é o contexto que a IA usa pra classificar e pra verificar os
-          renomes. Quanto melhor a descrição, mais espertas as sugestões.
-        </p>
+      <header class="flex flex-wrap items-center justify-between gap-3 border-b border-white/6 bg-rail px-6 py-3">
+        <div>
+          <h1 class="text-[22px] font-semibold">Gêneros</h1>
+          <p class="text-body-sm text-ink-muted">
+            As descrições orientam a IA ao sugerir pastas e conferir nomes de faixas.
+          </p>
+        </div>
+        <.link
+          navigate={~p"/revisao?aba=classifications"}
+          class="text-body-sm text-primary hover:underline"
+        >
+          Revisar classificações
+        </.link>
       </header>
 
       <div class="mx-auto max-w-[1600px] px-6 py-6">
@@ -115,13 +125,17 @@ defmodule BeatgridWeb.GenresLive do
         <form
           id="new-genre"
           phx-submit="create_genre"
-          class="mt-5 flex items-end gap-2 rounded-xl border border-white/8 bg-surface p-4"
+          class="flex flex-wrap items-end gap-2 rounded-xl border border-white/8 bg-surface p-4"
         >
-          <div class="flex-1">
-            <label class="text-ink-muted mb-1 block text-[11px] font-semibold uppercase tracking-wide">
+          <div class="min-w-32 flex-1">
+            <label
+              for="new-genre-name"
+              class="text-ink-muted mb-1 block text-[11px] font-semibold uppercase tracking-wide"
+            >
               Novo gênero
             </label>
             <input
+              id="new-genre-name"
               name="display_name"
               required
               aria-label="Nome do novo gênero"
@@ -138,7 +152,7 @@ defmodule BeatgridWeb.GenresLive do
             title="Cor"
           />
           <button class="rounded-md bg-primary-deep px-3 py-2 text-body-sm font-semibold text-white">
-            Criar
+            Criar gênero
           </button>
         </form>
 
@@ -150,20 +164,10 @@ defmodule BeatgridWeb.GenresLive do
             class="flex flex-col rounded-xl border border-white/8 bg-surface p-4"
           >
             <input type="hidden" name="key" value={f.key} />
-            <div class="mb-2 flex items-center gap-2">
+            <div class="mb-2 flex flex-wrap items-center gap-2">
               <span class="size-3 shrink-0 rounded-full" style={"background:#{folder_color(f.key)}"} />
-              <span class="min-w-0 truncate text-body font-medium">{f.display_name}</span>
-              <span class="text-ink-faint shrink-0 font-mono text-[11px]">{f.key}</span>
+              <h2 class="min-w-0 text-body font-medium">{f.display_name}</h2>
               <div class="ml-auto flex items-center gap-2">
-                <button
-                  type="button"
-                  phx-click="suggest_description"
-                  phx-value-key={f.key}
-                  disabled={@suggesting == f.key}
-                  class="rounded-md bg-primary/15 px-2.5 py-1 text-[12px] font-semibold text-primary hover:bg-primary/25 disabled:opacity-50"
-                >
-                  {if @suggesting == f.key, do: "Preenchendo…", else: "Preencher com IA"}
-                </button>
                 <button
                   :if={f.key not in @in_use}
                   type="button"
@@ -190,9 +194,18 @@ defmodule BeatgridWeb.GenresLive do
               class="w-full flex-1 rounded-md border border-white/8 bg-input px-3 py-2 text-body-sm focus:border-primary/50 focus:outline-none"
               placeholder="Descreva o que define esta pasta (estilo, época, instrumentação)…"
             >{Map.get(@ai_fill, f.key, f.description)}</textarea>
-            <div class="mt-2 flex justify-end">
+            <div class="mt-2 flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                phx-click="suggest_description"
+                phx-value-key={f.key}
+                disabled={@suggesting == f.key}
+                class="rounded-md bg-primary/15 px-2.5 py-1 text-[12px] font-semibold text-primary hover:bg-primary/25 disabled:opacity-50"
+              >
+                {if @suggesting == f.key, do: "Gerando rascunho…", else: "Gerar rascunho com IA"}
+              </button>
               <button class="rounded-md bg-primary-deep px-3 py-1.5 text-body-sm font-semibold text-white">
-                Salvar
+                Salvar descrição
               </button>
             </div>
           </form>

@@ -66,6 +66,12 @@ defmodule BeatgridWeb.DedupLiveTest do
     assert html =~ "artista"
   end
 
+  test "the empty queue offers one scan control and links to quarantine recovery", %{conn: conn} do
+    {:ok, view, html} = live(conn, ~p"/dedup")
+    assert length(:binary.matches(html, ~s(phx-click="scan"))) == 1
+    assert has_element?(view, "a[href='/resgate#quarentena']", "Recuperar cópias da quarentena")
+  end
+
   @tag :tmp_dir
   test "renders a pending group card with its members and match tag", %{conn: conn, tmp_dir: root} do
     %{keep: keep, dup: dup} = exact_pair(root)

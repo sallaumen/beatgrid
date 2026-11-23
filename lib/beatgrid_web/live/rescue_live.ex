@@ -10,7 +10,7 @@ defmodule BeatgridWeb.RescueLive do
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: Rescue.subscribe()
-    {:ok, socket |> assign(page_title: "Resgate", note: nil) |> load()}
+    {:ok, socket |> assign(page_title: "Recuperação de arquivos", note: nil) |> load()}
   end
 
   defp load(socket) do
@@ -99,10 +99,9 @@ defmodule BeatgridWeb.RescueLive do
       <div class="mx-auto max-w-5xl px-4 py-4">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 class="text-[22px] font-semibold tracking-tight">Resgate</h1>
+            <h1 class="text-[22px] font-semibold tracking-tight">Recuperação de arquivos</h1>
             <p class="text-[11px] text-ink-muted">
-              Censo de integridade: arquivos sumidos ou que não decodificam mais, com restauração
-              a partir dos backups de ganho e da quarentena.
+              Verifique arquivos ausentes ou corrompidos e restaure cópias do backup ou da quarentena.
             </p>
           </div>
           <button
@@ -131,8 +130,8 @@ defmodule BeatgridWeb.RescueLive do
         </div>
 
         <section class="mt-5">
-          <div class="flex items-center justify-between gap-2">
-            <h2 class="text-[13px] font-semibold">Danificadas ({length(@damaged)})</h2>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h2 class="text-[13px] font-semibold">Arquivos danificados ({length(@damaged)})</h2>
             <button
               :if={restorable_count(@damaged) > 0}
               phx-click="restore_all"
@@ -144,16 +143,25 @@ defmodule BeatgridWeb.RescueLive do
           </div>
 
           <p :if={@damaged == []} class="mt-2 text-[11px] text-ink-faint">
-            Nenhuma faixa danificada conhecida — rode "Verificar biblioteca" para o censo completo.
+            Nenhum arquivo danificado identificado. Verifique a biblioteca para atualizar o diagnóstico.
           </p>
 
           <ul
             :if={@damaged != []}
             class="mt-2 divide-y divide-white/5 rounded-xl border border-white/8"
           >
-            <li :for={d <- @damaged} class="flex items-center justify-between gap-3 px-3 py-2">
+            <li
+              :for={d <- @damaged}
+              id={"arquivo-#{d.track.id}"}
+              class="flex items-center justify-between gap-3 px-3 py-2"
+            >
               <div class="min-w-0">
-                <p class="truncate text-[12px] text-ink">{title(d.track)}</p>
+                <.link
+                  navigate={~p"/track/#{d.track.id}"}
+                  class="block truncate text-body-sm text-ink hover:text-primary"
+                >
+                  {title(d.track)}
+                </.link>
                 <p class="truncate text-[10px] text-ink-faint" title={d.track.integrity_error}>
                   {d.track.rel_path} ·
                   <span :if={d.track.integrity_status == :missing_file} class="text-coral">
@@ -179,11 +187,15 @@ defmodule BeatgridWeb.RescueLive do
           </ul>
         </section>
 
-        <section class="mt-6">
-          <h2 class="text-[13px] font-semibold">Quarentena ({length(@quarantined)})</h2>
-          <p class="mt-1 text-[10px] text-ink-muted">
-            Cópias que o dedup moveu para <code>_Quarantine</code> — restaurar devolve ao caminho
-            original.
+        <section id="quarentena" class="mt-6">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h2 class="text-[13px] font-semibold">Quarentena ({length(@quarantined)})</h2>
+            <.link navigate={~p"/dedup"} class="text-body-sm text-primary hover:underline">
+              Revisar duplicatas
+            </.link>
+          </div>
+          <p class="mt-1 text-body-sm text-ink-muted">
+            A restauração devolve o arquivo à pasta de origem.
           </p>
 
           <p :if={@quarantined == []} class="mt-2 text-[11px] text-ink-faint">Quarentena vazia.</p>
@@ -192,7 +204,11 @@ defmodule BeatgridWeb.RescueLive do
             :if={@quarantined != []}
             class="mt-2 divide-y divide-white/5 rounded-xl border border-white/8"
           >
-            <li :for={q <- @quarantined} class="flex items-center justify-between gap-3 px-3 py-2">
+            <li
+              :for={q <- @quarantined}
+              id={"arquivo-#{q.track.id}"}
+              class="flex items-center justify-between gap-3 px-3 py-2"
+            >
               <div class="min-w-0">
                 <p class="truncate text-[12px] text-ink">{title(q.track)}</p>
                 <p class="truncate text-[10px] text-ink-faint">
@@ -210,9 +226,14 @@ defmodule BeatgridWeb.RescueLive do
               <span
                 :if={!q.file?}
                 class="shrink-0 rounded-lg bg-amber/10 px-2.5 py-1 text-[11px] font-semibold text-amber"
-                title="O registro sobrou, mas o arquivo sumiu da _Quarantine (apagado à mão ou pela retenção) — não há o que restaurar. Se uma gêmea existe na biblioteca, os sets já foram repontados para ela."
               >
-                👻 arquivo sumiu
+                Arquivo ausente na quarentena
+              </span>
+              <span
+                :if={q.file? and is_nil(q.restore_rel)}
+                class="shrink-0 text-caption text-ink-muted"
+              >
+                Pasta de origem desconhecida
               </span>
             </li>
           </ul>

@@ -1,5 +1,5 @@
 defmodule BeatgridWeb.ReviewLive do
-  @moduledoc "Central de Revisão — approve/edit/reject suggestions, then apply to disk."
+  @moduledoc "Revisão de sugestões — approve/edit/reject suggestions, then apply to disk."
   use BeatgridWeb, :live_view
 
   import BeatgridWeb.UI
@@ -9,7 +9,7 @@ defmodule BeatgridWeb.ReviewLive do
   alias Beatgrid.Workers.{ReevaluateWorker, ReResolveWorker, ReviewApplyWorker, UndoBatchWorker}
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(params, _session, socket) do
     if connected?(socket) do
       Review.subscribe()
       Operations.subscribe()
@@ -21,8 +21,8 @@ defmodule BeatgridWeb.ReviewLive do
     {:ok,
      socket
      |> assign(
-       page_title: "Central de Revisão",
-       tab: :renames,
+       page_title: "Revisão de sugestões",
+       tab: tab_atom(params["aba"]),
        editing: nil,
        toast: nil,
        applying?: false,
@@ -269,73 +269,9 @@ defmodule BeatgridWeb.ReviewLive do
     <.app_shell flash={@flash} active={:revisao} socket={@socket}>
       <div class="flex h-[calc(100vh_-_5rem)] flex-col">
         <header class="border-b border-white/6 bg-rail px-5 pt-3">
-          <div class="flex items-center justify-between gap-4">
-            <h1 class="text-[22px] font-semibold">Central de Revisão</h1>
-            <div class="flex flex-wrap items-center justify-end gap-2">
-              <button
-                :if={@tab != :auditoria}
-                phx-click="select_high"
-                class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm text-ink-secondary hover:text-ink"
-              >
-                Marcar alta confiança
-              </button>
-              <button
-                :if={@tab != :auditoria}
-                phx-click="select_medium"
-                title="Soma à seleção atual — clique também em alta pra pegar as duas faixas de confiança"
-                class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm text-ink-secondary hover:text-ink"
-              >
-                Marcar média confiança
-              </button>
-              <button
-                :if={@tab != :auditoria}
-                phx-click="select_all"
-                class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm text-ink-secondary hover:text-ink"
-              >
-                Marcar todas
-              </button>
-              <div :if={@tab == :renames} class="flex flex-wrap items-center gap-1.5">
-                <span class="text-ink-faint text-[11px]">Re-avaliar com IA:</span>
-                <button phx-click="reevaluate" phx-value-scope="unevaluated" class={reeval_btn()}>
-                  Não-avaliados
-                </button>
-                <button phx-click="reevaluate" phx-value-scope="pending" class={reeval_btn()}>
-                  Pendentes
-                </button>
-                <button phx-click="reevaluate" phx-value-scope="rejected" class={reeval_btn()}>
-                  Rejeitados
-                </button>
-                <form id="reeval-folder-form" phx-change="reevaluate_folder">
-                  <select
-                    name="folder"
-                    aria-label="Re-avaliar com IA por pasta"
-                    class="rounded-md border border-white/8 bg-input px-2 py-1.5 text-[12px]"
-                  >
-                    <option value="">Por pasta…</option>
-                    <option :for={f <- @folders} value={f.key}>{f.display_name}</option>
-                  </select>
-                </form>
-              </div>
-              <button
-                :if={MapSet.size(@selected) > 0}
-                phx-click="clear_selection"
-                class="rounded-md px-2.5 py-1.5 text-body-sm text-ink-muted hover:text-ink"
-              >
-                Limpar
-              </button>
-              <button
-                phx-click="apply"
-                disabled={@applying? or MapSet.size(@selected) == 0}
-                class="rounded-md bg-primary-deep px-3.5 py-1.5 text-body-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {if @applying?,
-                  do: "Aplicando…",
-                  else: "Aplicar #{MapSet.size(@selected)} no disco"}
-              </button>
-            </div>
-          </div>
+          <h1 class="text-[22px] font-semibold">Revisão de sugestões</h1>
 
-          <nav class="mt-3 flex gap-1">
+          <nav aria-label="Tipos de revisão" class="mt-3 flex flex-wrap gap-1">
             <.tab
               id="renames"
               label="Renomeações"
@@ -362,9 +298,92 @@ defmodule BeatgridWeb.ReviewLive do
 
           <.applied_batches :if={@recent_batches != []} batches={@recent_batches} />
 
-          <p class="mb-3 text-caption text-ink-faint">
-            {count_summary(@items, @selected)}
-          </p>
+          <div :if={@tab == :classifications} class="mb-4">
+            <.link navigate={~p"/generos"} class="text-body-sm text-primary hover:underline">
+              Editar critérios de gênero
+            </.link>
+          </div>
+
+          <div :if={@tab == :auditoria} class="mb-4">
+            <.link
+              navigate={~p"/resgate" <> "#quarentena"}
+              class="text-body-sm text-primary hover:underline"
+            >
+              Recuperar arquivos da quarentena
+            </.link>
+          </div>
+
+          <details :if={@tab == :renames} class="mb-3 rounded-lg border border-white/8 px-3 py-2">
+            <summary class="cursor-pointer text-body-sm text-ink-secondary">
+              Reavaliar renomeações com IA
+            </summary>
+            <div class="mt-2 flex flex-wrap items-center gap-1.5">
+              <button phx-click="reevaluate" phx-value-scope="unevaluated" class={reeval_btn()}>
+                Não-avaliados
+              </button>
+              <button phx-click="reevaluate" phx-value-scope="pending" class={reeval_btn()}>
+                Pendentes
+              </button>
+              <button phx-click="reevaluate" phx-value-scope="rejected" class={reeval_btn()}>
+                Rejeitados
+              </button>
+              <form id="reeval-folder-form" phx-change="reevaluate_folder">
+                <select
+                  name="folder"
+                  aria-label="Reavaliar com IA por pasta"
+                  class="rounded-md border border-white/8 bg-input px-2 py-1.5 text-[12px]"
+                >
+                  <option value="">Por pasta…</option>
+                  <option :for={f <- @folders} value={f.key}>{f.display_name}</option>
+                </select>
+              </form>
+            </div>
+          </details>
+
+          <div
+            :if={(@tab != :auditoria and @items != []) or MapSet.size(@selected) > 0}
+            class="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-white/6 pb-3"
+          >
+            <div :if={@tab != :auditoria and @items != []} class="flex flex-wrap items-center gap-2">
+              <button
+                phx-click="select_high"
+                class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm text-ink-secondary hover:text-ink"
+              >
+                Marcar alta confiança
+              </button>
+              <button
+                phx-click="select_medium"
+                title="Soma à seleção atual — clique também em alta pra pegar as duas faixas de confiança"
+                class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm text-ink-secondary hover:text-ink"
+              >
+                Marcar média confiança
+              </button>
+              <button
+                phx-click="select_all"
+                class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm text-ink-secondary hover:text-ink"
+              >
+                Marcar todas
+              </button>
+            </div>
+            <div class="ml-auto flex flex-wrap items-center gap-2">
+              <button
+                :if={MapSet.size(@selected) > 0}
+                phx-click="clear_selection"
+                class="rounded-md px-2.5 py-1.5 text-body-sm text-ink-muted hover:text-ink"
+              >
+                Limpar seleção
+              </button>
+              <button
+                phx-click="apply"
+                disabled={@applying? or MapSet.size(@selected) == 0}
+                class="rounded-md bg-primary-deep px-3.5 py-1.5 text-body-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {if @applying?,
+                  do: "Aplicando…",
+                  else: "Aplicar #{MapSet.size(@selected)} no disco"}
+              </button>
+            </div>
+          </div>
 
           <div :if={@reeval} class="mb-3 rounded-lg border border-white/8 bg-surface px-3 py-2">
             <p class="text-body-sm text-ink-secondary">{reeval_label(@reeval)}</p>
@@ -503,6 +522,7 @@ defmodule BeatgridWeb.ReviewLive do
     <button
       phx-click="switch_tab"
       phx-value-tab={@id}
+      aria-pressed={if @active, do: "true", else: "false"}
       class={[
         "flex items-center gap-2 rounded-t-md px-3.5 py-2 text-body-sm font-medium transition-colors",
         @active && "bg-surface text-ink",
@@ -528,10 +548,10 @@ defmodule BeatgridWeb.ReviewLive do
   # batches stay listed here so the reversal outlives the message.
   defp applied_batches(assigns) do
     ~H"""
-    <section class="mb-4 rounded-lg border border-white/8 bg-surface px-4 py-3">
-      <h2 class="text-caption font-semibold uppercase tracking-wider text-ink-faint">
+    <details class="mb-3 rounded-lg border border-white/8 bg-surface px-3 py-2">
+      <summary class="cursor-pointer text-body-sm text-ink-secondary">
         Últimos lotes aplicados
-      </h2>
+      </summary>
       <ul class="mt-2 divide-y divide-white/5">
         <li :for={b <- @batches} class="flex items-center justify-between gap-3 py-1.5">
           <p class="text-body-sm text-ink-secondary">
@@ -548,7 +568,7 @@ defmodule BeatgridWeb.ReviewLive do
           <span :if={not b.undoable?} class="text-caption text-ink-faint">desfeito</span>
         </li>
       </ul>
-    </section>
+    </details>
     """
   end
 
@@ -640,11 +660,6 @@ defmodule BeatgridWeb.ReviewLive do
   defp re_resolve_toast(:no_match), do: {:no_match, %{}}
   defp re_resolve_toast(:budget_exhausted), do: {:budget_exhausted, %{}}
   defp re_resolve_toast(_other), do: {:error, :re_resolve}
-
-  defp count_summary(items, selected) do
-    marked = Enum.count(items, &MapSet.member?(selected, &1.id))
-    "#{length(items)} nesta aba · #{marked} marcada(s)"
-  end
 
   defp reeval_btn,
     do:

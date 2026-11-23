@@ -222,7 +222,7 @@ defmodule BeatgridWeb.DedupLive do
     ~H"""
     <.app_shell flash={@flash} active={:dedup} socket={@socket}>
       <div class="flex h-[calc(100vh_-_5rem)] flex-col">
-        <header class="flex items-center justify-between gap-4 border-b border-white/6 bg-rail px-5 py-3">
+        <header class="flex flex-wrap items-center justify-between gap-4 border-b border-white/6 bg-rail px-5 py-3">
           <div class="flex items-baseline gap-3">
             <h1 class="text-[22px] font-semibold">Duplicatas</h1>
             <span class="font-mono text-body-sm text-ink-muted">{group_count(@groups)}</span>
@@ -245,9 +245,14 @@ defmodule BeatgridWeb.DedupLive do
         <.undo_toast :if={@undo} undo={@undo} />
 
         <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          <p class="mb-4 text-caption text-ink-faint">
-            Versões de artistas diferentes nunca são agrupadas — só faixas do mesmo artista e título.
-          </p>
+          <div class="mb-4 flex flex-wrap items-center justify-between gap-2 text-body-sm">
+            <p class="text-ink-muted">
+              Compare as gravações do mesmo artista e título antes de escolher qual cópia manter.
+            </p>
+            <.link navigate={~p"/resgate" <> "#quarentena"} class="text-primary hover:underline">
+              Recuperar cópias da quarentena
+            </.link>
+          </div>
 
           <div :if={@groups != []} class="space-y-3">
             <.group_card :for={group <- @groups} group={group} pick={@picks[group.id]} />
@@ -258,14 +263,7 @@ defmodule BeatgridWeb.DedupLive do
             class="flex flex-col items-center justify-center gap-2 py-24 text-center"
           >
             <span class="hero-document-duplicate size-10 text-ink-disabled" />
-            <p class="text-ink-muted">Nenhuma duplicata pendente — rode uma busca.</p>
-            <button
-              phx-click="scan"
-              disabled={@scanning?}
-              class="text-body-sm text-primary hover:underline disabled:opacity-60"
-            >
-              {if @scanning?, do: "Procurando…", else: "Procurar duplicatas"}
-            </button>
+            <p class="text-ink-muted">Nenhuma duplicata pendente.</p>
           </div>
         </div>
       </div>
@@ -322,18 +320,18 @@ defmodule BeatgridWeb.DedupLive do
         <button
           phx-click="ignore"
           phx-value-group={@group.id}
-          aria-label={"Ignorar (não são duplicatas) — #{@group_label}"}
+          aria-label={"Manter todas as cópias — #{@group_label}"}
           class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm text-ink-secondary hover:text-ink"
         >
-          Ignorar (não são duplicatas)
+          Manter todas as cópias
         </button>
         <button
           phx-click="resolve"
           phx-value-group={@group.id}
-          aria-label={"Manter selecionada + quarentenar #{@quarantine_count} — #{@group_label}"}
+          aria-label={"Manter selecionada e mover #{@quarantine_count} para a quarentena — #{@group_label}"}
           class="rounded-md bg-green px-3.5 py-1.5 text-body-sm font-semibold text-[#0b0c10] hover:bg-green/90"
         >
-          Manter selecionada + quarentenar {@quarantine_count}
+          Manter selecionada e mover {@quarantine_count} para a quarentena
         </button>
       </div>
     </div>
