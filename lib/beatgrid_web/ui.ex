@@ -166,7 +166,7 @@ defmodule BeatgridWeb.UI do
   def vinyl(assigns) do
     ~H"""
     <span
-      class="now-playing-disc flex shrink-0 animate-spin items-center justify-center rounded-full"
+      class="now-playing-disc flex shrink-0 items-center justify-center rounded-full motion-safe:animate-spin"
       style={"width:#{@size}px;height:#{@size}px;background:radial-gradient(circle,#0c0c0f 30%,#3a3a44 33%,#0c0c0f 37%,#3a3a44 46%,#0c0c0f 50%)"}
       aria-hidden="true"
     >
@@ -176,7 +176,7 @@ defmodule BeatgridWeb.UI do
   end
 
   @doc """
-  Album cover with a hover-reveal ▶ overlay that plays in the global player.
+  Album cover with a visible play control that targets the global player.
   The overlay is a sibling button (never wrap it in a navigate link, or the click
   would also navigate — keep it outside any `<.link>`).
   """
@@ -195,7 +195,7 @@ defmodule BeatgridWeb.UI do
     assigns = assign(assigns, :radius, if(assigns.size > 60, do: 14, else: 7))
 
     ~H"""
-    <div class="group/cover relative shrink-0" style={"width:#{@size}px;height:#{@size}px"}>
+    <div class="relative shrink-0" style={"width:#{@size}px;height:#{@size}px"}>
       <.cover src={@src} artist={@artist} size={@size} />
       <button
         type="button"
@@ -209,16 +209,24 @@ defmodule BeatgridWeb.UI do
               )
         }
         class={[
-          "absolute inset-0 items-center justify-center text-[12px] text-white",
-          @playing? && "flex bg-black/40",
-          !@playing? && "hidden bg-black/55 group-hover/cover:flex"
+          "absolute inset-0 flex text-white motion-safe:transition-colors motion-safe:duration-150",
+          if(@playing?,
+            do: "items-center justify-center bg-black/40",
+            else: "items-end justify-end p-0.5 hover:bg-black/55 focus-visible:bg-black/55"
+          )
         ]}
         style={"border-radius:#{@radius}px"}
         title={if @playing?, do: "Tocar ou pausar", else: "Tocar"}
         aria-label={if @playing?, do: "Tocar ou pausar", else: "Tocar"}
       >
         <.vinyl :if={@playing?} size={max(trunc(@size * 0.5), 16)} />
-        <span :if={!@playing?} aria-hidden="true">▶</span>
+        <span
+          :if={!@playing?}
+          class="grid size-4 place-items-center rounded-full bg-black/70"
+          aria-hidden="true"
+        >
+          <span class="hero-play-solid size-2.5" />
+        </span>
       </button>
     </div>
     """
