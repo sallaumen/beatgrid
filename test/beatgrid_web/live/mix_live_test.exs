@@ -45,7 +45,7 @@ defmodule BeatgridWeb.MixLiveTest do
     # 270_000 ms as mm:ss
     assert html =~ "04:30"
     # matched segment badge
-    assert html =~ "tenho"
+    assert html =~ "Abrir faixa"
     assert html =~ "/track/#{track.id}"
   end
 
@@ -59,7 +59,7 @@ defmodule BeatgridWeb.MixLiveTest do
     {:ok, _view, html} = live(conn, ~p"/sets-online/#{mix.id}")
 
     # named-but-unmatched → real YouTube search; unnamed → "sem nome", no empty search link
-    assert html =~ "não tenho"
+    assert html =~ "Buscar no YouTube"
     assert html =~ "search_query=Some"
     assert html =~ "sem nome"
     refute html =~ ~s|search_query="|
@@ -219,9 +219,9 @@ defmodule BeatgridWeb.MixLiveTest do
 
     assert html =~ "Festival Research Set"
     assert html =~ ~s(href="https://soundcloud.com/dj/festival-research-set")
-    assert html =~ "Original link"
-    assert html =~ "Previous track"
-    assert html =~ "Next track"
+    assert html =~ "Abrir no SoundCloud"
+    assert html =~ "Faixa anterior"
+    assert html =~ "Próxima faixa"
     assert html =~ "data-mix-prev"
     assert html =~ "data-mix-next"
     assert html =~ ~s(data-segment-starts="0,90000,180000")
@@ -439,7 +439,7 @@ defmodule BeatgridWeb.MixLiveTest do
   describe "recognition controls" do
     # AudD is configured by default in tests (config/test.exs); don't mutate that global
     # here — this module is async and would race other modules' gate tests.
-    test "'Tentar tudo de novo' appears for already-tried no-match segments and forces a retry",
+    test "the retry button appears after recognition without a result and forces a retry",
          %{conn: conn} do
       mix = insert(:mix, status: :ready, audio_path: "/tmp/_Mixes/x.mp3")
 
@@ -454,7 +454,11 @@ defmodule BeatgridWeb.MixLiveTest do
 
       {:ok, view, _} = live(conn, ~p"/sets-online/#{mix.id}")
 
-      assert has_element?(view, "button[phx-click=recognize_retry_all]")
+      assert has_element?(
+               view,
+               ~s(button[phx-click=recognize_retry_all][data-confirm*="cobrança"])
+             )
+
       render_click(view, "recognize_retry_all")
 
       assert_enqueued(
@@ -463,7 +467,18 @@ defmodule BeatgridWeb.MixLiveTest do
       )
     end
 
-    test "no 'Tentar tudo de novo' when nothing has been tried yet", %{conn: conn} do
+    test "shows the paid confirmation on batch recognition and on the segment action", %{
+      conn: conn
+    } do
+      mix = insert(:mix, status: :ready, audio_path: "/tmp/_Mixes/x.mp3")
+      insert(:mix_segment, mix: mix, position: 0, start_ms: 0)
+      {:ok, view, _html} = live(conn, ~p"/sets-online/#{mix.id}")
+
+      assert has_element?(view, ~s(button[phx-click=recognize_all][data-confirm*="cobrança"]))
+      assert has_element?(view, ~s(button[phx-click=recognize_seg][data-confirm*="cobrança"]))
+    end
+
+    test "the retry button stays hidden before recognition has been tried", %{conn: conn} do
       mix = insert(:mix, status: :ready, audio_path: "/tmp/_Mixes/x.mp3")
       insert(:mix_segment, mix: mix, position: 0, start_ms: 0, artist: nil, title: nil)
       {:ok, view, _} = live(conn, ~p"/sets-online/#{mix.id}")
@@ -506,11 +521,25 @@ defmodule BeatgridWeb.MixLiveTest do
   end
 
   describe "recortes" do
+    test "links to the finished cut in the library", %{conn: conn} do
+      mix = insert(:mix, status: :ready)
+      track = insert(:track, status: :present)
+      {:ok, view, _html} = live(conn, ~p"/sets-online/#{mix.id}")
+
+      send(
+        view.pid,
+        {:mix_progress, %{stage: "cut_done", mix_id: mix.id, title: "Teste", track_id: track.id}}
+      )
+
+      assert has_element?(view, "a[href='/track/#{track.id}']", "Abrir faixa do recorte")
+    end
+
     @tag :tmp_dir
-    test "✂ opens the panel prefilled from the segment and queues the cut", %{
-      conn: conn,
-      tmp_dir: tmp
-    } do
+    test "the segment cut control opens the panel prefilled from the segment and queues the cut",
+         %{
+           conn: conn,
+           tmp_dir: tmp
+         } do
       audio = Path.join(tmp, "set.mp3")
       File.write!(audio, "mp3")
       mix = insert(:mix, status: :ready, audio_path: audio, duration_ms: 3_600_000)
@@ -639,7 +668,7 @@ defmodule BeatgridWeb.MixLiveTest do
       mix = insert(:mix, status: :ready, audio_path: audio, duration_ms: 7_200_000)
 
       {:ok, view, _html} = live(conn, ~p"/sets-online/#{mix.id}")
-      view |> element("button", "✂ Recortar trecho") |> render_click()
+      view |> element("button", "Recortar trecho") |> render_click()
       view
     end
   end

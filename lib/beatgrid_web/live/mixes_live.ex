@@ -11,7 +11,7 @@ defmodule BeatgridWeb.MixesLive do
     if connected?(socket), do: Mixes.subscribe()
 
     {:ok,
-     assign(socket, page_title: "Sets online", mixes: Mixes.list_mixes(), url: "", toast: nil)}
+     assign(socket, page_title: "Sets gravados", mixes: Mixes.list_mixes(), url: "", toast: nil)}
   end
 
   @impl true
@@ -21,6 +21,8 @@ defmodule BeatgridWeb.MixesLive do
     if url == "" do
       {:noreply, socket}
     else
+      socket = assign(socket, url: url)
+
       case Mixes.import_url(url) do
         {:ok, _mix} ->
           {:noreply,
@@ -33,7 +35,7 @@ defmodule BeatgridWeb.MixesLive do
         {:error, :unsupported_source} ->
           {:noreply,
            assign(socket,
-             toast: {:error, "Só aceito links do YouTube ou SoundCloud por enquanto."}
+             toast: {:error, "Cole um link do YouTube ou SoundCloud."}
            )}
 
         {:error, _changeset} ->
@@ -54,41 +56,54 @@ defmodule BeatgridWeb.MixesLive do
     <.app_shell flash={@flash} active={:mixes} socket={@socket}>
       <div class="mx-auto max-w-[1600px] px-6 py-5">
         <header class="flex flex-col gap-1">
-          <h1 class="text-[22px] font-semibold">Sets online</h1>
-          <p class="text-body-sm text-ink-muted">
-            Imported online sets for tracklist study, library coverage, and transition research.
-          </p>
+          <h1 class="text-[22px] font-semibold">Sets gravados</h1>
         </header>
 
-        <p :if={@toast} class="mt-3 text-body-sm text-ink-secondary">{elem(@toast, 1)}</p>
-
-        <form id="mix-import-form" phx-submit="import" class="mt-4 flex gap-2">
-          <input
-            type="text"
-            name="url"
-            value={@url}
-            aria-label="URL do set online"
-            placeholder="Cole a URL do set (YouTube ou SoundCloud)…"
-            class="min-w-0 flex-1 rounded-md border border-white/10 bg-surface px-3 py-2 text-body-sm"
-          />
-          <button class="rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-body-sm font-semibold text-primary hover:bg-primary/20">
-            Importar
-          </button>
+        <form id="mix-import-form" phx-submit="import" class="mt-4">
+          <label for="mix-source-url" class="mb-1 block text-body-sm text-ink-secondary">
+            Link do YouTube ou SoundCloud
+          </label>
+          <div class="flex flex-wrap gap-2">
+            <input
+              id="mix-source-url"
+              type="text"
+              name="url"
+              value={@url}
+              required
+              placeholder="Cole o link da gravação"
+              class="min-w-0 flex-1 rounded-md border border-white/10 bg-surface px-3 py-2 text-body-sm"
+            />
+            <button class="rounded-md bg-primary-deep px-3 py-2 text-body-sm font-semibold text-white hover:bg-primary-deep/90">
+              Importar gravação
+            </button>
+          </div>
         </form>
 
+        <p
+          :if={@toast}
+          role="status"
+          class={[
+            "mt-3 text-body-sm",
+            (elem(@toast, 0) == :error && "text-coral") || "text-ink-secondary"
+          ]}
+        >
+          {elem(@toast, 1)}
+        </p>
+
         <section class="mt-6 space-y-2">
-          <p :if={@mixes == []} class="text-body-sm text-ink-muted">Nenhum set importado ainda.</p>
+          <p :if={@mixes == []} class="text-body-sm text-ink-muted">
+            Importe uma gravação para conferir as faixas, estudar as transições e salvar recortes na biblioteca.
+          </p>
           <article
             :for={mix <- @mixes}
             class="rounded-lg border border-white/6 bg-surface px-4 py-3 hover:border-white/12"
           >
             <div class="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
               <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-2">
-                  <.source_badge source={mix.source} />
+                <div class="flex flex-wrap items-center gap-2">
                   <.link
                     navigate={~p"/sets-online/#{mix.id}"}
-                    class="min-w-0 truncate text-body font-semibold text-ink hover:text-primary"
+                    class="min-w-0 break-words text-body font-semibold text-ink hover:text-primary"
                   >
                     {mix.title || mix.source_url}
                   </.link>
@@ -96,31 +111,28 @@ defmodule BeatgridWeb.MixesLive do
                     {mix_status_label(mix.status)}
                   </span>
                 </div>
-                <p class="mt-1 truncate text-body-sm text-ink-muted">
-                  {mix.dj || "DJ desconhecido"} · {source_host(mix.source_url)}
-                </p>
-                <a
-                  href={mix.source_url}
-                  target="_blank"
-                  rel="noopener"
-                  class="mt-1 block truncate text-caption text-primary hover:underline"
-                >
-                  {source_url_label(mix.source_url)}
-                </a>
+                <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-body-sm text-ink-muted">
+                  <span>{mix.dj || "DJ desconhecido"}</span>
+                  <a
+                    href={mix.source_url}
+                    target="_blank"
+                    rel="noopener"
+                    class="text-primary hover:underline"
+                  >
+                    {source_label(mix.source)}
+                  </a>
+                </div>
                 <p :if={mix.status == :failed and mix.error} class="mt-1 text-caption text-coral">
                   {mix.error}
                 </p>
               </div>
 
-              <div class="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:w-[520px]">
+              <dl class="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:w-[440px]">
                 <.mix_fact label="Duração" value={format_clock(mix.duration_ms)} />
-                <.mix_fact label="Faixas" value={"#{length(mix.segments)} faixas"} />
-                <.mix_fact
-                  label="Biblioteca"
-                  value={"#{library_coverage(mix.segments)}% na biblioteca"}
-                />
+                <.mix_fact label="Faixas" value={length(mix.segments)} />
+                <.mix_fact label="Na biblioteca" value={library_coverage(mix.segments)} />
                 <.mix_fact label="Importado" value={format_date(mix.inserted_at)} />
-              </div>
+              </dl>
             </div>
           </article>
         </section>
@@ -135,49 +147,27 @@ defmodule BeatgridWeb.MixesLive do
   defp mix_status_label(:failed), do: "Falhou"
 
   attr :label, :string, required: true
-  attr :value, :string, required: true
+  attr :value, :any, required: true
 
   defp mix_fact(assigns) do
     ~H"""
-    <div class="rounded-lg border border-white/6 bg-base/45 px-3 py-2">
-      <p class="text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{@label}</p>
-      <p class="mt-0.5 truncate font-mono text-[13px] text-ink-secondary">{@value}</p>
+    <div>
+      <dt class="text-caption text-ink-muted">{@label}</dt>
+      <dd class="mt-0.5 font-mono text-body-sm text-ink-secondary">{@value}</dd>
     </div>
     """
   end
 
-  defp source_badge(assigns) do
-    ~H"""
-    <span class={[
-      "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold",
-      @source == "youtube" && "bg-red-500/15 text-red-300",
-      @source == "soundcloud" && "bg-orange-500/15 text-orange-300"
-    ]}>
-      {if @source == "youtube", do: "YT", else: "SC"}
-    </span>
-    """
-  end
+  defp source_label("youtube"), do: "Abrir no YouTube"
+  defp source_label("soundcloud"), do: "Abrir no SoundCloud"
+  defp source_label(_), do: "Abrir gravação original"
 
-  defp library_coverage([]), do: 0
+  defp library_coverage([]), do: "—"
 
   defp library_coverage(segments) do
-    round(Enum.count(segments, & &1.matched_track_id) / length(segments) * 100)
+    matched = Enum.count(segments, & &1.matched_track_id)
+    "#{round(matched / length(segments) * 100)}%"
   end
-
-  defp source_host(url) do
-    case URI.parse(url || "") do
-      %{host: host} when is_binary(host) -> host
-      _ -> "unknown source"
-    end
-  end
-
-  defp source_url_label(url) when is_binary(url) do
-    url
-    |> String.replace_prefix("https://", "")
-    |> String.replace_prefix("http://", "")
-  end
-
-  defp source_url_label(_), do: "unknown source"
 
   defp format_date(nil), do: "—"
   defp format_date(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d")

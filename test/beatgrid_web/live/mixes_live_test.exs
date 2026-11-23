@@ -9,7 +9,7 @@ defmodule BeatgridWeb.MixesLiveTest do
 
     {:ok, _view, html} = live(conn, ~p"/sets-online")
 
-    assert html =~ "Sets online"
+    assert html =~ "Sets gravados"
     assert html =~ "Awakenings 2024"
     assert html =~ "DJ X"
     assert html =~ "Importar"
@@ -43,8 +43,9 @@ defmodule BeatgridWeb.MixesLiveTest do
     assert html =~ "DJ Roots"
     assert html =~ "soundcloud.com/dj-roots/long-forro-research"
     assert html =~ "3:00:00"
-    assert html =~ "2 faixas"
-    assert html =~ "50% na biblioteca"
+    assert html =~ "Faixas"
+    assert html =~ "Na biblioteca"
+    assert html =~ "50%"
   end
 
   test "submitting a SoundCloud URL enqueues a download and shows the new mix", %{conn: conn} do
@@ -63,7 +64,7 @@ defmodule BeatgridWeb.MixesLiveTest do
     {:ok, view, _html} = live(conn, ~p"/sets-online")
     render_submit(element(view, "#mix-import-form"), %{"url" => "https://youtu.be/a93fldI5DSU"})
     html = render(view)
-    assert html =~ "YT"
+    assert html =~ "YouTube"
     assert html =~ "baixando"
   end
 
@@ -71,5 +72,6 @@ defmodule BeatgridWeb.MixesLiveTest do
     {:ok, view, _html} = live(conn, ~p"/sets-online")
     render_submit(element(view, "#mix-import-form"), %{"url" => "https://vimeo.com/1"})
     assert render(view) =~ "YouTube ou SoundCloud"
+    assert has_element?(view, "input[name=url][value='https://vimeo.com/1']")
   end
 end

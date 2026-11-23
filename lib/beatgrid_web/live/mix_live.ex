@@ -25,6 +25,7 @@ defmodule BeatgridWeb.MixLive do
            mix: mix,
            progress: nil,
            recorte: nil,
+           latest_cut: nil,
            folders: GenreFolders.list()
          )}
     end
@@ -32,15 +33,10 @@ defmodule BeatgridWeb.MixLive do
 
   @impl true
   def handle_info(
-        {:mix_progress, %{stage: "cut_done", mix_id: id, title: title}},
+        {:mix_progress, %{stage: "cut_done", mix_id: id, title: title, track_id: track_id}},
         %{assigns: %{mix: %{id: id}}} = socket
       ) do
-    {:noreply,
-     put_flash(
-       socket,
-       :info,
-       "✂ Recorte pronto: “#{title}” já está na Biblioteca (analisando em background)."
-     )}
+    {:noreply, assign(socket, latest_cut: %{id: track_id, title: title})}
   end
 
   def handle_info(
@@ -286,7 +282,7 @@ defmodule BeatgridWeb.MixLive do
         {:noreply,
          socket
          |> assign(recorte: nil)
-         |> put_flash(:info, "✂ Recorte na fila — a faixa aparece na Biblioteca em instantes.")}
+         |> put_flash(:info, "Recorte na fila para salvar na biblioteca.")}
 
       {:error, reason} ->
         {:noreply,
@@ -302,16 +298,14 @@ defmodule BeatgridWeb.MixLive do
     <.app_shell flash={@flash} active={:mixes} socket={@socket}>
       <div class="mx-auto max-w-[1100px] px-6 py-5">
         <.link navigate={~p"/sets-online"} class="text-body-sm text-ink-muted hover:text-ink">
-          ← Sets online
+          ← Sets gravados
         </.link>
 
         <header class="mt-3 flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
           <div class="min-w-0">
-            <h1 class="truncate text-[22px] font-semibold">{@mix.title || @mix.source_url}</h1>
+            <h1 class="break-words text-[22px] font-semibold">{@mix.title || @mix.source_url}</h1>
             <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-body-sm text-ink-secondary">
-              <span>{@mix.dj || "Unknown DJ"}</span>
-              <span class="text-ink-faint">·</span>
-              <span>{format_clock(@mix.duration_ms)}</span>
+              <span>{@mix.dj || "DJ desconhecido"}</span>
               <span class="text-ink-faint">·</span>
               <a
                 href={@mix.source_url}
@@ -319,7 +313,7 @@ defmodule BeatgridWeb.MixLive do
                 rel="noopener"
                 class="text-primary hover:underline"
               >
-                Original link
+                {source_link_label(@mix.source)}
               </a>
             </div>
             <p
@@ -329,65 +323,11 @@ defmodule BeatgridWeb.MixLive do
               {@mix.description}
             </p>
           </div>
-          <div class="flex shrink-0 items-center gap-3">
-            <span class="text-[11px] font-semibold uppercase tracking-wider text-ink-faint">
-              {mix_status_label(@mix.status)}
-            </span>
-            <button
-              phx-click="reanalyze"
-              disabled={not playable?(@mix)}
-              title={unless playable?(@mix), do: "Áudio apagado — baixe de novo pra reprocessar"}
-              class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              Re-analisar
-            </button>
-            <button
-              phx-click="analyze_all"
-              disabled={not playable?(@mix)}
-              title={unless playable?(@mix), do: "Áudio apagado — baixe de novo pra reprocessar"}
-              class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              Analisar tudo
-            </button>
-            <button
-              :if={playable?(@mix)}
-              phx-click="recognize_all"
-              disabled={not Beatgrid.Integrations.configured?(:audd)}
-              class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              Reconhecer faixas
-            </button>
-            <button
-              :if={playable?(@mix) and has_unmatched_attempts?(@mix)}
-              phx-click="recognize_retry_all"
-              disabled={not Beatgrid.Integrations.configured?(:audd)}
-              title="Re-tentar no AudD as faixas que ainda não casaram"
-              class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              Tentar tudo de novo
-            </button>
-            <.integration_gate :if={playable?(@mix)} key={:audd} />
-            <button
-              :if={playable?(@mix)}
-              phx-click="delete_audio"
-              data-confirm="Apagar o áudio deste set? (a análise é preservada)"
-              title="Apagar o arquivo de áudio (mantém a análise)"
-              class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-faint hover:bg-coral/10 hover:text-coral"
-            >
-              Apagar áudio
-            </button>
-            <button
-              :if={@mix.audio_deleted_at && @mix.status != :downloading}
-              phx-click="redownload_audio"
-              class="rounded-md border border-primary/30 bg-primary/10 px-3 py-1 text-[12px] font-medium text-primary hover:bg-primary/20"
-            >
-              Baixar áudio de novo
-            </button>
-          </div>
+          <p class="text-body-sm text-ink-muted">{mix_status_label(@mix.status)}</p>
         </header>
 
         <%!-- Set summary cards --%>
-        <div class="mt-4 grid grid-cols-4 gap-3">
+        <div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div class="rounded-lg border border-white/8 bg-surface px-4 py-3">
             <p class="text-[11px] text-ink-secondary">DJs</p>
             <p class="mt-0.5 text-[22px] font-semibold">
@@ -408,13 +348,16 @@ defmodule BeatgridWeb.MixLive do
           </div>
         </div>
 
-        <%!-- Audio-deleted notice --%>
-        <p
-          :if={@mix.audio_deleted_at}
-          class="mt-3 text-body-sm text-ink-muted"
-        >
-          Áudio apagado (análise preservada).
-        </p>
+        <div :if={@mix.audio_deleted_at} class="mt-3 flex flex-wrap items-center gap-2">
+          <p class="text-body-sm text-ink-muted">Áudio apagado (análise preservada).</p>
+          <button
+            :if={@mix.audio_deleted_at && @mix.status != :downloading}
+            phx-click="redownload_audio"
+            class="rounded-md border border-primary/30 bg-primary/10 px-3 py-1 text-[12px] font-medium text-primary hover:bg-primary/20"
+          >
+            Baixar áudio de novo
+          </button>
+        </div>
 
         <div
           :if={playable?(@mix)}
@@ -430,19 +373,16 @@ defmodule BeatgridWeb.MixLive do
                 data-mix-prev
                 class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-semibold text-ink-secondary hover:bg-white/10 hover:text-ink"
               >
-                Previous track
+                Faixa anterior
               </button>
               <button
                 type="button"
                 data-mix-next
                 class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-semibold text-ink-secondary hover:bg-white/10 hover:text-ink"
               >
-                Next track
+                Próxima faixa
               </button>
             </div>
-            <span class="text-caption text-ink-faint">
-              {length(@mix.segments)} detected tracks
-            </span>
           </div>
           <audio
             id="mix-audio"
@@ -461,23 +401,65 @@ defmodule BeatgridWeb.MixLive do
           {@progress}
         </p>
         <p :if={@mix.status == :failed} class="mt-4 text-body-sm text-coral">
-          A análise falhou. Tente "Re-analisar".
+          {if playable?(@mix),
+            do: "A análise falhou. Tente analisar as faixas novamente.",
+            else: "Não foi possível baixar o áudio da gravação."}
         </p>
+
+        <details class="mt-5 rounded-lg border border-white/8 bg-surface">
+          <summary class="cursor-pointer px-4 py-2 text-body-sm font-medium text-ink-secondary hover:text-ink">
+            Análise e arquivo de áudio
+          </summary>
+          <div class="space-y-3 border-t border-white/8 px-4 py-3">
+            <div class="flex flex-wrap items-center gap-2">
+              <button
+                phx-click="reanalyze"
+                disabled={not playable?(@mix)}
+                title={unless playable?(@mix), do: "Áudio apagado — baixe de novo pra reprocessar"}
+                class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Reanalisar faixas
+              </button>
+              <button
+                phx-click="analyze_all"
+                disabled={not playable?(@mix)}
+                title={unless playable?(@mix), do: "Áudio apagado — baixe de novo pra reprocessar"}
+                class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Reanalisar faixas e DJs
+              </button>
+            </div>
+            <div :if={playable?(@mix)} class="border-t border-white/8 pt-3">
+              <button
+                phx-click="delete_audio"
+                data-confirm="Apagar o áudio deste set? (a análise é preservada)"
+                title="Apagar o arquivo de áudio (mantém a análise)"
+                class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-faint hover:bg-coral/10 hover:text-coral"
+              >
+                Apagar áudio baixado
+              </button>
+            </div>
+          </div>
+        </details>
 
         <%!-- DJ panel --%>
         <details class="mt-5 rounded-lg border border-white/8 bg-surface">
           <summary class="cursor-pointer select-none px-4 py-2 text-body-sm font-medium text-ink-secondary hover:text-ink">
-            DJs
+            Divisão por DJ
           </summary>
           <div class="border-t border-white/8 px-4 py-3 space-y-3">
             <form id="dj-manual-form" phx-submit="dj_manual" class="space-y-2">
-              <label class="block text-[11px] uppercase tracking-wider text-ink-faint">
-                Timestamps manuais (ex: 0:00 DJ Nome)
+              <label
+                for="dj-start-times"
+                class="block text-[11px] uppercase tracking-wider text-ink-faint"
+              >
+                Horários de entrada dos DJs
               </label>
               <textarea
+                id="dj-start-times"
                 name="timestamps"
                 rows="4"
-                aria-label="Timestamps manuais (ex: 0:00 DJ Nome)"
+                aria-label="Horários de entrada dos DJs"
                 class="w-full rounded border border-white/10 bg-transparent px-2 py-1.5 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary/50 focus:outline-none font-mono"
                 placeholder="0:00 DJ A\n30:00 DJ B"
               ></textarea>
@@ -485,7 +467,7 @@ defmodule BeatgridWeb.MixLive do
                 type="submit"
                 class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink"
               >
-                Aplicar timestamps
+                Salvar divisão
               </button>
             </form>
             <div class="flex flex-wrap gap-2">
@@ -517,20 +499,56 @@ defmodule BeatgridWeb.MixLive do
           </div>
         </details>
 
-        <%!-- Segment timeline --%>
-        <div :if={playable?(@mix) and is_nil(@recorte)} class="mt-5">
-          <button
-            type="button"
-            phx-click="open_recorte"
-            class="rounded-md border border-white/10 px-3 py-1.5 text-body-sm font-semibold text-ink-secondary hover:text-ink"
-          >
-            ✂ Recortar trecho
-          </button>
+        <section
+          class="mt-5 flex flex-wrap items-center justify-between gap-2"
+          aria-labelledby="mix-tracklist-heading"
+        >
+          <h2 id="mix-tracklist-heading" class="text-body-lg font-semibold">Faixas do set</h2>
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              :if={playable?(@mix)}
+              phx-click="recognize_all"
+              data-confirm="O AudD pode gerar cobrança por faixa consultada. Identificar faixas sem nome?"
+              disabled={not Beatgrid.Integrations.configured?(:audd)}
+              class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Reconhecer faixas com AudD
+            </button>
+            <button
+              :if={playable?(@mix) and has_unmatched_attempts?(@mix)}
+              phx-click="recognize_retry_all"
+              data-confirm="O AudD pode gerar cobrança de novo por faixa consultada. Reconhecer faixas sem nome, inclusive as já consultadas?"
+              disabled={not Beatgrid.Integrations.configured?(:audd)}
+              class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Incluir faixas já consultadas
+            </button>
+            <.integration_gate :if={playable?(@mix)} key={:audd} />
+            <button
+              :if={playable?(@mix) and is_nil(@recorte)}
+              type="button"
+              phx-click="open_recorte"
+              class="inline-flex items-center gap-1.5 rounded-md bg-primary-deep px-3 py-1.5 text-body-sm font-semibold text-white hover:bg-primary-deep/90"
+            >
+              <span class="hero-scissors size-3.5" aria-hidden="true" /> Recortar trecho
+            </button>
+          </div>
+        </section>
+
+        <div
+          :if={@latest_cut}
+          role="status"
+          class="mt-3 flex flex-wrap items-center gap-2 text-body-sm"
+        >
+          <span class="text-ink-secondary">Recorte salvo na biblioteca: {@latest_cut.title}</span>
+          <.link navigate={~p"/track/#{@latest_cut.id}"} class="text-primary hover:underline">
+            Abrir faixa do recorte
+          </.link>
         </div>
 
         <div :if={@recorte} class="mt-5 rounded-xl border border-primary/25 bg-surface p-4">
           <div class="flex items-center justify-between">
-            <h2 class="text-body-sm font-semibold">✂ Novo recorte</h2>
+            <h2 class="text-body-lg font-semibold">Novo recorte</h2>
             <button
               type="button"
               phx-click="close_recorte"
@@ -541,8 +559,7 @@ defmodule BeatgridWeb.MixLive do
             </button>
           </div>
           <p class="mt-1 text-caption text-ink-muted">
-            O trecho vira uma faixa de verdade na Biblioteca — MP3 próprio, marcado como
-            recorte e ligado a este set.
+            Salve o trecho como uma faixa MP3 na biblioteca, vinculada à gravação original.
           </p>
 
           <div class="mt-4 space-y-4">
@@ -749,7 +766,7 @@ defmodule BeatgridWeb.MixLive do
           :if={@mix.status == :ready and @mix.segments == []}
           class="mt-5 text-body-sm text-ink-muted"
         >
-          Nenhum segmento — o set não tinha tracklist e o áudio não rendeu fronteiras.
+          Nenhuma faixa detectada na gravação.
         </p>
       </div>
     </.app_shell>
@@ -1101,27 +1118,19 @@ defmodule BeatgridWeb.MixLive do
       data-seg
       data-start-ms={@seg.start_ms}
       data-end-ms={@seg.end_ms}
-      class="flex items-center gap-3 rounded-lg border border-white/6 bg-surface px-3 py-2"
+      class="flex flex-wrap items-center gap-2 rounded-lg border border-white/6 bg-surface px-3 py-2"
     >
       <button
         :if={@playable}
         type="button"
         data-seg-play
         data-start-ms={@seg.start_ms}
-        title="Ouvir a partir daqui"
         aria-label={"Ouvir a partir de #{format_clock(@seg.start_ms)}"}
-        class="shrink-0 rounded px-1.5 py-0.5 text-[12px] text-ink-muted hover:text-ink"
+        class="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-1 font-mono text-body-sm text-ink-secondary hover:text-primary"
       >
-        ▶
+        <span class="hero-play size-3" aria-hidden="true" />
+        {format_clock(@seg.start_ms)}
       </button>
-      <button
-        :if={@playable}
-        type="button"
-        data-seg-play
-        data-start-ms={@seg.start_ms}
-        title="Ouvir a partir daqui"
-        class="w-12 shrink-0 rounded px-1 py-0.5 font-mono text-body-sm text-ink-muted hover:text-ink"
-      >{format_clock(@seg.start_ms)}</button>
       <span :if={not @playable} class="w-12 shrink-0 font-mono text-body-sm text-ink-muted">{format_clock(
         @seg.start_ms
       )}</span>
@@ -1131,11 +1140,12 @@ defmodule BeatgridWeb.MixLive do
         phx-click="recognize_seg"
         phx-value-id={@seg.id}
         disabled={not Beatgrid.Integrations.configured?(:audd)}
+        data-confirm="O AudD pode gerar cobrança por consulta. Identificar esta faixa?"
         title="Identificar faixa (AudD)"
         aria-label={"Identificar a faixa em #{format_clock(@seg.start_ms)} (AudD)"}
         class="shrink-0 rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[11px] text-ink-muted hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
       >
-        ?
+        Identificar
       </button>
       <span
         :if={name_source_label(@seg.name_source)}
@@ -1146,7 +1156,7 @@ defmodule BeatgridWeb.MixLive do
       <form
         id={"seg-form-#{@seg.id}"}
         phx-submit="save_segment"
-        class="min-w-0 flex-1 flex items-center gap-2"
+        class="flex min-w-[13rem] flex-1 items-center gap-1.5"
       >
         <input type="hidden" name="segment_id" value={@seg.id} />
         <input
@@ -1154,7 +1164,7 @@ defmodule BeatgridWeb.MixLive do
           value={@seg.artist || ""}
           placeholder="Artista"
           aria-label={"Artista da faixa em #{format_clock(@seg.start_ms)}"}
-          class="w-32 shrink-0 rounded border border-white/10 bg-transparent px-1.5 py-0.5 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary/50 focus:outline-none"
+          class="w-[35%] min-w-0 rounded border border-white/10 bg-transparent px-1.5 py-0.5 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary/50 focus:outline-none"
         />
         <input
           name="title"
@@ -1165,7 +1175,7 @@ defmodule BeatgridWeb.MixLive do
         />
         <button
           type="submit"
-          aria-label="Salvar título"
+          aria-label="Salvar artista e título"
           class="shrink-0 rounded px-2 py-0.5 text-[11px] text-ink-faint hover:text-ink"
         >✓</button>
       </form>
@@ -1178,7 +1188,7 @@ defmodule BeatgridWeb.MixLive do
         aria-label={"Recortar o trecho a partir de #{format_clock(@seg.start_ms)}"}
         class="shrink-0 rounded px-1 py-0.5 text-[12px] text-ink-muted hover:text-ink"
       >
-        ✂
+        <span class="hero-scissors size-3.5" aria-hidden="true" />
       </button>
       <span :if={@seg.bpm_detected} class="shrink-0 text-body-sm text-primary">{round(
         @seg.bpm_detected
@@ -1208,9 +1218,10 @@ defmodule BeatgridWeb.MixLive do
     <.link
       :if={@seg.matched_track_id}
       navigate={~p"/track/#{@seg.matched_track_id}"}
+      aria-label={"Abrir faixa da biblioteca em #{format_clock(@seg.start_ms)}"}
       class="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary"
     >
-      ✓ tenho
+      Abrir faixa
     </.link>
     <a
       :if={is_nil(@seg.matched_track_id) and named?(@seg)}
@@ -1219,14 +1230,14 @@ defmodule BeatgridWeb.MixLive do
       rel="noopener"
       class="shrink-0 rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-ink-muted hover:text-ink"
     >
-      não tenho ↗
+      Buscar no YouTube
     </a>
     <span
       :if={is_nil(@seg.matched_track_id) and not named?(@seg)}
       title={
         if @seg.audd_attempted_at,
-          do: "O AudD tentou e não reconheceu esta faixa — preencha à mão acima",
-          else: "Faixa sem nome — preencha artista/título acima (ou use o reconhecimento depois)"
+          do: "O AudD tentou e não reconheceu esta faixa — preencha artista e título",
+          else: "Faixa sem nome — preencha artista e título (ou use o reconhecimento depois)"
       }
       class="shrink-0 rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-ink-faint"
     >
@@ -1285,6 +1296,10 @@ defmodule BeatgridWeb.MixLive do
   end
 
   defp pad(n), do: n |> Integer.to_string() |> String.pad_leading(2, "0")
+
+  defp source_link_label("youtube"), do: "Abrir no YouTube"
+  defp source_link_label("soundcloud"), do: "Abrir no SoundCloud"
+  defp source_link_label(_), do: "Abrir gravação original"
 
   defp mix_status_label(:downloading), do: "Baixando…"
   defp mix_status_label(:analyzing), do: "Analisando…"
