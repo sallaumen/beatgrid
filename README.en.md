@@ -17,37 +17,23 @@ The **filesystem is the source of truth**: moving a track in the app moves the
 file on disk (with undo). The database is a knowledge layer over the files —
 the music never lives in this repository.
 
-## Screens
+## Finding a task
 
-**Library** — filters by genre, key (Camelot), BPM, energy and rating; batch
-actions with undo:
+Navigation labels are in Brazilian Portuguese.
 
-![Library](docs/screenshots/biblioteca.png)
-
-**REC SET** — scored set builder (style + harmony + energy arc), automatic
-planner, per-pair transitions and M3U export:
-
-![REC SET](docs/screenshots/rec-set.png)
-
-**Dashboard** — collection overview and operations hub (audio analysis,
-loudness, cue markers, YouTube import, AI repertoire gaps):
-
-![Dashboard](docs/screenshots/painel.png)
-
-**Discotecagem** — dual-deck live console: Serato-style waveforms, real jog
-scratching (AudioWorklet), per-deck FX (filter/echo/tone), automatic and manual
-transitions, always-visible set queue + library, and a mapped MIDI controller
-(Numark DJ2GO2 Touch).
-
-**Set planner (REC SET)** — beyond the builder: real customization (style
-priority scales, BPM range, energy arc, Selo Ouro quota, "less vocals"), a
-reference set as a curated pool, and cross-playlist no-repeat.
-
-**Importados** — YouTube downloads grouped by source playlist, with batch
-import and "Create set" in playlist order.
-
-**Sets online** — full-length downloaded mixes/classes: track recognition,
-segmentation and per-song navigation inside the audio.
+| Menu group | Page | Tasks |
+| --- | --- | --- |
+| Coleção | Biblioteca | Find and audition music, filter by tempo or key, and organize multiple tracks. Open a track to edit its metadata, notes, cues and gold status. |
+| Coleção | Importações | Review versions, select videos and follow the batch under **YouTube e Spotify**. Review and copy local files under **Pasta ou arquivo**. |
+| Coleção | Repertório | View collection statistics and get suggestions for a folder. A selected recommendation opens in Imports for review. |
+| Curadoria | Revisão de sugestões | Approve, edit or reject proposed names and classifications. Inspect and undo applied batches. |
+| Curadoria | Duplicatas · Gêneros · Recuperação de arquivos | Compare duplicate files, manage genre folders and recover damaged or quarantined audio in their respective pages. |
+| Sets e palco | Montagem de sets | Build, reorder and audition sets, adjust planning and export M3U. **Abrir na discotecagem** opens the selected set in the booth. |
+| Sets e palco | Sets gravados | Study long recordings, identify segments and open extracted tracks. Paid AudD recognition requires confirmation. |
+| Sets e palco | Discotecagem | Play live with two decks, vinyl, scratch, effects, transitions, headphones and MIDI. |
+| Sistema | Fila de tarefas | Filter downloads, imports and analyses by type and state. Inspect errors and retry jobs. |
+| Sistema | Manutenção | Run library-wide analysis, measure loudness, apply or undo gain batches, prepare markers, enrich metadata and back up curation data. |
+| Sistema | Ajustes | Change set, booth, audio, backup and curation preferences. |
 
 ## What it does
 
@@ -63,8 +49,12 @@ segmentation and per-song navigation inside the audio.
   analysis, and a dual-deck crossfading player.
 - **Consistent volume**: measures loudness (LUFS) and applies gain to the
   files (lossless mp3gain for MP3; ffmpeg for the rest), with undo.
-- **YouTube import**: paste a URL or playlist and tracks flow into the normal
-  review pipeline.
+- **Importações** lets you review titles and select tracks before downloading.
+  A video link with a radio opens only that video. Paste an explicit playlist link
+  to select tracks from it. The queue shows the state of each download and supports retries.
+- **Public Spotify playlists** serve as a repertoire reference. Review tracks exposed
+  by the public preview, check artist/title matches in your library, and search YouTube
+  for versions. The DJ chooses the video. Audio availability depends on YouTube.
 - Every disk change follows **propose → review → apply → undo**, recorded in
   an operations log.
 
@@ -85,6 +75,9 @@ app runs without them, and the test suite needs none — everything is mocked).
 | Python 3 + librosa *(optional)* | offline BPM/key/markers |
 | claude CLI *(optional)* | AI genre classification and suggestions |
 | Soundcharts API key *(optional)* | metadata enrichment (`.env`) |
+
+On macOS, Beatgrid prefers yt-dlp installed at
+`~/Library/Application Support/beatgrid/yt-dlp/bin/yt-dlp`. It also accepts the system executable.
 
 ### macOS
 

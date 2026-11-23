@@ -62,7 +62,7 @@ for *what* we are building and *why*. This file is *how* to build it.
   `audd_attempted_at` so it is never re-paid for the same segment.
 - **Gain writes are backed up.** Applying loudness gain copies the original file to
   `_Backups/Gain/<track>/<batch>/` first and records a reversible `:gain` operation —
-  the batch is undoable from the Painel.
+  the batch is undoable from Manutenção.
 - **Quiet mode.** Active playback pauses Oban's background work
   (`Beatgrid.Playback.QuietMode`) so ffmpeg/librosa never stutter a live set.
 - **Worker error semantics.** `{:cancel, reason}` for permanent failures (missing
@@ -111,6 +111,7 @@ mocks — those two files are the ground truth). The current ports:
 | `Beatgrid.Audio.Loudness` | `Audio.FfmpegLoudness` | `ffmpeg loudnorm` (LUFS/true peak) |
 | `Beatgrid.Audio.GainApplier` | `Audio.GainApplierCli` | `mp3gain` / `ffmpeg` (gain apply) |
 | `Beatgrid.Audio.SetSegmenter` | `Audio.SetSegmenter.LibrosaCli` | Python + librosa (mix segmentation + DJ candidates) |
+| `Beatgrid.Spotify.Playlist` | `Spotify.Embed` | public Spotify playlist metadata |
 | `Beatgrid.YouTube.Downloader` | `YouTube.YtDlp` | `yt-dlp` (download + listing) |
 | `Beatgrid.Mixes.Source` | `Mixes.Source.YtDlp` | `yt-dlp` (online-set audio fetch) |
 | `Beatgrid.Video.FrameSampler` | `Video.FrameSampler.FfmpegCli` | `ffmpeg` (frames for DJ-name OCR) |

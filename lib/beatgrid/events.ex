@@ -8,18 +8,18 @@ defmodule Beatgrid.Events do
 
   | Topic             | Owner (subscribe/broadcast)       | Messages                                            | Consumed by                    |
   | ----------------- | --------------------------------- | --------------------------------------------------- | ------------------------------ |
-  | `analysis`        | `Beatgrid.Analysis`               | `{:analysis_tick}`                                  | Painel                         |
-  | `loudness`        | `Beatgrid.Loudness`               | `{:loudness_tick}`                                  | Painel                         |
-  | `markers_progress` | `Beatgrid.Markers`               | `{:markers_tick}`                                   | Painel                         |
-  | `backup`          | `Beatgrid.Backup`                 | `{:backup_tick}`                                    | Painel                         |
-  | `youtube`         | `Beatgrid.YouTube`                | `{:youtube_tick}`                                   | Painel, Importados                         |
-  | `enrich`          | `Beatgrid.YouTube` (`_enrich`)    | `{:enrich_progress, enrich_progress()}`             | Painel, Detalhe da faixa       |
-  | `reevaluate`      | `Beatgrid.Review`                 | `{:reevaluate_progress, reevaluate_progress()}`, `{:re_resolve_done, re_resolve_done()}`, `{:review_applied, batch_result()}` | Central de Revisão |
-  | `operations`      | `Beatgrid.Operations`             | `{:batch_undone, undo_result()}`                    | Central de Revisão, Biblioteca |
-  | `import`          | `Beatgrid.Library` (`_import`)    | `{:import_progress, import_progress()}`, `{:tracks_moved, move_result()}` | Biblioteca   |
-  | `mixes`           | `Beatgrid.Mixes`                  | `{:mix_progress, mix_progress()}`                   | Sets online (lista + estudo)   |
+  | `analysis`        | `Beatgrid.Analysis`               | `{:analysis_tick}`                                  | Manutenção                     |
+  | `loudness`        | `Beatgrid.Loudness`               | `{:loudness_tick}`                                  | Manutenção                     |
+  | `markers_progress` | `Beatgrid.Markers`               | `{:markers_tick}`                                   | Manutenção                     |
+  | `backup`          | `Beatgrid.Backup`                 | `{:backup_tick}`                                    | Manutenção                     |
+  | `youtube`         | `Beatgrid.YouTube`                | `{:youtube_tick}`                                   | Manutenção, Importações                         |
+  | `enrich`          | `Beatgrid.YouTube` (`_enrich`)    | `{:enrich_progress, enrich_progress()}`             | Manutenção, Detalhe da faixa       |
+  | `reevaluate`      | `Beatgrid.Review`                 | `{:reevaluate_progress, reevaluate_progress()}`, `{:re_resolve_done, re_resolve_done()}`, `{:review_applied, batch_result()}` | Revisão de sugestões |
+  | `operations`      | `Beatgrid.Operations`             | `{:batch_undone, undo_result()}`                    | Revisão de sugestões, Biblioteca |
+  | `import`          | `Beatgrid.Library` (`_import`)    | `{:import_progress, import_progress()}`, `{:tracks_moved, move_result()}` | Importações, Biblioteca |
+  | `mixes`           | `Beatgrid.Mixes`                  | `{:mix_progress, mix_progress()}`                   | Sets gravados (lista + estudo)   |
   | `dedup`           | `Beatgrid.Dedup`                  | `{:dedup_progress, dedup_progress()}`               | Duplicatas                     |
-  | `recommendations` | `Beatgrid.Repertoire`             | `{:recommend_progress, recommend_progress()}`       | Painel, Detalhe da faixa       |
+  | `recommendations` | `Beatgrid.Repertoire`             | `{:recommend_progress, recommend_progress()}`       | Repertório, Detalhe da faixa       |
   | `now_playing`     | `Beatgrid.Playback`               | `{:now_playing, now_playing()}`                     | Player + todas as telas        |
   | `markers`         | `Beatgrid.Playback` (`_markers`)  | `{:markers_changed, track_id}`                      | Player, Detalhe da faixa, Discotecagem |
   | `sets:<id>`       | `Beatgrid.Sets` (`subscribe_set`) | `{:set_changed, set_id}`                            | Discotecagem (hint revalidation) |
