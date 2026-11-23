@@ -21,7 +21,7 @@ defmodule BeatgridWeb.JobsLive do
     {:ok, assign(socket, page_title: "Fila de tarefas", states: @states, expanded: MapSet.new())}
   end
 
-  # URL-driven filters (`?state=failed&worker=DownloadWorker`) so the Painel can
+  # URL-driven filters (`?state=failed&worker=DownloadWorker`) so Maintenance can
   # deep-link straight to "the downloads that gave up" and the view survives
   # refresh/back. "failed" is a pseudo-state covering discarded + cancelled.
   @impl true
