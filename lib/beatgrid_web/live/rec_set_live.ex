@@ -14,7 +14,6 @@ defmodule BeatgridWeb.RecSetLive do
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: Playback.subscribe()
-    sets = Sets.list()
     np = Playback.now_playing()
 
     {:ok,
@@ -41,30 +40,41 @@ defmodule BeatgridWeb.RecSetLive do
        max_plan_tracks: Sets.max_plan_tracks(),
        plan_preset: "custom",
        plan_prefill: Sets.preset_fields("custom"),
-       planning?: false
-     )
-     |> assign(sets: sets, set_health: Sets.set_health())
-     |> load_set(List.first(sets))}
+       planning_sets: MapSet.new()
+     )}
   end
 
-  # `/set/:id` deep-links a specific set (e.g. the player's set chip). `/set` keeps
-  # the first set loaded by mount. In-page switching (`select_set`) loads directly.
   @impl true
   def handle_params(%{"id" => id}, _uri, socket) do
-    cond do
-      socket.assigns[:set] && socket.assigns.set.id == id ->
-        {:noreply, socket}
-
-      set = Sets.get(id) ->
-        {:noreply, load_set(socket, set)}
-
-      true ->
-        # Unknown/deleted set id (e.g. a stale player chip) — drop the bad id.
-        {:noreply, push_patch(socket, to: ~p"/set")}
+    with {:ok, uuid} <- Ecto.UUID.cast(id),
+         %{} = set <- Sets.get(uuid) do
+      {:noreply,
+       socket
+       |> assign_new(:sets, &Sets.list/0)
+       |> assign_new(:set_health, &Sets.set_health/0)
+       |> load_selection(set)}
+    else
+      _ ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Set não encontrado.")
+         |> push_patch(to: ~p"/set", replace: true)}
     end
   end
 
-  def handle_params(_params, _uri, socket), do: {:noreply, socket}
+  def handle_params(_params, _uri, socket) do
+    socket = refresh_sets(socket)
+    {:noreply, load_selection(socket, List.first(socket.assigns.sets))}
+  end
+
+  defp refresh_sets(socket),
+    do: assign(socket, sets: Sets.list(), set_health: Sets.set_health())
+
+  defp load_selection(socket, set) do
+    socket
+    |> assign(search_query: "", search_results: [], name_input: nil, name_error: nil, toast: nil)
+    |> load_set(set)
+  end
 
   @impl true
   def handle_info({:now_playing, np}, socket) do
@@ -122,7 +132,12 @@ defmodule BeatgridWeb.RecSetLive do
   # taught it a real exit point.
   defp pair_warns?(timing), do: not (timing.has_outro? or timing.learned?)
 
-  defp reload(socket), do: load_set(socket, Sets.get(socket.assigns.set.id))
+  defp reload(socket) do
+    case Sets.get(socket.assigns.set.id) do
+      nil -> missing_set(socket)
+      set -> load_set(socket, set)
+    end
+  end
 
   defp with_track(socket, track_id, fun) do
     case Tracks.get(track_id) do
@@ -189,45 +204,61 @@ defmodule BeatgridWeb.RecSetLive do
   def handle_event("new_set", _params, socket) do
     {:ok, set} = Sets.create("Novo set")
 
+    {:noreply, socket |> refresh_sets() |> push_patch(to: set_path(set))}
+  end
+
+  def handle_event(
+        "rename",
+        %{"set_id" => id, "name" => name},
+        %{assigns: %{set: %{id: id}}} = socket
+      )
+      when is_binary(name) do
+    {:noreply, with_current_set(socket, &rename_set(socket, &1, name))}
+  end
+
+  def handle_event("rename", _params, socket), do: {:noreply, socket}
+
+  def handle_event(
+        "set_target_style",
+        %{"set_id" => id, "style" => style},
+        %{assigns: %{set: %{id: id}}} = socket
+      ) do
     {:noreply,
-     socket |> assign(sets: Sets.list(), set_health: Sets.set_health()) |> load_set(set)}
+     with_current_set(socket, fn current ->
+       {:ok, set} = Sets.set_target_style(current, blank_to_nil(style))
+       load_set(socket, set)
+     end)}
   end
 
-  def handle_event("select_set", %{"id" => id}, socket) do
-    {:noreply, socket |> assign(search_query: "", search_results: []) |> load_set(Sets.get(id))}
-  end
+  def handle_event("set_target_style", _params, socket), do: {:noreply, socket}
 
-  def handle_event("rename", %{"name" => name}, socket) do
-    {:ok, set} = Sets.rename(socket.assigns.set, name)
-    {:noreply, assign(socket, set: set, sets: Sets.list(), set_health: Sets.set_health())}
-  end
-
-  def handle_event("set_target_style", %{"style" => style}, socket) do
-    {:ok, set} = Sets.set_target_style(socket.assigns.set, blank_to_nil(style))
-    {:noreply, load_set(socket, set)}
-  end
-
-  # Backup a good set before editing: copies it and loads the copy, so the DJ
-  # edits the backup and the original stays put.
-  def handle_event("duplicate_set", _params, socket) do
-    {:ok, copy} = Sets.duplicate(socket.assigns.set)
-
+  def handle_event("duplicate_set", %{"id" => id}, %{assigns: %{set: %{id: id}}} = socket) do
     {:noreply,
-     socket
-     |> assign(sets: Sets.list(), set_health: Sets.set_health())
-     |> load_set(copy)
-     |> put_flash(:info, "Cópia criada: “#{copy.name}”. Você está editando a cópia.")}
+     with_current_set(socket, fn current ->
+       case Sets.duplicate(current) do
+         {:ok, copy} ->
+           socket
+           |> refresh_sets()
+           |> put_flash(:info, "Cópia criada: “#{copy.name}”. Você está editando a cópia.")
+           |> push_patch(to: set_path(copy))
+
+         {:error, _reason} ->
+           put_flash(socket, :error, "Não foi possível duplicar o set.")
+       end
+     end)}
   end
 
-  def handle_event("delete_set", _params, socket) do
-    {:ok, _} = Sets.delete(socket.assigns.set)
-    sets = Sets.list()
+  def handle_event("duplicate_set", _params, socket), do: {:noreply, socket}
 
+  def handle_event("delete_set", %{"id" => id}, %{assigns: %{set: %{id: id}}} = socket) do
     {:noreply,
-     socket
-     |> assign(sets: sets, set_health: Sets.set_health())
-     |> load_set(List.first(sets))}
+     with_current_set(socket, fn current ->
+       {:ok, _} = Sets.delete(current)
+       select_remaining_set(socket)
+     end)}
   end
+
+  def handle_event("delete_set", _params, socket), do: {:noreply, socket}
 
   # --- members ---
 
@@ -319,10 +350,7 @@ defmodule BeatgridWeb.RecSetLive do
   def handle_event("remix", _params, socket) do
     set = socket.assigns.set
 
-    {:noreply,
-     socket
-     |> assign(planning?: true)
-     |> start_async(:remix, fn -> Sets.remix(set) end)}
+    {:noreply, start_set_operation(socket, {:remix, set.id, nil}, fn -> Sets.remix(set) end)}
   end
 
   # --- auto-composition ---
@@ -356,9 +384,7 @@ defmodule BeatgridWeb.RecSetLive do
     verb = if params["fill_mode"] == "append", do: "estendido", else: "planejado"
 
     {:noreply,
-     socket
-     |> assign(planning?: true, plan_verb: verb)
-     |> start_async(:plan, fn -> Sets.plan(set, params) end)}
+     start_set_operation(socket, {:plan, set.id, verb}, fn -> Sets.plan(set, params) end)}
   end
 
   # --- mixing console (weights + hard filters) ---
@@ -456,40 +482,91 @@ defmodule BeatgridWeb.RecSetLive do
 
   def handle_event("dismiss_toast", _params, socket), do: {:noreply, assign(socket, toast: nil)}
 
+  defp start_set_operation(socket, {_action, id, _verb} = task, fun) do
+    if MapSet.member?(socket.assigns.planning_sets, id) do
+      socket
+    else
+      socket
+      |> update(:planning_sets, &MapSet.put(&1, id))
+      |> start_async(task, fun)
+    end
+  end
+
   @impl true
-  def handle_async(:plan, {:ok, {:ok, set}}, socket) do
-    {:noreply,
-     socket
-     |> assign(planning?: false)
-     |> reload()
-     |> put_flash(
-       :info,
-       "Set #{socket.assigns.plan_verb}: #{length(Sets.entries(set))} faixas com arco + transições."
-     )}
+  def handle_async({action, id, verb}, result, socket) when action in [:plan, :remix] do
+    socket = update(socket, :planning_sets, &MapSet.delete(&1, id))
+
+    case socket.assigns.set do
+      %{id: ^id} ->
+        case Sets.get(id) do
+          nil -> {:noreply, missing_set(socket)}
+          set -> {:noreply, socket |> load_set(set) |> finish_set_operation(action, verb, result)}
+        end
+
+      _ ->
+        {:noreply, socket}
+    end
   end
 
-  def handle_async(:plan, failure, socket) do
-    {:noreply, plan_failed(socket, "Plano falhou", failure)}
+  defp finish_set_operation(socket, :plan, verb, {:ok, {:ok, _set}}) do
+    put_flash(
+      socket,
+      :info,
+      "Set #{verb}: #{length(socket.assigns.entries)} faixas com arco + transições."
+    )
   end
 
-  def handle_async(:remix, {:ok, {:ok, _set}}, socket) do
-    {:noreply,
-     socket
-     |> assign(planning?: false)
-     |> reload()
-     |> put_flash(:info, "Set remixado no arco de energia (ouro nos picos) + reconectado.")}
+  defp finish_set_operation(socket, :remix, _verb, {:ok, {:ok, _set}}) do
+    put_flash(socket, :info, "Set remixado no arco de energia (ouro nos picos) + reconectado.")
   end
 
-  def handle_async(:remix, failure, socket) do
-    {:noreply, plan_failed(socket, "Remix falhou", failure)}
+  defp finish_set_operation(socket, action, _verb, failure) do
+    label = if action == :plan, do: "Plano falhou", else: "Remix falhou"
+
+    put_flash(socket, :error, "#{label}: #{failure_reason(failure)} — o set ficou como estava.")
   end
 
-  defp plan_failed(socket, action, failure) do
+  defp with_current_set(socket, fun) do
+    case socket.assigns.set && Sets.get(socket.assigns.set.id) do
+      nil -> missing_set(socket)
+      set -> fun.(set)
+    end
+  rescue
+    Ecto.StaleEntryError -> missing_set(socket)
+  end
+
+  defp rename_set(socket, set, name) do
+    cond do
+      String.trim(name) == "" ->
+        assign(socket, name_input: name, name_error: "Informe um nome para o set.")
+
+      length(String.codepoints(name)) > 255 ->
+        assign(socket, name_input: name, name_error: "Use até 255 caracteres no nome do set.")
+
+      true ->
+        case Sets.rename(set, name) do
+          {:ok, updated} ->
+            assign(socket, set: updated, sets: Sets.list(), name_input: nil, name_error: nil)
+
+          {:error, _changeset} ->
+            assign(socket, name_input: name, name_error: "Não foi possível salvar o nome do set.")
+        end
+    end
+  end
+
+  defp missing_set(socket) do
     socket
-    |> assign(planning?: false)
-    |> reload()
-    |> put_flash(:error, "#{action}: #{failure_reason(failure)} — o set ficou como estava.")
+    |> put_flash(:error, "Esse set já foi excluído.")
+    |> select_remaining_set()
   end
+
+  defp select_remaining_set(socket) do
+    socket = refresh_sets(socket)
+    push_patch(socket, to: set_path(List.first(socket.assigns.sets)), replace: true)
+  end
+
+  defp set_path(nil), do: ~p"/set"
+  defp set_path(set), do: ~p"/set/#{set.id}"
 
   defp failure_reason({:ok, {:error, reason}}), do: inspect(reason)
 
@@ -671,10 +748,10 @@ defmodule BeatgridWeb.RecSetLive do
             </div>
           </div>
           <div class="max-h-40 min-h-0 flex-1 overflow-y-auto px-2 pb-3 lg:max-h-none">
-            <button
+            <.link
               :for={s <- @sets}
-              phx-click="select_set"
-              phx-value-id={s.id}
+              patch={set_path(s)}
+              aria-current={@set && @set.id == s.id && "page"}
               class={[
                 "flex w-full items-center gap-1.5 rounded-md px-2.5 py-2 text-left text-body-sm",
                 @set && @set.id == s.id && "bg-primary/15 text-primary",
@@ -689,7 +766,7 @@ defmodule BeatgridWeb.RecSetLive do
               >
                 ⚠ {@set_health[s.id]}
               </span>
-            </button>
+            </.link>
             <p :if={@sets == []} class="px-2.5 py-2 text-body-sm text-ink-faint">Nenhum set ainda.</p>
           </div>
           <button
@@ -720,15 +797,31 @@ defmodule BeatgridWeb.RecSetLive do
           class="flex min-w-0 flex-1 flex-col overflow-y-auto xl:flex-row xl:overflow-hidden"
         >
           <section class="min-w-0 flex-1 px-4 py-4 lg:overflow-y-auto">
-            <header class="flex flex-wrap items-center gap-3">
-              <form id="set-name" phx-change="rename" class="min-w-0 grow basis-56">
+            <header id={"set-editor-header-#{@set.id}"} class="flex flex-wrap items-center gap-3">
+              <form
+                id="set-name"
+                phx-change="rename"
+                phx-submit="rename"
+                class="min-w-0 grow basis-56"
+              >
+                <input type="hidden" name="set_id" value={@set.id} />
                 <input
                   name="name"
-                  value={@set.name}
+                  value={@name_input || @set.name}
                   phx-debounce="500"
                   aria-label="Nome do set"
+                  aria-invalid={@name_error && "true"}
+                  aria-describedby={@name_error && "set-name-error"}
                   class="w-full bg-transparent text-[22px] font-semibold"
                 />
+                <p
+                  :if={@name_error}
+                  id="set-name-error"
+                  role="alert"
+                  class="text-caption text-coral-soft"
+                >
+                  {@name_error}
+                </p>
               </form>
               <div class="flex min-w-0 flex-wrap items-center gap-2">
                 <.link
@@ -757,7 +850,7 @@ defmodule BeatgridWeb.RecSetLive do
                 <button
                   :if={length(@entries) > 1}
                   phx-click="remix"
-                  disabled={@planning?}
+                  disabled={MapSet.member?(@planning_sets, @set.id)}
                   class="rounded-md border border-primary/40 bg-primary/10 px-3 py-1.5 text-body-sm font-semibold text-primary hover:bg-primary/20 disabled:opacity-40"
                   title="Reorganiza as faixas atuais no arco de energia (ouro nos picos) e reconecta"
                 >
@@ -780,6 +873,7 @@ defmodule BeatgridWeb.RecSetLive do
                 </button>
                 <button
                   phx-click="duplicate_set"
+                  phx-value-id={@set.id}
                   class="rounded-md px-2 py-1.5 text-body-sm text-ink-muted hover:text-primary"
                   title="Cria uma cópia deste set — faça backup antes de editar"
                 >
@@ -787,6 +881,7 @@ defmodule BeatgridWeb.RecSetLive do
                 </button>
                 <button
                   phx-click="delete_set"
+                  phx-value-id={@set.id}
                   data-confirm="Excluir este set?"
                   class="rounded-md px-2 py-1.5 text-body-sm text-ink-muted hover:text-coral"
                 >
@@ -797,6 +892,7 @@ defmodule BeatgridWeb.RecSetLive do
 
             <div class="mt-2 flex flex-wrap items-center gap-3">
               <form id="target-style" phx-change="set_target_style">
+                <input type="hidden" name="set_id" value={@set.id} />
                 <label class="flex items-center gap-2 text-caption text-ink-muted">
                   Estilo-alvo
                   <select
@@ -994,7 +1090,7 @@ defmodule BeatgridWeb.RecSetLive do
                   max_tracks={@max_plan_tracks}
                   folders={@folders}
                   other_sets={Enum.reject(@sets, &(@set && &1.id == @set.id))}
-                  planning?={@planning?}
+                  planning?={MapSet.member?(@planning_sets, @set.id)}
                 />
               </.collapsible>
 
