@@ -1,9 +1,7 @@
 defmodule Beatgrid.Dashboard do
   @moduledoc """
-  Facade for the dashboard: the LiveView renders and translates UI events; the
-  operational knowledge lives behind this small interface, split by direction —
-  `Beatgrid.Dashboard.ReadModel` (snapshot, gaps, PubSub-driven patches) and
-  `Beatgrid.Dashboard.Commands` (panel actions).
+  Facade for the repertoire overview and library maintenance. The read model
+  supplies page snapshots and progress updates. Commands dispatch page actions.
   """
 
   alias Beatgrid.Dashboard.{Commands, ReadModel}
@@ -11,8 +9,14 @@ defmodule Beatgrid.Dashboard do
   @spec subscribe() :: :ok
   defdelegate subscribe, to: ReadModel
 
+  @spec subscribe_maintenance() :: :ok
+  defdelegate subscribe_maintenance, to: ReadModel
+
   @spec snapshot(String.t() | nil) :: map()
   defdelegate snapshot(selected_folder \\ nil), to: ReadModel
+
+  @spec maintenance_snapshot() :: map()
+  defdelegate maintenance_snapshot, to: ReadModel
 
   @spec gaps(String.t() | nil) :: map()
   defdelegate gaps(folder), to: ReadModel

@@ -88,12 +88,19 @@ defmodule Beatgrid.BackupTest do
     assert %{size: 3} = Backup.latest()
   end
 
-  test "restore_command points pg_restore at the dump with the repo's config" do
-    cmd = Backup.restore_command(%{path: "/x/beatgrid-1.dump"})
-    assert cmd =~ "pg_restore"
+  test "restore_command quotes the dump path and prompts for the database password" do
+    config = Application.fetch_env!(:beatgrid, Beatgrid.Repo)
+    password = "restore-password-fixture"
+    Application.put_env(:beatgrid, Beatgrid.Repo, Keyword.put(config, :password, password))
+    on_exit(fn -> Application.put_env(:beatgrid, Beatgrid.Repo, config) end)
+
+    cmd = Backup.restore_command(%{path: "/My DJ's backups/beatgrid-1.dump"})
+    assert cmd =~ "pg_restore -W"
     assert cmd =~ "beatgrid_test"
     assert cmd =~ "--clean --if-exists"
-    assert cmd =~ "/x/beatgrid-1.dump"
+    assert cmd =~ "'/My DJ'\\''s backups/beatgrid-1.dump'"
+    refute cmd =~ "PGPASSWORD="
+    refute cmd =~ password
   end
 
   test "the worker runs the dump" do

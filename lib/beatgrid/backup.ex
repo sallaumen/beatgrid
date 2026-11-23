@@ -108,14 +108,16 @@ defmodule Beatgrid.Backup do
     :ok
   end
 
-  @doc "The exact command to restore a dump — shown in the UI, run by a human."
+  @doc "The manual restore command. PostgreSQL prompts for the password in the terminal."
   @spec restore_command(map()) :: String.t()
   def restore_command(%{path: path}) do
     cfg = repo_config()
 
-    "PGPASSWORD=#{cfg[:password]} pg_restore -h #{cfg[:hostname]} -p #{cfg[:port]} " <>
-      "-U #{cfg[:username]} -d #{cfg[:database]} --clean --if-exists \"#{path}\""
+    "pg_restore -W -h #{shell_arg(cfg[:hostname])} -p #{shell_arg(cfg[:port])} " <>
+      "-U #{shell_arg(cfg[:username])} -d #{shell_arg(cfg[:database])} --clean --if-exists #{shell_arg(path)}"
   end
+
+  defp shell_arg(value), do: "'" <> String.replace(to_string(value), "'", "'\\''") <> "'"
 
   defp prune do
     list()

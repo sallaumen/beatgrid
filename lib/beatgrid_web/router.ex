@@ -34,6 +34,7 @@ defmodule BeatgridWeb.Router do
       live "/set/:id", RecSetLive, :show
       live "/discotecagem", DiscotecagemLive, :index
       live "/jobs", JobsLive, :index
+      live "/manutencao", MaintenanceLive, :index
       live "/ajustes", AjustesLive, :index
       live "/generos", GenresLive, :index
       live "/importados", ImportsLive, :index
