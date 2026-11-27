@@ -99,6 +99,145 @@ async function scratchBooth(t, id) {
   return {...rig, commands}
 }
 
+function pendingCut(t, fromId = "a", callbacks = {}) {
+  const rig = booth(t, callbacks)
+  const {engine} = rig
+  if (fromId === "b") {
+    engine.stopAll()
+    engine.loadDeck("b", {id: "one", src: "one", duration_ms: 60_000}, {autoplay: true})
+  }
+  const toId = fromId === "a" ? "b" : "a"
+  const from = rig[fromId], to = rig[toId]
+  const next = {type: "cut", from_ms: 48_000, to_ms: 1500}
+  rig.hint(next)
+  const attempts = []
+  const play = Promise.withResolvers()
+  t.mock.method(to, "play", () => {
+    attempts.push(to.currentTime)
+    // HTMLMediaElement may clear paused before playback actually starts.
+    to.paused = false
+    return play.promise
+  })
+  from.at(48)
+  return {...rig, fromId, toId, from, to, next, play, attempts}
+}
+
+for (const fromId of ["a", "b"]) {
+  test(`cut from ${fromId} keeps the room until the receiver starts and publishes once`, async t => {
+    const {engine, from, to, toId, play, attempts, advances, ends, tick} = pendingCut(t, fromId)
+    assert.equal(from.paused, false)
+    assert.equal(engine.sessionDeck(), fromId)
+    assert.equal(engine.snapshot().xfadePos, fromId === "a" ? 0 : 1)
+    tick(900)
+    from.at(48.9)
+    assert.equal(engine.fireManual("cut").ok, false)
+    assert.equal(attempts.length, 1)
+    assert.deepEqual(advances, [])
+    from.end()
+    assert.deepEqual(ends, [])
+    play.resolve()
+    await Promise.resolve()
+    assert.equal(engine.sessionDeck(), toId)
+    assert.deepEqual(advances.map(e => e.deck), [toId])
+    assert.equal(to.currentTime, 1.5)
+  })
+
+  test(`a refused cut from ${fromId} keeps the outgoing record and can be retried`, async t => {
+    const rig = pendingCut(t, fromId)
+    const {engine, from, to, toId, play, attempts, advances, tick} = rig
+    play.reject(new Error("start refused"))
+    await Promise.resolve()
+    assert.equal(from.paused, false)
+    assert.equal(to.paused, true)
+    assert.equal(engine.sessionDeck(), fromId)
+    assert.deepEqual(advances, [])
+    from.at(48.2)
+    assert.equal(attempts.length, 1)
+    tick(1000)
+    to.play.mock.restore()
+    assert.equal(engine.fireHint().ok, true)
+    await Promise.resolve()
+    assert.equal(from.paused, true)
+    assert.deepEqual(advances.map(e => e.deck), [toId])
+  })
+}
+
+for (const action of ["rescue", "stop", "replace", "clear", "pause"]) {
+  test(`${action} revokes an unconfirmed cut even if its play resolves late`, async t => {
+    const cancelled = []
+    const {engine, from, to, next, hint, play, advances} =
+      pendingCut(t, "a", {transitionCancelled: event => cancelled.push(event)})
+    if (action === "rescue") assert.equal(engine.cancelTransition().ok, true)
+    if (action === "stop") engine.stopAll()
+    if (action === "replace") assert.equal(hint(next, "third"), "b")
+    if (action === "clear") engine.clearHint()
+    if (action === "pause") engine.playPause("a")
+    play.resolve()
+    await Promise.resolve()
+    assert.deepEqual(advances, [])
+    assert.deepEqual(cancelled, [])
+    assert.equal(to.paused, true)
+    assert.equal(from.paused, ["stop", "pause"].includes(action))
+    if (action === "replace") assert.equal(engine.snapshot().b.trackId, "third")
+  })
+}
+
+test("a failed receiver after the outgoing ends releases the session exactly once", async t => {
+  const {from, play, engine, ends, advances} = pendingCut(t)
+  from.end()
+  play.reject(new Error("receiver refused after the last frame"))
+  await Promise.resolve()
+  from.end()
+  assert.deepEqual(ends.map(e => e.trackId), ["one"])
+  assert.deepEqual(advances, [])
+  assert.equal(engine.sessionDeck(), null)
+})
+
+test("replacing the receiver after the outgoing ends retries the replacement once", async t => {
+  const {from, to, hint, next, play, advances} = pendingCut(t)
+  from.end()
+  to.play.mock.restore()
+  hint(next, "new")
+  to.ready()
+  await Promise.resolve()
+  play.resolve()
+  await Promise.resolve()
+  assert.deepEqual(advances.map(e => e.toTrackId), ["new"])
+})
+
+test("a duplicate lookahead or resting MIDI fader doesn't revoke a cut", async t => {
+  const {engine, hint, next, play, advances} = pendingCut(t)
+  assert.equal(hint(next), "b")
+  engine.setCrossfader(1 / 127, 1 / 127)
+  play.resolve()
+  await Promise.resolve()
+  assert.deepEqual(advances.map(e => e.toTrackId), ["two"])
+})
+
+test("the fader takes over a pending cut and a late rejection leaves the new load alone", async t => {
+  const refused = []
+  const {engine, from, play, advances} = pendingCut(t, "a", {cutRefused: e => refused.push(e)})
+  engine.setCrossfader(.35)
+  assert.equal(engine.loadDeck("b", {id: "replacement", src: "replacement"}), true)
+  play.reject(new Error("old play stopped"))
+  await Promise.resolve()
+  assert.equal(from.paused, false)
+  assert.equal(engine.snapshot().xfadePos, .35)
+  assert.equal(engine.snapshot().b.trackId, "replacement")
+  assert.deepEqual(advances, [])
+  assert.deepEqual(refused, [])
+})
+
+test("a scratch without decoded audio waits for its fallback cut to start", async t => {
+  const {a, b, engine, advances, hint} = booth(t)
+  hint(null)
+  t.mock.method(b, "play", () => Promise.reject(new Error("receiver not playing")))
+  assert.equal(engine.fireManual("scratch_cut").ok, true)
+  await Promise.resolve()
+  assert.equal(a.paused, false)
+  assert.deepEqual(advances, [])
+})
+
 test("media errors report whether the source was playing before the pause", t => {
   const reports = []
   const {a, engine} = booth(t, {deckError: event => reports.push(event)})
@@ -158,7 +297,7 @@ test("a set edit during the gap plays the current successor once", t => {
   assert.equal(b.currentTime, 1.5)
 })
 
-test("ended waits for the authorized preload to become playable", t => {
+test("ended waits for the authorized preload to become playable", async t => {
   const {a, b, hint, advances, ends} = booth(t)
   hint(null)
   b.readyState = 1
@@ -167,6 +306,7 @@ test("ended waits for the authorized preload to become playable", t => {
   assert.equal(b.plays, 0)
   b.ready()
   b.ready()
+  await Promise.resolve()
   assert.deepEqual(advances.map(e => e.toTrackId), ["two"])
   assert.equal(b.plays, 1)
 })
@@ -186,11 +326,12 @@ test("stop cancels a buffered autoplay and a pending breather", t => {
   assert.equal(a.paused, true)
 })
 
-test("rescue cannot play a new preload in place of the outgoing record", t => {
+test("rescue cannot play a new preload in place of the outgoing record", async t => {
   const {a, b, hint, engine, advances} = booth(t)
   hint({type: "cut", from_ms: 50_000})
   a.at(50)
   assert.equal(b.plays, 1)
+  await Promise.resolve()
   assert.equal(hint(null, "three"), "a")
   assert.equal(engine.cancelTransition().ok, false)
   assert.equal(a.plays, 1)
@@ -261,13 +402,14 @@ test("a cancelled AUTO blend stays on the rescued track inside the same fire win
   assert.equal(engine.sessionDeck(), "a")
 })
 
-test("manual fire takes a sequential hint directly even with AUTO off", t => {
+test("manual fire takes a sequential hint directly even with AUTO off", async t => {
   const {a, b, hint, engine, advances} = booth(t)
   hint(null)
   engine.setAuto(false)
   a.at(22)
   assert.equal(engine.fireHint().ok, true)
   assert.equal(b.plays, 1)
+  await Promise.resolve()
   assert.deepEqual(advances.map(e => e.type), ["cut"])
 })
 
@@ -355,7 +497,7 @@ test("a manual crossfader move wins over the second phase of a bass swap", t => 
   assert.equal(engine.snapshot().xfadePos, 0.27)
 })
 
-test("AUTO waits for the DJ to release the armed platter at the end of the other deck", t => {
+test("AUTO waits for the DJ to release the armed platter at the end of the other deck", async t => {
   const {engine, a, b, hint, advances} = booth(t)
   hint(null)
   engine.jogTouch("b", true)
@@ -363,6 +505,7 @@ test("AUTO waits for the DJ to release the armed platter at the end of the other
   assert.equal(b.plays, 0)
   engine.jogTouch("b", false)
   assert.equal(b.plays, 1)
+  await Promise.resolve()
   assert.equal(advances.length, 1)
 })
 
@@ -819,6 +962,7 @@ test("releasing the scratch pad starts the waiting AUTO track at its prepared en
   engine.stopAutoScratch("b")
   assert.equal(b.plays, 1)
   assert.equal(b.currentTime, 5)
+  await Promise.resolve()
   assert.deepEqual(advances.map(event => event.toTrackId), ["scratch-entry"])
 })
 
@@ -1338,6 +1482,7 @@ test("the next AUTO window follows the audible recording when the muted media cl
   b.seeking = true
   engine.ctx.currentTime += 30
   tick(250)
+  await Promise.resolve()
   assert.deepEqual(advances.map(x => x.toTrackId), ["two", "three"])
 })
 
