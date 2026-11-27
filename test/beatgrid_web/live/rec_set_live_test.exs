@@ -61,8 +61,17 @@ defmodule BeatgridWeb.RecSetLiveTest do
     {:ok, first} = Sets.create_filled("Primeiro baile", [original])
     {:ok, second} = Sets.create_filled("Segundo baile", [original])
 
-    {:ok, view, _html} = live(conn, ~p"/set?track_id=#{proposed.id}")
+    {:ok, view, html} = live(conn, ~p"/set?track_id=#{proposed.id}")
     assert has_element?(view, "#set-proposed-track", "Forró/ao-vivo.mp3")
+
+    assert has_element?(
+             view,
+             "#set-proposed-track a[href='/track/#{proposed.id}']",
+             "Voltar à ficha"
+           )
+
+    assert length(Regex.scan(~r/phx-click="new_set"/, html)) == 1
+    assert has_element?(view, "aside button[phx-click=new_set]", "Novo set")
     assert has_element?(view, "#compact-set-id option[selected]", "Escolha um set")
     refute has_element?(view, "#set-add-proposed-track")
     refute has_element?(view, "#set-name")
@@ -71,6 +80,18 @@ defmodule BeatgridWeb.RecSetLiveTest do
     view |> element("aside a[href='/set/#{second.id}?track_id=#{proposed.id}']") |> render_click()
     assert_patch(view, ~p"/set/#{second.id}?track_id=#{proposed.id}")
     assert has_element?(view, "#set-proposed-track", "Segundo baile")
+
+    assert has_element?(
+             view,
+             "#set-proposed-track a[href='/track/#{proposed.id}?set_id=#{second.id}']",
+             "Voltar à ficha"
+           )
+
+    assert has_element?(
+             view,
+             "#set-add-proposed-track[phx-click=append][phx-value-track='#{proposed.id}']"
+           )
+
     assert Enum.map(Sets.tracks(second), & &1.id) == [original.id]
 
     view |> element("#set-add-proposed-track") |> render_click()
@@ -86,6 +107,16 @@ defmodule BeatgridWeb.RecSetLiveTest do
 
     assert Enum.map(Sets.tracks(second), & &1.id) == [proposed.id, original.id]
     assert has_element?(view, "a[href='/discotecagem?set=#{second.id}']", "Abrir na discotecagem")
+  end
+
+  test "new set remains reachable through the collapsed set picker", %{conn: conn} do
+    track = track_with("8A", 112.0, tag_title: "Proposta")
+    {:ok, view, _html} = live(conn, ~p"/set?track_id=#{track.id}")
+    view |> element("button[aria-label='Recolher lista de sets']") |> render_click()
+    refute has_element?(view, "button[phx-click=new_set]")
+    view |> element("button[aria-label='Mostrar lista de sets']") |> render_click()
+    assert has_element?(view, "aside button[phx-click=new_set]", "Novo set")
+    assert has_element?(view, "#set-proposed-track", "Proposta")
   end
 
   test "creating a new set keeps the proposed recording until explicit insertion", %{conn: conn} do

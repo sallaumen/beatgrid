@@ -311,15 +311,6 @@ defmodule BeatgridWeb.RecSetLive do
 
   def handle_event("append", _params, socket), do: {:noreply, socket}
 
-  def handle_event(
-        "append_proposed",
-        _params,
-        %{assigns: %{set: %{}, proposed_track: %{id: id}}} = socket
-      ),
-      do: {:noreply, append_proposal(socket, id)}
-
-  def handle_event("append_proposed", _params, socket), do: {:noreply, socket}
-
   def handle_event("remove", %{"track" => track_id}, socket) do
     {:noreply,
      with_track(socket, track_id, fn track ->
@@ -670,6 +661,9 @@ defmodule BeatgridWeb.RecSetLive do
   defp set_path(nil, track), do: ~p"/set?track_id=#{track.id}"
   defp set_path(set, track), do: ~p"/set/#{set.id}?track_id=#{track.id}"
 
+  defp track_detail_path(track_id, nil), do: ~p"/track/#{track_id}"
+  defp track_detail_path(track_id, set_id), do: ~p"/track/#{track_id}?set_id=#{set_id}"
+
   defp failure_reason({:ok, {:error, %Beatgrid.Error{code: :no_candidates}}}),
     do: "Nenhuma faixa atende aos critérios"
 
@@ -849,9 +843,9 @@ defmodule BeatgridWeb.RecSetLive do
             <div class="flex items-center gap-1.5">
               <button
                 phx-click="new_set"
-                class="rounded-md bg-primary-deep px-2.5 py-1 text-[12px] font-semibold text-white"
+                class="shrink-0 whitespace-nowrap rounded-md bg-primary-deep px-2.5 py-1 text-[12px] font-semibold text-white"
               >
-                + Novo
+                + Novo set
               </button>
               <button
                 phx-click="toggle_sets"
@@ -1162,7 +1156,7 @@ defmodule BeatgridWeb.RecSetLive do
                   <div class="min-w-0 flex-[1_1_8rem]">
                     <div class="flex min-w-0 items-center gap-1.5">
                       <.link
-                        navigate={~p"/track/#{e.track.id}?set_id=#{@set.id}"}
+                        navigate={track_detail_path(e.track.id, @set.id)}
                         class="truncate text-body font-medium text-ink hover:text-primary hover:underline"
                       >
                         {title(e.track)}
@@ -1346,22 +1340,20 @@ defmodule BeatgridWeb.RecSetLive do
       </p>
       <div class="mt-3 flex flex-wrap items-center gap-3">
         <button
-          :if={is_nil(@set)}
-          type="button"
-          phx-click="new_set"
-          class="rounded-md bg-primary-deep px-3 py-2 text-body-sm font-semibold text-white"
-        >+ Novo set</button>
-        <button
           :if={@set && !@member?}
           id="set-add-proposed-track"
           type="button"
-          phx-click="append_proposed"
+          phx-click="append"
+          phx-value-track={@track.id}
           class="rounded-md bg-primary-deep px-3 py-2 text-body-sm font-semibold text-white"
         >Adicionar ao final de “{@set.name}”</button>
         <.link patch={set_path(@set, nil)} class="text-body-sm text-ink-secondary hover:underline">{if @member?,
           do: "Concluir escolha",
           else: "Cancelar escolha"}</.link>
-        <.link navigate={~p"/track/#{@track.id}"} class="text-body-sm text-primary hover:underline">Voltar à ficha</.link>
+        <.link
+          navigate={track_detail_path(@track.id, @set && @set.id)}
+          class="text-body-sm text-primary hover:underline"
+        >Voltar à ficha</.link>
       </div>
     </section>
     """
@@ -1385,9 +1377,8 @@ defmodule BeatgridWeb.RecSetLive do
     ~H"""
     <div class="flex h-full flex-col items-center justify-center gap-3 text-center">
       <span class="hero-queue-list size-10 text-ink-disabled" />
-      <p class="text-ink-muted">Crie um set para começar a montar.</p>
+      <p class="text-ink-muted">Escolha Novo set em Meus sets para começar a montar.</p>
       <.criteria_button />
-      <button phx-click="new_set" class="text-body-sm text-primary hover:underline">+ Novo set</button>
     </div>
     """
   end
@@ -2000,7 +1991,7 @@ defmodule BeatgridWeb.RecSetLive do
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
               <.link
-                navigate={~p"/track/#{c.track.id}?set_id=#{@set_id}"}
+                navigate={track_detail_path(c.track.id, @set_id)}
                 class="min-w-0 flex-1 truncate text-body-sm font-medium text-ink hover:text-primary hover:underline"
               >
                 {title(c.track)}
@@ -2077,7 +2068,7 @@ defmodule BeatgridWeb.RecSetLive do
           <.cover src={cover_src(t)} artist={t.tag_artist} size={30} />
           <div class="min-w-0 flex-1">
             <.link
-              navigate={~p"/track/#{t.id}?set_id=#{@set_id}"}
+              navigate={track_detail_path(t.id, @set_id)}
               class="block truncate text-body-sm font-medium text-ink hover:text-primary hover:underline"
             >
               {title(t)}
