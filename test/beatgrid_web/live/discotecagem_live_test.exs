@@ -96,6 +96,11 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
       assert has_element?(view, ~s(##{id} [data-score-metrics][class~="@md:grid-cols-3"]))
       refute has_element?(view, ~s(##{id} [data-score-metrics][class~="sm:grid-cols-3"]))
     end
+
+    assert has_element?(
+             view,
+             ~s(#dj-room-score [data-score-reference-metrics][class~="@md:grid-cols-3"])
+           )
   end
 
   test "rehearsing opens a private comparison without binding a live transition", %{conn: conn} do
@@ -119,6 +124,8 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
              "Último ensaio levado à pista"
            )
 
+    assert has_element?(view, "#dj-room-score details[data-score-reference][hidden] summary")
+    refute has_element?(view, "#dj-rehearsal-score [data-score-reference]")
     assert has_element?(view, "#dj-rehearsal [data-reservation] + #dj-room-score")
     refute has_element?(view, "#dj-rehearse-dialog #dj-room-score")
 

@@ -78,5 +78,10 @@ export function mountPassageComparison(details, labels, selected) {
     return take
   }
 
-  return {select, bind, begin}
+  function reading() {
+    const kind = selected()
+    return unavailable.has(kind) ? null : heard.get(kind) ?? null
+  }
+
+  return {select, bind, begin, reading}
 }

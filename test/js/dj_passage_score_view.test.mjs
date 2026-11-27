@@ -8,7 +8,7 @@ function fixture() {
     replaceChildren(...nodes) { this.children = nodes }
   })
   const nodes = Object.fromEntries(
-    ["panel", "total", "number", "scale", "summary", "metrics", "announce"].map(key => [key, element()])
+    ["panel", "total", "number", "scale", "summary", "metrics", "announce", "pair", "reference", "reference-label", "reference-metrics"].map(key => [key, element()])
   )
   nodes.title = {textContent: "Nota da passagem"}
   const metric = () => {
@@ -68,4 +68,24 @@ test("revisiting a measured kind renders its details quietly without animating a
   assert.deepEqual(nodes.number.children, [])
   assert.equal(nodes.announce.textContent, "")
   assert.equal(nodes.summary.textContent, "Houve uma queda de nível.")
+})
+
+test("the room compares only the audition attached to the played version", () => {
+  const {view, nodes} = fixture()
+  const metric = {id: "level", label: "Nível", value: "Variação de 0,1 dB", state: "good"}
+  const reference = {pair: "Corte · Um → Dois", hearing: {score: 100, metrics: [metric]}}
+  const room = {score: 65, summary: "Entrada mais baixa", metrics: [{...metric, value: "15,6 dB abaixo", state: "poor"}]}
+  view.show(room, {reference})
+  assert.equal(nodes.pair.textContent, reference.pair)
+  assert.equal(nodes.reference.hidden, false)
+  assert.equal(nodes["reference-label"].textContent, "No fone · 100/100")
+  assert.equal(nodes["reference-metrics"].children[0].value.textContent, metric.value)
+  assert.equal(nodes.metrics.children[0].value.textContent, "15,6 dB abaixo")
+
+  view.show({...room}, {reference: {pair: "Mistura · Três → Quatro", hearing: {score: null, metrics: [metric]}}})
+  assert.equal(nodes["reference-label"].textContent, "No fone · sem nota")
+  view.show({...room}, {reference: {pair: "Corte · Quatro → Cinco", hearing: null}})
+  assert.equal(nodes.reference.hidden, true)
+  assert.equal(nodes["reference-metrics"].children.length, 0)
+  assert.equal(nodes.pair.textContent, "Corte · Quatro → Cinco")
 })

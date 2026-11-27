@@ -7,6 +7,7 @@ export function mountPassageScore(root) {
   const panel = part("panel"), total = part("total"), number = part("number")
   const scale = part("scale"), summary = part("summary"), metrics = part("metrics")
   const announce = part("announce"), template = part("template")
+  const pair = part("pair"), referencePanel = part("reference")
   let previous = null, disposed = false
 
   function reading(metric) {
@@ -28,7 +29,7 @@ export function mountPassageScore(root) {
     if (announce.textContent !== listeningMessage) announce.textContent = listeningMessage
   }
 
-  function show(result, {restored = false, announcement} = {}) {
+  function show(result, {restored = false, announcement, reference} = {}) {
     if (disposed || previous === result) return
     previous = result
     const scored = Number.isFinite(result.score)
@@ -49,8 +50,17 @@ export function mountPassageScore(root) {
     summary.textContent = result.summary
     metrics.replaceChildren(...result.metrics.map(reading))
     metrics.hidden = result.metrics.length === 0
+    if (referencePanel) {
+      const hearing = reference?.hearing
+      pair.textContent = reference?.pair ?? ""
+      pair.hidden = !pair.textContent
+      referencePanel.open = false
+      referencePanel.hidden = !hearing
+      part("reference-label").textContent = hearing ? "No fone · " + (hearing.score == null ? "sem nota" : hearing.score + "/100") : ""
+      part("reference-metrics").replaceChildren(...(hearing?.metrics ?? []).map(reading))
+    }
     const grade = scored ? `${result.score} de 100` : "Sem nota"
-    announce.textContent = announcement ?? (restored ? "" : `${part("title").textContent}. ${grade}. ${result.summary}`)
+    announce.textContent = announcement ?? (restored ? "" : [part("title").textContent, reference?.pair, grade, result.summary].filter(Boolean).join(". "))
   }
 
   function clear() {
