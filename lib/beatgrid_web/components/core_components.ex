@@ -52,7 +52,7 @@ defmodule BeatgridWeb.CoreComponents do
       />
       <div class="min-w-0 flex-1">
         <p :if={@title} class="text-body font-semibold text-ink">{@title}</p>
-        <p class="text-body text-ink-secondary">{msg}</p>
+        <p class="text-body text-ink-secondary [overflow-wrap:anywhere]">{msg}</p>
       </div>
       <button
         type="button"

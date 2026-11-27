@@ -26,7 +26,7 @@ defmodule BeatgridWeb.Layouts do
     <div
       id={@id}
       aria-live="polite"
-      class="pointer-events-none fixed right-4 top-4 z-50 flex w-80 flex-col gap-2 sm:w-96"
+      class="pointer-events-none fixed right-4 top-4 z-50 flex w-80 max-w-[calc(100vw_-_2rem)] flex-col gap-2 sm:w-96"
     >
       <.flash kind={:info} flash={@flash} />
       <.flash kind={:error} flash={@flash} />

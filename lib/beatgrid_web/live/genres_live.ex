@@ -213,22 +213,24 @@ defmodule BeatgridWeb.GenresLive do
   def render(assigns) do
     ~H"""
     <.app_shell flash={@flash} active={:generos} socket={@socket}>
-      <header class="flex flex-wrap items-center justify-between gap-3 border-b border-white/6 bg-rail px-6 py-3">
-        <div>
-          <h1 class="text-[22px] font-semibold">Gêneros</h1>
-          <p class="text-body-sm text-ink-muted">
-            As descrições orientam a IA ao sugerir pastas e conferir nomes de faixas.
-          </p>
+      <header class="border-b border-white/6 bg-rail">
+        <div class="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3 px-3 py-3 sm:px-6">
+          <div class="min-w-0">
+            <h1 class="text-[22px] font-semibold">Gêneros</h1>
+            <p class="text-body-sm text-ink-muted">
+              As descrições orientam a IA ao sugerir pastas e conferir nomes de faixas.
+            </p>
+          </div>
+          <.link
+            navigate={~p"/revisao?aba=classifications"}
+            class="text-body-sm text-primary hover:underline"
+          >
+            Revisar classificações
+          </.link>
         </div>
-        <.link
-          navigate={~p"/revisao?aba=classifications"}
-          class="text-body-sm text-primary hover:underline"
-        >
-          Revisar classificações
-        </.link>
       </header>
 
-      <div class="mx-auto max-w-[1600px] px-4 py-5 sm:px-6">
+      <div class="mx-auto max-w-[1600px] px-3 py-5 sm:px-6">
         <.toast toast={@toast} />
 
         <section>
@@ -254,9 +256,9 @@ defmodule BeatgridWeb.GenresLive do
             id="new-genre"
             phx-change="change_create"
             phx-submit="create_genre"
-            class="mt-3 flex flex-col gap-2 rounded-xl border border-white/8 bg-surface p-4 sm:flex-row sm:items-end"
+            class="mt-3 grid gap-3 rounded-xl border border-white/8 bg-surface p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"
           >
-            <div class="min-w-0 flex-1">
+            <div class="min-w-0">
               <label
                 for="new-genre-name"
                 class="mb-1 block text-body-sm font-semibold text-ink-secondary"
@@ -270,12 +272,10 @@ defmodule BeatgridWeb.GenresLive do
                 value={@creating.name}
                 phx-mounted={JS.focus()}
                 aria-label="Nome do novo gênero"
+                aria-describedby={if @creating.error, do: "new-genre-error"}
                 placeholder="Ex.: Forró Pé de Serra"
                 class="w-full rounded-md border border-white/10 bg-input px-3 py-2.5 text-body sm:py-2"
               />
-              <p :if={@creating.error} role="alert" class="mt-1 text-body-sm text-coral">
-                {@creating.error}
-              </p>
             </div>
             <div class="flex flex-wrap items-center gap-3">
               <label class="flex items-center gap-2 text-body-sm text-ink-secondary">
@@ -297,17 +297,28 @@ defmodule BeatgridWeb.GenresLive do
                 Criar gênero
               </button>
             </div>
+            <p
+              :if={@creating.error}
+              id="new-genre-error"
+              role="alert"
+              class="text-body-sm text-coral sm:col-span-2"
+            >
+              {@creating.error}
+            </p>
           </form>
 
           <p :if={@folders == []} class="mt-3 text-body text-ink-secondary">
             Nenhum gênero cadastrado.
           </p>
 
-          <div class="mt-3 grid items-start gap-3 lg:grid-cols-2">
+          <div class={[
+            "mt-3 grid gap-3 lg:grid-cols-2 2xl:grid-cols-3",
+            if(map_size(@editing) == 0, do: "items-stretch", else: "items-start")
+          ]}>
             <article
               :for={f <- @folders}
               id={"genre-#{f.key}"}
-              class="min-w-0 rounded-xl border border-white/8 bg-surface p-4"
+              class="flex min-w-0 flex-col rounded-xl border border-white/8 bg-surface p-4"
             >
               <header class="flex flex-wrap items-center gap-2">
                 <span
@@ -335,25 +346,27 @@ defmodule BeatgridWeb.GenresLive do
                   class="mt-3 space-y-3"
                 >
                   <input type="hidden" name="key" value={f.key} />
-                  <label
-                    for={"description-#{f.key}"}
-                    class="block text-body-sm font-medium text-ink-secondary"
-                  >
-                    Critério de classificação
-                  </label>
-                  <textarea
-                    id={"description-#{f.key}"}
-                    name="description"
-                    phx-no-format
-                    rows="8"
-                    phx-mounted={JS.focus()}
-                    aria-label={"Descrição de #{f.display_name}"}
-                    class="w-full resize-y rounded-md border border-white/10 bg-input px-3 py-2 text-body leading-relaxed"
-                    placeholder="Descreva o que define esta pasta (estilo, época, instrumentação)…"
-                  >{editor.description}</textarea>
-                  <p :if={editor.error} role="alert" class="text-body-sm text-coral">
-                    {editor.error}
-                  </p>
+                  <div class="space-y-1">
+                    <label
+                      for={"description-#{f.key}"}
+                      class="block text-body-sm font-medium text-ink-secondary"
+                    >
+                      Critério de classificação
+                    </label>
+                    <textarea
+                      id={"description-#{f.key}"}
+                      name="description"
+                      phx-no-format
+                      rows="8"
+                      phx-mounted={JS.focus()}
+                      aria-label={"Descrição de #{f.display_name}"}
+                      class="block w-full resize-y rounded-md border border-white/10 bg-input px-3 py-2 text-body leading-relaxed"
+                      placeholder="Descreva o que define esta pasta (estilo, época, instrumentação)…"
+                    >{editor.description}</textarea>
+                    <p :if={editor.error} role="alert" class="text-body-sm text-coral">
+                      {editor.error}
+                    </p>
+                  </div>
                   <p role="status" class="sr-only">
                     {cond do
                       editor.request -> "Gerando rascunho com IA."
@@ -409,11 +422,11 @@ defmodule BeatgridWeb.GenresLive do
                 <p
                   phx-no-format
                   class={[
-                    "mt-3 whitespace-pre-wrap break-words text-body leading-relaxed",
+                    "mt-3 mb-4 whitespace-pre-wrap break-words text-body leading-relaxed",
                     if(f.description in [nil, ""], do: "text-ink-muted", else: "text-ink-secondary")
                   ]}
                 >{if f.description in [nil, ""], do: "Nenhum critério definido.", else: f.description}</p>
-                <footer class="mt-4 flex flex-wrap items-center gap-2 border-t border-white/6 pt-3">
+                <footer class="mt-auto flex flex-wrap items-center gap-2 border-t border-white/6 pt-3">
                   <button
                     :if={f.key not in @in_use}
                     type="button"

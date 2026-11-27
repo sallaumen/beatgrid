@@ -893,9 +893,9 @@ defmodule BeatgridWeb.RecSetLive do
           :if={@sets_open}
           class="flex w-full shrink-0 flex-col border-b border-white/6 bg-rail lg:w-48 lg:border-r lg:border-b-0 xl:w-56"
         >
-          <div class="flex items-center justify-between px-4 py-3">
+          <div class="flex items-end justify-between gap-2 px-3 py-3 lg:items-center">
             <h2 class="hidden text-body-lg font-semibold lg:block">Meus sets</h2>
-            <form id="compact-set-picker" phx-change="open_set" class="min-w-0 flex-1 pr-3 lg:hidden">
+            <form id="compact-set-picker" phx-change="open_set" class="min-w-0 flex-1 lg:hidden">
               <label for="compact-set-id" class="block text-caption text-ink-muted">Meus sets</label>
               <select
                 id="compact-set-id"
@@ -913,7 +913,7 @@ defmodule BeatgridWeb.RecSetLive do
             <div class="flex items-center gap-1.5">
               <button
                 phx-click="new_set"
-                class="shrink-0 whitespace-nowrap rounded-md bg-primary-deep px-2.5 py-1 text-[12px] font-semibold text-white"
+                class="min-h-9 shrink-0 whitespace-nowrap rounded-md bg-primary-deep px-2.5 py-1 text-[12px] font-semibold text-white lg:min-h-0"
               >
                 + Novo set
               </button>
@@ -938,7 +938,7 @@ defmodule BeatgridWeb.RecSetLive do
                 !(@set && @set.id == s.id) && "text-ink-secondary hover:bg-white/5"
               ]}
             >
-              <span class="min-w-0 flex-1 truncate">{s.name}</span>
+              <span class="min-w-0 flex-1 [overflow-wrap:anywhere]">{s.name}</span>
               <span
                 :if={@set_health[s.id]}
                 class="shrink-0 rounded bg-amber/15 px-1 text-[10px] font-bold text-amber"
@@ -971,9 +971,9 @@ defmodule BeatgridWeb.RecSetLive do
 
         <div
           :if={@set}
-          class="flex min-w-0 flex-1 flex-col overflow-y-auto xl:flex-row xl:overflow-hidden"
+          class="flex min-w-0 flex-1 flex-col lg:min-h-0 lg:overflow-y-auto xl:flex-row xl:overflow-hidden"
         >
-          <section class="@container min-w-0 flex-1 px-4 py-4 lg:overflow-y-auto">
+          <section class="@container min-w-0 px-4 py-4 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
             <.proposed_recording
               :if={@proposed_track}
               track={@proposed_track}
@@ -1133,35 +1133,69 @@ defmodule BeatgridWeb.RecSetLive do
                 data-position={e.position}
                 class="space-y-0.5"
               >
-                <div :if={@loudness_jumps[e.position]} class="flex justify-center">
-                  <span class={[
-                    "font-mono text-[10px]",
-                    loudness_delta_class(@loudness_jumps[e.position])
-                  ]}>
-                    {loudness_jump_label(@loudness_jumps[e.position])}
-                  </span>
-                </div>
                 <div
-                  :if={e.position > 1}
-                  class="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 py-0"
+                  :if={e.position > 1 || @loudness_jumps[e.position]}
+                  class="flex flex-wrap items-center justify-center gap-x-2 gap-y-1"
                 >
-                  <button
-                    :if={transition_on?(e)}
-                    type="button"
-                    phx-click="toggle_breather"
-                    phx-value-track={e.track.id}
-                    class={[
-                      "rounded px-1 py-px text-[10px]",
-                      (Sets.breather?(e) && "bg-emerald-500/20") ||
-                        "opacity-30 grayscale hover:opacity-70",
-                      is_boolean(breather_override(e)) && "ring-1 ring-emerald-400/50"
-                    ]}
-                    title={breather_title(e)}
-                  >
-                    🤝
-                  </button>
+                  <div class="flex max-w-full flex-wrap items-center justify-center gap-1.5">
+                    <span
+                      :if={@loudness_jumps[e.position]}
+                      class={[
+                        "font-mono text-[10px]",
+                        loudness_delta_class(@loudness_jumps[e.position])
+                      ]}
+                    >
+                      {loudness_jump_label(@loudness_jumps[e.position])}
+                    </span>
+                    <button
+                      :if={e.position > 1 && transition_on?(e)}
+                      type="button"
+                      phx-click="toggle_breather"
+                      phx-value-track={e.track.id}
+                      class={[
+                        "min-h-6 rounded px-1 py-0.5 text-[10px]",
+                        (Sets.breather?(e) && "bg-emerald-500/20") ||
+                          "opacity-30 grayscale hover:opacity-70",
+                        is_boolean(breather_override(e)) && "ring-1 ring-emerald-400/50"
+                      ]}
+                      title={breather_title(e)}
+                    >
+                      🤝
+                    </button>
+                    <span
+                      :if={e.position > 1 && transition_on?(e) && @pair_timings[e.track.id]}
+                      class={[
+                        "whitespace-nowrap font-mono text-[9px]",
+                        (@pair_timings[e.track.id].source == :fallback && "text-amber") ||
+                          "text-ink-faint"
+                      ]}
+                      title="Saída da faixa atual e entrada da próxima. ~fim indica uma saída estimada."
+                    >
+                      {pair_summary(@pair_timings[e.track.id])}
+                    </span>
+                    <button
+                      :if={e.position > 1 && transition_on?(e)}
+                      type="button"
+                      phx-click="disconnect_pair"
+                      phx-value-track={e.track.id}
+                      class="grid size-6 place-items-center rounded-sm text-[11px] text-ink-faint hover:text-coral"
+                      title="Desconectar (volta a tocar em sequência)"
+                    >
+                      ✕
+                    </button>
+                    <button
+                      :if={e.position > 1 && !transition_on?(e)}
+                      type="button"
+                      phx-click="connect_pair"
+                      phx-value-track={e.track.id}
+                      class="min-h-6 rounded-full border border-white/10 px-2 py-0.5 text-[9px] text-ink-faint hover:border-primary/40 hover:text-ink"
+                      title="Conectar à faixa anterior (transição automática sugerida)"
+                    >
+                      ⛓ conectar
+                    </button>
+                  </div>
                   <div
-                    :if={transition_on?(e)}
+                    :if={e.position > 1 && transition_on?(e)}
                     class="flex max-w-full flex-wrap rounded border border-primary/30"
                   >
                     <button
@@ -1172,7 +1206,7 @@ defmodule BeatgridWeb.RecSetLive do
                       phx-value-type={t}
                       aria-pressed={to_string(e.transition["type"] == t)}
                       class={[
-                        "px-1.5 py-px text-[9px] font-semibold uppercase",
+                        "min-h-6 px-1.5 py-0.5 text-[9px] font-semibold uppercase",
                         (e.transition["type"] == t && "bg-primary/30 text-primary") ||
                           "text-ink-faint hover:text-ink"
                       ]}
@@ -1181,37 +1215,6 @@ defmodule BeatgridWeb.RecSetLive do
                       {String.downcase(transition_label(t))}
                     </button>
                   </div>
-                  <span
-                    :if={transition_on?(e) && @pair_timings[e.track.id]}
-                    class={[
-                      "whitespace-nowrap font-mono text-[9px]",
-                      (@pair_timings[e.track.id].source == :fallback && "text-amber") ||
-                        "text-ink-faint"
-                    ]}
-                    title="Saída da faixa atual e entrada da próxima. ~fim indica uma saída estimada."
-                  >
-                    {pair_summary(@pair_timings[e.track.id])}
-                  </span>
-                  <button
-                    :if={transition_on?(e)}
-                    type="button"
-                    phx-click="disconnect_pair"
-                    phx-value-track={e.track.id}
-                    class="text-ink-faint hover:text-coral text-[11px]"
-                    title="Desconectar (volta a tocar em sequência)"
-                  >
-                    ✕
-                  </button>
-                  <button
-                    :if={!transition_on?(e)}
-                    type="button"
-                    phx-click="connect_pair"
-                    phx-value-track={e.track.id}
-                    class="rounded-full border border-white/10 px-2 py-px text-[9px] text-ink-faint hover:border-primary/40 hover:text-ink"
-                    title="Conectar à faixa anterior (transição automática sugerida)"
-                  >
-                    ⛓ conectar
-                  </button>
                 </div>
                 <div class={[
                   "flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-lg px-2.5 py-2 @min-[40rem]:flex-nowrap",
@@ -1309,7 +1312,7 @@ defmodule BeatgridWeb.RecSetLive do
           </section>
 
           <aside class={[
-            "flex shrink-0 flex-col bg-rail lg:overflow-y-auto lg:border-l lg:border-white/6",
+            "@container flex shrink-0 flex-col border-t border-white/6 bg-rail xl:min-h-0 xl:overflow-y-auto xl:border-l xl:border-t-0",
             rail_width(@open_panels)
           ]}>
             <div class="space-y-2 p-3">
@@ -1343,7 +1346,7 @@ defmodule BeatgridWeb.RecSetLive do
                     ↺ Resetar
                   </button>
                 </:action>
-                <.criteria_button />
+                <div class="px-4 pt-3"><.criteria_button /></div>
                 <.console_body
                   weights={@weights}
                   filters={@filters}
@@ -1434,7 +1437,7 @@ defmodule BeatgridWeb.RecSetLive do
           phx-click="append"
           phx-value-set_id={@set.id}
           phx-value-track={@track.id}
-          class="rounded-md bg-primary-deep px-3 py-2 text-body-sm font-semibold text-white"
+          class="max-w-full rounded-md bg-primary-deep px-3 py-2 text-left text-body-sm font-semibold text-white [overflow-wrap:anywhere]"
         >Adicionar ao final de “{@set.name}”</button>
         <.link patch={set_path(@set, nil)} class="text-body-sm text-ink-secondary hover:underline">{if @member?,
           do: "Concluir escolha",
@@ -1455,7 +1458,7 @@ defmodule BeatgridWeb.RecSetLive do
       id="open-set-criteria"
       aria-haspopup="dialog"
       phx-click="show_criteria"
-      class="mx-4 my-2 self-start text-body-sm text-primary-soft underline underline-offset-2"
+      class="inline-flex w-fit text-body-sm text-primary-soft underline underline-offset-2"
     >
       Consultar arco de energia e afinidade de estilos
     </button>
@@ -1464,9 +1467,9 @@ defmodule BeatgridWeb.RecSetLive do
 
   defp empty_state(assigns) do
     ~H"""
-    <div class="flex h-full flex-col items-center justify-center gap-3 text-center">
+    <div class="flex h-full min-h-56 flex-col items-center justify-center gap-3 px-4 py-8 text-center">
       <span class="hero-queue-list size-10 text-ink-disabled" />
-      <p class="text-ink-muted">Escolha Novo set em Meus sets para começar a montar.</p>
+      <p class="text-body text-ink-muted">Escolha Novo set em Meus sets para começar a montar.</p>
       <.criteria_button />
     </div>
     """
@@ -1555,8 +1558,8 @@ defmodule BeatgridWeb.RecSetLive do
         </select>
       </label>
 
-      <div class="grid grid-cols-[.8fr_1fr_1fr] gap-2">
-        <label class="space-y-1">
+      <div class="grid grid-cols-2 gap-2 @min-[22rem]:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,1fr)]">
+        <label class="col-span-2 min-w-0 space-y-1 @min-[22rem]:col-span-1">
           <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Medir por</span>
           <select name="mode" class={plan_input()}>
             <option value="duration" selected>Duração</option>
@@ -1605,13 +1608,13 @@ defmodule BeatgridWeb.RecSetLive do
         <legend class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
           Estilos <span class="text-ink-faint/60 normal-case">— tudo em "—" = todos por igual</span>
         </legend>
-        <div class="grid grid-cols-2 gap-x-3 gap-y-1">
+        <div class="grid gap-x-3 gap-y-1.5 @min-[30rem]:grid-cols-2">
           <label
             :for={f <- @folders}
-            class="flex items-center justify-between gap-1.5 text-caption text-ink-secondary"
+            class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 text-caption text-ink-secondary"
             title="Principal = peso cheio · Se muito boa = entra só quando se destaca (nota, ouro, encaixe no arco)"
           >
-            <span class="truncate">{f.display_name}</span>
+            <span class="min-w-0 [overflow-wrap:anywhere]">{f.display_name}</span>
             <select
               name={"style_tier[#{f.key}]"}
               class="rounded-md border border-white/8 bg-input px-1 py-0.5 text-[11px] focus:border-primary/50 focus:outline-none"
@@ -1727,10 +1730,15 @@ defmodule BeatgridWeb.RecSetLive do
         <div class="max-h-24 space-y-1 overflow-y-auto rounded-md border border-white/8 bg-input px-2 py-1.5">
           <label
             :for={s <- @other_sets}
-            class="flex items-center gap-1.5 truncate text-caption text-ink-secondary"
+            class="flex items-start gap-1.5 text-caption text-ink-secondary"
           >
-            <input type="checkbox" name="exclude_set_ids[]" value={s.id} class="accent-primary" />
-            {s.name}
+            <input
+              type="checkbox"
+              name="exclude_set_ids[]"
+              value={s.id}
+              class="shrink-0 accent-primary"
+            />
+            <span class="min-w-0 [overflow-wrap:anywhere]">{s.name}</span>
           </label>
         </div>
       </fieldset>
@@ -1759,7 +1767,7 @@ defmodule BeatgridWeb.RecSetLive do
 
   defp plan_input,
     do:
-      "w-full rounded-md border border-white/8 bg-input px-2 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
+      "w-full min-w-0 rounded-md border border-white/8 bg-input px-2 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
 
   attr :series, :list, required: true
 
@@ -1910,36 +1918,37 @@ defmodule BeatgridWeb.RecSetLive do
       id="section-fill"
       phx-change="set_section"
       phx-submit="fill"
-      class="flex flex-wrap items-end gap-2 p-4"
+      class="space-y-2 p-4"
     >
-      <label class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
-        Preencher
-      </label>
-      <select
-        name="role"
-        aria-label="Seção a preencher"
-        class="rounded-md border border-white/8 bg-input px-2 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
-      >
-        <option value="" selected={is_nil(@active)}>Automático (harmonia + estilo)</option>
-        <option :for={s <- Mixing.sections()} value={s.key} selected={s.key == @active}>
-          {s.label}
-        </option>
-      </select>
-      <input
-        type="number"
-        name="count"
-        value="4"
-        min="1"
-        max="20"
-        aria-label="Quantas faixas preencher"
-        class="w-16 rounded-md border border-white/8 bg-input px-2 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
-      />
-      <button class="rounded-md bg-primary-deep px-3 py-1.5 text-body-sm font-semibold text-white">
-        Preencher
-      </button>
-      <span class="text-caption text-ink-faint">
+      <div class="flex flex-wrap items-end gap-2">
+        <label class="min-w-0 flex-[1_1_12rem] space-y-1">
+          <span class="block text-caption font-semibold text-ink-faint">Seção</span>
+          <select name="role" aria-label="Seção a preencher" class={plan_input()}>
+            <option value="" selected={is_nil(@active)}>Automático (harmonia + estilo)</option>
+            <option :for={s <- Mixing.sections()} value={s.key} selected={s.key == @active}>
+              {s.label}
+            </option>
+          </select>
+        </label>
+        <label class="w-16 shrink-0 space-y-1">
+          <span class="block text-caption font-semibold text-ink-faint">Faixas</span>
+          <input
+            type="number"
+            name="count"
+            value="4"
+            min="1"
+            max="20"
+            aria-label="Quantas faixas preencher"
+            class={plan_input()}
+          />
+        </label>
+        <button class="shrink-0 rounded-md bg-primary-deep px-3 py-1.5 text-body-sm font-semibold text-white">
+          Preencher
+        </button>
+      </div>
+      <p class="text-caption text-ink-faint">
         adiciona N faixas; a seção define a intensidade-alvo (e o preview abaixo)
-      </span>
+      </p>
     </form>
     """
   end
@@ -1956,7 +1965,7 @@ defmodule BeatgridWeb.RecSetLive do
 
     ~H"""
     <div>
-      <div class="flex items-start justify-between gap-4 px-4 py-4">
+      <div class="flex flex-wrap items-start justify-center gap-x-2 gap-y-4 px-3 py-3 @min-[22rem]:justify-between">
         <.fader
           :for={dim <- @dims}
           dim={dim}
@@ -2258,17 +2267,17 @@ defmodule BeatgridWeb.RecSetLive do
         <div class="mb-4 space-y-1">
           <div
             :for={s <- Mixing.sections()}
-            class="flex items-center gap-3 rounded-lg bg-base px-2.5 py-1.5"
+            class="grid grid-cols-[5rem_minmax(0,1fr)_2.5rem] items-center gap-2 rounded-lg bg-base px-2.5 py-1.5 sm:grid-cols-[5rem_minmax(0,1fr)_2.5rem_12rem]"
           >
-            <span class="w-20 font-semibold text-primary">{s.label}</span>
-            <div class="h-[6px] flex-1 rounded-full bg-white/5">
+            <span class="text-body-sm font-semibold text-primary">{s.label}</span>
+            <div class="h-1.5 rounded-full bg-white/5">
               <div
                 class="h-full rounded-full bg-green"
                 style={"width:#{round(s.target_intensity * 100)}%"}
               >
               </div>
             </div>
-            <span class="w-10 text-right font-mono text-caption text-ink-muted">
+            <span class="text-right font-mono text-caption tabular-nums text-ink-muted">
               {round(s.target_intensity * 100)}
             </span>
             <span class="hidden text-caption text-ink-faint sm:inline">{s.hint}</span>

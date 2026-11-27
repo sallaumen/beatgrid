@@ -179,15 +179,15 @@ defmodule BeatgridWeb.JobsLive do
     <.app_shell flash={@flash} active={:jobs} socket={@socket}>
       <header class="border-b border-white/6 bg-rail px-3 py-3 sm:px-6">
         <div class="mx-auto max-w-[1600px]">
-          <h1 class="text-[22px] font-semibold">Fila de tarefas</h1>
+          <h1 class="text-title font-semibold">Fila de tarefas</h1>
           <p class="text-body-sm text-ink-muted">
             Acompanhe tarefas em segundo plano e tente novamente as que falharam.
           </p>
         </div>
       </header>
       <div class="mx-auto max-w-[1600px] px-3 py-5 sm:px-6">
-        <div class="flex flex-col gap-3 border-b border-white/8 pb-3 lg:flex-row lg:items-end lg:justify-between">
-          <div class="min-w-0 space-y-2">
+        <div class="grid gap-3 border-b border-white/8 pb-3 lg:grid-cols-[minmax(0,1fr)_14rem] lg:items-start">
+          <div class="min-w-0 space-y-1">
             <p id="job-state-label" class="text-body-sm font-semibold text-ink-secondary">
               Estado da tarefa
             </p>
@@ -217,7 +217,7 @@ defmodule BeatgridWeb.JobsLive do
               :if={group_phases(@group) != []}
               id="job-state-phases"
               aria-label="Filtrar por etapa"
-              class="flex flex-wrap items-center gap-2"
+              class="flex flex-wrap items-center gap-1.5 pt-1"
             >
               <span class="text-body-sm text-ink-muted">Etapa:</span>
               <.link
@@ -234,7 +234,7 @@ defmodule BeatgridWeb.JobsLive do
           <form
             id="task-type"
             phx-change="filter_worker"
-            class="w-full shrink-0 lg:w-56 lg:self-start"
+            class="min-w-0"
           >
             <label
               for="worker-filter"
@@ -243,7 +243,7 @@ defmodule BeatgridWeb.JobsLive do
             <select
               id="worker-filter"
               name="worker"
-              class="w-full rounded-md border border-white/10 bg-input px-3 py-2 text-body"
+              class="w-full rounded-md border border-white/10 bg-input px-3 py-1.5 text-body"
             >
               <option value="">Todos os tipos</option>
               <option
@@ -258,7 +258,7 @@ defmodule BeatgridWeb.JobsLive do
               :if={@context_link}
               id="jobs-context-link"
               navigate={elem(@context_link, 0)}
-              class="mt-2 inline-flex items-center gap-1 text-body-sm text-primary hover:underline"
+              class="mt-1.5 inline-flex items-center gap-1 text-body-sm text-primary hover:underline"
             >
               Abrir {elem(@context_link, 1)} <.icon name="hero-arrow-right-mini" class="size-4" />
             </.link>
@@ -267,7 +267,7 @@ defmodule BeatgridWeb.JobsLive do
 
         <div
           :if={@filter == "failed" and @jobs != []}
-          class="flex flex-wrap items-center justify-between gap-2 py-3"
+          class="mt-3 flex flex-wrap items-start justify-between gap-3 border-b border-white/8 pb-3"
         >
           <div>
             <p class="text-body font-semibold">
@@ -295,28 +295,35 @@ defmodule BeatgridWeb.JobsLive do
           </div>
         </div>
 
-        <div class="mt-3 flex flex-wrap items-baseline justify-between gap-2">
-          <h2 class="text-[18px] font-semibold">{results_heading(@filter)}</h2>
+        <div class="mt-4 flex flex-wrap items-baseline justify-between gap-2">
+          <h2 class="text-heading font-semibold">{results_heading(@filter)}</h2>
           <p class="text-body-sm text-ink-muted">
             <span class="font-mono tabular-nums text-ink-secondary">{length(@jobs)}</span>
             {if length(@jobs) == 100, do: "mais recentes", else: "exibidas"}
           </p>
         </div>
 
-        <ul id="jobs-list" role="list" class="mt-2 divide-y divide-white/8 border-y border-white/8">
+        <ul
+          :if={@jobs != []}
+          id="jobs-list"
+          role="list"
+          class="mt-2 divide-y divide-white/8 border-y border-white/8"
+        >
           <li :for={j <- @jobs} id={"job-#{j.id}"} class="space-y-2 py-2.5">
-            <div class="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(9rem,auto)] lg:grid-cols-[minmax(0,1fr)_14rem_12rem] lg:items-center lg:gap-4">
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(9rem,auto)] lg:grid-cols-[minmax(0,1fr)_14rem_12rem] lg:items-start lg:gap-4">
               <div class="min-w-0">
-                <div class="lg:flex lg:flex-wrap lg:items-baseline lg:gap-x-3">
-                  <p class="text-body-lg font-semibold text-ink">{worker_label(j.worker)}</p>
-                  <p class="mt-0.5 min-w-0 break-words text-body text-ink-secondary">
+                <div class="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                  <p class="min-w-0 break-words text-body-lg font-semibold text-ink">
+                    {worker_label(j.worker)}
+                  </p>
+                  <p class="min-w-0 break-words text-body text-ink-secondary">
                     {job_summary(j, @titles)}
                   </p>
                 </div>
                 <p :if={last_error(j)} class="mt-1 break-words text-body-sm text-coral">
                   {last_error(j)}
                 </p>
-                <p class="mt-1 text-caption text-ink-muted">
+                <p class="mt-1 break-words text-caption text-ink-muted">
                   <span class="font-mono">{worker_name(j.worker)}</span>
                   <span aria-hidden="true"> · </span> Fila <span class="font-mono">{j.queue}</span>
                 </p>
@@ -383,12 +390,15 @@ defmodule BeatgridWeb.JobsLive do
             </div>
           </li>
         </ul>
-        <div :if={@jobs == []} class="py-6 text-body text-ink-muted">
-          {empty_message(@filter)}
+        <div
+          :if={@jobs == []}
+          class="mt-2 space-y-1 border-t border-white/8 py-4 text-body text-ink-muted"
+        >
+          <p>{empty_message(@filter)}</p>
           <.link
             :if={@filter || @worker}
             patch={jobs_path(nil, nil)}
-            class="text-primary hover:underline"
+            class="inline-block text-primary hover:underline"
           >Ver todas as tarefas</.link>
         </div>
       </div>

@@ -452,7 +452,7 @@ defmodule BeatgridWeb.ImportsLive do
   def render(assigns) do
     ~H"""
     <.app_shell flash={@flash} active={:importados} socket={@socket}>
-      <div class="px-3 py-4 sm:px-6 sm:py-5">
+      <div class="mx-auto w-full max-w-[1600px] px-3 py-4 sm:px-6 sm:py-5">
         <h1 class="mb-3 text-[22px] font-semibold">Importações</h1>
         <nav
           id="import-sources"
@@ -824,61 +824,73 @@ defmodule BeatgridWeb.ImportsLive do
         </section>
       </div>
       <h2 class="mb-3 text-[18px] font-semibold">Faixas importadas do YouTube</h2>
-      <div class="mb-3 flex flex-wrap items-center gap-1.5">
-        <button
-          phx-click="toggle_filter"
-          phx-value-key="unfiled"
-          aria-pressed={to_string(@filters[:unfiled] == true)}
-          class={chip_class(@filters[:unfiled] == true)}
+      <div class="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div
+          role="group"
+          aria-label="Filtrar faixas importadas"
+          class="flex flex-wrap items-center gap-1.5"
         >
-          Não classificadas
-        </button>
-        <button
-          phx-click="toggle_filter"
-          phx-value-key="unresolved"
-          aria-pressed={to_string(@filters[:unresolved] == true)}
-          class={chip_class(@filters[:unresolved] == true)}
+          <button
+            phx-click="toggle_filter"
+            phx-value-key="unfiled"
+            aria-pressed={to_string(@filters[:unfiled] == true)}
+            class={chip_class(@filters[:unfiled] == true)}
+          >
+            Não classificadas
+          </button>
+          <button
+            phx-click="toggle_filter"
+            phx-value-key="unresolved"
+            aria-pressed={to_string(@filters[:unresolved] == true)}
+            class={chip_class(@filters[:unresolved] == true)}
+          >
+            Não resolvidas
+          </button>
+          <button
+            phx-click="toggle_filter"
+            phx-value-key="gold"
+            aria-pressed={to_string(@filters[:gold] == true)}
+            class={chip_class(@filters[:gold] == true)}
+          >
+            ★ Ouro
+          </button>
+        </div>
+        <div
+          role="group"
+          aria-label="Ordenar faixas importadas"
+          class="flex flex-wrap items-center gap-1.5"
         >
-          Não resolvidas
-        </button>
-        <button
-          phx-click="toggle_filter"
-          phx-value-key="gold"
-          aria-pressed={to_string(@filters[:gold] == true)}
-          class={chip_class(@filters[:gold] == true)}
-        >
-          ★ Ouro
-        </button>
-        <span class="ml-auto text-caption text-ink-faint">Ordenar:</span>
-        <button
-          phx-click="sort"
-          phx-value-by="recent"
-          aria-pressed={to_string(@sort == :recent)}
-          class={chip_class(@sort == :recent)}
-        >
-          Recentes
-        </button>
-        <button
-          phx-click="sort"
-          phx-value-by="views"
-          aria-pressed={to_string(@sort == :views)}
-          class={chip_class(@sort == :views)}
-        >
-          Views
-        </button>
-        <button
-          phx-click="sort"
-          phx-value-by="published"
-          aria-pressed={to_string(@sort == :published)}
-          class={chip_class(@sort == :published)}
-        >
-          Idade
-        </button>
+          <span class="mr-1 text-caption text-ink-faint">Ordenar:</span>
+          <button
+            phx-click="sort"
+            phx-value-by="recent"
+            aria-pressed={to_string(@sort == :recent)}
+            class={chip_class(@sort == :recent)}
+          >
+            Recentes
+          </button>
+          <button
+            phx-click="sort"
+            phx-value-by="views"
+            aria-pressed={to_string(@sort == :views)}
+            class={chip_class(@sort == :views)}
+          >
+            Views
+          </button>
+          <button
+            phx-click="sort"
+            phx-value-by="published"
+            aria-pressed={to_string(@sort == :published)}
+            class={chip_class(@sort == :published)}
+          >
+            Idade
+          </button>
+        </div>
       </div>
 
       <div
         :if={@playlists == [] and @singles == []}
-        class="rounded-xl border border-white/6 bg-surface p-8 text-center text-ink-muted"
+        class="rounded-xl border border-white/6 bg-surface px-4 py-5 text-body text-ink-muted"
       >
         Nenhum importado do YouTube por aqui.
       </div>
@@ -920,7 +932,7 @@ defmodule BeatgridWeb.ImportsLive do
         </div>
         <ul
           :if={MapSet.member?(@expanded, pl.key)}
-          class="space-y-1 border-t border-white/6 bg-base/40 p-2"
+          class="divide-y divide-white/6 border-t border-white/6"
         >
           <.track_row :for={track <- pl.tracks} track={track} />
         </ul>
@@ -930,7 +942,7 @@ defmodule BeatgridWeb.ImportsLive do
         <h2 class="mb-1.5 mt-4 text-caption font-semibold uppercase tracking-[0.14em] text-ink-faint">
           Avulsas
         </h2>
-        <ul class="space-y-1">
+        <ul class="divide-y divide-white/6 overflow-hidden rounded-xl border border-white/8 bg-surface">
           <.track_row :for={track <- @singles} track={track} />
         </ul>
       </div>
@@ -971,7 +983,7 @@ defmodule BeatgridWeb.ImportsLive do
 
   defp track_row(assigns) do
     ~H"""
-    <li class="grid grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-3 rounded-lg bg-surface px-3 py-2 hover:bg-surface-2">
+    <li class="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 py-2 hover:bg-surface-2">
       <.cover_play
         src={cover_src(@track)}
         artist={@track.tag_artist}
@@ -1039,7 +1051,7 @@ defmodule BeatgridWeb.ImportsLive do
 
   defp chip_class(active?) do
     [
-      "rounded-sm border px-[9px] py-[5px] text-[11px] font-semibold transition-colors",
+      "rounded-sm border px-2.5 py-1.5 text-body-sm font-semibold transition-colors",
       active? && "border-primary/60 bg-primary/20 text-ink",
       !active? && "border-white/8 bg-input text-ink-muted hover:border-white/20"
     ]

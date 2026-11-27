@@ -91,7 +91,7 @@ defmodule BeatgridWeb.MixesLive do
           <h1 class="text-[22px] font-semibold">Sets gravados</h1>
         </div>
       </header>
-      <div class="mx-auto max-w-[1600px] px-3 py-5 sm:px-6">
+      <div class="@container mx-auto max-w-[1600px] px-3 py-5 sm:px-6">
         <form
           id="mix-import-form"
           phx-submit="import"
@@ -186,11 +186,11 @@ defmodule BeatgridWeb.MixesLive do
           >
             Nenhuma gravação corresponde à busca.
           </p>
-          <div class="mt-3 divide-y divide-white/8 border-y border-white/8">
+          <div :if={@visible_mixes != []} class="mt-3 divide-y divide-white/8 border-y border-white/8">
             <article
               :for={mix <- @visible_mixes}
               id={"recorded-mix-#{mix.id}"}
-              class="grid gap-3 py-4 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,auto)] xl:items-center"
+              class="grid gap-3 py-3 @min-[48rem]:grid-cols-[minmax(0,1fr)_24rem] @min-[48rem]:items-center"
             >
               <div class="min-w-0">
                 <.link
@@ -232,12 +232,12 @@ defmodule BeatgridWeb.MixesLive do
                 </p>
               </div>
 
-              <dl class="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:w-[440px]">
+              <dl class="grid grid-cols-2 gap-x-4 gap-y-2 @min-[25rem]:grid-cols-4">
                 <.mix_fact label="Duração" value={format_clock(mix.duration_ms)} />
                 <.mix_fact label="Faixas" value={length(mix.segments)} />
                 <div>
                   <dt class="text-caption text-ink-muted">Na biblioteca</dt>
-                  <dd class="mt-0.5 font-mono text-body text-ink-secondary">
+                  <dd class="mt-0.5 font-mono text-body tabular-nums text-ink-secondary">
                     {library_coverage(mix.segments)}
                   </dd>
                   <div
