@@ -218,6 +218,8 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
   open.onclick = () => {
     preparePassageMeter(engine.ctx)
     pair = null
+    // WebKit does not focus a clicked button. Give the native dialog its return target.
+    open.focus({preventScroll: true})
     dialog.showModal()
     update()
   }

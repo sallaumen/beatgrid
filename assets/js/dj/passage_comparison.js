@@ -7,24 +7,31 @@ function soundKey(pair, plan, bpm) {
     plan.lead, plan.blend, plan.duration, controls(plan.mix.out), controls(plan.mix.into)])
 }
 
-function scoreLabel(result) {
-  if (!result) return "Falta ouvir"
+function scoreLabel(result, unavailable) {
+  if (!result) return unavailable ? "Sem medição" : "Falta ouvir"
   return result.score == null ? "Sem nota" : `${result.score}/100`
 }
 
 export function mountPassageComparison(details, labels, selected) {
   const heard = new Map()
+  const unavailable = new Set()
   let key = null, active = null
   let lastPair, lastPlan, lastBpm
 
   function render(restored) {
     for (const label of labels) {
-      const result = heard.get(label.dataset.scoreFor)
-      label.hidden = !heard.size
-      label.textContent = scoreLabel(result)
+      const kind = label.dataset.scoreFor
+      label.hidden = !heard.size && !unavailable.size
+      label.textContent = scoreLabel(heard.get(kind), unavailable.has(kind))
     }
-    const current = heard.get(selected())
-    if (current) details.show(current, {restored})
+    const kind = selected()
+    const current = heard.get(kind)
+    if (unavailable.has(kind)) {
+      const summary = current ? "Medição incompleta. A leitura é do ensaio anterior." :
+        "Não foi possível medir esta reprodução inteira."
+      const retained = {score: current?.score ?? null, metrics: current?.metrics ?? [], summary}
+      details.show(retained, {restored: true, announcement: restored ? "" : summary})
+    } else if (current) details.show(current, {restored})
     else details.clear()
   }
 
@@ -43,6 +50,7 @@ export function mountPassageComparison(details, labels, selected) {
     if (next === key) return
     key = next
     heard.clear()
+    unavailable.clear()
     select()
   }
 
@@ -52,14 +60,14 @@ export function mountPassageComparison(details, labels, selected) {
         if (active !== take) return
         active = null
         heard.set(kind, result)
+        unavailable.delete(kind)
         render(false)
       },
       unavailable() {
         if (active !== take) return
         active = null
-        const previous = heard.get(kind)
-        if (previous) render(true)
-        else details.show({score: null, metrics: [], summary: "Não foi possível medir esta reprodução inteira."})
+        unavailable.add(kind)
+        render(false)
       },
       cancel() {
         if (active === take) select()
