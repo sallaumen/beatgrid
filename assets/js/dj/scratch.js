@@ -43,6 +43,7 @@ class ScratchProcessor extends AudioWorkletProcessor {
     this.K = 1 - Math.exp((-2 * Math.PI * 22) / sampleRate) // smoother corner, per pole
     this.K2 = 1 - Math.exp((-2 * Math.PI * 11) / sampleRate) // bleed-reference smoother
     this.HOLD = Math.round(0.06 * sampleRate) // command silence -> the hand is holding still
+    this.quietAfter = this.HOLD
     this.VMAX = 32 // a hard backspin flick; the anti-alias pole covers the sound up there
     // Keep the 48 kHz platter response and bass cutoff when the output device changes rate.
     const rateRatio = 48000 / sampleRate
@@ -66,6 +67,14 @@ class ScratchProcessor extends AudioWorkletProcessor {
           const interval = fastPair ? dtMs + this.previousInterval : Math.max(dtMs, 4)
           const distance = d.position - (fastPair ? this.previousPos : this.lastPos)
           const v = distance / ((interval / 1000) * sampleRate)
+          if (d.position !== this.lastPos) {
+            // Allow 90 ms for a late packet, or two observed gaps on a sparse
+            // wheel (up to 240 ms). Messages in one batch share a render block.
+            if (this.sinceCmd > 0) {
+              this.quietAfter = Math.max(1.5 * this.HOLD, Math.min(4 * this.HOLD, 2 * this.sinceCmd))
+            }
+            this.sinceCmd = 0
+          }
           this.previousInterval = dtMs
           this.targetV = Math.max(-this.VMAX, Math.min(this.VMAX, v))
         } else {
@@ -75,12 +84,12 @@ class ScratchProcessor extends AudioWorkletProcessor {
           this.v1 = 0
           this.targetV = 0
           this.previousInterval = 0
+          this.sinceCmd = 1e9 // contact alone does not move the record
           this.active = true
         }
         this.previousPos = this.lastPos
         this.lastPos = d.position
         this.lastT = d.t
-        this.sinceCmd = 0
       } else if (d.type === "stop") {
         this.active = false
       }
@@ -93,7 +102,13 @@ class ScratchProcessor extends AudioWorkletProcessor {
     const pcm = this.pcm
     const len = this.len
     const on = this.active && pcm && len > 4
-    const gTarget = on ? 1 : 0
+    const gTarget = on && this.sinceCmd <= this.quietAfter ? 1 : 0
+    // The next stroke should start on the groove held by the hand. Settle the
+    // read head only after the fade is inaudible, with no jump during a stroke.
+    if (on && !gTarget && this.g < 1e-5 && this.x !== this.lastPos) {
+      this.x = this.ref = this.lastPos
+      this.v = this.v1 = this.targetV = 0
+    }
     for (let i = 0; i < n; i++) {
       this.g += (gTarget - this.g) * this.gainStep
       if (on) {
