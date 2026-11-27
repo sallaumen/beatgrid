@@ -1,6 +1,7 @@
 // A technical grade of the captured mix. Times are audio-clock seconds and
 // amplitudes are linear. A catalog BPM can break a tie, never supply an attack.
 const names = {pulse: "Pulso", level: "Nível", headroom: "Margem de pico"}
+const steadyEnds = "Pulso e nível semelhantes antes e depois."
 const metric = (id, state, value) => ({id, label: names[id], state, value})
 const unknown = (id, value = "Trecho insuficiente") => metric(id, "unknown", value)
 const db = value => 20 * Math.log10(Math.max(value, 1e-8))
@@ -114,8 +115,8 @@ function pulseMetric(before, after, middle, start, end, dt, kind, bpm, descripti
   const gap = (beatAt(a) - beatAt(b)) / step
   const phase = Math.abs(gap - Math.round(gap))
 
-  if (kind !== "cut" && drift > 0.065) return metric("pulse", "poor", "Andamentos se afastaram")
-  if (phase > 0.21) return metric("pulse", "poor", "Ataques fora da fase")
+  if (kind !== "cut" && drift > 0.065) return metric("pulse", "poor", "Andamentos diferentes antes e depois")
+  if (phase > 0.21) return metric("pulse", "poor", "Diferença de fase entre saída e entrada")
   if (!descriptive && kind !== "cut" && middle.length * dt >= a.period * 2.8) {
     const cross = attacks(middle, start, dt)
     let count = 0, hits = 0
@@ -126,14 +127,15 @@ function pulseMetric(before, after, middle, start, end, dt, kind, bpm, descripti
     }
     if (count >= 3 && hits < count / 2) return metric("pulse", "poor", "Pulso sumiu na mistura")
   }
-  if (phase > 0.10) return metric("pulse", "watch", "Ataques ligeiramente deslocados")
-  if (drift > 0.035) return metric("pulse", "watch", kind === "cut" ? "O andamento mudou no corte" : "O andamento oscilou")
-  if (Number.isFinite(bpm) && [a, b].every(grid => Math.abs(2 * grid.period * bpm / 60 - 1) <= 0.06)) {
+  if (phase > 0.10) return metric("pulse", "watch", "Pequena diferença de fase entre saída e entrada")
+  if (drift > 0.035) return metric("pulse", "watch", kind === "cut" ? "O andamento mudou no corte" : "Pequena mudança de andamento entre as faixas")
+  // Comparing odd/even accents requires the same measured step on both sides.
+  if (Math.abs(b.period / a.period - 1) <= 0.035) {
     const reference = beatAt(a)
     const first = strongSubdivision(out, a, reference), last = strongSubdivision(into, b, reference)
     if (first != null && last != null && first !== last) return unknown("pulse", "Acentos alternados sem fase firme")
   }
-  return metric("pulse", "good", "Batidas alinhadas")
+  return metric("pulse", "good", "Pulso regular antes e depois")
 }
 
 function longestQuiet(frames, floor) {
@@ -225,7 +227,7 @@ export function scorePassage({frames, frameSeconds: dt, changeAt, overlap, kind,
   const metrics = pulse ? [pulse, level, headroom] : [level, headroom]
   const issue = metrics.find(m => m.state === "poor") ?? metrics.find(m => m.state === "watch")
   if (descriptive) {
-    const reading = gesture ? level.value : pulse.state === "unknown" ? pulse.value : "O pulso e o nível entre as faixas se mantiveram."
+    const reading = gesture ? level.value : pulse.state === "unknown" ? pulse.value : steadyEnds
     const summary = headroom.state === "poor" ? headroom.value : issue?.value ?? reading
     return {score: null, descriptive, metrics, summary}
   }
@@ -235,5 +237,5 @@ export function scorePassage({frames, frameSeconds: dt, changeAt, overlap, kind,
   const points = {good: 100, watch: 65, poor: 15}
   let score = 0.5 * points[pulse.state] + 0.35 * points[level.state] + 0.15 * points[headroom.state]
   if (issue?.state === "poor") score = Math.min(score, 65)
-  return {score: Math.round(score / 5) * 5, metrics, summary: issue?.value ?? "Pulso e nível se mantiveram na troca."}
+  return {score: Math.round(score / 5) * 5, metrics, summary: issue?.value ?? steadyEnds}
 }
