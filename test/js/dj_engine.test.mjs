@@ -1465,3 +1465,40 @@ test("the screen still accepts precise crossfader and pitch changes within one M
   assert.equal(engine.deckMix("b").rate, 1.001)
   assert.equal(engine.passage().phase, "armed")
 })
+
+test("confirmation schedules the saved blend at the same gain heard on headphones", async t => {
+  const {a, b, engine, hint} = booth(t)
+  hint({type: "echo", from_ms: 42_000, to_ms: 0})
+  const pair = {from: "a", to: "b", fromLoad: engine.decks.a.loadToken, toLoad: engine.decks.b.loadToken}
+  const curve = {correlation: 0, outPeak: .2, inPeak: .25}
+  const plan = {outgoing: {duration: 60}, incoming: {duration: 60}, outStart: 45, lead: 3, inStart: 2.5, blend: 2, blendCurve: curve}
+  assert.equal(engine.armPassage(pair, plan, "blend").ok, true)
+  engine.editPassageMix()
+  assert.equal(engine.passage().plan.blendCurve, curve)
+  assert.equal(engine.confirmPassage().ok, true)
+  const ramps = [], midpoint = engine.ctx.currentTime + 1
+  t.mock.method(Param.prototype, "linearRampToValueAtTime", function(value, time) { ramps.push([value, time]); this.value = value })
+  a.at(48)
+  await Promise.resolve()
+  assert.equal(b.plays, 1)
+  const middle = ramps.filter(([gain, time]) => time === midpoint && Math.abs(gain - Math.SQRT1_2) < 1e-6)
+  assert.equal(middle.length, 2)
+})
+
+test("a manual echo after arming keeps the heard blend saved until the tail clears", t => {
+  const rig = booth(t)
+  const {engine} = rig
+  preparePassage(rig)
+  const {pair, plan} = engine.passage()
+  const heard = {...plan, blendCurve: {correlation: 0, outPeak: .2, inPeak: .25}}
+  assert.equal(engine.armPassage(pair, heard, "blend").ok, true)
+  assert.equal(engine.confirmPassage().ok, true)
+  engine.setEchoSend("a", .5)
+  assert.equal(engine.passage().phase, "armed")
+  assert.equal(engine.passage().plan, heard)
+  assert.equal(engine.confirmPassage().ok, false)
+  engine.setEchoSend("a", 0)
+  assert.equal(engine.confirmPassage().ok, false)
+  engine.ctx.currentTime += 15
+  assert.equal(engine.confirmPassage().ok, true)
+})

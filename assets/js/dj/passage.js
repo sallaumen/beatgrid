@@ -27,7 +27,7 @@ export function createPassage(decks, available, start, observer = {}) {
   function arm(pair, plan, kind) {
     const from = decks[pair.from], to = decks[pair.to]
     const exitMs = Math.round((plan.exit ?? plan.outStart + plan.lead) * 1000)
-    if (from.loadToken !== pair.fromLoad || to.loadToken !== pair.toLoad || !available(from, to) ||
+    if (from.loadToken !== pair.fromLoad || to.loadToken !== pair.toLoad || !available(from, to, plan, kind) ||
         from.positionMs() > exitMs || !["cut", "blend"].includes(kind)) return {ok: false}
     disarm()
     choice = {pair, plan, kind, exitMs, phase: "armed"}
@@ -48,7 +48,7 @@ export function createPassage(decks, available, start, observer = {}) {
       timer = setTimeout(check, Math.max(10, remaining / from.el.playbackRate))
       return
     }
-    if (from.seeking() || !available(from, to)) return fail()
+    if (from.seeking() || !available(from, to, choice.plan, choice.kind)) return fail()
     const saved = choice
     saved.phase = "starting"
     // A late decoder must never fade the room after the rehearsed beat has gone by.
@@ -76,7 +76,7 @@ export function createPassage(decks, available, start, observer = {}) {
     check()
     if (choice?.phase !== "armed") return {ok: false}
     const {from, to} = choice.pair
-    if (!available(decks[from], decks[to])) return {ok: false}
+    if (!available(decks[from], decks[to], choice.plan, choice.kind)) return {ok: false}
     choice.review = null
     choice.phase = "confirmed"
     observer.confirmed?.(choice)

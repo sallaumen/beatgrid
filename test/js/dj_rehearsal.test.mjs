@@ -90,3 +90,28 @@ test("source cues, wave positions and the four-beat blend account for both effec
   assert.equal(plan.blend, 1.25 / 0.8)
   assert.equal(recordTime(plan, "into", plan.duration), 10)
 })
+
+test("the waveform preserves energy through a measured blend, while a cut stays linear", () => {
+  const plan = {...planRehearsal({duration: 14}, {duration: 8}, 12, 5, 120),
+    blendCurve: {correlation: 0, outPeak: 0.25, inPeak: 0.35}}
+  const [out, into] = rehearsalGains(plan, "blend", plan.lead + plan.blend/2)
+  assert.ok(Math.abs(out ** 2 + into ** 2 - 1) < 0.001)
+  assert.deepEqual(rehearsalGains(plan, "cut", plan.lead + 0.5), [0, 1])
+})
+
+test("a resumed blend schedules the same amplitude drawn at every sample point", async () => {
+  const {scheduleBlend} = await import("../../assets/js/dj/blend_curve.js")
+  const plan = {...planRehearsal({duration: 14}, {duration: 8}, 12, 5, 120),
+    blendCurve: {correlation: .13, outPeak: .4, inPeak: .24}}
+  for (const side of [0, 1]) {
+    const points = [], param = {setValueAtTime: (v,t) => points.push([v,t]), linearRampToValueAtTime: (v,t) => points.push([v,t])}
+    const at = plan.lead + .373
+    scheduleBlend(param, plan.blendCurve, side, plan.lead, plan.blend, at)
+    assert.equal(points[0][1], at)
+    for (let i = 1; i < points.length; i++) {
+      const [v1,t1] = points[i-1], [v2,t2] = points[i]
+      assert.ok(Math.abs((v1+v2)/2 - rehearsalGains(plan, "blend", (t1+t2)/2)[side]) < 1e-12)
+    }
+    assert.equal(points.at(-1)[0], side)
+  }
+})
