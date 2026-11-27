@@ -819,7 +819,7 @@ defmodule BeatgridWeb.RecSetLive do
           :if={@set}
           class="flex min-w-0 flex-1 flex-col overflow-y-auto xl:flex-row xl:overflow-hidden"
         >
-          <section class="min-w-0 flex-1 px-4 py-4 lg:overflow-y-auto">
+          <section class="@container min-w-0 flex-1 px-4 py-4 lg:overflow-y-auto">
             <header id={"set-editor-header-#{@set.id}"} class="flex flex-wrap items-center gap-3">
               <form
                 id="set-name"
@@ -967,7 +967,10 @@ defmodule BeatgridWeb.RecSetLive do
                     {loudness_jump_label(@loudness_jumps[i])}
                   </span>
                 </div>
-                <div :if={i > 1} class="flex items-center justify-center gap-2 py-0">
+                <div
+                  :if={i > 1}
+                  class="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 py-0"
+                >
                   <button
                     :if={transition_on?(e)}
                     type="button"
@@ -1035,7 +1038,7 @@ defmodule BeatgridWeb.RecSetLive do
                   </button>
                 </div>
                 <div class={[
-                  "flex items-center gap-3 rounded-lg px-2.5 py-1.5",
+                  "flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-lg px-2.5 py-2 @min-[40rem]:flex-nowrap",
                   (e.track.id == @playing_track_id && "bg-primary/15 ring-1 ring-primary/40") ||
                     "bg-surface"
                 ]}>
@@ -1061,54 +1064,58 @@ defmodule BeatgridWeb.RecSetLive do
                     </div>
                     <p class="truncate text-caption text-ink-muted">{e.track.tag_artist || "—"}</p>
                   </div>
-                  <span
-                    :if={role_label(e.role)}
-                    class="shrink-0 rounded-full bg-primary/15 px-2 py-px text-[10px] font-semibold text-primary"
-                  >
-                    {role_label(e.role)}
-                  </span>
-                  <.camelot_seal value={camelot(e.track)} />
-                  <span class="w-10 text-right font-mono text-body text-primary">{bpm(e.track)}</span>
-                  <div class="flex shrink-0 items-center gap-1 text-[12px]">
-                    <button
-                      phx-click="move"
-                      phx-value-track={e.track.id}
-                      phx-value-dir="top"
-                      class="text-ink-faint hover:text-ink"
-                      title="Para o topo"
-                      aria-label="Para o topo"
-                    >⤒</button>
-                    <button
-                      phx-click="move"
-                      phx-value-track={e.track.id}
-                      phx-value-dir="up"
-                      class="text-ink-faint hover:text-ink"
-                      title="Subir"
-                      aria-label="Subir"
-                    >▲</button>
-                    <button
-                      phx-click="move"
-                      phx-value-track={e.track.id}
-                      phx-value-dir="down"
-                      class="text-ink-faint hover:text-ink"
-                      title="Descer"
-                      aria-label="Descer"
-                    >▼</button>
-                    <button
-                      phx-click="move"
-                      phx-value-track={e.track.id}
-                      phx-value-dir="bottom"
-                      class="text-ink-faint hover:text-ink"
-                      title="Para o fim"
-                      aria-label="Para o fim"
-                    >⤓</button>
-                    <button
-                      phx-click="remove"
-                      phx-value-track={e.track.id}
-                      class="ml-1 text-ink-muted hover:text-coral"
-                      title="Remover"
-                      aria-label="Remover do set"
-                    >✕</button>
+                  <div class="flex w-full flex-wrap items-center gap-2 border-t border-white/6 pt-1 @min-[40rem]:w-auto @min-[40rem]:border-0 @min-[40rem]:pt-0">
+                    <span
+                      :if={role_label(e.role)}
+                      class="shrink-0 rounded-full bg-primary/15 px-2 py-px text-[10px] font-semibold text-primary"
+                    >
+                      {role_label(e.role)}
+                    </span>
+                    <.camelot_seal value={camelot(e.track)} />
+                    <span class="shrink-0 font-mono text-body text-primary"><span class="sr-only">BPM </span>{bpm(
+                      e.track
+                    )}</span>
+                    <div class="ml-auto flex shrink-0 items-center gap-1 text-body [&>button]:inline-grid [&>button]:min-h-7 [&>button]:min-w-7 [&>button]:place-items-center">
+                      <button
+                        phx-click="move"
+                        phx-value-track={e.track.id}
+                        phx-value-dir="top"
+                        class="text-ink-faint hover:text-ink"
+                        title="Para o topo"
+                        aria-label="Para o topo"
+                      >⤒</button>
+                      <button
+                        phx-click="move"
+                        phx-value-track={e.track.id}
+                        phx-value-dir="up"
+                        class="text-ink-faint hover:text-ink"
+                        title="Subir"
+                        aria-label="Subir"
+                      >▲</button>
+                      <button
+                        phx-click="move"
+                        phx-value-track={e.track.id}
+                        phx-value-dir="down"
+                        class="text-ink-faint hover:text-ink"
+                        title="Descer"
+                        aria-label="Descer"
+                      >▼</button>
+                      <button
+                        phx-click="move"
+                        phx-value-track={e.track.id}
+                        phx-value-dir="bottom"
+                        class="text-ink-faint hover:text-ink"
+                        title="Para o fim"
+                        aria-label="Para o fim"
+                      >⤓</button>
+                      <button
+                        phx-click="remove"
+                        phx-value-track={e.track.id}
+                        class="ml-1 text-ink-muted hover:text-coral"
+                        title="Remover"
+                        aria-label="Remover do set"
+                      >✕</button>
+                    </div>
                   </div>
                 </div>
               </li>
