@@ -783,7 +783,7 @@ defmodule BeatgridWeb.RecSetLive do
               <span
                 :if={@set_health[s.id]}
                 class="shrink-0 rounded bg-amber/15 px-1 text-[10px] font-bold text-amber"
-                title={"#{@set_health[s.id]} faixa(s) fora da biblioteca — abra o set para trocar, ou use Checar set na Discotecagem"}
+                title={"#{@set_health[s.id]} faixa(s) fora da biblioteca — abra o set para trocar, ou use Conferir na Discotecagem"}
               >
                 ⚠ {@set_health[s.id]}
               </span>
