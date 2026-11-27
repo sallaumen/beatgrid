@@ -380,9 +380,10 @@ defmodule BeatgridWeb.GenresLive do
                     class="space-y-2 border-t border-white/8 pt-3"
                   >
                     <h4 class="text-body font-semibold text-primary">Rascunho da IA</h4>
-                    <p class="whitespace-pre-wrap break-words text-body text-ink-secondary">
-                      {editor.suggestion.description}
-                    </p>
+                    <p
+                      phx-no-format
+                      class="whitespace-pre-wrap break-words text-body text-ink-secondary"
+                    >{editor.suggestion.description}</p>
                     <p class="text-body-sm text-ink-muted">{editor.suggestion.rationale}</p>
                     <button
                       type="button"

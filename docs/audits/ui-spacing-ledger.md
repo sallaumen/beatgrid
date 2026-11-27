@@ -26,125 +26,126 @@ Rotas extraídas pela própria tarefa do Phoenix com módulos já compilados: `M
 
 | Página / superfície | Rota | Status | Rodada | PR | Viewports medidos | Observação |
 |---|---|---|---|---|---|---|
-| Compartilhado — Menu lateral expandido | `Todas as rotas de produto` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Compartilhado — Menu lateral recolhido | `Todas as rotas de produto` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Compartilhado — Menu mobile fechado | `Todas as rotas de produto` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Compartilhado — Menu mobile aberto e foco após Escape | `Todas as rotas de produto` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Compartilhado — Flash de sucesso | `Todas as rotas de produto` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Compartilhado — Flash de erro | `Todas as rotas de produto` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
+| Compartilhado — Menu lateral expandido | `Todas as rotas de produto` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | WebKit biblioteca: 216px rail, 36px links, gap12, zero overflow nas três larguras desktop; mobile tem menu separado. |
+| Compartilhado — Menu lateral recolhido | `Todas as rotas de produto` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Estado recolhido com 88px, três larguras desktop; foco retorna ao toggle visível. |
+| Compartilhado — Menu mobile fechado | `Todas as rotas de produto` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | 53px barra, 44px alvo de menu, viewport375, conteúdo x12. |
+| Compartilhado — Menu mobile aberto e foco após Escape | `Todas as rotas de produto` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Menu em duas colunas, ícones 20px e itens com mínimo44px, Escape fecha e foco volta a #mobile-nav-toggle. |
+| Compartilhado — Flash de sucesso | `Todas as rotas de produto` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Estado de divisão DJ de fixture efetivamente enviado, flash-group respeita 16px de borda. |
+| Compartilhado — Flash de erro | `Todas as rotas de produto` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Faixa inexistente; x39 w320 em 375, 384px no desktop; fechar 16×24→28×28. |
 | Compartilhado — Reconexão LiveView — cliente e servidor | `Todas as rotas de produto` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Compartilhado — Player oculto | `Todas as rotas de produto` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Compartilhado — Player ativo — título longo, transporte e volume | `Todas as rotas de produto` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
+| Compartilhado — Player oculto | `Todas as rotas de produto` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Base de todas as páginas, sem barra ativa; reserva de layout mantém conteúdo acessível. |
+| Compartilhado — Player ativo — título longo, transporte e volume | `Todas as rotas de produto` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Faixa de teste longa, seek, pausa e volume mudo; player cabe no viewport. |
 | Compartilhado — Player — carregando/erro de áudio | `Todas as rotas de produto` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Compartilhado — Player — lista de marcadores vazia | `Todas as rotas de produto` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Compartilhado — Player — lista cheia e edição de marcadores | `Todas as rotas de produto` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Biblioteca — Lista cheia e paginação | `/` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Biblioteca — Lista vazia — acervo sem faixas | `/` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Biblioteca — Busca sem resultados | `/` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Biblioteca — Busca com títulos longos, ordenação e caminhos | `/` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Biblioteca — Painel de filtros e intervalos | `/` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Biblioteca — Roda Camelot — diálogo e compatibilidade | `/` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Biblioteca — Menu de pasta | `/` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Biblioteca — Menu de faixa | `/` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Biblioteca — Seleção em lote e barra de ações | `/` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Biblioteca — Seleção em lote com player visível | `/` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Biblioteca — Aviso de movimentação, erro e desfazer | `/` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Ficha da faixa — Identidade — título e artista longos | `/track/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Ficha da faixa — Navegação de retorno e âncoras | `/track/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Ficha da faixa — Editar faixa e metadados — formulário e erro | `/track/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Ficha da faixa — Arquivo no disco — pasta, renomeação e desfazer | `/track/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Ficha da faixa — Nota, tags vazias/cheias e anotação | `/track/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Ficha da faixa — Marcadores — vazio, lista cheia, edição | `/track/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Ficha da faixa — Volume — sem análise, analisado e backup | `/track/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Ficha da faixa — Análise BPM/tom — divergência e progresso | `/track/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
+| Compartilhado — Player — lista de marcadores vazia | `Todas as rotas de produto` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Faixa teste sem marcadores; popover 288px, dentro da tela. |
+| Compartilhado — Player — lista cheia e edição de marcadores | `Todas as rotas de produto` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Faixa fixture com dois marcadores, edição Enter aplicada; alvo de remoção 10×24→24×24, tipos 15→24px, popover 288px. |
+| Biblioteca — Lista cheia e paginação | `/` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | 608–611 faixas presentes, scroll interno e paginação; linhas e eixos comparados a quatro larguras. |
+| Biblioteca — Lista vazia — acervo sem faixas | `/` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Base isolada realmente sem tracks; 4 widths e CTA Importar arquivos. |
+| Biblioteca — Busca sem resultados | `/` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Busca ZZZ_NO_MATCH, estado vazio e ação Limpar filtros. |
+| Biblioteca — Busca com títulos longos, ordenação e caminhos | `/` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Busca por 3 faixas fixture, caminhos longos e sort clicado no header/drawer quatro larguras. |
+| Biblioteca — Painel de filtros e intervalos | `/` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | 375px drawer de largura inteira; desktop 240px; filtros e intervalos sem overflow. |
+| Biblioteca — Roda Camelot — diálogo e compatibilidade | `/` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Diálogo aberto em 324px; radios/anel e foco; cabe em 375. |
+| Biblioteca — Menu de pasta | `/` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Popover da pasta desktop; equivalente menu de faixa no celular. |
+| Biblioteca — Menu de faixa | `/` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Abertura do popover ⋯; alvo 28×28, menu dentro do conteúdo. |
+| Biblioteca — Seleção em lote e barra de ações | `/` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Select Mover para de 19→32px, barra no fluxo entre lista e rodapé. |
+| Biblioteca — Seleção em lote com player visível | `/` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Faixa fixture pausada, seleção ativa; barra e player renderizados nas quatro larguras. |
+| Biblioteca — Aviso de movimentação, erro e desfazer | `/` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | PubSub controlado de 3 mudanças e 1 falha; toast real, ação Desfazer coloca estado em progresso sem executar job. |
+| Ficha da faixa — Identidade — título e artista longos | `/track/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Fixture título de ~100 letras, h1 quebra sem espremer capa; 375 e desktop. |
+| Ficha da faixa — Navegação de retorno e âncoras | `/track/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Âncora #track-markers clicada e medida; retorno Biblioteca no topo, navegação real. |
+| Ficha da faixa — Editar faixa e metadados — formulário e erro | `/track/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Editar campo real e enviar nome inválido com barra; erro mostrado. |
+| Ficha da faixa — Arquivo no disco — pasta, renomeação e desfazer | `/track/:id` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Select pasta 19→32px; rename/undo exercitados com arquivo fixture e confirmação de exclusão cancelada. |
+| Ficha da faixa — Nota, tags vazias/cheias e anotação | `/track/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Fixture sem tags e com 2 tags + anotação; controles alinhados em quatro larguras. |
+| Ficha da faixa — Marcadores — vazio, lista cheia, edição | `/track/:id` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Marcadores vazios e 2 preenchidos, edição Enter no player; alvo remover 24×24, botões tipo 24px. |
+| Ficha da faixa — Volume — sem análise, analisado e backup | `/track/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Fixture sem LUFS e com LUFS, pico, backup físico isolado; texto e ações quebram corretamente. |
+| Ficha da faixa — Análise BPM/tom — divergência e progresso | `/track/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Fixture BPM manual 132 vs análise 120; botão Reanalisar real enfileira com UI Analisando…; fila isolada. |
 | Ficha da faixa — Metadados de origem e perfil de áudio | `/track/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Ficha da faixa — Versões — vazias e cheias | `/track/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Ficha da faixa — Próxima faixa compatível — vazia e cheia | `/track/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
+| Ficha da faixa — Versões — vazias e cheias | `/track/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Fixture com zero e uma versão alternativa do mesmo título; sem overflow. |
+| Ficha da faixa — Próxima faixa compatível — vazia e cheia | `/track/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Base com uma única faixa → estado sem sugestões harmônicas; base real com candidatos e metadados. Quatro larguras. |
 | Ficha da faixa — Sugestões IA — vazias | `/track/:id` | revisada-sem-mudança | 1 | #224 | 375×812; 1280×800; 1536×960; 2560×1080 | Actual second fixture track with no recommendations, empty message and fetch button visible. |
 | Ficha da faixa — Sugestões IA — carregando | `/track/:id` | revisada-sem-mudança | 1 | #224 | 375×812; 1280×800; 1536×960; 2560×1080 | Actual Fetch matches enqueued (workers disabled), disabled button and loading indicator/status across 4 widths; no provider invocation. |
 | Ficha da faixa — Sugestões IA — lista cheia e histórico importado | `/track/:id` | revisada-com-mudança | 1 | #224 | 375×812; 1280×800; 1536×960; 2560×1080 | 2 pending + 1 imported fixture, actual disclosure/options expanded; shared action card alignment updated; no overflow, 32px targets. |
-| Ficha da faixa — Recuperação — arquivo indisponível | `/track/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Ficha da faixa — Avisos de enriquecimento, erro e confirmação nativa | `/track/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Revisão de sugestões — Abas e contadores | `/revisao` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Revisão de sugestões — Renomeações — lista cheia | `/revisao` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Revisão de sugestões — Renomeações — vazia | `/revisao` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Revisão de sugestões — Classificação — lista cheia | `/revisao` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Revisão de sugestões — Classificação — vazia | `/revisao` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Revisão de sugestões — Auditoria — lista cheia | `/revisao` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Revisão de sugestões — Auditoria — vazia | `/revisao` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Revisão de sugestões — Lotes aplicados — painel aberto | `/revisao` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Revisão de sugestões — Reavaliação — detalhes e controles | `/revisao` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Revisão de sugestões — Seleção em lote e estados pendentes/rejeitados | `/revisao` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Revisão de sugestões — Comparação e edição inline | `/revisao` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Revisão de sugestões — Confirmações, processamento, sucesso e erro | `/revisao` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Duplicatas — Grupos — lista cheia | `/dedup` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Duplicatas — Grupos — vazia | `/dedup` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Duplicatas — Varredura em andamento | `/dedup` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Duplicatas — Escolha de cópia e caminhos longos | `/dedup` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Duplicatas — Confirmação de resolução — cancelar | `/dedup` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Duplicatas — Aviso de erro e desfazer | `/dedup` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Recuperação de arquivos — Resumo de integridade | `/resgate` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
+| Ficha da faixa — Recuperação — arquivo indisponível | `/track/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Fixture integrity_status=missing_file, link recuperação visível. |
+| Ficha da faixa — Avisos de enriquecimento, erro e confirmação nativa | `/track/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Gate Soundcharts sem credenciais, convite/estado bloqueado. Erro filename, confirmação de exclusão cancelada, alerta de recomendação processado. |
+| Revisão de sugestões — Abas e contadores | `/revisao` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Abas renomeações, classificação, auditoria navegadas; 0/1/10 itens, responsivas. |
+| Revisão de sugestões — Renomeações — lista cheia | `/revisao` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | 1 sugestão pendente de fixture, 1 rejeitada, origem/destino longos. |
+| Revisão de sugestões — Renomeações — vazia | `/revisao` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Base anterior à fixture, 0; “Nada pendente nesta aba”. |
+| Revisão de sugestões — Classificação — lista cheia | `/revisao` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | 10 sugestões reais, comparação em grade, texto e botões quebram. |
+| Revisão de sugestões — Classificação — vazia | `/revisao` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Base sem sugestões, aba real e mensagem Nada pendente. |
+| Revisão de sugestões — Auditoria — lista cheia | `/revisao` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Fixture audit:metadata, ações e comparação renderizadas. |
+| Revisão de sugestões — Auditoria — vazia | `/revisao` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Base 0, estado vazio real. |
+| Revisão de sugestões — Lotes aplicados — painel aberto | `/revisao` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Últimos cinco lotes, disclosure aberto. |
+| Revisão de sugestões — Reavaliação — detalhes e controles | `/revisao` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Disclosure e opções não-avaliados/pendentes/rejeitados; progresso PubSub 4/13. |
+| Revisão de sugestões — Seleção em lote e estados pendentes/rejeitados | `/revisao` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Marcar todas, sugestão rejeitada fixture. |
+| Revisão de sugestões — Comparação e edição inline | `/revisao` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Edição de renomeação aberta, campos longos e comparação atual/proposta. |
+| Revisão de sugestões — Confirmações, processamento, sucesso e erro | `/revisao` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Progresso 4/13 e retorno 5 aplicadas/1 falha; aviso erro real do PubSub controlado. |
+| Duplicatas — Grupos — lista cheia | `/dedup` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Fixture grupo de 2 cópias, títulos longos, metadados e caminhos. |
+| Duplicatas — Grupos — vazia | `/dedup` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Base real grupo degenerado filtrado, estado vazio. |
+| Duplicatas — Varredura em andamento | `/dedup` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Ação Procurar duplicatas enfileirada, label Procurando…; filas desabilitadas. |
+| Duplicatas — Escolha de cópia e caminhos longos | `/dedup` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Escolha visual de keeper real na fixture. |
+| Duplicatas — Confirmação de resolução — cancelar | `/dedup` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Diálogo nativo acionado e cancelado. |
+| Duplicatas — Aviso de erro e desfazer | `/dedup` | pendente | 1 | — | parcial | Resolução e Desfazer reais exercitados em duas WAVs descartáveis com arquivos restaurados; falta falha explícita do grupo. |
+| Recuperação de arquivos — Resumo de integridade | `/resgate` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | KPIs com 0/1/587/20 e aviso; eixo alinhado. |
 | Recuperação de arquivos — Verificação em andamento e resultado | `/resgate` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Recuperação de arquivos — Arquivos danificados — lista cheia | `/resgate` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Recuperação de arquivos — Arquivos danificados — vazia | `/resgate` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Recuperação de arquivos — Diagnóstico aberto e caminhos longos | `/resgate` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Recuperação de arquivos — Quarentena — filtros e lista cheia | `/resgate` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Recuperação de arquivos — Quarentena — vazia/sem resultados | `/resgate` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
+| Recuperação de arquivos — Arquivos danificados — lista cheia | `/resgate` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Arquivo real ausente + fixture danificada com erro longo. |
+| Recuperação de arquivos — Arquivos danificados — vazia | `/resgate` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Base sem tracks, indicador zero e mensagem correspondente. |
+| Recuperação de arquivos — Diagnóstico aberto e caminhos longos | `/resgate` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Fixture missing/error, disclosure Diagnóstico aberto. |
+| Recuperação de arquivos — Quarentena — filtros e lista cheia | `/resgate` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | 17 registros reais, busca e lista. |
+| Recuperação de arquivos — Quarentena — vazia/sem resultados | `/resgate` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Base vazia real e busca sem resultados na base populada. |
 | Recuperação de arquivos — Confirmação de restauração — cancelar; erro | `/resgate` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
 | Repertório — Indicadores e distribuição por gênero | `/painel` | revisada-sem-mudança | 1 | #224 | 375×812; 1280×800; 1536×960; 2560×1080 | Real catalog KPI and 7 genres, card padding 12 mobile/16 desktop, viewport375 panel351px with 12px gutter; desktop 1280 panel500px, 2560 width436 in 4-column dashboard. Header/actions clear. |
 | Repertório — Artistas mais presentes | `/painel` | revisada-sem-mudança | 1 | #224 | 375×812; 1280×800; 1536×960; 2560×1080 | Real populated bar rows, readable names and numeric values; row gaps 8px, alignment stable across widths. |
 | Repertório — Andamento BPM | `/painel` | revisada-sem-mudança | 1 | #224 | 375×812; 1280×800; 1536×960; 2560×1080 | Real bins, mobile single column 793px high, desktop two columns 437px; monospaced values clear, no overflow. |
 | Repertório — Décadas | `/painel` | revisada-sem-mudança | 1 | #224 | 375×812; 1280×800; 1536×960; 2560×1080 | Real decades list, stable semantic bar and numeric axes. |
-| Repertório — Painéis sem dados | `/painel` | bloqueada | 1 | — | parcial: 375/1280/1536/2560 | Populated overview verified; empty catalog needs separate empty DB, parent to cover. |
+| Repertório — Painéis sem dados | `/painel` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Base de 0 faixas, distribuições/andamento/artistas/décadas sem dados, UI real em 4 larguras. |
 | Repertório — Lacunas — seletor de gênero | `/painel` | revisada-com-mudança | 1 | #224 | 375×812; 1280×800; 1536×960; 2560×1080 | Actual genre patch including long custom genre; dot shrank 4.8125→8px, label wraps, counter preserved. |
 | Repertório — Lacunas — carregamento | `/painel` | revisada-com-mudança | 1 | #224 | 375×812; 1280×800; 1536×960; 2560×1080 | Actual queue-disabled fetch; button disabled and loading copy/status/panel rendered through all four widths; selector alignment fixed. |
 | Repertório — Lacunas — lista cheia e variantes | `/painel` | revisada-com-mudança | 1 | #224 | 375×812; 1280×800; 1536×960; 2560×1080 | 2 pending fixture cards with unequal title/rationale length; at 1280 action Y mismatch84→0, at 1536/2560 67.5→0; links/targets wrap on375 without overflow. |
 | Repertório — Lacunas — vazio | `/painel` | revisada-com-mudança | 1 | #224 | 375×812; 1280×800; 1536×960; 2560×1080 | No recs in long genre, no-results text and no phantom cards; selector mark fixed. Other ordinary empty genre checked before queue. |
 | Repertório — Lacunas — histórico importado expandido | `/painel` | revisada-com-mudança | 1 | #224 | 375×812; 1280×800; 1536×960; 2560×1080 | Imported fixture, actual disclosure and nested options expanded, check badge/32px targets and long rationale. Shared component corrected. |
-| Repertório — Lacunas — erro/aviso | `/painel` | bloqueada | 1 | — | parcial: 375/1280/1536/2560 | Error generated only by provider worker PubSub; no safe running node injection. Queued loading proven, error still needs controlled event fixture. |
-| Montagem de sets — Lista de sets — cheia, nomes longos | `/set` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Montagem de sets — Lista de sets — vazia | `/set` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Montagem de sets — Seletor mobile e painel recolhido | `/set` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Montagem de sets — Nenhum set selecionado | `/set` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Montagem de sets — Proposta de faixa vindo da ficha | `/set` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Montagem de sets — Modal critérios de montagem | `/set` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Montagem de sets — edição — Cabeçalho e nome longo | `/set/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Montagem de sets — edição — Renomeação — validação | `/set/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Montagem de sets — edição — Sequência vazia | `/set/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Montagem de sets — edição — Sequência cheia e controles de ordem | `/set/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Montagem de sets — edição — Transições, alertas de loudness e respiros | `/set/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Montagem de sets — edição — Ferramentas do set expandido | `/set/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Montagem de sets — edição — Curva de energia | `/set/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Montagem de sets — edição — Planejamento automático — formulário | `/set/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Montagem de sets — edição — Preencher seção | `/set/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Montagem de sets — edição — Mesa de mixagem — faders, pesos e filtros | `/set/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Montagem de sets — edição — Próximas faixas — vazio/lista cheia | `/set/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Montagem de sets — edição — Busca de faixas — vazio/lista cheia | `/set/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Montagem de sets — edição — Proposta de gravação | `/set/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Montagem de sets — edição — Modal critérios — abrir/fechar | `/set/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
+| Repertório — Lacunas — erro/aviso | `/painel` | revisada-sem-mudança | 1 | #224 | 375×812; 1280×800; 1536×960; 2560×1080 | Actual fetch enqueued, then controlled `gap_error` broadcast to connected view. Error toast “A busca de sugestões falhou. Tente de novo.” at four widths; at 375 fixed toast x39 width320 with 16px right inset and wraps in 2 lines. Existing pending list maintained and fetch re-enabled. No further change required. |
+| Montagem de sets — Lista de sets — cheia, nomes longos | `/set` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | 11 sets reais + fixture, seletor e long names. |
+| Montagem de sets — Lista de sets — vazia | `/set` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Base sem sets, seletor e chamada Criar novo set. |
+| Montagem de sets — Seletor mobile e painel recolhido | `/set` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | 375 select 262×36, desktop rail recolhível e foco. |
+| Montagem de sets — Nenhum set selecionado | `/set` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Rota com track_id proposta sem set selecionado. |
+| Montagem de sets — Proposta de faixa vindo da ficha | `/set` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Rota de proposta com fixture, escolha na lista. |
+| Montagem de sets — Modal critérios de montagem | `/set` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Na base vazia, link de critérios na tela inicial clicado, modal aberto e Escape. |
+| Montagem de sets — edição — Cabeçalho e nome longo | `/set/:id` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Fixture nome longo e estilo longo; débito de width496→375; seletor h32 e ellipsis. |
+| Montagem de sets — edição — Renomeação — validação | `/set/:id` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Nome vazio digitado, #set-name-error renderizado. |
+| Montagem de sets — edição — Sequência vazia | `/set/:id` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Fixture set vazio, header e rodapé. |
+| Montagem de sets — edição — Sequência cheia e controles de ordem | `/set/:id` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Set de 76 faixas, controles Heroicons16px em alvos28; leitura e tabela. |
+| Montagem de sets — edição — Transições, alertas de loudness e respiros | `/set/:id` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Botões de respiro 22×24→24×24, emoji substituído Hero pause, estado aria-pressed, set 76 faixas. |
+| Montagem de sets — edição — Ferramentas do set expandido | `/set/:id` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Disclosure real aberto, Remix/Conectar/Exportar, botões e espaçamento. |
+| Montagem de sets — edição — Curva de energia | `/set/:id` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Série de 76 faixas, eixos e legenda; mobile 343px. |
+| Montagem de sets — edição — Planejamento automático — formulário | `/set/:id` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Painel aberto nas quatro larguras; select normalizados para 32px. |
+| Montagem de sets — edição — Preencher seção | `/set/:id` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Painel fill aberto, campos e ações. |
+| Montagem de sets — edição — Mesa de mixagem — faders, pesos e filtros | `/set/:id` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Painel console aberto, faders e filtros; critério acessível. |
+| Montagem de sets — edição — Próximas faixas — vazio/lista cheia | `/set/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Painel aberto com 12 sugestões na base real e com único membro sem candidatos na base isolada, quatro larguras. |
+| Montagem de sets — edição — Busca de faixas — vazio/lista cheia | `/set/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Busca real UI REVIEW e ZZZ_NO_MATCH; painel responsivo. |
+| Montagem de sets — edição — Proposta de gravação | `/set/:id` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Rota /set/:id?track_id=fixture, painel proposto. |
+| Montagem de sets — edição — Modal critérios — abrir/fechar | `/set/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Abertura via console e escape, real sem overflow; medidas em quatro larguras. |
 | Montagem de sets — edição — Avisos de planejamento, validação, exportação e confirmação | `/set/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Discotecagem — Cabeçalho e seletor de set | `/discotecagem` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Discotecagem — Deck A/B vazios | `/discotecagem` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Discotecagem — Deck A/B carregados — nomes longos | `/discotecagem` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Discotecagem — Deck carregando / erro | `/discotecagem` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Discotecagem — Waveforms e estado de transporte | `/discotecagem` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Discotecagem — Mixer e faders | `/discotecagem` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Discotecagem — Fila de set vazia | `/discotecagem` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Discotecagem — Fila cheia e transições | `/discotecagem` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Discotecagem — Biblioteca — busca, vazio, lista cheia | `/discotecagem` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Discotecagem — Preflight — sem problemas | `/discotecagem` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Discotecagem — Preflight — problemas e lista longa | `/discotecagem` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Discotecagem — Painel transições expandido | `/discotecagem` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Discotecagem — Painel scratch expandido | `/discotecagem` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Discotecagem — Painel diagnóstico/log expandido | `/discotecagem` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Discotecagem — MIDI — desconectado | `/discotecagem` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Discotecagem — MIDI — conectado e nome de dispositivo | `/discotecagem` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Discotecagem — Modo Viagem — sem faixa | `/discotecagem` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Discotecagem — Modo Viagem — faixa atual e próxima | `/discotecagem` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Discotecagem — Ensaio — diálogo sem decks | `/discotecagem` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Discotecagem — Ensaio — corte e mistura com decks | `/discotecagem` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
+| Discotecagem — Cabeçalho e seletor de set | `/discotecagem` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Com e sem set, controle e cabeçalho fluem em375. |
+| Discotecagem — Deck A/B vazios | `/discotecagem` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Decks sem faixa reais, estados e transporte. |
+| Discotecagem — Deck A/B carregados — nomes longos | `/discotecagem` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Duas faixas WAV fixture, títulos longos, decks carregados. |
+| Discotecagem — Deck carregando / erro | `/discotecagem` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Fixture áudio ausente e carregamento, erro do transporte real. |
+| Discotecagem — Waveforms e estado de transporte | `/discotecagem` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | WAV sintético carregado, ondas reais no canvas e play/pause. |
+| Discotecagem — Mixer e faders | `/discotecagem` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Mixer nos quatro tamanhos, faders e knobs alinhados. |
+| Discotecagem — Fila de set vazia | `/discotecagem` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Sem set selecionado, fila vazia. |
+| Discotecagem — Fila cheia e transições | `/discotecagem` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Set real 76 faixas, carregado na cabine; fila e transição. |
+| Discotecagem — Biblioteca — busca, vazio, lista cheia | `/discotecagem` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Busca fixture e sem resultado, lista real. |
+| Discotecagem — Preflight — sem problemas | `/discotecagem` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Um set com WAV fixture e BPM válido; status 1 faixa conferida. Tudo pronto. |
+| Discotecagem — Preflight — problemas e lista longa | `/discotecagem` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Preflight de set real 76 faixas, painel e fechamento. |
+| Discotecagem — Painel transições expandido | `/discotecagem` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Disclosure transições aberto. |
+| Discotecagem — Painel scratch expandido | `/discotecagem` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Scratch aberto, alvo/pad e controle. |
+| Discotecagem — Painel diagnóstico/log expandido | `/discotecagem` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Controladora eventos aberto, ícone emoji→Hero 16px. |
+| Discotecagem — MIDI — desconectado | `/discotecagem` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | WebKit sem MIDI, diagnóstico real. |
+| Discotecagem — MIDI — conectado e nome de dispositivo | `/discotecagem` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Web MIDI API fixture com porta DJ2GO2 virtual e nome longo, hook real; não comprova hardware físico. |
+| Discotecagem — Modo Viagem — sem faixa | `/discotecagem` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Overlay real aberto sem faixa. |
+| Discotecagem — Modo Viagem — faixa atual e próxima | `/discotecagem` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Dois WAVs fixture carregados e faixa A em play; título longo e overlay medidos. |
+| Discotecagem — Ensaio — diálogo sem decks | `/discotecagem` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Diálogo sem decks, select fone 19→36px, altura dos botões 36px. |
+| Discotecagem — Ensaio — corte e mistura com decks | `/discotecagem` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Duas faixas fixture + estados corte/mistura, ondas reais; PR #222 painel de ajuste no fone expandido. |
 | Discotecagem — Ensaio — aguardando preparação/erro | `/discotecagem` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Discotecagem — Passagem armada — confirmar e desarmar (#220) | `/discotecagem` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
+| Discotecagem — Ajuste de mix do ensaio (#222) | `/discotecagem` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Painel Ajustar no fone expandido, campos pitch/filtro/tom/volume e layout de duas colunas que vira uma em 375. |
+| Discotecagem — Passagem armada — confirmar e desarmar (#220) | `/discotecagem` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Dois WAVs de fixture, Armar real mostra reserva, confirma com estado de passagem e Desarmar esconde reserva. Quatro larguras; sem hardware físico. |
 | Fila de tarefas — Filtros e contadores | `/jobs` | revisada-com-mudança | 1 | #223 | 375×812; 1280×800; 1536×960; 2560×1080 | Header aligned; select 32px; groups 6px gaps; dropdown DownloadWorker patch and context link rendered. |
 | Fila de tarefas — Lista cheia e assunto longo | `/jobs` | revisada-com-mudança | 1 | #223 | 375×812; 1280×800; 1536×960; 2560×1080 | 30 rows in fixture catalog; labels/title/errors wrap; rows 10px vertical padding, 6–16px gaps. 3 action buttons one row at 1280+. |
 | Fila de tarefas — Lista vazia/sem resultados | `/jobs` | revisada-com-mudança | 1 | #223 | 375×812; 1280×800; 1536×960; 2560×1080 | Initial active/failed filters both empty, visible empty copy and back link; header/filter corrected and rerendered on populated filters. |
@@ -159,8 +160,8 @@ Rotas extraídas pela própria tarefa do Phoenix com módulos já compilados: `M
 | Manutenção — Enriquecimento — Soundcharts e faixas raras | `/manutencao` | revisada-com-mudança | 1 | #223 | 375×812; 1280×800; 1536×960; 2560×1080 | Disabled Soundcharts gate/no credentials; queued rare enrichment in isolated queue-disabled copy, no provider run; explanatory copy and button align. |
 | Manutenção — Importações YouTube | `/manutencao` | revisada-com-mudança | 1 | #223 | 375×812; 1280×800; 1536×960; 2560×1080 | Real pending count, link to imports, configured gate and disabled button; 16px card desktop padding and 12px mobile inset. |
 | Manutenção — Backup de curadoria — dados e instruções abertas | `/manutencao` | revisada-com-mudança | 1 | #223 | 375×812; 1280×800; 1536×960; 2560×1080 | Actual copy backup metadata and open disclosure with long restore command wrapping; no execution. |
-| Manutenção — Cobertura vazia e completa | `/manutencao` | bloqueada | 1 | — | parcial: 375/1280/1536/2560 | Complete and partial measured four widths; zero total cannot be asserted until no-tracks isolated fixture DB. Parent to render this in empty DB pass. |
-| Manutenção — Progresso de tarefas, bloqueio de integração/erro | `/manutencao` | bloqueada | 1 | — | parcial: 375/1280/1536/2560 | Prior queued status+disabled integration gate observed. Nonzero in-flight/terminal error cannot inject into unnamed Beatgrid node; controlled fixture needed. |
+| Manutenção — Cobertura vazia e completa | `/manutencao` | revisada-com-mudança | 1 | #223 | 375×812; 1280×800; 1536×960; 2560×1080 | Base sem faixas: Sem faixas, 0 total, sem barra; base populada com total completo/partial. |
+| Manutenção — Progresso de tarefas, bloqueio de integração/erro | `/manutencao` | revisada-com-mudança | 1 | #223 | 375×812; 1280×800; 1536×960; 2560×1080 | Controlled `maintenance_running` produced actual UI “Classificando faixas raras 13/31”, 42% bar (6px thick; 325px available on mobile), disabled action; `maintenance_done` produced actual terminal summary with 3 errors, 12 classified, 2 filed, 7 for review, wraps at all four widths. Disabled integration gate already measured; header alignment correction in previous PR. |
 | Manutenção — Confirmações nativas — cancelar | `/manutencao` | revisada-com-mudança | 1 | #223 | 375×812; 1280×800; 1536×960; 2560×1080 | Remap, apply gain, restore gain backup dialogs canceled four widths; no destructive action. |
 | Ajustes — Sets e discotecagem — 3 preferências | `/ajustes` | revisada-com-mudança | 1 | #223 | 375×812; 1280×800; 1536×960; 2560×1080 | 3 rows, labels/values/units aligned; mobile wraps; header corrected. |
 | Ajustes — Áudio e backup — 3 preferências | `/ajustes` | revisada-com-mudança | 1 | #223 | 375×812; 1280×800; 1536×960; 2560×1080 | 3 rows, 36px inputs, disabled/default states not conflated; header and toast corrected. |
@@ -174,69 +175,70 @@ Rotas extraídas pela própria tarefa do Phoenix com módulos já compilados: `M
 | Gêneros — Formulário de criação — aberto | `/generos` | revisada-com-mudança | 1 | #223 | 375×812; 1280×800; 1536×960; 2560×1080 | Actual opened form and focused name, padding16 gap12; color + buttons wrap/read on 375; underlying dot alignment fixed. |
 | Gêneros — Formulário de criação — inválido | `/generos` | revisada-com-mudança | 1 | #223 | 375×812; 1280×800; 1536×960; 2560×1080 | Duplicate seeded genre actual validation error rendered, input retained on all widths, no overflow. |
 | Gêneros — Editor de descrição — aberto | `/generos` | revisada-com-mudança | 1 | #223 | 375×812; 1280×800; 1536×960; 2560×1080 | Actual edit/cancel and custom description textarea long value across widths; dot alignment preserved. |
-| Gêneros — Sugestão IA — carregando e resultado | `/generos` | bloqueada | 1 | — | parcial: 375/1280/1536/2560 | Actual synchronous AI adapter in this dev server would invoke Claude CLI. No mocked adapter configured, no real call made; requires controlled fixture. |
+| Gêneros — Sugestão IA — carregando e resultado | `/generos` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Four widths actual clicks in genre editor; fake provider sleeps 2s and returns fixture structured output. Disabled loading button + sr-only status, result/rationale and action shown, apply draft replaces textarea, cancel leaves original persisted description unchanged. Found and corrected accidental HEEx indentation in result paragraph (see below). |
 | Gêneros — Erro de edição e confirmação de exclusão | `/generos` | revisada-com-mudança | 1 | #223 | 375×812; 1280×800; 1536×960; 2560×1080 | Actual stale-edit error after removing **only created temporary genre fixture** from isolated DB, all widths; delete dialog on long-name fixture opened/dismissed. |
-| Importações — Abas de origem | `/importados` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Importações — Origem online — campos de links e fonte recolhida | `/importados` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Importações — Spotify — catálogo/seletor e filtro | `/importados` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Importações — Spotify — sem resultados | `/importados` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Importações — Prévia de links — carregando/erro | `/importados` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Importações — Prévia de versões — seleção e lista longa | `/importados` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Importações — Recomendação — buscar versão | `/importados` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
+| Importações — Abas de origem | `/importados` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Abas online/local reais, navegação e espaçamento. |
+| Importações — Origem online — campos de links e fonte recolhida | `/importados` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Formulário e disclosure da fonte visíveis. |
+| Importações — Spotify — catálogo/seletor e filtro | `/importados` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Adapter de runtime fixture, três faixas, filtros e busca de versão. |
+| Importações — Spotify — sem resultados | `/importados` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Filtro Na biblioteca com 0 matches, mensagem real. |
+| Importações — Prévia de links — carregando/erro | `/importados` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Carregamento de fixture Spotify com delay e link inválido → mensagem. |
+| Importações — Prévia de versões — seleção e lista longa | `/importados` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Fixture yt-dlp de três versões longas, selecionar todas e confirmar no clone sem jobs. |
+| Importações — Recomendação — buscar versão | `/importados` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Rota recomendacao fixture, busca real no fake yt-dlp. |
 | Importações — Fila online — progresso, falha e recibo | `/importados` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Importações — YouTube — lista cheia, playlists, filtros e ordenação | `/importados` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Importações — YouTube — lista vazia | `/importados` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Importações — Confirmar exclusão — cancelar | `/importados` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Importações locais — Formulário de pasta/arquivo | `/importados?origem=local` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Importações locais — Navegador de diretórios — lista cheia | `/importados?origem=local` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Importações locais — Navegador de diretórios — vazio/erro | `/importados?origem=local` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
+| Importações — YouTube — lista cheia, playlists, filtros e ordenação | `/importados` | pendente | 1 | — | parcial | Lista cheia e expansão playlist verificadas; filtros e ordenação requerem conferência final combinada. |
+| Importações — YouTube — lista vazia | `/importados` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Base vazia real e mensagem de ausência de download/importações. |
+| Importações — Confirmar exclusão — cancelar | `/importados` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Playlist aberta, botão excluir acionado e diálogo nativo dispensado sem exclusão. |
+| Importações locais — Formulário de pasta/arquivo | `/importados?origem=local` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Formulário e inputs medidos 4 larguras. |
+| Importações locais — Navegador de diretórios — lista cheia | `/importados?origem=local` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Disclosure aberto com lista real do Mac (somente leitura). |
+| Importações locais — Navegador de diretórios — vazio/erro | `/importados?origem=local` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Runtime real lista diretório fixture vazio, caminho inexistente retorna mensagem no painel aberto. |
 | Importações locais — Prévia — carregamento/erro | `/importados?origem=local` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Importações locais — Prévia — linhas novas e duplicadas | `/importados?origem=local` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Importações locais — Prévia — vazia e todos duplicados | `/importados?origem=local` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Importações locais — Atividade de importação — progresso e resultado | `/importados?origem=local` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Importações locais — Recibo de lote e erro | `/importados?origem=local` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Sets gravados — Importar URL e controle de busca | `/sets-online` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Sets gravados — Lista cheia, título longo e indicadores | `/sets-online` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Sets gravados — Lista vazia/sem resultados | `/sets-online` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Sets gravados — Download/análise em andamento | `/sets-online` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Sets gravados — Falha de importação e aviso | `/sets-online` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Detalhe do set gravado — Identidade e descrição longa | `/sets-online/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Detalhe do set gravado — Linha do tempo e transporte | `/sets-online/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Detalhe do set gravado — Áudio apagado/indisponível | `/sets-online/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Detalhe do set gravado — Análise em andamento e erro | `/sets-online/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Detalhe do set gravado — Painel de análise e arquivo expandido | `/sets-online/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Detalhe do set gravado — Divisão por DJ — formulário e divisórias | `/sets-online/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Detalhe do set gravado — Faixas — lista cheia | `/sets-online/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Detalhe do set gravado — Faixas — sem segmentos | `/sets-online/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Detalhe do set gravado — Reconhecimento — status e integração sem credenciais | `/sets-online/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Detalhe do set gravado — Novo recorte — painel e contexto | `/sets-online/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Detalhe do set gravado — Novo recorte — modo exato e seleção de intervalo | `/sets-online/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Detalhe do set gravado — Novo recorte — prévia, nome/destino e validação | `/sets-online/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Detalhe do set gravado — Recorte concluído — aviso | `/sets-online/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Detalhe do set gravado — Confirmações nativas — cancelar | `/sets-online/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Infraestrutura Phoenix — Página inicial e navegação | `/dev/dashboard` | pendente | 1 | — | — | Infraestrutura externa ao design A Cabine; confirmar disponibilidade no runtime. |
-| Infraestrutura Phoenix — os_mon | `/dev/dashboard/:page` | pendente | 1 | — | — | Infraestrutura externa ao design A Cabine; confirmar disponibilidade no runtime. |
-| Infraestrutura Phoenix — memory_allocators | `/dev/dashboard/:page` | pendente | 1 | — | — | Infraestrutura externa ao design A Cabine; confirmar disponibilidade no runtime. |
-| Infraestrutura Phoenix — metrics | `/dev/dashboard/:page` | pendente | 1 | — | — | Infraestrutura externa ao design A Cabine; confirmar disponibilidade no runtime. |
-| Infraestrutura Phoenix — request_logger | `/dev/dashboard/:page` | pendente | 1 | — | — | Infraestrutura externa ao design A Cabine; confirmar disponibilidade no runtime. |
-| Infraestrutura Phoenix — applications | `/dev/dashboard/:page` | pendente | 1 | — | — | Infraestrutura externa ao design A Cabine; confirmar disponibilidade no runtime. |
-| Infraestrutura Phoenix — processes | `/dev/dashboard/:page` | pendente | 1 | — | — | Infraestrutura externa ao design A Cabine; confirmar disponibilidade no runtime. |
-| Infraestrutura Phoenix — ports | `/dev/dashboard/:page` | pendente | 1 | — | — | Infraestrutura externa ao design A Cabine; confirmar disponibilidade no runtime. |
-| Infraestrutura Phoenix — sockets | `/dev/dashboard/:page` | pendente | 1 | — | — | Infraestrutura externa ao design A Cabine; confirmar disponibilidade no runtime. |
-| Infraestrutura Phoenix — ets | `/dev/dashboard/:page` | pendente | 1 | — | — | Infraestrutura externa ao design A Cabine; confirmar disponibilidade no runtime. |
-| Infraestrutura Phoenix — ecto_stats | `/dev/dashboard/:page` | pendente | 1 | — | — | Infraestrutura externa ao design A Cabine; confirmar disponibilidade no runtime. |
-| Infraestrutura Phoenix — Detalhe de item — modal onde disponível | `/dev/dashboard/:page` | pendente | 1 | — | — | Infraestrutura externa ao design A Cabine; confirmar disponibilidade no runtime. |
-| Infraestrutura Phoenix — Variante por nó e menus | `/dev/dashboard/:node/:page` | pendente | 1 | — | — | Infraestrutura externa ao design A Cabine; confirmar disponibilidade no runtime. |
-| Endpoint sem UI — JavaScript de desregistro | `/sw.js` | pendente | 1 | — | — | Sem superfície visual; verificar resposta/consumidor na conferência final. |
-| Endpoint sem UI — Entrega de áudio original | `/audio/:id/original` | pendente | 1 | — | — | Sem superfície visual; verificar resposta/consumidor na conferência final. |
-| Endpoint sem UI — Entrega de áudio | `/audio/:id` | pendente | 1 | — | — | Sem superfície visual; verificar resposta/consumidor na conferência final. |
-| Endpoint sem UI — Entrega de áudio da gravação | `/sets-online/:id/audio` | pendente | 1 | — | — | Sem superfície visual; verificar resposta/consumidor na conferência final. |
-| Endpoint sem UI — CSS de infraestrutura | `/dev/dashboard/css-:md5` | pendente | 1 | — | — | Sem superfície visual; verificar resposta/consumidor na conferência final. |
-| Endpoint sem UI — JavaScript de infraestrutura | `/dev/dashboard/js-:md5` | pendente | 1 | — | — | Sem superfície visual; verificar resposta/consumidor na conferência final. |
-| Transporte LiveView — WebSocket | `/live/websocket` | pendente | 1 | — | — | Verificar socket conectado no navegador. |
-| Transporte LiveView — Longpoll GET/POST | `/live/longpoll` | pendente | 1 | — | — | Verificar transporte fallback real. |
+| Importações locais — Prévia — linhas novas e duplicadas | `/importados?origem=local` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | WAV fixture nova e duplicada identificada pelo hash; preview real com nomes/edição. |
+| Importações locais — Prévia — vazia e todos duplicados | `/importados?origem=local` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Diretório vazio e WAV com hash idêntico, mensagens reais e ações indisponíveis. |
+| Importações locais — Atividade de importação — progresso e resultado | `/importados?origem=local` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Envio real em fila desativada, PubSub controlado 2/5 e resultado 3 importadas/1 duplicada/1 falha, texto e ação visíveis. |
+| Importações locais — Recibo de lote e erro | `/importados?origem=local` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Fixture lote descartado, recibo a partir de hash real, aviso e link Abrir faixa. |
+| Sets gravados — Importar URL e controle de busca | `/sets-online` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Form URL e filtro, erro de URL não suportada; header x588→612 em ultrawide. |
+| Sets gravados — Lista cheia, título longo e indicadores | `/sets-online` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | 5 reais + 4 fixtures de status/título, lista e metadados. |
+| Sets gravados — Lista vazia/sem resultados | `/sets-online` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Base vazia real e busca sem correspondência na base cheia. |
+| Sets gravados — Download/análise em andamento | `/sets-online` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Fixture status analyzing, lista e detalhes. |
+| Sets gravados — Falha de importação e aviso | `/sets-online` | revisada-com-mudança | 1 | PR atual | 375×812; 1280×800; 1536×960; 2560×1080 | Fixture failed com mensagem longa + link inválido; aviso de erro visível. |
+| Detalhe do set gravado — Identidade e descrição longa | `/sets-online/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Gravação real 131 segmentos, título e descrição. |
+| Detalhe do set gravado — Linha do tempo e transporte | `/sets-online/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Timeline 131 segmentos, áudio no clone, native controls. |
+| Detalhe do set gravado — Áudio apagado/indisponível | `/sets-online/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Fixture áudio removido e erro de mídia antes de remapear paths. |
+| Detalhe do set gravado — Análise em andamento e erro | `/sets-online/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Fixtures analyzing/failed, mensagens reais. |
+| Detalhe do set gravado — Painel de análise e arquivo expandido | `/sets-online/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Disclosure aberto nas quatro larguras. |
+| Detalhe do set gravado — Divisão por DJ — formulário e divisórias | `/sets-online/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Painel real, gravação real com 6 DJs e formulário; fixture salvou divisão. |
+| Detalhe do set gravado — Faixas — lista cheia | `/sets-online/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | 131 segmentos renderizados, scroll/leitura. |
+| Detalhe do set gravado — Faixas — sem segmentos | `/sets-online/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Fixture ready sem segmentos. |
+| Detalhe do set gravado — Reconhecimento — status e integração sem credenciais | `/sets-online/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Gate AudD desativado; botões reconhecimento não disparam. |
+| Detalhe do set gravado — Novo recorte — painel e contexto | `/sets-online/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Painel recorte real aberto. |
+| Detalhe do set gravado — Novo recorte — modo exato e seleção de intervalo | `/sets-online/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Intervalo 0:10–0:30, modo só corte ativado, controles reais. |
+| Detalhe do set gravado — Novo recorte — prévia, nome/destino e validação | `/sets-online/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Intervalo 0:10–0:30, modo exato e preview real; fonte isolada, formulário nome/destino e invalidez de intervalo em estado inicial. |
+| Detalhe do set gravado — Recorte concluído — aviso | `/sets-online/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Evento controlado mix_progress cut_done, aviso/link de faixa real, quadro renderizado. |
+| Detalhe do set gravado — Confirmações nativas — cancelar | `/sets-online/:id` | revisada-sem-mudança | 1 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Diálogo apagar áudio fixture interceptado e cancelado. |
+| Infraestrutura Phoenix — Página inicial e navegação | `/dev/dashboard` | revisada-sem-mudança | 1 | — | 375, 768, 1280, 1536, 2560 | Actual GET 200 → `/dev/dashboard/home`, navigation and node selector; no overflow at 5 sizes; dependency styling not touched. |
+| Infraestrutura Phoenix — os_mon | `/dev/dashboard/:page` | revisada-sem-mudança | 1 | — | 375, 768, 1280, 1536, 2560 | OS Data menu visibly disabled/Enable hint since optional `:os_mon` not running. Direct `/dev/dashboard/os_mon` navigates/redirects to actual home with HTTP 200 at all 5 sizes. No accessible separate OS monitor screen in this runtime; this row validates the unavailable route handling, not OS monitoring functionality. Do not enable optional infrastructure merely for UI review. |
+| Infraestrutura Phoenix — memory_allocators | `/dev/dashboard/:page` | bloqueada | 1 | — | 375, 768, 1280, 1536, 2560 | Actual charts and table, HTTP200/connected; 375→395 doc width, table parent width415. Clear 768 and three desktop sizes. Third-party CSS; no supported override. |
+| Infraestrutura Phoenix — metrics | `/dev/dashboard/:page` | revisada-sem-mudança | 1 | — | 375, 768, 1280, 1536, 2560 | Beatgrid, Phoenix and VM metric tabs each separately opened/rendered at all 5 sizes. Dashboard charts fit width; metric history starts empty as configured by dependency, not a failure. |
+| Infraestrutura Phoenix — request_logger | `/dev/dashboard/:page` | revisada-sem-mudança | 1 | — | 375, 768, 1280, 1536, 2560 | Actual settings page HTTP200/connected, controls fit all 5 sizes; no logger activation or actual request payload logging. |
+| Infraestrutura Phoenix — applications | `/dev/dashboard/:page` | bloqueada | 1 | — | 375, 768, 1280, 1536, 2560 | Actual table + item modal, clear 768 and desktop; dependency background doc width395 at375. |
+| Infraestrutura Phoenix — processes | `/dev/dashboard/:page` | bloqueada | 1 | — | 375, 768, 1280, 1536, 2560 | Actual table + item modal, clear 768 and desktop; dependency background doc width395 at375. No destructive process action taken. |
+| Infraestrutura Phoenix — ports | `/dev/dashboard/:page` | bloqueada | 1 | — | 375, 768, 1280, 1536, 2560 | Actual table + item modal, clear 768 and desktop; dependency background doc width395 at375. |
+| Infraestrutura Phoenix — sockets | `/dev/dashboard/:page` | bloqueada | 1 | — | 375, 768, 1280, 1536, 2560 | Actual table + item modal, clear 768 and desktop; dependency background doc width395 at375. |
+| Infraestrutura Phoenix — ets | `/dev/dashboard/:page` | bloqueada | 1 | — | 375, 768, 1280, 1536, 2560 | Actual table + item modal, clear 768 and desktop; dependency background doc width395 at375. |
+| Infraestrutura Phoenix — ecto_stats | `/dev/dashboard/:page` | revisada-sem-mudança | 1 | — | 375, 768, 1280, 1536, 2560 | Actual page HTTP200/connected, dependency shows readable “No Ecto repository was found...” optional extras informational state; no overflow 5 sizes. Full DB diagnostic capability not available/configured; no dependencies added. |
+| Infraestrutura Phoenix — Detalhe de item — modal onde disponível | `/dev/dashboard/:page` | bloqueada | 1 | — | 375, 768, 1280, 1536, 2560 | All five actual table-row modals (applications/processes/ports/sockets/ets), open + close at 5 sizes. Overlay width375, dialog x8 w359 at375; background page remains395. All 768+ clear. Modal inner vertical scrolling works for tall process info. |
+| Infraestrutura Phoenix — Variante por nó e menus | `/dev/dashboard/:node/:page` | revisada-sem-mudança | 1 | — | 375, 768, 1280, 1536, 2560 | Existing runtime node selector has sole option `nonode@nohost`; direct URL `/dev/dashboard/nonode%40nohost/home` HTTP200 connected and fits 5 sizes. No other connected node to render. |
+| Endpoint sem UI — JavaScript de desregistro | `/sw.js` | revisada-sem-mudança | 1 | — | não visual / consumidor real | Actual GET `/sw.js` HTTP200, `application/javascript; charset=utf-8`; unregister routine present. Beatgrid intentionally doesn't register a worker itself, so endpoint handles stale consumer only. No actual stale registration on fresh context. |
+| Endpoint sem UI — Entrega de áudio original | `/audio/:id/original` | revisada-sem-mudança | 1 | — | não visual / consumidor real | Actual original preview button on a track with copied gain backup (`phx-click` contains endpoint), HTTP206 `audio/mpeg`, Content-Range bytes0–31/7812533, Accept-Ranges bytes, 32B. |
+| Endpoint sem UI — Entrega de áudio | `/audio/:id` | revisada-sem-mudança | 1 | — | não visual / consumidor real | Actual track/play preview buttons rendered, synthetic isolated WAV HTTP206 `audio/wav`, Content-Range bytes0–31/3360044, Accept-Ranges bytes, 32B. |
+| Endpoint sem UI — Entrega de áudio da gravação | `/sets-online/:id/audio` | revisada-sem-mudança | 1 | — | não visual / consumidor real | Actual `<audio src>` on copied set recording, HTTP206 `audio/mpeg`, Content-Range bytes0–31/44475804, Accept-Ranges bytes, 32B. |
+| Endpoint sem UI — CSS de infraestrutura | `/dev/dashboard/css-:md5` | revisada-sem-mudança | 1 | — | não visual / consumidor real | Browser observed `<link rel=stylesheet>` actual digest route `/dev/dashboard/css-23d2937e9a637e45be4b2cf5e5909d10`, HTTP200 text/css. |
+| Endpoint sem UI — JavaScript de infraestrutura | `/dev/dashboard/js-:md5` | revisada-sem-mudança | 1 | — | não visual / consumidor real | Browser observed actual `<script src>` `/dev/dashboard/js-819364eb44a1a85f7c7a82b8b17a4d22`, HTTP200 text/javascript. |
+| Transporte LiveView — WebSocket | `/live/websocket` | revisada-sem-mudança | 1 | — | não visual / consumidor real | Browser observed actual `/live/websocket` and `.phx-connected` after navigating library; no payload/credentials recorded. |
+| Transporte LiveView — Longpoll GET/POST | `/live/longpoll` | revisada-sem-mudança | 1 | — | não visual / consumidor real | In disposable test page only, interrupted WebSocket via Playwright to exercise configured fallback. Real repeated GET and POST `/live/longpoll` each HTTP200, connected LiveView, typed normal library search and no-result UI updated from server. No manual crafted requests/probing. |
 
 ## Contagem (atualizar após cada PR)
 
-- Inventário: 209 linhas. 28 revisadas-com-mudança; 3 bloqueadas por estado específico; 178 pendentes; 0 revisadas-sem-mudança.
-- Próxima linha: verificar menu lateral expandido e avançar pelos estados restantes.
+- Inventário: 210 linhas. 67 revisadas-com-mudança; 123 revisadas-sem-mudança; 13 pendentes; 7 bloqueadas.
+- Evidência runtime rodada 1: `/tmp/beatgrid-spacing-20261127/` (JSON de geometria, screenshots WebKit e estados controlados); testes de integração no Deck 9f8eb0d8f96b e lint 388d61070532, ambos exit 0.
+- Próxima ação: completar variantes restantes e repetir toda a lista renderizada.

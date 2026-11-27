@@ -86,8 +86,8 @@ defmodule BeatgridWeb.MixesLive do
 
     ~H"""
     <.app_shell flash={@flash} active={:mixes} socket={@socket}>
-      <header class="border-b border-white/6 bg-rail px-3 py-3 sm:px-6">
-        <div class="mx-auto max-w-[1600px]">
+      <header class="border-b border-white/6 bg-rail">
+        <div class="mx-auto max-w-[1600px] px-3 py-3 sm:px-6">
           <h1 class="text-[22px] font-semibold">Sets gravados</h1>
         </div>
       </header>

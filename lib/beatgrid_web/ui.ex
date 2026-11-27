@@ -265,7 +265,7 @@ defmodule BeatgridWeb.UI do
                   detail: %{src: @play_src, id: @track_id, at_ms: m["ms"]}
                 )
           }
-          class="shrink-0 font-mono text-[11px] hover:underline"
+          class="min-h-6 shrink-0 font-mono text-[11px] hover:underline"
           style={"color:#{Marker.color(m)}"}
           title="Pular para este ponto"
         >
@@ -279,12 +279,12 @@ defmodule BeatgridWeb.UI do
             phx-value-ms={m["ms"]}
             phx-value-type={t}
             class={[
-              "px-1 text-[9px] font-semibold uppercase leading-none",
+              "min-h-6 min-w-6 px-1 text-[9px] font-semibold uppercase leading-none",
               (Marker.type(m) == t && "text-black") || "text-ink-faint hover:text-ink"
             ]}
             style={
               if(Marker.type(m) == t,
-                do: "background:#{Marker.color(m)};padding-top:3px;padding-bottom:3px"
+                do: "background:#{Marker.color(m)}"
               )
             }
             title={marker_type_title(t)}
@@ -314,11 +314,11 @@ defmodule BeatgridWeb.UI do
           type="button"
           phx-click="remove_marker"
           phx-value-ms={m["ms"]}
-          class="text-ink-muted hover:text-coral shrink-0"
+          class="grid size-6 shrink-0 place-items-center rounded-sm text-ink-muted hover:bg-white/5 hover:text-coral"
           title="Remover marcador"
           aria-label="Remover marcador"
         >
-          ✕
+          <span class="hero-x-mark size-4" aria-hidden="true" />
         </button>
       </div>
     </div>

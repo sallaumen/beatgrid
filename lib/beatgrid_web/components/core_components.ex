@@ -56,7 +56,7 @@ defmodule BeatgridWeb.CoreComponents do
       </div>
       <button
         type="button"
-        class="text-ink-faint hover:text-ink shrink-0 transition-colors"
+        class="grid size-7 shrink-0 place-items-center rounded-md text-ink-faint transition-colors hover:bg-white/5 hover:text-ink"
         aria-label="Fechar"
       >
         <.icon name="hero-x-mark" class="size-4" />

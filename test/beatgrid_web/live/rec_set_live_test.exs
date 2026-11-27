@@ -1050,7 +1050,8 @@ defmodule BeatgridWeb.RecSetLiveTest do
     assert html =~ "entra 0:04"
   end
 
-  test "the 🤝 toggle turns a boundary into a breather and back", %{conn: conn} do
+  test "the pause toggle exposes its pressed state and turns a boundary into a breather and back",
+       %{conn: conn} do
     {:ok, set} = Sets.create("S")
     a = track_with("8A", 128.0, tag_title: "A", cue_points: [])
     b = track_with("8A", 129.0, tag_title: "B", cue_points: [])
@@ -1060,8 +1061,10 @@ defmodule BeatgridWeb.RecSetLiveTest do
 
     {:ok, view, html} = live(conn, ~p"/set/#{set.id}")
     assert html =~ "toggle_breather"
+    assert has_element?(view, "button[phx-click=toggle_breather][aria-pressed=false] .hero-pause")
 
     view |> element("button[phx-click=toggle_breather]") |> render_click()
+    assert has_element?(view, "button[phx-click=toggle_breather][aria-pressed=true] .hero-pause")
     entry_b = Enum.find(Sets.entries(set), &(&1.track.id == b.id))
     assert entry_b.transition["breather"] == true
 
