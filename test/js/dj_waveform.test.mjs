@@ -45,3 +45,24 @@ test("browsing on the idle platter keeps the other platter scratchable until it 
   await loadPeaks("replacement", "replacement", ctx)
   assert.equal(getScratchPcm("on-air"), null)
 })
+
+test("the scratch recording keeps opposite-polarity and one-sided instruments at their natural level", async t => {
+  const sr = 8000
+  const note = Float32Array.from({length: sr}, (_, i) => Math.sin(2 * Math.PI * i * 93 / sr) * 0.6)
+  const silent = new Float32Array(sr)
+  for (const [name, left, right] of [
+    ["opposed", note, note.map(v => -v)], ["left", note, silent], ["right", silent, note],
+    ["dual", note, note], ["reversal", note, note.map((v, i) => i < 3304 ? v : -v)]
+  ]) {
+    const {ctx, fetch} = audioFixture(t, left, right, sr)
+    await loadPeaks("scratch-" + name, name, ctx)
+    fetch.mock.restore()
+    const pcm = getScratchPcm("scratch-" + name)
+    assert.ok(Math.max(...pcm) <= 0.601, name + " overflow")
+    for (const i of [47, 1151, 5131, 7253]) assert.ok(Math.abs(pcm[i] - note[i]) < 0.001, name + " lost its note")
+    if (name === "reversal") {
+      const step = Math.max(...pcm.slice(3250, 3360).map((v, j) => Math.abs(v - pcm[j + 3249])))
+      assert.ok(step < 0.06, "switching phase should not click")
+    }
+  }
+})
