@@ -405,6 +405,77 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     refute_push_event(view, "dj_hint", %{})
   end
 
+  test "a paused set follows the saved order and rejects acknowledgements for a superseded version",
+       %{conn: conn} do
+    {set, [a, b, c]} = set_with_tracks([{"Baião", 100.0}, {"Baião", 101.0}, {"Baião", 102.0}])
+    view = open_console(conn, set)
+    render_click(view, "play_set", %{})
+    bid = b.id
+    cid = c.id
+    assert_push_event(view, "dj_hint", %{track: %{id: ^bid}})
+    render_hook(view, "hint_armed", %{"deck" => "b", "track_id" => b.id})
+    render_hook(view, "console_idle", %{})
+    :ok = Sets.move(set, c, :up)
+    render(view)
+    assert_push_event(view, "dj_hint", %{track: %{id: ^cid}, position: 2})
+    render_hook(view, "hint_armed", %{"deck" => "b", "track_id" => c.id})
+    render_hook(view, "hint_armed", %{"deck" => "b", "track_id" => b.id})
+    assert has_element?(view, "section:has(#dj-play-b) a[href^='/track/#{c.id}']")
+    refute Playback.quiet_mode_active?()
+
+    {:ok, other} = Sets.create_filled("Bis", [a, b])
+    render_change(view, "select_set", %{"set_id" => other.id})
+    assert_patch(view, ~p"/discotecagem?set=#{other.id}")
+    assert_push_event(view, "dj_hint", %{track: %{id: ^bid}})
+    render_change(view, "select_set", %{"set_id" => ""})
+    assert_patch(view, ~p"/discotecagem")
+    assert_push_event(view, "dj_hint_clear", %{})
+  end
+
+  test "changing the selected set updates only the console's own now-playing association", %{
+    conn: conn
+  } do
+    {set, [a, b]} = set_with_tracks([{"A", 100.0}, {"B", 101.0}])
+    {:ok, other} = Sets.create_filled("Bis", [b, a])
+    {:ok, empty} = Sets.create("Vazio")
+    view = open_console(conn, set)
+    render_click(view, "play_set", %{})
+    render_change(view, "select_set", %{"set_id" => other.id})
+    assert Playback.now_playing() == %{track_id: a.id, set_id: other.id}
+    render_change(view, "select_set", %{"set_id" => empty.id})
+    assert Playback.now_playing() == %{track_id: a.id, set_id: nil}
+
+    Playback.set_now_playing(%{track_id: a.id, set_id: set.id})
+    render_hook(view, "console_idle", %{})
+    render_change(view, "select_set", %{"set_id" => other.id})
+    assert Playback.now_playing() == %{track_id: a.id, set_id: set.id}
+  end
+
+  test "reconnect while paused restores the next version without announcing playback", %{
+    conn: conn
+  } do
+    {set, [a, b, c]} = set_with_tracks([{"A", 100.0}, {"B", 101.0}, {"B", 101.0}])
+    :ok = Sets.move(set, c, :up)
+    {:ok, view, _} = live(conn, ~p"/discotecagem?set=#{set.id}")
+
+    render_hook(view, "console_resync", %{
+      "decks" => %{"a" => a.id, "b" => b.id},
+      "paused_deck" => "a",
+      "set_id" => set.id,
+      "auto" => true
+    })
+
+    cid = c.id
+    assert_push_event(view, "dj_hint", %{track: %{id: ^cid}})
+    refute Playback.quiet_mode_active?()
+    refute_push_event(view, "dj_load", %{autoplay: true})
+    render_hook(view, "deck_loaded", %{"deck" => "a", "track_id" => b.id})
+    assert_push_event(view, "dj_hint_clear", %{})
+    :ok = Sets.move(set, b, :top)
+    render(view)
+    refute_push_event(view, "dj_hint", %{})
+  end
+
   test "editing the set live refreshes the queue rendering", %{conn: conn} do
     {set, [_a, _b]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}])
     view = open_console(conn, set)

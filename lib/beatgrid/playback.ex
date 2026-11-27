@@ -25,6 +25,9 @@ defmodule Beatgrid.Playback do
   @doc "Remove a matching set association only from the calling player's pointer."
   defdelegate detach_now_playing_set(set_id, track_id), to: NowPlaying, as: :detach_set
 
+  @doc "Update the set only when this player still owns the specified track."
+  defdelegate update_now_playing_set(track_id, set_id), to: NowPlaying, as: :update_set
+
   @doc "Release the calling player’s now-playing pointer."
   defdelegate release_now_playing(), to: NowPlaying, as: :release
 
