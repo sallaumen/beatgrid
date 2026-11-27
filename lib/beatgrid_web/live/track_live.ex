@@ -6,7 +6,7 @@ defmodule BeatgridWeb.TrackLive do
 
   alias Beatgrid.Analysis
   alias Beatgrid.Library
-  alias Beatgrid.Library.{GenreFolders, Tracks}
+  alias Beatgrid.Library.{GenreFolders, Marker, Tracks}
   alias Beatgrid.Loudness
   alias Beatgrid.Mixing
   alias Beatgrid.Operations
@@ -479,26 +479,15 @@ defmodule BeatgridWeb.TrackLive do
 
   # Parse ms (no crash on junk), re-read the track fresh (no lost update), mutate, reload.
   defp mutate_markers(socket, ms, fun) do
-    with {:ok, n} <- to_ms(ms),
-         track when not is_nil(track) <- Tracks.get_with_song(socket.assigns.track.id) do
-      {:ok, _} = fun.(track, n)
+    with {:ok, n} <- Marker.parse_position(ms),
+         track when not is_nil(track) <- Tracks.get_with_song(socket.assigns.track.id),
+         {:ok, _} <- fun.(track, n) do
       Playback.broadcast_markers_changed(track.id)
       reload(socket)
     else
       _ -> socket
     end
   end
-
-  defp to_ms(ms) when is_integer(ms), do: {:ok, ms}
-
-  defp to_ms(ms) when is_binary(ms) do
-    case Integer.parse(ms) do
-      {n, _rest} -> {:ok, n}
-      :error -> :error
-    end
-  end
-
-  defp to_ms(_ms), do: :error
 
   @impl true
   def render(assigns) do
@@ -564,13 +553,7 @@ defmodule BeatgridWeb.TrackLive do
                   id="play-track"
                   type="button"
                   phx-click={
-                    if @track.id == @playing_track_id,
-                      do: JS.dispatch("beatgrid:toggle", to: "#player-audio"),
-                      else:
-                        JS.dispatch("beatgrid:play",
-                          to: "#player-audio",
-                          detail: %{src: ~p"/audio/#{@track.id}", id: @track.id, preview: false}
-                        )
+                    toggle_track(%{src: ~p"/audio/#{@track.id}", id: @track.id, preview: false})
                   }
                   class="inline-flex w-full items-center justify-center gap-2 rounded-full bg-primary-deep md:w-auto px-4 py-2 text-[13px] font-semibold text-white shadow-lg shadow-primary/25 hover:bg-primary-deep/90"
                   title="Tocar no player global"
@@ -996,7 +979,12 @@ defmodule BeatgridWeb.TrackLive do
                   </button>
                   <button
                     type="button"
-                    phx-click={JS.dispatch("beatgrid:add-marker", to: "#player-audio")}
+                    phx-click={
+                      JS.dispatch("beatgrid:add-marker",
+                        to: "#player-audio",
+                        detail: %{track_id: @track.id}
+                      )
+                    }
                     disabled={@track.id != @playing_track_id}
                     class="rounded-md border border-amber/40 bg-amber/10 px-2.5 py-1 text-[11px] font-semibold text-amber hover:bg-amber/20 disabled:cursor-not-allowed disabled:opacity-40"
                     title={

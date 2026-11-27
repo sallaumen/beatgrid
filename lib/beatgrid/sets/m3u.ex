@@ -17,13 +17,31 @@ defmodule Beatgrid.Sets.M3u do
   @spec filename(String.t() | nil) :: String.t()
   def filename(name) do
     sanitized = (name || "set") |> String.replace(@unsafe, "-") |> String.trim()
-    sanitized <> ".m3u"
+
+    cond do
+      sanitized == "" ->
+        "set.m3u"
+
+      byte_size(sanitized) <= 251 ->
+        sanitized <> ".m3u"
+
+      true ->
+        digest =
+          :sha256 |> :crypto.hash(sanitized) |> Base.encode16(case: :lower) |> binary_part(0, 12)
+
+        String.byte_slice(sanitized, 0, 238) <> "-" <> digest <> ".m3u"
+    end
   end
 
   defp extinf(track, root) do
     secs = if track.duration_ms, do: div(track.duration_ms, 1000), else: -1
-    artist = track.tag_artist || "—"
-    title = track.tag_title || track.filename
+    artist = display_text(track.tag_artist, "—")
+    title = display_text(track.tag_title, track.filename)
     ["#EXTINF:#{secs},#{artist} - #{title}", Path.join(root, track.rel_path)]
+  end
+
+  defp display_text(value, fallback) do
+    value = String.trim(value || "")
+    String.replace(if(value == "", do: fallback, else: value), ~r/[\r\n]+/u, " ")
   end
 end

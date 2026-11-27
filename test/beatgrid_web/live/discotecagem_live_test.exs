@@ -4,6 +4,8 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
   import Phoenix.LiveViewTest
   import Beatgrid.Factory
 
+  alias Beatgrid.Library.Tracks
+  alias Beatgrid.Playback
   alias Beatgrid.Sets
 
   defp set_with_tracks(names_bpms) do
@@ -122,6 +124,46 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     refute has_element?(view, "#dj-preflight")
     refute has_element?(view, "button[phx-click=play_set]")
     assert has_element?(view, "button[phx-click=stop_all]")
+  end
+
+  test "an open preparation report follows edits in the set editor, including an emptied queue",
+       %{conn: conn} do
+    {set, [first]} = set_with_tracks([{"Abertura", 100.0}])
+    view = open_console(conn, set)
+    view |> element("button[phx-click=preflight]") |> render_click()
+    assert has_element?(view, "#dj-preflight li", "Abertura")
+
+    next = insert(:track, status: :present, tag_title: "Saideira")
+    {:ok, _} = Sets.append(set, next)
+    assert has_element?(view, "#dj-preflight li", "Saideira")
+    :ok = Sets.remove(set, first)
+    refute has_element?(view, "#dj-preflight li", "Abertura")
+
+    :ok = Sets.remove(set, next)
+    assert has_element?(view, "#dj-preflight", "O set está vazio.")
+    refute has_element?(view, "#dj-preflight li")
+
+    view |> element("button[aria-controls=dj-preflight]") |> render_click()
+    {:ok, _} = Sets.append(set, first)
+    assert has_element?(view, "#dj-queue-list li", "Abertura")
+    refute has_element?(view, "#dj-preflight")
+  end
+
+  test "deleting the checked set in another tab disarms the queue and leaves the current track on air",
+       %{conn: conn} do
+    {set, [a, _b]} = set_with_tracks([{"Baião", 112.0}, {"Xote", 116.0}])
+    view = open_console(conn, set)
+    render_click(view, "play_set")
+    render_hook(view, "deck_started", %{"track_id" => a.id, "deck" => "a"})
+    render_click(view, "preflight")
+    assert has_element?(view, "#dj-preflight")
+
+    {:ok, _} = Sets.delete(set)
+    assert_push_event(view, "dj_set", %{id: nil})
+    assert_push_event(view, "dj_hint_clear", %{})
+    refute has_element?(view, "#dj-preflight")
+    refute has_element?(view, "#dj-set-picker option[value='#{set.id}']")
+    assert Playback.now_playing() == %{track_id: a.id, set_id: nil}
   end
 
   test "checking a set reports missing audio and the report can be dismissed", %{conn: conn} do
@@ -282,6 +324,45 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert_push_event(view, "dj_hint", %{track: %{title: "Dois"}})
   end
 
+  test "removing the only successor never arms the playing track as its own next track", %{
+    conn: conn
+  } do
+    {set, [_a, b, c]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}, {"Tres", 108.0}])
+    view = open_console(conn, set)
+    render_hook(view, "deck_started", %{"deck" => "b", "track_id" => b.id})
+    assert_push_event(view, "dj_hint", %{track: %{title: "Tres"}})
+    :ok = Sets.remove(set, c)
+    assert_push_event(view, "dj_hint_clear", %{})
+  end
+
+  test "removing the playing opener keeps the live successor through another set edit", %{
+    conn: conn
+  } do
+    {set, [a, b, c]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}, {"Tres", 108.0}])
+    view = open_console(conn, set)
+    render_click(view, "play_set", %{})
+    assert_push_event(view, "dj_hint", %{track: %{title: "Dois"}})
+    :ok = Sets.remove(set, a)
+    assert render(view) =~ "Dois"
+    refute_push_event(view, "dj_hint_clear", %{})
+    :ok = Sets.remove(set, b)
+    assert_push_event(view, "dj_hint", %{track: %{id: id}, transition: %{"from_ms" => 150_000}})
+    assert id == c.id
+  end
+
+  test "manual library playback releases the old set hint across later queue edits", %{conn: conn} do
+    {set, [_a, b]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}])
+    view = open_console(conn, set)
+    render_click(view, "play_set", %{})
+    assert_push_event(view, "dj_hint", %{track: %{title: "Dois"}})
+    lib = insert(:track, status: :present, tag_title: "Avulsa")
+    render_hook(view, "deck_started", %{"deck" => "b", "track_id" => lib.id})
+    assert_push_event(view, "dj_hint_clear", %{})
+    Sets.move(set, b, :top)
+    render(view)
+    refute_push_event(view, "dj_hint", %{})
+  end
+
   test "editing the set live refreshes the queue rendering", %{conn: conn} do
     {set, [_a, _b]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}])
     view = open_console(conn, set)
@@ -298,6 +379,24 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     {:ok, _} = Sets.append(set, extra)
 
     assert render(view) =~ "Convidada"
+  end
+
+  test "saved marker edits reach a loaded deck without loading its audio again", %{conn: conn} do
+    {set, [track]} = set_with_tracks([{"Um", 120.0}])
+    view = open_console(conn, set)
+    id = track.id
+    render_hook(view, "deck_loaded", %{"deck" => "b", "track_id" => id})
+
+    {:ok, updated} = Tracks.add_marker(track, 3500, "Entrada")
+    Playback.broadcast_markers_changed(id)
+    expected = updated.cue_points
+    assert_push_event(view, "dj_markers", %{track_id: ^id, markers: ^expected})
+
+    {:ok, updated} = Tracks.remove_marker(updated, 3500)
+    Playback.broadcast_markers_changed(id)
+    expected = updated.cue_points
+    assert_push_event(view, "dj_markers", %{track_id: ^id, markers: ^expected})
+    refute_push_event(view, "dj_load", %{})
   end
 
   test "console_resync adopts the client's playing state", %{conn: conn} do
@@ -319,6 +418,25 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert html =~ "Próxima"
     assert html =~ "clique dispara"
     assert Sets.entry_after(set.id, a.id).track.id == b.id
+  end
+
+  test "console_resync restores the labels of two manually loaded, paused decks", %{conn: conn} do
+    {set, [a, b]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}])
+    view = open_console(conn, set)
+
+    render_hook(view, "console_resync", %{"decks" => %{"a" => a.id, "b" => b.id}, "auto" => false})
+
+    for track <- [a, b] do
+      assert_push_event(view, "dj_markers", %{track_id: id, markers: markers})
+      assert {id, markers} == {track.id, track.cue_points}
+    end
+
+    for {deck, track} <- [{"a", a}, {"b", b}] do
+      assert has_element?(
+               view,
+               "section:has(button[phx-click=eject_deck][phx-value-deck=#{deck}]) a[href='/track/#{track.id}']"
+             )
+    end
   end
 
   test "console_resync recovers the set itself after a remount wiped it", %{conn: conn} do
@@ -392,6 +510,25 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert html =~ "Sem próxima armada"
   end
 
+  test "skipping a broken preload uses the outro of the track that is actually playing", %{
+    conn: conn
+  } do
+    {set, [a, b, c]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}, {"Tres", 108.0}])
+
+    b
+    |> Ecto.Changeset.change(
+      cue_points: [%{"ms" => 185_000, "type" => "outro", "source" => "auto"}]
+    )
+    |> Beatgrid.Repo.update!()
+
+    view = open_console(conn, set)
+    render_hook(view, "deck_started", %{"deck" => "a", "track_id" => a.id})
+    assert_push_event(view, "dj_hint", %{track: %{title: "Dois"}})
+    render_hook(view, "deck_error", %{"deck" => "b", "track_id" => b.id})
+    assert_push_event(view, "dj_hint", %{track: %{id: id}, transition: %{"from_ms" => 150_000}})
+    assert id == c.id
+  end
+
   test "a deck error on the idle deck skips the failed entry in the hint", %{conn: conn} do
     {set, [a, b, c]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}, {"Tres", 108.0}])
     view = open_console(conn, set)
@@ -418,6 +555,37 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
 
     render_click(view, "load_deck", %{"deck" => "b", "track_id" => b.id})
     assert_push_event(view, "dj_load", %{deck: "b", autoplay: false})
+  end
+
+  test "a requested LOAD changes the deck header only when the console accepts it", %{conn: conn} do
+    {set, [_, b]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}])
+    view = open_console(conn, set)
+    render_click(view, "load_deck", %{"deck" => "b", "track_id" => b.id})
+    assert_push_event(view, "dj_load", %{deck: "b", autoplay: false})
+    eject = "button[phx-click=eject_deck][phx-value-deck=b]"
+    refute has_element?(view, eject)
+    render_hook(view, "deck_loaded", %{"deck" => "b", "track_id" => b.id})
+    assert has_element?(view, eject)
+    render_click(view, "eject_deck", %{"deck" => "b"})
+    assert has_element?(view, eject)
+    render_hook(view, "deck_ejected", %{"deck" => "b"})
+    refute has_element?(view, eject)
+  end
+
+  test "the next card follows a manual replacement on the armed deck", %{conn: conn} do
+    {set, [_a, b]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}])
+    track = insert(:track, status: :present, tag_title: "Avulsa", duration_ms: 90_000)
+    view = open_console(conn, set)
+    render_click(view, "play_set", %{})
+    render_hook(view, "hint_armed", %{"deck" => "b", "track_id" => b.id})
+
+    render_hook(view, "deck_loaded", %{
+      "deck" => "b",
+      "track_id" => track.id,
+      "replaced_hint_id" => b.id
+    })
+
+    assert has_element?(view, "div:has(> div #dj-countdown) > p", "Avulsa")
   end
 
   test "the biblioteca tab searches the whole library and loads onto a deck", %{conn: conn} do

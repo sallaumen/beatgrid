@@ -170,6 +170,18 @@ defmodule Beatgrid.MixingTest do
       refute far.id in ids
     end
 
+    test "manually entered tempo or key makes an offline track available to the set picker" do
+      tap = insert(:track, bpm_manual: 118.0)
+      keyed = insert(:track, camelot_manual: "8A")
+      insert(:track)
+      insert(:track, bpm_manual: 118.0, status: :missing)
+
+      candidates = Mixing.candidate_pool([])
+      assert MapSet.new(candidates, & &1.id) == MapSet.new([tap.id, keyed.id])
+      assert [%{id: id}] = Mixing.candidate_pool([], bpm_min: 115, bpm_max: 120)
+      assert id == tap.id
+    end
+
     test "bpm_min/bpm_max bound the pool by effective bpm" do
       in_range = sc_track(camelot: "8A", tempo_bpm: 122.0, tag_title: "InRange")
       too_fast = sc_track(camelot: "8A", tempo_bpm: 150.0, tag_title: "TooFast")
@@ -229,6 +241,20 @@ defmodule Beatgrid.MixingTest do
       assert instrumental.id in ids
       refute sung.id in ids
       refute unknown.id in ids
+    end
+
+    test "excluding a genre still admits unfiled tracks unless an allowed genre is required" do
+      unfiled = insert(:track, bpm_detected: 110.0)
+      roots = insert(:track, bpm_detected: 115.0, genre_folder: "forro_roots")
+      insert(:track, bpm_detected: 114.0, genre_folder: "mpb")
+
+      pool = Mixing.candidate_pool([], exclude_styles: ["mpb"])
+      assert MapSet.new(pool, & &1.id) == MapSet.new([unfiled.id, roots.id])
+
+      assert [%{id: id}] =
+               Mixing.candidate_pool([], exclude_styles: ["mpb"], allow_styles: ["forro_roots"])
+
+      assert id == roots.id
     end
 
     test "allow_styles keeps only the whitelisted folders (empty = no restriction)" do

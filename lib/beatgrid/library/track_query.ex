@@ -50,6 +50,14 @@ defmodule Beatgrid.Library.TrackQuery do
     Repo.one(from t in Track, where: t.id == ^id and t.rel_path == ^rel_path, lock: "FOR UPDATE")
   end
 
+  @doc "Reads and locks only the cue list for a marker edit within a transaction."
+  @spec locked_cues(Ecto.UUID.t()) :: %{cue_points: list() | nil} | nil
+  def locked_cues(id) do
+    Repo.one(
+      from t in Track, where: t.id == ^id, select: map(t, [:cue_points]), lock: "FOR UPDATE"
+    )
+  end
+
   @spec get_with_song(Ecto.UUID.t()) :: Track.t() | nil
   def get_with_song(id) do
     case Repo.get(Track, id) do
@@ -95,6 +103,7 @@ defmodule Beatgrid.Library.TrackQuery do
     filters
     |> library_base()
     |> sorted(filters)
+    |> order_by([t], asc: t.id)
     |> paginate(filters)
     |> preload([song: s], soundcharts_song: s)
     |> Repo.all()
@@ -110,6 +119,22 @@ defmodule Beatgrid.Library.TrackQuery do
   @spec library_ids(map()) :: [Ecto.UUID.t()]
   def library_ids(filters \\ %{}) do
     filters |> library_base() |> select([t], t.id) |> Repo.all()
+  end
+
+  @doc "Present tracks grouped by positive effective BPM in buckets of the given width."
+  @spec bpm_histogram(pos_integer()) :: %{integer() => non_neg_integer()}
+  def bpm_histogram(bucket) do
+    tempos = library_base(%{}) |> select(^%{bpm: effective_bpm()})
+
+    from(t in subquery(tempos),
+      where: t.bpm > 0,
+      select:
+        {selected_as(fragment("(floor(? / ?) * ?)::int", t.bpm, ^bucket, ^bucket), :bucket),
+         count()},
+      group_by: selected_as(:bucket)
+    )
+    |> Repo.all()
+    |> Map.new()
   end
 
   # The shared filtered base (join + WHERE chain), without sort/pagination/preload —
@@ -198,16 +223,32 @@ defmodule Beatgrid.Library.TrackQuery do
   defp apply_filter(q, :unclassified, _v), do: where(q, [t], is_nil(t.genre_folder))
 
   defp apply_filter(q, :search, v) do
-    # A UUID matches the track by id directly (a reliable fallback when name search
-    # fails). Otherwise normalize the query the same way `norm_*` are stored
-    # (accent-stripped + downcased) so "Marinês"/"Gogó" match "marines"/"gogo".
-    case Ecto.UUID.cast(String.trim(v)) do
-      {:ok, id} ->
-        where(q, [t], t.id == ^id)
+    term = String.trim(v)
 
-      :error ->
-        like = "%#{Normalize.normalize(v)}%"
-        where(q, [t], ilike(t.norm_artist, ^like) or ilike(t.norm_title, ^like))
+    case Ecto.UUID.cast(term) do
+      # Ecto also casts any 16-byte binary; only a printed UUID is an id here.
+      {:ok, id} when byte_size(term) == 36 -> where(q, [t], t.id == ^id)
+      _ when term == "" -> q
+      _ -> where(q, ^text_match(term))
+    end
+  end
+
+  defp text_match(term) do
+    literal =
+      dynamic(
+        [t],
+        fragment("strpos(lower(?), lower(?)) > 0", t.tag_artist, ^term) or
+          fragment("strpos(lower(coalesce(?, ?)), lower(?)) > 0", t.tag_title, t.filename, ^term)
+      )
+
+    # The dedup normalizer drops non-Latin letters. Keep those searches literal.
+    normalized = Normalize.normalize(term)
+
+    if normalized == "" or Regex.match?(~r/(?!\p{Latin})\p{L}/u, term) do
+      literal
+    else
+      pattern = "%#{normalized}%"
+      dynamic([t], ^literal or ilike(t.norm_artist, ^pattern) or ilike(t.norm_title, ^pattern))
     end
   end
 
@@ -358,7 +399,7 @@ defmodule Beatgrid.Library.TrackQuery do
 
   @doc """
   Candidates for the set scorer: present, not in `exclude`, carrying at least one
-  mixing signal (Soundcharts match, detected key or detected BPM), optionally gated
+  mixing signal (Soundcharts match, manual or detected key/BPM), optionally gated
   by `:min_rating` / `:exclude_styles`, with the song preloaded.
   """
   @spec mixing_candidates([Ecto.UUID.t()], keyword()) :: [Track.t()]
@@ -369,8 +410,8 @@ defmodule Beatgrid.Library.TrackQuery do
     |> where([t], t.id not in ^exclude)
     |> where(
       [t],
-      not is_nil(t.soundcharts_song_id) or not is_nil(t.camelot_detected) or
-        not is_nil(t.bpm_detected)
+      not is_nil(t.soundcharts_song_id) or not is_nil(t.camelot_manual) or
+        not is_nil(t.bpm_manual) or not is_nil(t.camelot_detected) or not is_nil(t.bpm_detected)
     )
     |> bpm_window(opts[:bpm_min], opts[:bpm_max])
     |> min_rating(opts[:min_rating])
@@ -434,7 +475,9 @@ defmodule Beatgrid.Library.TrackQuery do
   defp allow_styles(q, [_ | _] = keys), do: where(q, [t], t.genre_folder in ^keys)
   defp allow_styles(q, _), do: q
 
-  defp exclude_styles(q, [_ | _] = keys), do: where(q, [t], t.genre_folder not in ^keys)
+  defp exclude_styles(q, [_ | _] = keys),
+    do: where(q, [t], is_nil(t.genre_folder) or t.genre_folder not in ^keys)
+
   defp exclude_styles(q, _), do: q
 
   @doc "The oldest present track exactly matching a normalized artist + title pair."

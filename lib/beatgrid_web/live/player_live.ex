@@ -18,7 +18,7 @@ defmodule BeatgridWeb.PlayerLive do
 
   import BeatgridWeb.UI
 
-  alias Beatgrid.Library.Tracks
+  alias Beatgrid.Library.{Marker, Tracks}
   alias Beatgrid.Playback
   alias Beatgrid.Sets
 
@@ -36,37 +36,41 @@ defmodule BeatgridWeb.PlayerLive do
       nil ->
         # The track vanished (deleted / stale row) — clear so no page ghosts a
         # highlight for a track the player can't show.
-        Playback.clear_now_playing()
+        Playback.release_now_playing()
         Playback.deactivate_quiet_mode()
         {:noreply, assign(socket, now_playing: nil, playing_set: nil)}
 
       track ->
-        set_id = blank_to_nil(params["set_id"])
+        set = load_playing_set(params["set_id"])
+        set_id = set && set.id
         Playback.set_now_playing(%{track_id: id, set_id: set_id})
         sync_quiet_mode(set_id)
 
         {:noreply,
          socket
-         |> assign(now_playing: track, playing_set: load_playing_set(set_id))
+         |> assign(now_playing: track, playing_set: set)
          |> push_markers()}
     end
   end
 
-  def handle_event("track_ended", _params, socket), do: advance(socket)
+  def handle_event("track_ended", params, socket) do
+    if current_media?(socket, params),
+      do: advance(socket, params["play_token"]),
+      else: {:noreply, socket}
+  end
 
-  def handle_event("playback_playing", %{"set_id" => set_id}, socket) do
-    set_id = blank_to_nil(set_id) || (socket.assigns.playing_set && socket.assigns.playing_set.id)
-    sync_quiet_mode(set_id)
+  def handle_event("playback_playing", params, socket) do
+    if current_media?(socket, params), do: sync_quiet_mode(socket.assigns.playing_set)
     {:noreply, socket}
   end
 
-  def handle_event("playback_paused", _params, socket) do
-    Playback.deactivate_quiet_mode()
+  def handle_event("playback_paused", params, socket) do
+    if current_media?(socket, params), do: Playback.deactivate_quiet_mode()
     {:noreply, socket}
   end
 
   def handle_event("close", _params, socket) do
-    Playback.clear_now_playing()
+    Playback.release_now_playing()
     Playback.deactivate_quiet_mode()
     {:noreply, assign(socket, now_playing: nil, playing_set: nil, show_markers: false)}
   end
@@ -74,13 +78,21 @@ defmodule BeatgridWeb.PlayerLive do
   def handle_event("toggle_markers", _params, socket),
     do: {:noreply, assign(socket, show_markers: !socket.assigns.show_markers)}
 
+  def handle_event(
+        "add_marker",
+        %{"track_id" => target},
+        %{assigns: %{now_playing: %{id: current}}} = socket
+      )
+      when target != current,
+      do: {:noreply, socket}
+
   # Cue-point markers always target the now-playing track. The hook supplies the
   # current playback position (ms) for add; rename/remove come from the popover.
-  # `to_ms` rejects crafted/empty payloads (no crash); `mutate_markers` re-reads the
+  # The position parser rejects invalid input, and `mutate_markers` re-reads the
   # track fresh (no lost update vs a concurrent track-page edit) and updates the lane
   # synchronously instead of waiting for the broadcast echo.
   def handle_event("add_marker", %{"ms" => ms}, %{assigns: %{now_playing: %{id: id}}} = socket) do
-    case to_ms(ms) do
+    case Marker.parse_position(ms) do
       {:ok, n} -> {:noreply, mutate_markers(socket, id, &Tracks.add_marker(&1, n))}
       :error -> {:noreply, socket}
     end
@@ -91,14 +103,14 @@ defmodule BeatgridWeb.PlayerLive do
         %{"ms" => ms, "label" => label},
         %{assigns: %{now_playing: %{id: id}}} = socket
       ) do
-    case to_ms(ms) do
+    case Marker.parse_position(ms) do
       {:ok, n} -> {:noreply, mutate_markers(socket, id, &Tracks.rename_marker(&1, n, label))}
       :error -> {:noreply, socket}
     end
   end
 
   def handle_event("remove_marker", %{"ms" => ms}, %{assigns: %{now_playing: %{id: id}}} = socket) do
-    case to_ms(ms) do
+    case Marker.parse_position(ms) do
       {:ok, n} -> {:noreply, mutate_markers(socket, id, &Tracks.remove_marker(&1, n))}
       :error -> {:noreply, socket}
     end
@@ -109,7 +121,7 @@ defmodule BeatgridWeb.PlayerLive do
         %{"ms" => ms, "type" => type},
         %{assigns: %{now_playing: %{id: id}}} = socket
       ) do
-    case to_ms(ms) do
+    case Marker.parse_position(ms) do
       {:ok, n} -> {:noreply, mutate_markers(socket, id, &Tracks.set_marker_type(&1, n, type))}
       :error -> {:noreply, socket}
     end
@@ -134,11 +146,10 @@ defmodule BeatgridWeb.PlayerLive do
   # Ignore everything else on the topic (our own {:now_playing, _} echoes, other tracks).
   def handle_info(_msg, socket), do: {:noreply, socket}
 
-  # On teardown (refresh / tab close) the audio is gone — reset the pointer (silent,
-  # no live subscribers to notify) so a freshly-mounted page won't read a stale one.
+  # The tab lost its audio. Another tab or the booth may have taken over already.
   @impl true
   def terminate(_reason, _socket) do
-    Playback.reset_now_playing()
+    Playback.release_now_playing()
     Playback.deactivate_quiet_mode()
   end
 
@@ -146,12 +157,19 @@ defmodule BeatgridWeb.PlayerLive do
   # pointer is `(set_id, current track)` and `next_after` reads the live order, so a
   # reorder is honored with no re-sync. At the end of the set, drop the set context
   # (no more auto-advance) but keep the last track shown. No set ⇒ nothing to do.
-  defp advance(%{assigns: %{playing_set: %{id: set_id}, now_playing: %{id: current_id}}} = socket) do
+  defp advance(
+         %{assigns: %{playing_set: %{id: set_id}, now_playing: %{id: current_id}}} = socket,
+         token
+       ) do
     case Sets.next_after(set_id, current_id) do
       nil ->
         Playback.set_now_playing(%{track_id: current_id, set_id: nil})
         Playback.deactivate_quiet_mode()
-        {:noreply, assign(socket, playing_set: nil)}
+
+        {:noreply,
+         socket
+         |> assign(playing_set: nil)
+         |> push_event("player_set_finished", %{after_token: token})}
 
       next ->
         Playback.set_now_playing(%{track_id: next.id, set_id: set_id})
@@ -160,58 +178,55 @@ defmodule BeatgridWeb.PlayerLive do
         {:noreply,
          socket
          |> assign(now_playing: next)
-         |> push_markers()
-         |> push_event("play_track", %{src: ~p"/audio/#{next.id}", id: next.id})}
+         |> push_event("play_track", %{
+           src: ~p"/audio/#{next.id}",
+           id: next.id,
+           set_id: set_id,
+           after_token: token
+         })
+         |> push_markers()}
     end
   end
 
-  defp advance(socket), do: {:noreply, socket}
+  defp advance(socket, _token), do: {:noreply, socket}
 
   # Push the now-playing track's cue points to the hook, which draws the seek-lane ticks.
   defp push_markers(socket) do
-    markers = (socket.assigns.now_playing && socket.assigns.now_playing.cue_points) || []
-    push_event(socket, "player_markers", %{markers: markers})
+    track = socket.assigns.now_playing
+    push_event(socket, "player_markers", %{track_id: track.id, markers: track.cue_points || []})
   end
 
   # Re-read the track fresh (so a concurrent track-page edit isn't clobbered), apply the
   # cue mutation, then update the player synchronously + tell the track's page. The fresh
   # read carries the song preload, which Repo.update keeps, so now_playing stays complete.
   defp mutate_markers(socket, id, fun) do
-    case Tracks.get_with_song(id) do
-      nil ->
-        socket
-
-      fresh ->
-        {:ok, updated} = fun.(fresh)
-        Playback.broadcast_markers_changed(id)
-        socket |> assign(now_playing: updated) |> push_markers()
+    with fresh when not is_nil(fresh) <- Tracks.get_with_song(id),
+         {:ok, updated} <- fun.(fresh) do
+      Playback.broadcast_markers_changed(id)
+      socket |> assign(now_playing: updated) |> push_markers()
+    else
+      _ -> socket
     end
   end
-
-  # Coerce a client-supplied position to integer ms; reject empty/non-numeric (no crash).
-  defp to_ms(ms) when is_integer(ms), do: {:ok, ms}
-  defp to_ms(ms) when is_float(ms), do: {:ok, trunc(ms)}
-
-  defp to_ms(ms) when is_binary(ms) do
-    case Integer.parse(ms) do
-      {n, _rest} -> {:ok, n}
-      :error -> :error
-    end
-  end
-
-  defp to_ms(_ms), do: :error
 
   defp load_playing_set(nil), do: nil
 
   defp load_playing_set(set_id) do
-    case Sets.get(set_id) do
-      nil -> nil
-      set -> %{id: set.id, name: set.name}
+    with {:ok, uuid} <- Ecto.UUID.cast(set_id), %{} = set <- Sets.get(uuid) do
+      Map.take(set, [:id, :name])
+    else
+      _ -> nil
     end
   end
 
-  defp blank_to_nil(value) when value in [nil, ""], do: nil
-  defp blank_to_nil(value), do: value
+  # Mounted clients from before media identities were added omit these fields.
+  defp current_media?(%{assigns: %{now_playing: track, playing_set: set}}, params) do
+    matches_id?(params, "track_id", track) and matches_id?(params, "set_id", set)
+  end
+
+  defp matches_id?(params, key, record) do
+    not Map.has_key?(params, key) or params[key] == (record && record.id)
+  end
 
   defp sync_quiet_mode(nil), do: Playback.deactivate_quiet_mode()
   defp sync_quiet_mode(_set_id), do: Playback.activate_quiet_mode()
@@ -365,184 +380,8 @@ defmodule BeatgridWeb.PlayerLive do
       ></audio>
 
       <script :type={Phoenix.LiveView.ColocatedHook} name=".Player">
-        export default {
-          mounted() {
-            const a = this.el
-            const offset = parseInt(a.dataset.previewOffsetMs || "20000", 10)
-            const minDur = parseInt(a.dataset.previewMinMs || "25000", 10)
-            const byId = (id) => document.getElementById(id)
-            const fmt = (s) => {
-              if (!isFinite(s)) return "0:00"
-              const m = Math.floor(s / 60), ss = Math.floor(s % 60)
-              return `${m}:${ss < 10 ? "0" : ""}${ss}`
-            }
-            const setIcon = (t) => { const el = byId("player-toggle-icon"); if (el) el.textContent = t }
-            this.playToken = 0
-            this.lastAdvanceToken = null
-            this.loadingAudio = false
-            this.activeSetId = null
-
-            const safePlay = (el) => {
-              const attempt = el.play()
-              if (attempt && typeof attempt.catch === "function") {
-                attempt.catch((err) => {
-                  if (!err || err.name === "AbortError") return
-                  console.warn("Beatgrid playback failed", err)
-                })
-              }
-            }
-
-            const clearPendingStart = () => {
-              if (!a._pendingStart) return
-              a.removeEventListener("loadedmetadata", a._pendingStart)
-              a._pendingStart = null
-            }
-
-            // --- cue-point markers drawn over the seek lane (data pushed from the server) ---
-            this._markers = []
-            const lane = byId("player-marker-lane")
-            const renderMarkers = () => {
-              if (!lane) return
-              lane.innerHTML = ""
-              const durMs = (a.duration || 0) * 1000
-              if (!durMs) return
-              const COLORS = {cue: "#ffb020", intro: "#5ad1a0", outro: "#ff5d6c"}
-              this._markers.forEach((m) => {
-                if (m.ms < 0 || m.ms > durMs) return
-                const left = (m.ms / durMs) * 100
-                const color = COLORS[m.type] || COLORS.cue
-                const auto = m.source === "auto"
-                const tick = document.createElement("button")
-                tick.type = "button"
-                tick.title = (auto ? "auto · " : "") + (m.label || fmt(m.ms / 1000))
-                tick.style.cssText =
-                  `position:absolute;top:0;bottom:0;left:${left}%;width:3px;` +
-                  `transform:translateX(-1px);background:${color};border:0;border-radius:2px;` +
-                  `cursor:pointer;pointer-events:auto;opacity:${auto ? 0.55 : 1}`
-                tick.addEventListener("click", () => { if (a.duration) a.currentTime = m.ms / 1000 })
-                lane.appendChild(tick)
-              })
-            }
-            this.handleEvent("player_markers", ({markers}) => { this._markers = markers || []; renderMarkers() })
-            // "Mark now": the button (player or track page) dispatches this; we read the
-            // live position and let the server persist it on the now-playing track. Ignore
-            // it when nothing has loaded/played yet, so we never store a junk 0:00 cue.
-            a.addEventListener("beatgrid:add-marker", () => {
-              if (!a.duration || a.currentTime <= 0) return
-              this.pushEvent("add_marker", {ms: Math.round(a.currentTime * 1000)})
-            })
-            a.addEventListener("beatgrid:seek", (e) => { if (a.duration) a.currentTime = e.detail.ms / 1000 })
-
-            // Load + play a src. `atMs` (jump to a marker) wins; else a preview jumps
-            // to the configured offset for long tracks; otherwise start at 0.
-            const playSrc = (src, preview, atMs) => {
-              this.playToken++
-              const token = this.playToken
-              this.lastAdvanceToken = null
-              if (lane) lane.innerHTML = ""
-              clearPendingStart()
-              const start = () => {
-                a.removeEventListener("loadedmetadata", start)
-                if (token !== this.playToken) return
-                this.loadingAudio = false
-                const durMs = (a.duration || 0) * 1000
-                if (atMs != null) a.currentTime = atMs / 1000
-                else a.currentTime = (preview && durMs >= minDur) ? offset / 1000 : 0
-                // Volume is client-owned: it persists on this phx-update="ignore" <audio>
-                // element and is only changed by the slider's input listener. Do NOT reset
-                // it per load — that snapped the volume on every track change (live bug).
-                a.playbackRate = 1
-                safePlay(a)
-                a._pendingStart = null
-              }
-              const absoluteSrc = new URL(src, window.location.href).href
-              this.loadingAudio = true
-              a._pendingStart = start
-              if ((a.currentSrc === absoluteSrc || a.src === absoluteSrc) && a.readyState >= 1) {
-                start()
-              } else {
-                a.src = src
-                a.load()
-                a.addEventListener("loadedmetadata", start)
-              }
-            }
-
-            // User-initiated play from a page (may carry a set_id for set playback, or
-            // an at_ms to start straight at a cue-point marker).
-            a.addEventListener("beatgrid:play", (e) => {
-              this.activeSetId = e.detail.set_id || null
-              playSrc(e.detail.src, e.detail.preview, e.detail.at_ms)
-              this.pushEvent("now_playing", {id: e.detail.id, set_id: e.detail.set_id || null})
-            })
-
-            // Server-initiated auto-advance: the server already updated now_playing,
-            // so just play the next src (full track), no now_playing push.
-            this.handleEvent("play_track", ({src}) => playSrc(src, false))
-
-            a.addEventListener("beatgrid:toggle", () => a.paused ? safePlay(a) : a.pause())
-            a.addEventListener("beatgrid:stop", () => a.pause())
-
-            const requestAdvance = () => {
-              const hasSet = this.activeSetId != null
-              if (!hasSet || this.lastAdvanceToken === this.playToken) return
-              this.lastAdvanceToken = this.playToken
-              this.pushEvent("track_ended", {})
-            }
-
-            // Body flag drives the now-playing disc spin (CSS), pause-aware + correct
-            // for pages mounted mid-playback.
-            const setPlaying = (on) => { document.body.dataset.playing = on ? "true" : "false" }
-
-            a.addEventListener("play", () => {
-              setIcon("⏸")
-              setPlaying(true)
-              this.pushEvent("playback_playing", {set_id: this.activeSetId || null})
-              window.dispatchEvent(new CustomEvent("beatgrid:playing", {detail: {source: "player-audio"}}))
-            })
-            a.addEventListener("pause", () => {
-              setIcon("▶")
-              setPlaying(false)
-              if (!this.loadingAudio) this.pushEvent("playback_paused", {})
-              window.dispatchEvent(new CustomEvent("beatgrid:paused"))
-            })
-            a.addEventListener("ended", () => {
-              setIcon("▶")
-              setPlaying(false)
-              this.pushEvent("playback_paused", {})
-              window.dispatchEvent(new CustomEvent("beatgrid:paused"))
-              requestAdvance()
-            })
-            a.addEventListener("error", () => {
-              setIcon("▶")
-              setPlaying(false)
-              if (!this.loadingAudio) this.pushEvent("playback_paused", {})
-              console.warn("Beatgrid media error", a.error)
-            })
-
-            a.addEventListener("loadedmetadata", () => {
-              const seek = byId("player-seek")
-              const dur = byId("player-duration")
-              if (seek) { seek.max = Math.floor(a.duration || 0); seek.value = 0 }
-              if (dur) dur.textContent = fmt(a.duration)
-              renderMarkers()
-            })
-            a.addEventListener("timeupdate", () => {
-              const seek = byId("player-seek")
-              const el = byId("player-elapsed")
-              if (el) el.textContent = fmt(a.currentTime)
-              if (seek && document.activeElement !== seek) seek.value = Math.floor(a.currentTime)
-            })
-
-            const seek = byId("player-seek")
-            if (seek) seek.addEventListener("input", () => { a.currentTime = Number(seek.value) })
-            const vol = byId("player-volume")
-            if (vol) vol.addEventListener("input", () => { a.volume = Number(vol.value) / 100 })
-
-            window.addEventListener("beatgrid:playing", (e) => {
-              if (e.detail.source !== "player-audio") a.pause()
-            })
-          }
-        }
+        import Player from "@/js/player.js"
+        export default Player
       </script>
     </div>
     """
