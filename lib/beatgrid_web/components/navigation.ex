@@ -207,19 +207,17 @@ defmodule BeatgridWeb.Navigation do
       aria-label={@item.label}
       aria-current={@active && "page"}
       class={[
-        "relative flex min-h-11 items-center gap-3 md:min-h-0 rounded-lg px-2.5 py-2 transition-colors",
+        "flex min-h-11 items-center gap-3 md:min-h-0 rounded-lg px-2.5 py-2 transition-colors",
         "md:nav-collapsed:flex-col md:nav-collapsed:gap-0.5 md:nav-collapsed:px-0.5 md:nav-collapsed:py-1.5",
         @active && "bg-primary/12 text-primary",
         !@active && "text-ink-muted hover:bg-white/5 hover:text-ink"
       ]}
     >
-      <span
-        :if={@active}
-        class="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-primary md:nav-collapsed:hidden"
-        aria-hidden="true"
-      />
       <span class={[@item.icon, "size-5 shrink-0"]} aria-hidden="true" />
-      <span class="truncate text-body-lg font-medium tracking-tight md:nav-collapsed:hidden">
+      <span class={[
+        "min-w-0 text-body-lg leading-tight tracking-tight md:nav-collapsed:hidden",
+        if(@active, do: "font-semibold", else: "font-medium")
+      ]}>
         {@item.label}
       </span>
       <span class="hidden text-caption font-medium leading-tight md:nav-collapsed:block">
