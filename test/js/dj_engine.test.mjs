@@ -1051,3 +1051,21 @@ test("unplugging and reconnecting the four-channel output rewires the PFL during
   assert.deepEqual(engine.pflState(), {a: false, b: true})
   assert.equal(a.paused, false)
 })
+
+for (const type of ["fade", "filter", "lowpass", "echo", "bass_swap", "brake"]) {
+  test(`a loop prepared on the outgoing record survives ${type} cleanup`, t => {
+    const {engine, a, b, hint, tick} = booth(t)
+    hint(null)
+    assert.equal(engine.fireManual(type).ok, true)
+    if (!a.paused) engine.playPause("a")
+    engine.cueTo("a", 1250)
+    engine.beatLoop("a", 2)
+    tick(12_000)
+    tick(1000)
+    assert.deepEqual(engine.loopState("a"), {on: true, startMs: 1250, endMs: 2250, beats: 2})
+    assert.equal(a.paused, true)
+    assert.equal(b.paused, false)
+    assert.equal(engine.loadDeck("a", {id: "fresh", src: "fresh"}), true)
+    assert.equal(engine.loopState("a").on, false)
+  })
+}
