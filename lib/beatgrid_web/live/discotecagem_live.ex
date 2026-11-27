@@ -1769,7 +1769,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
       <script :type={Phoenix.LiveView.ColocatedHook} name=".DjConsole">
         import {createEngine} from "@/js/dj/engine.js"
-        import {headphoneOutput, separateOutputs, unlockOutputNames} from "@/js/dj/outputs.js"
+        import {activateHeadphones, headphoneOutput, separateOutputs, unlockOutputNames} from "@/js/dj/outputs.js"
         import {paintDeckStatus, paintLoopRegion} from "@/js/dj/deck_status.js"
         import {tripVersionPath, tripTransportLabel, tripTransitionLabel} from "@/js/dj/trip_identity.js"
         import {hotCues} from "@/js/dj/hot_cues.js"
@@ -2276,6 +2276,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
               }
               if (version !== listVersion || signal.aborted) return
               this.audioOutputs = devs
+              const phones = byId("dj-cue-device")
+              const previous = this.confirmedHeadphone
+              if (previous && !separateOutputs(this.engine.ctx.sinkId, previous, devs)) this.confirmedHeadphone = null
+              if (this.confirmedHeadphone && phones.value && !devs.some(d => d.deviceId === phones.value)) {
+                phones.value = previous
+                this.notice("A nova saída ficou indisponível. Tentando o fone anterior.")
+              }
               this.checkHeadphoneOutput(this.engine.ctx.sinkId)
               const main = byId("dj-out-device")
               fillDevices(main, devs.filter(d => d.deviceId !== "default"), "Padrão do sistema")
@@ -2284,7 +2291,6 @@ defmodule BeatgridWeb.DiscotecagemLive do
               if (main.disabled && !this.movingOutput && this.cueModeNow !== "quad") {
                 byId("dj-cue-mode").textContent = "Para usar a controladora, escolha a saída principal nos ajustes de som do sistema."
               }
-              const phones = byId("dj-cue-device")
               fillDevices(phones, devs, "— saída do fone —")
               if (phones.value && !this.cueAudio.srcObject && !this.movingOutput) this.routeHeadphones(phones)
               for (const id of ["dj-out-device", "dj-out-device-label"]) {
@@ -2309,8 +2315,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
             const devicesChanged = event => {
               this.rehearsal.stop()
               if (!listVersion || (event.type === "sinkchange" && this.movingOutput)) return
-              // A former headphone device can become the room's default on unplug.
-              this.disconnectHeadphones()
+              // Mute now and revalidate the previous sink against the next inventory.
+              this.disconnectHeadphones(true)
               this.audioOutputs = []
               refreshDevices(false)
             }
@@ -2324,7 +2330,11 @@ defmodule BeatgridWeb.DiscotecagemLive do
               this.movingOutput = true
               select.disabled = true
               phones.disabled = true
-              this.checkHeadphoneOutput(select.value)
+              // Keep the proven selection until the browser accepts the move.
+              if (phones.value && (phones.value !== this.confirmedHeadphone ||
+                  !separateOutputs(select.value, phones.value, this.audioOutputs))) {
+                this.disconnectHeadphones(true)
+              }
               try {
                 const {mode} = await this.engine.setOutputDevice(select.value)
                 this.log(
@@ -2778,7 +2788,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
             }
           },
 
-          disconnectHeadphones() {
+          disconnectHeadphones(keepChoice = false) {
+            if (!keepChoice) this.confirmedHeadphone = null
             this.rehearsal?.stop()
             this.cueRouteVersion++
             this.cueAudio.pause()
@@ -2796,19 +2807,14 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
           routeHeadphones(select) {
             const main = this.engine.ctx.sinkId
-            const device = headphoneOutput(main, select.value, this.audioOutputs)
+            let device = headphoneOutput(main, select.value, this.audioOutputs)
             if (select.value && !device) {
-              const current = this.cueAudio.sinkId
-              if (this.cueAudio.srcObject && separateOutputs(main, current, this.audioOutputs)) {
-                select.value = current
-              } else {
-                this.disconnectHeadphones()
-                select.value = ""
-              }
+              device = headphoneOutput(main, this.confirmedHeadphone, this.audioOutputs)
+              select.value = device || ""
               this.notice("Escolha o fone pelo nome, em uma saída separada da pista.")
-              return
+              if (device && !this.cueAudio.paused && this.cueAudio.srcObject && this.cueAudio.sinkId === device) return
             }
-            this.disconnectHeadphones()
+            this.disconnectHeadphones(Boolean(device))
             if (!device || this.movingOutput || this.cueModeNow === "quad") return
             select.value = device
             const version = this.cueRouteVersion
@@ -2816,16 +2822,17 @@ defmodule BeatgridWeb.DiscotecagemLive do
             // in order, with the cue bus muted until the latest sink is ready.
             this.cueRouting = (this.cueRouting || Promise.resolve()).then(async () => {
               if (version !== this.cueRouteVersion) return
-              await this.cueAudio.setSinkId(device)
+              const allowed = id => version === this.cueRouteVersion && !this.movingOutput &&
+                this.cueModeNow !== "quad" && separateOutputs(this.engine.ctx.sinkId, id, this.audioOutputs)
+              const actual = await activateHeadphones(
+                this.cueAudio, this.engine.cueStream(), device, this.confirmedHeadphone, allowed
+              )
               if (version !== this.cueRouteVersion) return
-              this.cueAudio.srcObject = this.engine.cueStream()
-              await this.cueAudio.play()
-              if (version === this.cueRouteVersion) this.log("fone ativo na saída escolhida")
-            }).catch(() => {
-              if (version !== this.cueRouteVersion) return
-              this.disconnectHeadphones()
-              select.value = ""
-              this.log("não consegui ativar o fone nessa saída")
+              this.confirmedHeadphone = actual
+              select.value = actual || ""
+              if (actual === device) this.log("fone ativo na saída escolhida")
+              else if (actual) this.notice("A troca falhou. O fone voltou à saída anterior.")
+              else this.notice("Não foi possível ativar a saída do fone.")
             })
           },
 

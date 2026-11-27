@@ -18,8 +18,10 @@ export function planRehearsal(outgoing, incoming, exit, entry, bpm, mix = {out: 
   return {outgoing, incoming, exit: point, outStart: point - lead * outRate, inStart, lead, blend, fullBlend: blend === fourBeats / outRate, duration, mix}
 }
 
+export const CUT_OVERLAP_S = 0.008
+
 export function rehearsalOverlap(plan, kind) {
-  return kind === "cut" ? Math.min(0.008, plan.blend) : plan.blend
+  return kind === "cut" ? Math.min(CUT_OVERLAP_S, plan.blend) : plan.blend
 }
 
 export function rehearsalGains(plan, kind, time) {

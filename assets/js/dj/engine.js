@@ -32,12 +32,13 @@ import {startDecodedEntry} from "./decoded_entry.js"
 import {createPassage} from "./passage.js"
 import {observeRoomPassage} from "./passage_meter.js"
 import {scheduleBlend} from "./blend_curve.js"
-import {createRehearsal, rehearsalOverlap} from "./rehearsal.js"
-import {getScratchPcm, retainScratch} from "./waveform.js"
+import {createRehearsal, CUT_OVERLAP_S, rehearsalOverlap} from "./rehearsal.js"
+import {getDeckAudio, getScratchPcm, retainScratch} from "./waveform.js"
 import {ensureScratchModule, scratchPattern} from "./scratch.js"
 
 const RAMP = Object.freeze({
   manualFaderTau: 0.01, // s — smoothing for hand moves (kills zipper noise)
+  nativeCutS: 0.24, // a cold media decoder can reach the graph after play() resolves
   fadeOutS: 2.2,
   fadeInS: 2.2,
   crossfadeS: 8.0,
@@ -725,6 +726,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
   function handleEnded(deck, trackId = deck.trackId) {
     if (state.cancelCut) return // the receiving play owns this boundary until it settles
+    // An entry close to EOF can end before the outgoing cut envelope.
+    state.rescue?.finishCut?.()
     state.postponeMs = 0
     if (passage.current()?.pair.from === deck.id) {
       passage.disarm()
@@ -1004,16 +1007,21 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   function cut(from, to, toMs, event) {
-    const land = () => {
+    const land = overlap => {
       state.cancelCut = null
       state.pendingEntry = null
       const atMs = from.positionMs()
       state.lastFireAt = performance.now()
-      from.pause()
-      setXfadeTo(sideOf(to.id), 0.15)
+      const token = state.transitionToken, outgoingPlay = from.playToken
+      setXfadeTo(sideOf(to.id), overlap, CUT_OVERLAP_S)
+      const finish = () => {
+        if (ownsOutgoing(from, token) && from.playToken === outgoingPlay && !from.cueState) from.pause()
+      }
+      state.rescue.finishCut = finish
+      after(overlap, finish)
       handoff(from, to, {...event, atMs})
     }
-    if (to.audible()) return land()
+    if (to.audible()) return land(CUT_OVERLAP_S)
 
     // canplay and paused=false can both precede the first audible frame.
     // Keep the current record and its set pointer while the receiver starts.
@@ -1027,11 +1035,18 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       if (to.playToken === playToken) to.pause()
     }
     state.cancelCut = cancel
-    to.play(to._cued ? null : toMs, () => {
+    const requested = to._cued ? null : toMs
+    const cue = to.clampPosition(requested == null ? to.platterTime() : requested / 1000)
+    to.play(requested, () => {
       if (state.cancelCut !== cancel) return
       if (to.playToken !== playToken || !to.audible() || deckHeld(from.id)) return cancel()
+      // Use the same stereo recording and clock as the rehearsal when available.
+      // A cold native source gets a bounded overlap even when its first bars are quiet.
+      const audio = getDeckAudio(to.trackId)
+      const decoded = audio != null && cue < audio.duration
+      if (decoded) to.playDecoded(audio, cue)
       to._cued = false
-      land()
+      land(decoded ? CUT_OVERLAP_S : RAMP.nativeCutS)
     }, () => {
       if (state.cancelCut !== cancel) return
       cancel()
@@ -1508,7 +1523,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // ── crossfader (automated glides + manual takeover) ─────────────────────────
 
   let faderVersion = 0
-  function setXfadeTo(target, seconds) {
+  function setXfadeTo(target, seconds, minimum = 0.05) {
     if (state.faderVersion !== faderVersion) return
     const now = ctx.currentTime
     for (const side of ["a", "b"]) {
@@ -1516,7 +1531,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       const current = node.gain.value
       node.gain.cancelScheduledValues(now)
       node.gain.setValueAtTime(current, now)
-      node.gain.linearRampToValueAtTime(equalPower(target)[side], now + Math.max(seconds, 0.05))
+      node.gain.linearRampToValueAtTime(equalPower(target)[side], now + Math.max(seconds, minimum))
     }
     animateXfadePos(target, seconds)
   }
@@ -1733,7 +1748,10 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // Keep the latest hand position through buffering, PLAY and the next AUTO fire.
   function placePlatter(deck, seconds) {
     const targetMs = deck.clampPosition(seconds) * 1000
-    if (Math.abs(deck.platterTime() * 1000 - targetMs) > 1) passage.mixChanged()
+    if (Math.abs(deck.platterTime() * 1000 - targetMs) > 1) {
+      if (state.pendingEntry === deck.id) state.cancelCut?.()
+      passage.mixChanged()
+    }
     deck.useMedia(false)
     passage.seek(deck, targetMs)
     if (deck.loop.on && (targetMs < deck.loop.startMs || targetMs >= deck.loop.endMs)) clearLoop(deck)

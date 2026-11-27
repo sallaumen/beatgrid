@@ -20,6 +20,27 @@ export function headphoneOutput(mainId, choice, outputs) {
   return separateOutputs(mainId, id, outputs) ? id : null
 }
 
+// The caller serializes sink changes and revalidates the route after each
+// browser promise. A rejected switch may still leave the previous sink active.
+export async function activateHeadphones(audio, stream, device, previous, allowed) {
+  const choices = previous && previous !== device ? [device, previous] : [device]
+  for (const id of choices) {
+    if (!allowed(id)) continue
+    try {
+      if (audio.sinkId !== id) await audio.setSinkId(id)
+      if (!allowed(id)) continue
+      audio.srcObject = stream
+      await audio.play()
+      if (allowed(id)) return id
+    } catch {
+      // A device, permission or play failure can still leave a safe fallback.
+    }
+    audio.pause()
+    audio.srcObject = null
+  }
+  return null
+}
+
 export async function unlockOutputNames(devices) {
   let timeout
   try {
