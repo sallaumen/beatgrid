@@ -91,6 +91,13 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert has_element?(view, ~s(button[aria-controls="dj-rehearse-dialog"]), "Ensaiar a próxima")
     assert has_element?(view, "#dj-rehearse-dialog canvas[data-wave=out]")
     assert has_element?(view, "#dj-rehearse-dialog canvas[data-wave=in]")
+
+    assert has_element?(
+             view,
+             "#dj-rehearse-dialog canvas[data-gains][aria-describedby='dj-rehearsal-timing']"
+           )
+
+    assert has_element?(view, "#dj-rehearsal-timing[data-timing]")
     assert has_element?(view, "#dj-rehearse-dialog [data-timing]")
 
     assert has_element?(

@@ -6,32 +6,11 @@ import {scorePassage} from "./passage_score.js"
 import {mountPassageScore} from "./passage_score_view.js"
 import {getDeckAudio} from "./waveform.js"
 import {syncedRate} from "./deck_mix.js"
-import {planRehearsal, recordTime, rehearsalGains} from "./rehearsal.js"
+import {planRehearsal, rehearsalOverlap} from "./rehearsal.js"
+import {drawRehearsalWaves} from "./rehearsal_waves.js"
 
 function text(el, value) {
   if (el.textContent !== value) el.textContent = value
-}
-
-function drawLane(canvas, wave, plan, kind, incoming) {
-  const width = Math.max(1, canvas.clientWidth)
-  const height = canvas.clientHeight
-  const scale = window.devicePixelRatio || 1
-  canvas.width = Math.round(width * scale)
-  canvas.height = Math.round(height * scale)
-  const g = canvas.getContext("2d")
-  g.scale(scale, scale)
-  g.fillStyle = incoming ? "#5ad1a0" : "#ffb020"
-  const mid = height / 2
-  for (let x = 0; x < width; x++) {
-    const t = x / width * plan.duration
-    const side = incoming ? "into" : "out"
-    const pos = recordTime(plan, side, t)
-    const gain = rehearsalGains(plan, kind, t)[incoming ? 1 : 0]
-    const amp = gain * plan.mix[side].level * (wave.peaks[Math.floor(pos * wave.bps)] || 0) * mid
-    g.fillRect(x, mid - amp, 1, Math.max(1, 2 * amp))
-  }
-  g.fillStyle = "#eef0f5"
-  g.fillRect(width * plan.lead / plan.duration, 0, 1, height)
 }
 
 export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
@@ -42,7 +21,8 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
   const timing = dialog.querySelector("[data-timing]")
   const cursor = dialog.querySelector("[data-cursor]")
   const pan = dialog.querySelector("select")
-  const lanes = [...dialog.querySelectorAll("canvas")]
+  const lanes = [...dialog.querySelectorAll("canvas[data-wave]")]
+  const gains = dialog.querySelector("[data-gains]")
   const arm = dialog.querySelector("[data-arm]")
   const reservation = root.querySelector("[data-reservation]")
   const confirm = root.querySelector("[data-confirm]")
@@ -67,12 +47,21 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
 
   function draw() {
     if (!plan) {
-      for (const lane of lanes) lane.width = lane.width
+      for (const lane of [...lanes, gains]) lane.width = lane.width
+      gains.setAttribute("aria-label", "Volume dos decks")
       return
     }
-    text(timing, "Entrada em " + seconds(plan.lead) + " · " + (kind() === "cut" ? "corte" : "mistura de " + seconds(plan.blend)))
-    drawLane(lanes[0], waves[pair.from], plan, kind(), false)
-    drawLane(lanes[1], waves[pair.to], plan, kind(), true)
+    const transition = kind(), overlap = rehearsalOverlap(plan, transition)
+    const interval = transition === "cut"
+      ? "Corte em " + seconds(plan.lead) + " · " + Math.round(overlap * 1000) + " ms"
+      : "Mistura de " + seconds(plan.lead) + " a " + seconds(plan.lead + overlap)
+    text(timing, interval)
+    const percent = value => Math.round(100 * value) + "%"
+    const {out, into} = plan.mix
+    const leaving = out.level === 0 ? "Saída sem volume." : "A saída vai de " + percent(out.level) + " a zero."
+    const entering = into.level === 0 ? "Entrada sem volume." : "A entrada vai de zero a " + percent(into.level) + "."
+    gains.setAttribute("aria-label", leaving + " " + entering)
+    drawRehearsalWaves(lanes, gains, [waves[pair.from], waves[pair.to]], plan, transition, window.devicePixelRatio || 1)
   }
 
   const draftKey = () => rehearsalKey(pair, {...plan, blendCurve: null}, engine.decks[pair.from].bpm)
