@@ -866,6 +866,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
   defp rehearsal_panel(assigns) do
     ~H"""
     <div id="dj-rehearsal" phx-update="ignore" class="px-3 pb-2">
+      <span id="dj-passage-arrival" role="status" class="sr-only"></span>
       <button
         type="button"
         aria-haspopup="dialog"
@@ -875,6 +876,17 @@ defmodule BeatgridWeb.DiscotecagemLive do
         <.icon name="hero-musical-note" class="size-4" /> Ensaiar a próxima
       </button>
       <div data-reservation hidden class="mt-2">
+        <p
+          id="dj-passage-clock"
+          role="timer"
+          aria-live="off"
+          aria-label="Tempo até o ponto ensaiado em minutos e segundos"
+          hidden
+          class="mb-2 flex flex-wrap items-baseline justify-between gap-x-2 border-t border-white/10 pt-2"
+        >
+          <span class="text-body-sm font-medium text-ink-secondary"></span>
+          <strong class="font-mono text-title leading-none font-semibold text-ink tabular-nums"></strong>
+        </p>
         <p data-passage-state role="status" tabindex="-1" class="text-body text-ink"></p>
         <div class="mt-2 flex flex-wrap gap-2">
           <button
@@ -1782,6 +1794,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
         import {mountRehearsal} from "@/js/dj/rehearsal_panel.js"
         import {mountPassageScore} from "@/js/dj/passage_score_view.js"
         import {scorePassage} from "@/js/dj/passage_score.js"
+        import {passageClock} from "@/js/dj/passage_clock.js"
         import {loadPeaks, drawWave} from "@/js/dj/waveform.js"
 
         const ACCENTS = {a: "#8b7bf0", b: "#2d9cff"}
@@ -1887,7 +1900,11 @@ defmodule BeatgridWeb.DiscotecagemLive do
                   const tag = origin === "rehearsal" ? " (ensaio)" : mode === "manual" ? " (manual)" : ""
                   const name = origin === "rehearsal" ? (type === "cut" ? "Corte" : "Mistura") : type.toUpperCase()
                   this.log(`transição ${name}${tag} → deck ${deck.toUpperCase()}`)
-                  this.toast(`${mode === "auto" ? "AUTO: " : "▶ "}${name} → deck ${deck.toUpperCase()}`)
+                  if (origin === "rehearsal") {
+                    const arrival = `${name} na pista · deck ${deck.toUpperCase()}`
+                    byId("dj-passage-arrival").textContent = arrival
+                    this.toast(arrival)
+                  } else this.toast(`${mode === "auto" ? "AUTO: " : "▶ "}${name} → deck ${deck.toUpperCase()}`)
                   window.dispatchEvent(new CustomEvent("beatgrid:playing", {detail: {source: "dj-console"}}))
                 },
                 roomScore: ({data, reference}) => this.roomScore.show(data ? scorePassage(data) :
@@ -2982,11 +2999,19 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
           // O mesmo texto vale pro card do mixer e pro overlay da viagem.
           paintCountdown() {
-            const {text, color} = this.countdownState()
+            const {text, color, label, time} = this.countdownState()
+            const clock = byId("dj-passage-clock")
+            if (clock.hidden !== !time) clock.hidden = !time
+            if (time) {
+              const arrival = byId("dj-passage-arrival")
+              if (arrival.textContent) arrival.textContent = ""
+              if (clock.firstElementChild.textContent !== label) clock.firstElementChild.textContent = label
+              if (clock.lastElementChild.textContent !== time) clock.lastElementChild.textContent = time
+            }
             for (const id of ["dj-countdown", "trip-countdown"]) {
               const el = byId(id)
               if (el) {
-                el.textContent = text
+                if (el.textContent !== text) el.textContent = text
                 el.style.color = color
               }
             }
@@ -2994,14 +3019,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
           countdownState() {
             const hint = this.hint
-            const snap = this.engine.snapshot()
             const passage = this.engine.passage()
             if (passage) {
-              const left = passage.exitMs - snap[passage.pair.from].posMs
-              const label = {armed: "Ensaio aguarda confirmação", confirmed: `Passagem ensaiada em ${fmt(left)}`,
-                starting: "Entrando na pista", missed: "Ponto do ensaio já passou", failed: "Entrada indisponível"}
-              return {text: label[passage.phase], color: ""}
+              const clock = passageClock(passage, this.engine.decks[passage.pair.from], this.engine.ctx.state)
+              return {...clock, color: ""}
             }
+            const snap = this.engine.snapshot()
             // O silêncio do agradecimento vem ANTES de tudo: não há hint nem
             // deck tocando aqui — e é exatamente isso que a tela deve dizer.
             if (snap.waitingForNext || (snap.breather?.remainingMs === 0 && !snap.hintReady)) {

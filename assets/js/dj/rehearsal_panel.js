@@ -164,11 +164,12 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
       lastChoice = choice
       lastPhase = choice?.phase
       lastEdit = choice?.review
+      if (!choice && reservation.contains(document.activeElement)) open.focus({preventScroll: true})
       reservation.hidden = !choice
       if (choice) {
         const {plan, kind, exitMs, pair, phase} = choice
         const name = kind === "cut" ? "Corte" : "Mistura de quatro tempos"
-        const state = {armed: "Armada", confirmed: "Confirmada", starting: "Entrando na pista",
+        const state = {armed: "Armada", confirmed: "Confirmada", starting: "Preparando a entrada",
           missed: "O ponto ensaiado já passou", failed: "A entrada não ficou pronta"}
         const review = {live: "A cabine mudou. Confirme para usar os ajustes salvos", draft: "Versão salva · aguarda nova confirmação"}
         const label = phase === "armed" && choice.review ? review[choice.review] : state[phase]
