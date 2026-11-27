@@ -88,7 +88,7 @@ function booth(t, callbacks = {}) {
 async function scratchBooth(t, ids, channels = 1, callbacks = {}, beforeDecode) {
   const commands = []
   globalThis.AudioWorkletNode = class extends AudioNodeStub {
-    port = {postMessage: message => commands.push(message)}
+    port = {postMessage: message => commands.push(message), close() {}}
   }
   t.after(() => { delete globalThis.AudioWorkletNode })
   const rig = booth(t, callbacks)
@@ -1353,10 +1353,10 @@ test("stopping a vinyl drop releases the reserved deck without a delayed restart
   assert.equal(b.paused, true)
 })
 
-async function preparedDrop(t, type, fromId = "a", accepted = false) {
+async function preparedDrop(t, type, fromId = "a", accepted = false, callbacks = {}) {
   const out = "drop-out-" + t.name, into = "drop-in-" + t.name
   const refused = [], start = []
-  const rig = await scratchBooth(t, [out, into], 2, {entryRefused: e => refused.push(e.deck)}, ({engine, hint, a, b}) => {
+  const rig = await scratchBooth(t, [out, into], 2, {entryRefused: e => refused.push(e.deck), ...callbacks}, ({engine, hint, a, b}) => {
     // Mount the intended pair before decoding, just as the console does with its two recording slots.
     engine.stopAll()
     engine.loadDeck(fromId, {id: out, src: out, bpm: 120}, {autoplay: true})
@@ -1409,6 +1409,28 @@ for (const [fromId, type] of [["a", "brake"], ["b", "scratch_cut"], ["a", "spinb
   })
 }
 
+for (const [type, side, release] of [["brake", "a", .3], ["scratch_cut", "b", .06],
+  ["spinback", "a", .06], ["chirp", "b", .35], ["transform", "a", .35], ["scribble", "b", .06]]) {
+  test(`the PA measures ${type} from its actual start through the audible drop from ${side}`, async t => {
+    const {engine, from, gate, tick, commands, advances} = await preparedDrop(t, type, side, false, {programScore() {}})
+    const ctx = engine.ctx, previousTime = ctx.currentTime
+    t.after(() => { ctx.currentTime = previousTime })
+    from.dispatchEvent(new Event("playing"))
+    await new Promise(resolve => setImmediate(resolve))
+    const requests = () => commands.filter(c => c?.id && typeof c.start === "number")
+    ctx.currentTime = 7
+    tick(320)
+    assert.deepEqual(requests(), [], "private preflight leaves the PA reading alone")
+    gate.resolve()
+    await Promise.resolve()
+    assert.deepEqual(requests(), [], "an unfinished gesture cannot publish a landing")
+    ctx.currentTime = 9.5
+    tick(3000)
+    assert.equal(advances[0].type, type)
+    assert.deepEqual(requests().map(({start, end}) => [start, end]), [[3, 9.5 + release + 4]])
+  })
+}
+
 for (const accepted of [false, true]) {
   for (const action of ["cue", "stop", "fader", "replace"]) {
     test(`revoking a ${accepted ? "running" : "waiting"} scratch by ${action} cannot drop later`, async t => {
@@ -1440,12 +1462,15 @@ for (const accepted of [false, true]) {
 
 for (const [fromId, type] of [["a", "brake"], ["b", "scratch_cut"]]) {
   test(`a rejected ${type} preflight stays on ${fromId} and gives headphones back`, async t => {
-    const {engine, from, to, toId, gate, advances, start, refused, tick} = await preparedDrop(t, type, fromId)
+    const reads = []
+    const {engine, from, to, toId, gate, advances, start, refused, tick} =
+      await preparedDrop(t, type, fromId, false, {programScore: reading => reads.push(reading)})
     gate.reject(Error("not playing"))
     await Promise.resolve()
     tick(5000)
     assert.deepEqual(refused, [toId])
     assert.deepEqual(advances, [])
+    assert.deepEqual(reads, [])
     assert.deepEqual(start, [])
     assert.equal(from.paused, false)
     assert.equal(to.paused, true)
@@ -1494,7 +1519,8 @@ test("a refused private input keeps the loop that is carrying the dance floor", 
 })
 
 test("a scratch with both decks already playing neither rewinds nor silences the receiver", async t => {
-  const {engine, a, b, hint, advances, tick} = await scratchBooth(t, "one")
+  const reads = []
+  const {engine, a, b, hint, advances, tick} = await scratchBooth(t, "one", 1, {programScore: r => reads.push(r)})
   a.at(3)
   hint(null, "already-playing-no-buffer")
   engine.playPause("b")
@@ -1509,6 +1535,7 @@ test("a scratch with both decks already playing neither rewinds nor silences the
   assert.equal(b.currentTime, 5.1)
   assert.equal(b.paused, false)
   assert.deepEqual(advances.map(e => e.type), ["scratch_cut"])
+  assert.deepEqual(reads, [], "an already audible deck has no separate entry to measure")
 })
 
 test("ending while the private input opens lands a single cut at the prepared cue", async t => {

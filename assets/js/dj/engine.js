@@ -1005,7 +1005,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     receiveEntry(from, to, toMs, cue => {
       if (delayed && (from.ended() || (run === scratchDrop && !scratchArm(from.id)))) return fallback(cue)
       if (delayed && from.loop.on) clearLoop(from)
-      const land = overlap => handoff(from, to, {...event, atMs: from.positionMs()}, overlap)
+      const effectStart = ctx.currentTime
+      const land = (overlap, change) => handoff(from, to, {...event, atMs: from.positionMs()}, overlap, change)
       const position = xfade.pos
       if (delayed) {
         state.pendingEntry = to.id
@@ -1015,11 +1016,15 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
           else if (!wasPlaying) to.pause()
         }
       }
-      const drop = () => {
+      const drop = tail => {
         state.cancelEntry = null
         state.pendingEntry = null
         if (audio) to.playDecoded(audio, cue)
-        land()
+        // The primed recording starts here. Include the actual gesture and the
+        // fader opening; a deck already playing has no isolated new entry.
+        const span = audio && ownsOutgoing(from, token) ? ctx.currentTime - effectStart + tail : null
+        setXfadeTo(sideOf(to.id), tail)
+        land(span, effectStart)
       }
       state.fireScale = fitScale(from, mode === "auto" ? state.hint : null, entryMs)
       if (state.fireScale < 0.95) emit("transitionSqueezed", {type, factor: state.fireScale})
@@ -1047,7 +1052,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     }
   }
 
-  function handoff(from, to, event, overlap) {
+  function handoff(from, to, event, overlap, change = ctx.currentTime) {
     state.activeDeck = to.id
     state.hint = null
     state.firedForTrack = null
@@ -1058,7 +1063,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       const kind = event.type === "crossfade" ? "blend" : event.type
       const names = {from: from.title, fromDeck: from.id, into: to.title, toDeck: to.id}
       programMeter.read(kind, overlap, from.bpm * from.playbackRate,
-        data => emit("programScore", {data, kind, mode: event.mode, names}))
+        data => emit("programScore", {data, kind, mode: event.mode, names}), change)
     }
     emit("transitionStarted", {...event, toTrackId: to.trackId})
   }
@@ -1381,8 +1386,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
     after(brakeS * 0.65, () => {
       if (token !== state.transitionToken) return
-      drop()
-      setXfadeTo(sideOf(to.id), 0.3)
+      drop(0.3)
     })
     after(brakeS + 0.05, () => finishOutgoing(from, token))
   }
@@ -1482,10 +1486,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       stop()
       from.pause()
       riseIncoming(to, 0.03, wasPlaying)
-      drop()
       // Echo kinds let the last chop's tail bleed under the incoming for a
       // breath; the dry kinds slam. Either way the incoming is already at full.
-      setXfadeTo(sideOf(to.id), spec.echoTail ? RAMP.dropTailFadeS : 0.06)
+      drop(spec.echoTail ? RAMP.dropTailFadeS : 0.06)
       after(0.2, () => ownsOutgoing(from, token) && resetChain(from))
       // The outgoing deck is free the moment the drop lands — announce it, so
       // a hint parked during the run re-arms EVENT-driven. drop() pauses an
@@ -1505,8 +1508,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         clearInterval(iv)
         state.stopScratchDrop = null
         riseIncoming(to, 0.03, wasPlaying)
-        drop()
-        setXfadeTo(sideOf(to.id), 0.06)
+        drop(0.06)
         return
       }
       const elapsed = (performance.now() - t0) / 1000
