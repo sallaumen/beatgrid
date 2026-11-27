@@ -3,6 +3,7 @@ defmodule BeatgridWeb.TrackLive do
   use BeatgridWeb, :live_view
 
   import BeatgridWeb.UI
+  import BeatgridWeb.RecommendationComponents, only: [rec_row: 1]
 
   alias Beatgrid.Analysis
   alias Beatgrid.Library
@@ -491,6 +492,9 @@ defmodule BeatgridWeb.TrackLive do
 
   @impl true
   def render(assigns) do
+    {imported, pending} = Enum.split_with(assigns.recs, &(&1.status == :imported))
+    assigns = assign(assigns, pending_recs: pending, imported_recs: imported)
+
     ~H"""
     <.app_shell flash={@flash} active={:biblioteca} socket={@socket}>
       <div class="mx-auto w-full max-w-[1280px] px-3 py-4 sm:px-5 lg:px-6 lg:py-5">
@@ -1146,9 +1150,25 @@ defmodule BeatgridWeb.TrackLive do
                 </button>
               </div>
 
-              <div :if={@recs != []} class="mt-3 space-y-1.5">
-                <.rec_row :for={rec <- @recs} rec={rec} />
+              <div :if={@pending_recs != []} id="track-matches-pending" class="mt-3 space-y-1.5">
+                <.rec_row :for={rec <- @pending_recs} rec={rec} />
               </div>
+
+              <details
+                :if={@imported_recs != []}
+                id="track-matches-imported"
+                class="mt-4 border-t border-white/8 pt-3"
+              >
+                <summary class="cursor-pointer rounded-md py-2 text-body-lg font-semibold text-ink-secondary hover:text-ink">
+                  Já importadas
+                  <span class="font-mono text-body font-normal text-ink-muted">({length(
+                    @imported_recs
+                  )})</span>
+                </summary>
+                <div class="mt-2 space-y-1.5">
+                  <.rec_row :for={rec <- @imported_recs} rec={rec} />
+                </div>
+              </details>
 
               <div
                 :if={@recs == [] and @recommending?}
@@ -1172,63 +1192,6 @@ defmodule BeatgridWeb.TrackLive do
         </div>
       </div>
     </.app_shell>
-    """
-  end
-
-  # One persisted AI match recommendation: `artist — song`, the AI's reason, and the
-  # YouTube search / download / dismiss actions. Imported rows wear a "baixada" tag.
-  attr :rec, :map, required: true
-
-  defp rec_row(assigns) do
-    ~H"""
-    <div class={[
-      "group rounded-lg border px-3 py-2.5 transition-colors",
-      if(@rec.status == :imported,
-        do: "border-green/25 bg-green/5",
-        else: "border-white/6 bg-base hover:border-white/12"
-      )
-    ]}>
-      <div class="flex items-start justify-between gap-3">
-        <div class="min-w-0 flex-1">
-          <p class="truncate text-body font-medium">
-            {@rec.artist} <span class="text-ink-faint">—</span> {@rec.song}
-          </p>
-          <p :if={@rec.reason} class="mt-0.5 text-caption text-ink-muted">{@rec.reason}</p>
-        </div>
-        <span
-          :if={@rec.status == :imported}
-          class="bg-token-chip inline-flex shrink-0 items-center gap-1 rounded-xs px-[7px] py-[2px] text-[9.5px] font-bold uppercase tracking-wide"
-          style="--c:var(--color-green)"
-        >
-          ✓ baixada
-        </span>
-      </div>
-
-      <div class="mt-2 flex flex-wrap items-center gap-1.5">
-        <a
-          href={Repertoire.youtube_search_url(@rec)}
-          target="_blank"
-          rel="noopener"
-          class="inline-flex items-center gap-1 rounded-md border border-white/10 bg-input px-2.5 py-1 text-[11px] text-ink-secondary transition-colors hover:text-ink"
-        >
-          Buscar no YouTube <span class="text-ink-faint" aria-hidden="true">↗</span>
-        </a>
-        <.link
-          navigate={~p"/importados?recomendacao=#{@rec.id}"}
-          class="inline-flex items-center rounded-md bg-primary/15 px-2.5 py-1 text-body-sm font-semibold text-primary-soft"
-        >
-          Conferir versões
-        </.link>
-        <button
-          type="button"
-          phx-click="dismiss_rec"
-          phx-value-id={@rec.id}
-          class="ml-auto rounded-md px-2.5 py-1 text-[11px] text-ink-muted transition-colors hover:text-coral"
-        >
-          Dispensar
-        </button>
-      </div>
-    </div>
     """
   end
 

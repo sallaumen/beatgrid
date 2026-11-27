@@ -276,6 +276,47 @@ defmodule BeatgridWeb.DashboardLiveTest do
     assert Repertoire.get_recommendation(rec.id).status == :new
   end
 
+  test "pending gaps prioritize version review while imported gaps keep their options in history",
+       %{
+         conn: conn
+       } do
+    insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB")
+
+    pending = insert(:recommendation, genre_folder: "mpb", source: :gaps, status: :new)
+    imported = insert(:recommendation, genre_folder: "mpb", source: :gaps, status: :imported)
+
+    {:ok, view, _html} = live(conn, ~p"/painel")
+    pending_row = "#gaps-pending #recommendation-#{pending.id}"
+    history_row = "#gaps-imported #recommendation-#{imported.id}"
+
+    assert has_element?(
+             view,
+             "#{pending_row} > [data-recommendation-actions] > a:first-child[href='/importados?recomendacao=#{pending.id}']",
+             "Conferir versões"
+           )
+
+    refute has_element?(view, "#{pending_row} details")
+    assert has_element?(view, "#{history_row}", "Importada")
+
+    assert has_element?(
+             view,
+             "#{history_row} details:not([open]) > summary",
+             "Opções da sugestão"
+           )
+
+    assert has_element?(
+             view,
+             "#{history_row} details a[href='/importados?recomendacao=#{imported.id}']",
+             "Conferir versões"
+           )
+
+    assert has_element?(view, "#{history_row} details a[target=_blank]", "Buscar no YouTube")
+    view |> element("#{history_row} details button[phx-click=dismiss_rec]") |> render_click()
+    assert Repertoire.get_recommendation(imported.id).status == :dismissed
+    refute has_element?(view, history_row)
+    assert has_element?(view, pending_row)
+  end
+
   test "Dispensar hides a gap and marks it dismissed", %{conn: conn} do
     insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB")
 
