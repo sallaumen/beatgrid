@@ -52,6 +52,62 @@ defmodule BeatgridWeb.DashboardLiveTest do
     assert html =~ "1970s"
   end
 
+  test "opens a genre's saved gaps directly from its distribution and keeps that scope in the URL",
+       %{conn: conn} do
+    insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB", sort_order: 1)
+    insert(:genre_folder, key: "roots", display_name: "Roots", dir_name: "Roots", sort_order: 2)
+    insert(:track, status: :present, genre_folder: "roots")
+
+    insert(:recommendation,
+      artist: "Elis Regina",
+      song: "Águas de Março",
+      genre_folder: "mpb",
+      source: :gaps,
+      status: :new
+    )
+
+    insert(:recommendation,
+      artist: "Trio Nordestino",
+      song: "Forró Pesado",
+      genre_folder: "roots",
+      source: :gaps,
+      status: :new
+    )
+
+    insert(:recommendation,
+      artist: "Luiz Gonzaga",
+      song: "Asa Branca",
+      genre_folder: "roots",
+      source: :gaps,
+      status: :imported
+    )
+
+    {:ok, view, _} = live(conn, ~p"/painel")
+
+    path = ~p"/painel?genero=roots" <> "#dashboard-gaps"
+
+    view
+    |> element("#dashboard-genres a[href='#{path}']", "Lacunas")
+    |> render_click()
+
+    assert_patch(view, ~p"/painel?genero=roots")
+    assert has_element?(view, "#gaps-scope", "Roots")
+    assert has_element?(view, "#gaps-pending", "Forró Pesado")
+    refute has_element?(view, "#gaps-pending", "Asa Branca")
+    assert has_element?(view, "#gaps-imported", "Asa Branca")
+    refute has_element?(view, "#gaps-pending", "Águas de Março")
+
+    view |> element("button[phx-value-folder=mpb]") |> render_click()
+    assert_patch(view, ~p"/painel?genero=mpb")
+    assert has_element?(view, "#gaps-pending", "Águas de Março")
+
+    # Back/forward or a fresh opening honours the folder encoded in the URL.
+    render_patch(view, ~p"/painel?genero=roots")
+    assert has_element?(view, "button[phx-value-folder=roots][aria-pressed=true]")
+    {:ok, reopened, _} = live(conn, ~p"/painel?genero=roots")
+    assert has_element?(reopened, "#gaps-pending", "Forró Pesado")
+  end
+
   test "offline tempo appears on mount and refreshes while repertoire is open", %{conn: conn} do
     for bpm <- [114.8, 115.0, 118.0], do: insert(:track, bpm_detected: bpm)
     track = insert(:track)
@@ -132,9 +188,13 @@ defmodule BeatgridWeb.DashboardLiveTest do
   test "completion and failure for another folder do not interrupt the current search", %{
     conn: conn
   } do
-    insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB")
+    insert(:genre_folder, key: "mpb", display_name: "MPB", dir_name: "MPB", sort_order: 1)
+    insert(:genre_folder, key: "roots", display_name: "Roots", dir_name: "Roots", sort_order: 2)
+    insert(:track, status: :present, genre_folder: "roots")
     {:ok, view, _html} = live(conn, ~p"/painel")
     view |> element("button[phx-click=fetch_gaps]") |> render_click()
+
+    insert(:recommendation, genre_folder: "roots", source: :gaps, status: :new)
 
     for status <- [:done, :error] do
       Repertoire.broadcast_recommend(%{
@@ -148,6 +208,18 @@ defmodule BeatgridWeb.DashboardLiveTest do
       assert has_element?(view, "button[phx-click=fetch_gaps][disabled]", "Gerando")
       refute has_element?(view, "#flash-error")
     end
+
+    assert has_element?(
+             view,
+             "#dashboard-genres a[aria-label='Lacunas de Roots: 1 sugestão salva']"
+           )
+
+    assert has_element?(
+             view,
+             "button[phx-value-folder=roots][aria-label='Roots: 1 sugestão salva']"
+           )
+
+    assert has_element?(view, "button[phx-value-folder=mpb][aria-pressed=true]")
 
     Repertoire.broadcast_recommend(%{
       scope: "folder",
