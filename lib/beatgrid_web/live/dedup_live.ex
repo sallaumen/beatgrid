@@ -178,18 +178,17 @@ defmodule BeatgridWeb.DedupLive do
 
   defp present_str(_), do: nil
 
-  # A compact mono "quality + placement" line for a member row, joined with " · ".
-  defp quality_line(track) do
+  # Keep each measurement on the same grid across members so different copies
+  # can be compared without searching a varying string of dot-separated values.
+  defp quality_fields(track) do
     [
-      bitrate_part(track.bitrate_kbps),
-      duration_part(track.duration_ms),
-      format_part(track.format),
-      placement_part(track),
-      resolved_part(track),
-      rating_part(track.rating)
+      {"Bitrate", bitrate_part(track.bitrate_kbps)},
+      {"Duração", duration_part(track.duration_ms)},
+      {"Formato", format_part(track.format)},
+      {"Pasta", placement_part(track)},
+      {"Metadados", resolved_part(track)},
+      {"Nota", track.rating}
     ]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join(" · ")
   end
 
   defp bitrate_part(kbps) when is_integer(kbps) and kbps > 0, do: "#{kbps} kbps"
@@ -214,14 +213,11 @@ defmodule BeatgridWeb.DedupLive do
   defp resolved_part(%{soundcharts_song_id: id}) when not is_nil(id), do: "resolvida"
   defp resolved_part(_), do: "sem match"
 
-  defp rating_part(n) when is_integer(n), do: "nota #{n}"
-  defp rating_part(_), do: nil
-
   @impl true
   def render(assigns) do
     ~H"""
     <.app_shell flash={@flash} active={:dedup} socket={@socket}>
-      <div class="flex h-[calc(100vh_-_5rem)] flex-col">
+      <div class="flex min-w-0 flex-col">
         <header class="flex flex-wrap items-center justify-between gap-4 border-b border-white/6 bg-rail px-5 py-3">
           <div class="flex items-baseline gap-3">
             <h1 class="text-[22px] font-semibold">Duplicatas</h1>
@@ -230,7 +226,7 @@ defmodule BeatgridWeb.DedupLive do
           <button
             phx-click="scan"
             disabled={@scanning?}
-            class="flex items-center gap-2 rounded-md bg-primary-deep px-3.5 py-1.5 text-body-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            class="flex items-center gap-2 rounded-md bg-primary-deep px-3 py-2 text-body font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
             <span
               :if={@scanning?}
@@ -244,10 +240,10 @@ defmodule BeatgridWeb.DedupLive do
 
         <.undo_toast :if={@undo} undo={@undo} />
 
-        <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          <div class="mb-4 flex flex-wrap items-center justify-between gap-2 text-body-sm">
+        <div class="mx-auto w-full max-w-[1600px] px-4 py-4 sm:px-5">
+          <div class="mb-4 flex flex-wrap items-center justify-between gap-2 text-body">
             <p class="text-ink-muted">
-              Compare as gravações do mesmo artista e título antes de escolher qual cópia manter.
+              Compare os arquivos, artista e título de cada gravação antes de escolher qual cópia manter.
             </p>
             <.link navigate={~p"/resgate" <> "#quarentena"} class="text-primary hover:underline">
               Recuperar cópias da quarentena
@@ -260,10 +256,23 @@ defmodule BeatgridWeb.DedupLive do
 
           <div
             :if={@groups == []}
-            class="flex flex-col items-center justify-center gap-2 py-24 text-center"
+            class="flex items-start gap-3 rounded-xl border border-white/8 bg-surface px-4 py-5"
+            role="status"
           >
-            <span class="hero-document-duplicate size-10 text-ink-disabled" />
-            <p class="text-ink-muted">Nenhuma duplicata pendente.</p>
+            <.icon
+              name={if @scanning?, do: "hero-magnifying-glass", else: "hero-check-circle"}
+              class="size-6 shrink-0 text-ink-muted"
+            />
+            <div>
+              <p class="text-body-lg font-semibold text-ink">
+                {if @scanning?, do: "Busca em andamento", else: "Nenhuma duplicata pendente."}
+              </p>
+              <p class="mt-1 text-body text-ink-muted">
+                {if @scanning?,
+                  do: "Os grupos aparecem ao concluir a busca.",
+                  else: "Use Procurar duplicatas para conferir a biblioteca novamente."}
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -288,23 +297,36 @@ defmodule BeatgridWeb.DedupLive do
       )
 
     ~H"""
-    <div class="rounded-xl border border-white/8 bg-surface">
-      <div class="flex items-center gap-2.5 border-b border-white/6 px-4 py-2.5">
-        <span
-          class="bg-token-chip inline-flex items-center rounded-xs px-[7px] py-[2px] text-[9.5px] font-bold uppercase tracking-wide"
-          style={"--c:#{match_color(@group.match_type)}"}
-        >
-          {match_label(@group.match_type)}
-        </span>
-        <span class="truncate font-mono text-caption text-ink-muted" title={@group.signature}>
-          {@group.signature}
-        </span>
-        <span class="ml-auto font-mono text-[11px] text-ink-faint">
-          {length(@members)} cópias
-        </span>
-      </div>
+    <article
+      aria-labelledby={"group-#{@group.id}"}
+      class="overflow-hidden rounded-xl border border-white/8 bg-surface"
+    >
+      <header class="border-b border-white/6 px-4 py-3">
+        <div class="flex flex-wrap items-center gap-2">
+          <h2
+            id={"group-#{@group.id}"}
+            class="min-w-0 break-words text-body-lg font-semibold text-ink"
+          >
+            {@group_label}
+          </h2>
+          <span
+            class="bg-token-chip inline-flex items-center rounded-xs px-[7px] py-[2px] text-[9.5px] font-bold uppercase tracking-wide"
+            style={"--c:#{match_color(@group.match_type)}"}
+          >
+            {match_label(@group.match_type)}
+          </span>
+          <span class="ml-auto shrink-0 font-mono text-body-sm text-ink-muted">
+            {length(@members)} cópias
+          </span>
+        </div>
+        <p class="mt-1 break-all font-mono text-caption text-ink-muted">{@group.signature}</p>
+      </header>
 
-      <div class="divide-y divide-white/6">
+      <div
+        role="radiogroup"
+        aria-label={"Cópia a manter — #{@group_label}"}
+        class="divide-y divide-white/6"
+      >
         <.member_row
           :for={member <- @members}
           group_id={@group.id}
@@ -316,25 +338,31 @@ defmodule BeatgridWeb.DedupLive do
         />
       </div>
 
-      <div class="flex flex-wrap items-center justify-end gap-2 border-t border-white/6 px-4 py-3">
+      <footer class="flex flex-wrap items-center justify-end gap-2 border-t border-white/6 px-4 py-3">
+        <p class="mr-auto text-body text-ink-secondary">
+          <span class="font-mono text-green">{length(@members) - @quarantine_count}</span>
+          serão mantidas <span class="mx-1.5 text-ink-muted">·</span>
+          <span class="font-mono text-amber">{@quarantine_count}</span>
+          para quarentena
+        </p>
         <button
           phx-click="ignore"
           phx-value-group={@group.id}
           aria-label={"Manter todas as cópias — #{@group_label}"}
-          class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm text-ink-secondary hover:text-ink"
+          class="rounded-md border border-white/10 bg-input px-3 py-2 text-body text-ink-secondary hover:text-ink"
         >
           Manter todas as cópias
         </button>
         <button
           phx-click="resolve"
           phx-value-group={@group.id}
-          aria-label={"Manter selecionada e mover #{@quarantine_count} para a quarentena — #{@group_label}"}
-          class="rounded-md bg-green px-3.5 py-1.5 text-body-sm font-semibold text-[#0b0c10] hover:bg-green/90"
+          aria-label={"#{resolve_label(@quarantine_count)} — #{@group_label}"}
+          class="rounded-md bg-green px-3 py-2 text-body font-semibold text-[#0b0c10] hover:bg-green/90"
         >
-          Manter selecionada e mover {@quarantine_count} para a quarentena
+          {resolve_label(@quarantine_count)}
         </button>
-      </div>
-    </div>
+      </footer>
+    </article>
     """
   end
 
@@ -348,34 +376,13 @@ defmodule BeatgridWeb.DedupLive do
     assigns = assign(assigns, artist: artist, title: title)
 
     ~H"""
-    <div class={[
-      "flex items-center gap-3 px-4 py-3 transition-colors",
-      @chosen && "bg-green/8",
-      !@chosen && "opacity-70 hover:opacity-100"
-    ]}>
-      <label
-        class="flex cursor-pointer items-center justify-center"
-        title="Escolher cópia para manter"
-      >
-        <input
-          type="radio"
-          name={"keeper-#{@group_id}"}
-          phx-click="pick_keeper"
-          phx-value-group={@group_id}
-          phx-value-track={@member.track_id}
-          checked={@chosen}
-          aria-label={"Escolher cópia para manter: #{@member.track.filename}"}
-          class="sr-only"
-        />
-        <span class={[
-          "flex size-[18px] shrink-0 items-center justify-center rounded-full border transition-colors",
-          @chosen && "border-green bg-green",
-          !@chosen && "border-white/25"
-        ]}>
-          <span :if={@chosen} class="size-2 rounded-full bg-base" />
-        </span>
-      </label>
-
+    <div
+      id={"copy-#{@member.track_id}"}
+      class={[
+        "grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-3 px-4 py-3 lg:grid-cols-[auto_minmax(0,1.25fr)_minmax(0,1fr)_minmax(9rem,auto)]",
+        @chosen && "bg-green/5"
+      ]}
+    >
       <.cover_play
         src={cover_src(@member.track)}
         artist={@artist}
@@ -384,46 +391,80 @@ defmodule BeatgridWeb.DedupLive do
         track_id={@member.track.id}
       />
 
-      <div class="min-w-0 flex-1">
+      <div class="min-w-0">
         <.link
           navigate={~p"/track/#{@member.track.id}"}
-          class="block truncate text-body font-medium text-ink hover:text-primary hover:underline"
+          class="block break-words text-body-lg font-semibold text-ink hover:text-primary hover:underline"
         >
-          <span class="text-ink-muted">{@artist}</span>
-          <span class="text-ink-faint">—</span>
           {@title}
         </.link>
-        <p class="truncate font-mono text-[11px] text-ink-faint">{quality_line(@member.track)}</p>
+        <p class="break-words text-body text-ink-secondary">{@artist}</p>
+        <p class="mt-1 break-words font-mono text-body-sm text-ink-muted [overflow-wrap:anywhere]">
+          {@member.track.rel_path}
+        </p>
       </div>
 
-      <span
-        :if={@chosen}
-        class="shrink-0 rounded-sm bg-green/15 px-2 py-[3px] text-[10px] font-semibold text-green"
-      >
-        manter
-      </span>
-      <span
-        :if={!@chosen and @different?}
-        class="shrink-0 rounded-sm bg-primary/15 px-2 py-[3px] text-[10px] font-semibold text-primary"
-        title="ISRC diferente — gravação/versão distinta, será mantida"
-      >
-        versão diferente
-      </span>
-      <span
-        :if={!@chosen and not @different?}
-        class="shrink-0 rounded-sm bg-amber/12 px-2 py-[3px] text-[10px] font-semibold text-amber"
-      >
-        → quarentena
-      </span>
+      <dl class="col-span-2 grid min-w-0 grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3 lg:col-span-1">
+        <div :for={{label, value} <- quality_fields(@member.track)} class="min-w-0">
+          <dt class="text-caption text-ink-muted">{label}</dt>
+          <dd class="break-words font-mono text-body font-medium text-ink-secondary">
+            {value || "—"}
+          </dd>
+        </div>
+      </dl>
+
+      <div class="col-span-2 min-w-0 lg:col-span-1">
+        <label class={[
+          "flex min-h-10 cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-body font-medium",
+          @chosen && "border-green/40 bg-green/10 text-green",
+          !@chosen && "border-white/10 bg-input text-ink-secondary hover:text-ink"
+        ]}>
+          <input
+            type="radio"
+            name={"keeper-#{@group_id}"}
+            phx-click="pick_keeper"
+            phx-value-group={@group_id}
+            phx-value-track={@member.track_id}
+            checked={@chosen}
+            aria-label={"Escolher cópia para manter: #{@member.track.filename}"}
+            class="size-4 shrink-0 accent-green"
+          />
+          {if @chosen, do: "Cópia selecionada", else: "Escolher cópia"}
+        </label>
+        <p class={[
+          "mt-1.5 text-body-sm font-medium",
+          @chosen && "text-green",
+          !@chosen && @different? && "text-ink-secondary",
+          !@chosen && !@different? && "text-amber"
+        ]}>
+          {copy_outcome(@chosen, @different?)}
+        </p>
+      </div>
     </div>
     """
   end
+
+  defp copy_outcome(true, _different?), do: "Fica na biblioteca"
+  defp copy_outcome(false, true), do: "Manter · ISRC diferente"
+  defp copy_outcome(false, false), do: "Vai para a quarentena"
+
+  defp resolve_label(0), do: "Confirmar seleção"
+  defp resolve_label(count), do: "Manter selecionada e mover #{count} para a quarentena"
 
   attr :undo, :any, required: true
 
   defp undo_toast(assigns) do
     ~H"""
-    <div class="flex items-center justify-between gap-4 border-b border-green/30 bg-green/10 px-5 py-2.5">
+    <div
+      role="status"
+      class={[
+        "flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3",
+        if(match?({:error, _}, @undo),
+          do: "border-coral/30 bg-coral/10",
+          else: "border-green/30 bg-green/10"
+        )
+      ]}
+    >
       <p class="text-body-sm text-ink">{undo_message(@undo)}</p>
       <div class="flex items-center gap-3">
         <button
