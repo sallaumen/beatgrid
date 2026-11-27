@@ -2728,6 +2728,47 @@ test("a manual echo after arming keeps the heard blend saved until the tail clea
   assert.equal(engine.confirmPassage().ok, true)
 })
 
+for (const [to, vinyl] of [["a", true], ["b", false]]) {
+  test(`SYNC changes a playing decoded deck in place with vinyl=${vinyl}`, t => {
+    const {engine} = booth(t)
+    const from = to === "a" ? "b" : "a"
+    engine.stopAll()
+    engine.loadDeck(from, {id: "reference", src: "reference", bpm: 112.5}, {autoplay: true})
+    engine.loadDeck(to, {id: "receiver", src: "receiver", bpm: 120})
+    engine.setVinylMode(to, vinyl)
+    const deck = engine.decks[to]
+    deck.play(2750)
+    const sr = engine.ctx.sampleRate
+    engine.ctx.createBuffer = (channels, length) => {
+      const data = Array.from({length: channels}, () => new Float32Array(length))
+      return {numberOfChannels: channels, sampleRate: sr, length, duration: length / sr, getChannelData: i => data[i]}
+    }
+    deck.playDecoded(engine.ctx.createBuffer(2, 6 * sr), 2.75)
+    engine.ctx.currentTime += .2
+    const before = deck.platterTime(), recording = deck.entry
+    assert.ok(engine.sync(to))
+    assert.equal(deck.entry, recording)
+    assert.equal(deck.platterTime(), before)
+    assert.equal(deck.mediaGain.gain.value, 0)
+    engine.ctx.currentTime += .1
+    assert.equal(deck.playbackRate, .9375)
+    assert.ok(Math.abs(deck.platterTime() - before - .09375) <= .00201)
+    assert.equal(deck.el.currentTime, 2.75)
+    assert.equal(deck.el.playbackRate, .9375)
+  })
+}
+
+test("repeated SYNC does not restart a native decoder at the current pitch and tempo", t => {
+  const {engine, b, hint} = booth(t)
+  hint(null)
+  engine.setVinylMode("b", false)
+  for (const [key, expected] of [["playbackRate", 1], ["preservesPitch", true]]) {
+    Object.defineProperty(b, key, {configurable: true, get: () => expected,
+      set: () => assert.fail("unchanged native control was written: " + key)})
+  }
+  assert.ok(engine.sync("b"))
+})
+
 test("SYNC keeps the rehearsed recording when the effective tempo already matches", async t => {
   const rig = booth(t)
   const {engine, a, b, tick} = rig
@@ -2748,7 +2789,9 @@ test("SYNC keeps the rehearsed recording when the effective tempo already matche
   assert.equal(deck.positionMs(), 3500)
 
   engine.decks.a.bpm = 126
+  engine.ctx.createBuffer = t.mock.fn(() => { throw Error("tempo buffer refused") })
   assert.ok(engine.sync("b"))
+  assert.ok(engine.ctx.createBuffer.mock.callCount() > 0)
   assert.equal(deck.entry, null)
   assert.equal(deck.mediaGain.gain.value, 1)
   assert.equal(b.currentTime, 3.5)

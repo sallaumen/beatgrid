@@ -388,12 +388,11 @@ class Deck {
   syncTo(targetBpm) {
     if (!this.bpm || !targetBpm) return false
     const rate = targetBpm / this.bpm
-    const previous = this.baseRate
-    this.baseRate = syncedRate(previous, this.bpm, targetBpm)
-    if (this.entry && previous === this.baseRate) this.entry.nudge(this.baseRate)
-    else this.useMedia()
-    this.el.preservesPitch = !this.vinylMode
-    this.el.playbackRate = this.baseRate
+    this.baseRate = syncedRate(this.baseRate, this.bpm, targetBpm)
+    // Keep the audible platter. A refused PCM allocation returns its head to media.
+    this.entry?.nudge(this.baseRate)
+    if (this.el.preservesPitch !== !this.vinylMode) this.el.preservesPitch = !this.vinylMode
+    if (this.el.playbackRate !== this.baseRate) this.el.playbackRate = this.baseRate
     return Math.abs(this.baseRate - rate) < 1e-9
   }
 
