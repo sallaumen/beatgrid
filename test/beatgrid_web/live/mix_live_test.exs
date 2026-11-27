@@ -250,15 +250,18 @@ defmodule BeatgridWeb.MixLiveTest do
       source: :image
     )
 
-    {:ok, _v, html} = live(conn, ~p"/sets-online/#{mix.id}")
+    {:ok, view, html} = live(conn, ~p"/sets-online/#{mix.id}")
     assert html =~ "Na biblioteca" and html =~ "50%"
     assert html =~ "DJ A" and html =~ "via OCR"
+    assert has_element?(view, "#mix-coverage", "50%")
+    assert has_element?(view, "#mix-timeline [data-segment-marker]")
   end
 
   test "analyze_all button enqueues the free pipeline", %{conn: conn} do
     mix = insert(:mix, status: :ready, audio_path: "/tmp/_Mixes/x.mp3")
     insert(:mix_segment, mix: mix, position: 0, start_ms: 0, end_ms: 60_000)
     {:ok, view, _} = live(conn, ~p"/sets-online/#{mix.id}")
+    assert has_element?(view, "button[phx-click=analyze_all][data-confirm*='substituir']")
     view |> element("button[phx-click=analyze_all]") |> render_click()
 
     assert_enqueued(
@@ -524,7 +527,10 @@ defmodule BeatgridWeb.MixLiveTest do
     test "links to the finished cut in the library", %{conn: conn} do
       mix = insert(:mix, status: :ready)
       track = insert(:track, status: :present)
+      seg = insert(:mix_segment, mix: mix, position: 0, start_ms: 0, end_ms: 60_000)
       {:ok, view, _html} = live(conn, ~p"/sets-online/#{mix.id}")
+
+      assert {:ok, _} = Beatgrid.Mixes.update_segment(seg, %{matched_track_id: track.id})
 
       send(
         view.pid,
@@ -532,6 +538,7 @@ defmodule BeatgridWeb.MixLiveTest do
       )
 
       assert has_element?(view, "a[href='/track/#{track.id}']", "Abrir faixa do recorte")
+      assert has_element?(view, "#mix-coverage", "100%")
     end
 
     @tag :tmp_dir
@@ -565,6 +572,9 @@ defmodule BeatgridWeb.MixLiveTest do
       assert html =~ ~s(value="Perdida")
       # the preview window starts 15s before the cut (the mark buttons' origin)
       assert html =~ ~s(data-window-start="28000")
+      assert has_element?(view, "#recorte-preview button[data-recorte-copy]")
+      assert has_element?(view, "#recorte-editor button[phx-click=close_recorte]")
+      assert has_element?(view, "button[phx-value-segment='#{seg.id}'][data-confirm]")
 
       html =
         view
