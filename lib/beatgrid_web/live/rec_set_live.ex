@@ -226,7 +226,7 @@ defmodule BeatgridWeb.RecSetLive do
         {:noreply, missing_set(socket)}
 
       {:error, _reason} ->
-        {:noreply, put_flash(socket, :error, "Não foi possível salvar o estilo.")}
+        {:noreply, put_flash(socket, :error, "Não foi possível alterar o estilo-alvo.")}
     end
   end
 
@@ -367,16 +367,32 @@ defmodule BeatgridWeb.RecSetLive do
     {:noreply, socket |> assign(active_section: blank_to_nil(role)) |> assign_candidates()}
   end
 
+  def handle_event("fill", _params, %{assigns: %{set: nil}} = socket),
+    do: {:noreply, missing_set(socket)}
+
   def handle_event("fill", %{"role" => role, "count" => count}, socket) do
     n = to_count(count)
     opts = console_opts(%{socket.assigns | active_section: blank_to_nil(role)})
 
-    case blank_to_nil(role) do
-      nil -> Sets.auto_fill(socket.assigns.set, Keyword.put(opts, :count, n))
-      r -> Sets.fill_section(socket.assigns.set, r, n, opts)
-    end
+    result =
+      case blank_to_nil(role) do
+        nil -> Sets.auto_fill(socket.assigns.set, Keyword.put(opts, :count, n))
+        r -> Sets.fill_section(socket.assigns.set, r, n, opts)
+      end
 
-    {:noreply, reload(socket)}
+    case result do
+      {:ok, _set} ->
+        {:noreply, reload(socket)}
+
+      {:error, %Beatgrid.Error{code: :set_not_found}} ->
+        {:noreply, missing_set(socket)}
+
+      {:error, _reason} ->
+        {:noreply,
+         socket
+         |> reload()
+         |> put_flash(:error, "Não foi possível preencher a seção. O set ficou como estava.")}
+    end
   end
 
   # Picking a preset pre-fills the studio controls (its allowed/excluded styles +
@@ -547,15 +563,21 @@ defmodule BeatgridWeb.RecSetLive do
       {:error, %Beatgrid.Error{code: :set_not_found}} ->
         missing_set(socket)
 
-      {:error, changeset} ->
-        {_message, validation} = Keyword.fetch!(changeset.errors, :name)
+      {:error, %Ecto.Changeset{} = changeset} ->
+        assign(socket, name_input: name, name_error: name_error(changeset))
+    end
+  end
 
-        error =
-          if validation[:count],
-            do: "Use até #{validation[:count]} caracteres no nome do set.",
-            else: "Informe um nome para o set."
+  defp name_error(%Ecto.Changeset{errors: errors}) do
+    case Keyword.fetch(errors, :name) do
+      {:ok, {_message, validation}} ->
+        case validation[:count] do
+          nil -> "Informe um nome para o set."
+          max -> "Use até #{max} caracteres no nome do set."
+        end
 
-        assign(socket, name_input: name, name_error: error)
+      :error ->
+        "Não foi possível salvar o nome do set."
     end
   end
 

@@ -45,6 +45,43 @@ defmodule Beatgrid.Playback.NowPlayingTest do
     assert NowPlaying.get() == %{track_id: nil, set_id: nil}
   end
 
+  test "detaching a set updates the current owner's matching pointer only" do
+    pointer = %{track_id: "t1", set_id: "s1"}
+    NowPlaying.put(pointer)
+    NowPlaying.subscribe()
+
+    assert :ok = NowPlaying.detach_set("s2", "t1")
+    assert :ok = NowPlaying.detach_set("s1", "t2")
+    assert NowPlaying.get() == pointer
+    refute_receive {:now_playing, _}, 50
+
+    assert :ok = NowPlaying.detach_set("s1", "t1")
+    assert NowPlaying.get() == %{track_id: "t1", set_id: nil}
+    assert_receive {:now_playing, %{track_id: "t1", set_id: nil}}
+  end
+
+  test "a previous owner cannot detach an identical pointer claimed by another player" do
+    pointer = %{track_id: "t1", set_id: "s1"}
+    NowPlaying.put(pointer)
+    parent = self()
+
+    owner =
+      spawn(fn ->
+        NowPlaying.put(pointer)
+        send(parent, :claimed)
+
+        receive do
+          :stop -> :ok
+        end
+      end)
+
+    on_exit(fn -> send(owner, :stop) end)
+    assert_receive :claimed
+
+    assert :ok = NowPlaying.detach_set("s1", "t1")
+    assert NowPlaying.get() == pointer
+  end
+
   test "clear resets the pointer and broadcasts the empty state" do
     NowPlaying.put(%{track_id: "t3", set_id: "s3"})
     NowPlaying.subscribe()

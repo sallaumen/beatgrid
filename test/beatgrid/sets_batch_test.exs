@@ -119,6 +119,39 @@ defmodule Beatgrid.SetsBatchTest do
   end
 
   describe "stale membership" do
+    test "filling a deleted set returns a domain error without announcing a fill" do
+      candidate = rankable_track(1)
+      deleted = filled_set([])
+      remaining = filled_set([])
+      {:ok, _} = Sets.delete(deleted)
+      Sets.subscribe_set(deleted.id)
+
+      assert {:error, %Beatgrid.Error{code: :set_not_found}} = Sets.auto_fill(deleted, count: 1)
+
+      assert {:error, %Beatgrid.Error{code: :set_not_found}} =
+               Sets.fill_section(deleted, "pico", 1)
+
+      assert Sets.list() |> Enum.map(& &1.id) == [remaining.id]
+      assert Sets.entries(remaining) == []
+      assert Tracks.get(candidate.id)
+      refute_receive {:set_changed, _id}, 100
+    end
+
+    test "a live set with no candidates still completes either fill without changing its entries" do
+      set = filled_set([])
+      Sets.subscribe_set(set.id)
+
+      assert {:ok, %{id: id}} = Sets.auto_fill(set, count: 1)
+      assert id == set.id
+      assert_receive {:set_changed, ^id}, 500
+      refute_receive {:set_changed, ^id}, 100
+
+      assert {:ok, %{id: ^id}} = Sets.fill_section(set, "pico", 1)
+      assert_receive {:set_changed, ^id}, 500
+      refute_receive {:set_changed, ^id}, 100
+      assert Sets.entries(set) == []
+    end
+
     test "send to bottom uses the actual order even after library deletions leave holes" do
       [a, b, c, d, e] = for n <- 1..5, do: rankable_track(n)
       set = filled_set([a, b, c, d, e])

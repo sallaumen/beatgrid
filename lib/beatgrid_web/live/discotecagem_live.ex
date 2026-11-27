@@ -132,6 +132,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
            deck: "a",
            track: track_payload(first.track),
            autoplay: true,
+           set_id: set.id,
            at_ms: 0
          })
          |> push_hint(Sets.entry_after(set.id, first.track.id))}
@@ -357,6 +358,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
            deck: other_deck(deck),
            track: track_payload(next.track),
            autoplay: true,
+           set_id: set.id,
            at_ms: transition_to_ms(next.transition)
          })}
 
@@ -436,9 +438,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
   defp clear_selected_set(socket) do
     %{set: set, playing?: playing?, pointer_id: track_id} = socket.assigns
 
-    if playing? and not is_nil(set) and
-         Playback.now_playing() == %{set_id: set.id, track_id: track_id} do
-      Playback.set_now_playing(%{set_id: nil, track_id: track_id})
+    if playing? and not is_nil(set) do
+      Playback.detach_now_playing_set(set.id, track_id)
     end
 
     socket
@@ -1545,6 +1546,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             window.__djEngine = this.engine
 
             this.handleEvent("dj_load", (payload) => {
+              if (payload.autoplay && payload.set_id !== this.setId) return
               if (!this.applyLoad(payload)) {
                 // Deck ainda audível (ex.: soltando a rampa de uma transição
                 // quando o entrante deu erro): a carga fica na fila e entra
@@ -1559,6 +1561,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
             })
             this.handleEvent("dj_set", ({id}) => {
               this.setId = id
+              if (this.pendingLoad?.autoplay && this.pendingLoad.set_id !== id) {
+                this.pendingLoad = null
+              }
             })
             this.handleEvent("dj_markers", ({track_id, markers}) => {
               for (const request of [this.pendingLoad, this.pendingHint, this.hint]) {
@@ -2016,7 +2021,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
           },
 
           retryPendingLoad() {
-            if (this.pendingLoad) this.applyLoad(this.pendingLoad)
+            const pending = this.pendingLoad
+            if (!pending) return
+            if (pending.autoplay && pending.set_id !== this.setId) {
+              this.pendingLoad = null
+              return
+            }
+            this.applyLoad(pending)
           },
 
           clearDeckStatics(d) {

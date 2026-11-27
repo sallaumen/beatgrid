@@ -431,17 +431,19 @@ defmodule Beatgrid.Sets do
   @spec append_quiet(RecSet.t(), Library.Track.t(), String.t() | nil, map() | nil) ::
           {:ok, SetTrack.t()} | {:error, term()}
   def append_quiet(%RecSet{id: id}, track, role \\ nil, transition \\ nil) do
-    with_locked_set(id, fn _set ->
-      %SetTrack{}
-      |> SetTrack.changeset(%{
-        rec_set_id: id,
-        track_id: track.id,
-        position: RecSetQuery.max_position(id) + 1,
-        role: role,
-        transition: transition
-      })
-      |> Repo.insert(on_conflict: :nothing, conflict_target: [:rec_set_id, :track_id])
-    end)
+    with_locked_set(id, fn _set -> append_locked(id, track, role, transition) end)
+  end
+
+  defp append_locked(id, track, role, transition) do
+    %SetTrack{}
+    |> SetTrack.changeset(%{
+      rec_set_id: id,
+      track_id: track.id,
+      position: RecSetQuery.max_position(id) + 1,
+      role: role,
+      transition: transition
+    })
+    |> Repo.insert(on_conflict: :nothing, conflict_target: [:rec_set_id, :track_id])
   end
 
   @doc "Removes every track from the set. Returns the set."
@@ -815,11 +817,10 @@ defmodule Beatgrid.Sets do
   end
 
   @doc "Greedily appends up to `:count` (default 8) compatible tracks (style + harmony)."
-  @spec auto_fill(RecSet.t(), keyword()) :: {:ok, RecSet.t()}
-  def auto_fill(%RecSet{} = set, opts \\ []) do
-    filled = greedy_fill(set, Keyword.get(opts, :count, 8), nil, opts)
-    broadcast_set_changed(set.id)
-    {:ok, filled}
+  @spec auto_fill(RecSet.t(), keyword()) ::
+          {:ok, RecSet.t()} | {:error, Ecto.Changeset.t() | Error.t()}
+  def auto_fill(%RecSet{id: id}, opts \\ []) do
+    fill_batch(id, Keyword.get(opts, :count, 8), nil, opts)
   end
 
   @doc """
@@ -827,19 +828,23 @@ defmodule Beatgrid.Sets do
   chained from the last track and anchored on the set's style. Each appended track
   is tagged with `role`. Stops early if no candidate remains.
   """
-  @spec fill_section(RecSet.t(), String.t(), pos_integer(), keyword()) :: {:ok, RecSet.t()}
-  def fill_section(%RecSet{} = set, role, count, opts \\ [])
+  @spec fill_section(RecSet.t(), String.t(), pos_integer(), keyword()) ::
+          {:ok, RecSet.t()} | {:error, Ecto.Changeset.t() | Error.t()}
+  def fill_section(%RecSet{id: id}, role, count, opts \\ [])
       when is_integer(count) and count > 0 do
-    filled =
-      greedy_fill(
-        set,
-        count,
-        role,
-        Keyword.put(opts, :target_intensity, Mixing.target_intensity(role))
-      )
+    fill_batch(
+      id,
+      count,
+      role,
+      Keyword.put(opts, :target_intensity, Mixing.target_intensity(role))
+    )
+  end
 
-    broadcast_set_changed(set.id)
-    {:ok, filled}
+  defp fill_batch(id, count, role, opts) do
+    with {:ok, filled} <- with_locked_set(id, &greedy_fill(&1, count, role, opts)) do
+      broadcast_set_changed(id)
+      {:ok, filled}
+    end
   end
 
   @doc "Configurable long-set planning presets read by the set-builder UI."
@@ -927,16 +932,17 @@ defmodule Beatgrid.Sets do
     {:ok, set}
   end
 
-  defp greedy_fill(set, count, _role, _opts) when count <= 0, do: set
+  defp greedy_fill(set, count, _role, _opts) when count <= 0, do: {:ok, set}
 
   defp greedy_fill(set, count, role, opts) do
     case next_candidates(set, Keyword.put(opts, :limit, 1)) do
       [%{track: next} | _] ->
-        {:ok, _} = append_quiet(set, next, role)
-        greedy_fill(set, count - 1, role, opts)
+        with {:ok, _} <- append_locked(set.id, next, role, nil) do
+          greedy_fill(set, count - 1, role, opts)
+        end
 
       [] ->
-        set
+        {:ok, set}
     end
   end
 

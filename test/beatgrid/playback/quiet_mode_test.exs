@@ -93,6 +93,41 @@ defmodule Beatgrid.Playback.QuietModeTest do
     refute QuietMode.active?(server)
   end
 
+  test "the Oban controller pauses and resumes after a player exits without a sandbox owner" do
+    server = __MODULE__.RealControllerServer
+
+    start_supervised!(
+      Supervisor.child_spec(
+        {QuietMode, name: server, controller: QuietMode.ObanController, scope: :all},
+        id: server
+      )
+    )
+
+    :ok = Oban.Notifier.listen(:signal)
+    caller = self()
+
+    {owner, ref} =
+      spawn_monitor(fn ->
+        send(caller, {:activated, QuietMode.activate(server)})
+
+        receive do
+          :close -> :ok
+        end
+      end)
+
+    on_exit(fn -> send(owner, :close) end)
+
+    assert_receive {:activated, :ok}
+    assert_receive {:notification, :signal, %{"action" => "pause", "queue" => "*"}}
+    assert QuietMode.active?(server)
+
+    send(owner, :close)
+
+    assert_receive {:DOWN, ^ref, :process, ^owner, :normal}
+    assert_receive {:notification, :signal, %{"action" => "resume", "queue" => "*"}}
+    refute QuietMode.active?(server)
+  end
+
   defp forever(fun) do
     fun.()
     Process.sleep(:infinity)

@@ -1,5 +1,6 @@
 defmodule BeatgridWeb.DiscotecagemLiveTest do
-  use BeatgridWeb.ConnCase, async: true
+  # The console reports a shared process-owned now-playing pointer.
+  use BeatgridWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
   import Beatgrid.Factory
@@ -164,6 +165,42 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     refute has_element?(view, "#dj-preflight")
     refute has_element?(view, "#dj-set-picker option[value='#{set.id}']")
     assert Playback.now_playing() == %{track_id: a.id, set_id: nil}
+  end
+
+  test "deselecting the set does not take the identical pointer back from another player",
+       %{conn: conn} do
+    {set, [track]} = set_with_tracks([{"Baião", 112.0}])
+    view = open_console(conn, set)
+    render_click(view, "play_set")
+
+    pointer = %{track_id: track.id, set_id: set.id}
+    Playback.set_now_playing(pointer)
+
+    view |> form("#dj-set-picker", %{set_id: ""}) |> render_change()
+    assert_push_event(view, "dj_set", %{id: nil})
+    assert Playback.now_playing() == pointer
+  end
+
+  test "automatic recovery loads belong to the selected set, not a later queue",
+       %{conn: conn} do
+    {set, [first, next]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}])
+    view = open_console(conn, set)
+    set_id = set.id
+    next_id = next.id
+    render_click(view, "play_set")
+    assert_push_event(view, "dj_load", %{deck: "a", autoplay: true, set_id: ^set_id})
+
+    render_hook(view, "deck_error", %{"deck" => "a", "track_id" => first.id})
+
+    assert_push_event(view, "dj_load", %{
+      deck: "b",
+      autoplay: true,
+      set_id: ^set_id,
+      track: %{id: ^next_id}
+    })
+
+    view |> form("#dj-set-picker", %{set_id: ""}) |> render_change()
+    assert_push_event(view, "dj_set", %{id: nil})
   end
 
   test "checking a set reports missing audio and the report can be dismissed", %{conn: conn} do
