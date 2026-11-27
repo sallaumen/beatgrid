@@ -116,6 +116,18 @@ defmodule BeatgridWeb.LibraryLive do
     {:noreply, socket |> assign(filters: filters) |> load_tracks()}
   end
 
+  def handle_event("remove_filter", %{"filter" => group}, socket) do
+    case Enum.find(active_filter_items(socket.assigns.filters, socket.assigns.folders), fn
+           {key, _, _} -> key == group
+         end) do
+      {_, keys, _} ->
+        {:noreply, socket |> update(:filters, &Map.drop(&1, keys)) |> load_tracks()}
+
+      nil ->
+        {:noreply, socket}
+    end
+  end
+
   def handle_event("toggle_library_filters", _params, socket) do
     {:noreply,
      assign(socket, filters_open?: not socket.assigns.filters_open?, tom_wheel_open: false)}
@@ -339,6 +351,58 @@ defmodule BeatgridWeb.LibraryLive do
   defp put_filter(filters, key, val) when val in [nil, ""], do: Map.delete(filters, key)
   defp put_filter(filters, key, val), do: Map.put(filters, key, val)
 
+  # Search is already visible in its input. Ranges and the harmonic match are
+  # presented as one criterion each so removing them clears their entire group.
+  defp active_filter_items(filters, folders) do
+    folder = filters[:genre_folder]
+    folder_name = Enum.find_value(folders, folder, &(&1.key == folder && &1.display_name))
+
+    confidence =
+      Enum.find_value(@confidences, fn {label, level} ->
+        filters[:confidence] == to_string(level) && label
+      end)
+
+    key = filters[:camelot]
+
+    key_label =
+      key && "Tom #{key}#{if filters[:camelot_compatible], do: " + compatíveis", else: ""}"
+
+    for {group, keys, label} <- [
+          {"genre_folder", [:genre_folder], folder_name && "Pasta: #{folder_name}"},
+          {"unclassified", [:unclassified], filters[:unclassified] && "Não classificadas"},
+          {"gold", [:gold], filters[:gold] && "Ouro"},
+          {"tag", [:tag], filters[:tag] && "Tag: #{filters[:tag]}"},
+          {"confidence", [:confidence], confidence && "Confiança #{confidence}"},
+          {"camelot", [:camelot, :camelot_compatible], key_label},
+          {"rating", [:rating_min, :rating_max],
+           range_label("Nota", filters[:rating_min], filters[:rating_max])},
+          {"energy", [:energy_min, :energy_max],
+           range_label("Energia", filters[:energy_min], filters[:energy_max])},
+          {"bpm", [:bpm_min, :bpm_max], range_label("BPM", filters[:bpm_min], filters[:bpm_max])}
+        ],
+        is_binary(label),
+        do: {group, keys, label}
+  end
+
+  defp range_label(_label, nil, nil), do: nil
+  defp range_label(label, min, nil), do: "#{label} ≥ #{min}"
+  defp range_label(label, nil, max), do: "#{label} ≤ #{max}"
+  defp range_label(label, min, max), do: "#{label} #{min}–#{max}"
+
+  defp remove_filter_action(items, group) do
+    target =
+      case Enum.find(items, fn {key, _, _} -> key != group end) do
+        {key, _, _} ->
+          "#library-remove-#{key}"
+
+        # Compact screens must not summon the software keyboard on the final removal.
+        nil ->
+          "#library-filter-toggle, #library-filter-panel button[phx-click=toggle_gold_filter]"
+      end
+
+    JS.push("remove_filter", value: %{filter: group}) |> JS.focus(to: target)
+  end
+
   defp flip_dir(:asc), do: :desc
   defp flip_dir(:desc), do: :asc
 
@@ -371,6 +435,9 @@ defmodule BeatgridWeb.LibraryLive do
 
   @impl true
   def render(assigns) do
+    assigns =
+      assign(assigns, :active_filters, active_filter_items(assigns.filters, assigns.folders))
+
     ~H"""
     <.app_shell flash={@flash} active={:biblioteca} socket={@socket}>
       <div class="flex h-[calc(100vh_-_5rem)] flex-col">
@@ -445,11 +512,29 @@ defmodule BeatgridWeb.LibraryLive do
               aria-expanded={to_string(@filters_open?)}
               class={[
                 "inline-flex items-center gap-1 rounded-md border border-white/8 bg-input px-2.5 py-1.5 text-body-sm font-semibold xl:hidden",
-                if(Map.delete(@filters, :search) == %{}, do: "text-ink-muted", else: "text-primary")
+                if(@filters_open?, do: "text-primary", else: "text-ink-muted")
               ]}
             >
               <span class="hero-adjustments-horizontal size-4" aria-hidden="true" /> Filtros
-              <span :if={Map.drop(@filters, [:search]) != %{}} class="text-primary">ativos</span>
+            </button>
+          </div>
+          <div
+            :if={@active_filters != []}
+            id="library-active-filters"
+            role="group"
+            aria-label="Filtros ativos"
+            class="col-span-2 flex min-w-0 flex-wrap items-center gap-1.5 lg:basis-full"
+          >
+            <button
+              :for={{group, _, label} <- @active_filters}
+              id={"library-remove-#{group}"}
+              type="button"
+              phx-click={remove_filter_action(@active_filters, group)}
+              aria-label={"Remover filtro #{label}"}
+              class="inline-flex min-h-9 min-w-0 max-w-full items-center gap-2 rounded-sm border border-primary/35 bg-primary/10 px-2 py-1 text-body-sm font-semibold text-ink hover:border-primary/60 hover:bg-primary/20 sm:min-h-7"
+            >
+              <span class="min-w-0 break-words text-left">{label}</span>
+              <span class="hero-x-mark size-4 shrink-0 text-ink-muted" aria-hidden="true" />
             </button>
           </div>
         </header>

@@ -199,6 +199,164 @@ defmodule BeatgridWeb.LibraryLiveTest do
     assert has_element?(view, "#library-rows", "Oceano")
   end
 
+  test "closed filters expose criteria and removing one preserves search and the others", %{
+    conn: conn
+  } do
+    for {title, artist, folder, rating} <- [
+          {"Sina", "Djavan", "mpb", 8},
+          {"Oceano", "Djavan", "mpb", 3},
+          {"Flor", "Djavan", "forro_roots", 8},
+          {"Romaria", "Elis", "mpb", 9}
+        ] do
+      insert(:track,
+        tag_title: title,
+        tag_artist: artist,
+        norm_artist: String.downcase(artist),
+        norm_title: String.downcase(title),
+        genre_folder: folder,
+        rating: rating
+      )
+    end
+
+    {:ok, view, _html} = live(conn, ~p"/")
+    view |> form("#library-search", %{search: "Djavan"}) |> render_change()
+    refute has_element?(view, "#library-active-filters")
+    view |> element("#library-filter-toggle") |> render_click()
+    view |> element("#library-filter-panel button[phx-value-key=mpb]") |> render_click()
+    view |> form("#library-filters", %{rating_min: "7", rating_max: "9"}) |> render_change()
+    view |> element("#library-filter-toggle") |> render_click()
+
+    assert has_element?(view, "#library-filter-toggle[aria-expanded=false]")
+    assert has_element?(view, "#library-remove-genre_folder", "MPB")
+    assert has_element?(view, "#library-remove-rating", "Nota 7–9")
+    assert has_element?(view, "#library-rows", "Sina")
+    refute has_element?(view, "#library-rows", "Oceano")
+    refute has_element?(view, "#library-rows", "Flor")
+
+    view |> element("#library-remove-rating") |> render_click()
+    refute has_element?(view, "#library-remove-rating")
+    assert has_element?(view, "#library-rows", "Oceano")
+    refute has_element?(view, "#library-rows", "Flor")
+    assert has_element?(view, "#library-remove-genre_folder", "MPB")
+
+    view |> element("#library-remove-genre_folder") |> render_click()
+    refute has_element?(view, "#library-active-filters")
+    assert has_element?(view, "#library-rows", "Flor")
+    refute has_element?(view, "#library-rows", "Romaria")
+    render_click(view, "remove_filter", %{"filter" => "search"})
+    assert has_element?(view, "#library-search input[value=Djavan]")
+    refute has_element?(view, "#library-rows", "Romaria")
+  end
+
+  test "range and Camelot summaries remove their paired constraints independently", %{conn: conn} do
+    for {title, key, bpm} <- [
+          {"Referência", "8A", 110},
+          {"Vizinha", "8B", 118},
+          {"Distante", "3B", 118},
+          {"Rápida", "8A", 140}
+        ] do
+      insert(:track,
+        tag_title: title,
+        rating: 8,
+        soundcharts_song: build(:soundcharts_song, camelot: key, tempo_bpm: bpm, energy: 0.6)
+      )
+    end
+
+    {:ok, view, _html} = live(conn, ~p"/")
+    view |> element("#library-filter-toggle") |> render_click()
+
+    view
+    |> form("#library-filters", %{
+      rating_min: "0",
+      energy_max: "72",
+      bpm_min: "105",
+      bpm_max: "125"
+    })
+    |> render_change()
+
+    view |> element("#library-wheel-toggle") |> render_click()
+    view |> element("input[phx-click=toggle_camelot_compatible]") |> render_click()
+    refute has_element?(view, "#library-remove-camelot")
+    view |> form("#library-wheel-choice", %{code: "8A"}) |> render_change()
+    render_keydown(view, "close_tom_wheel", %{"key" => "Escape"})
+    view |> element("#library-filter-toggle") |> render_click()
+
+    assert has_element?(view, "#library-remove-rating", "Nota ≥ 0")
+    assert has_element?(view, "#library-remove-energy", "Energia ≤ 72")
+    assert has_element?(view, "#library-remove-bpm", "BPM 105–125")
+    assert has_element?(view, "#library-remove-camelot", "Tom 8A + compatíveis")
+    assert has_element?(view, "#library-rows", "Vizinha")
+    refute has_element?(view, "#library-rows", "Distante")
+    refute has_element?(view, "#library-rows", "Rápida")
+
+    view |> element("#library-remove-bpm") |> render_click()
+    refute has_element?(view, "#library-remove-bpm")
+    assert has_element?(view, "#library-rows", "Rápida")
+    refute has_element?(view, "#library-rows", "Distante")
+
+    view |> element("#library-remove-camelot") |> render_click()
+    refute has_element?(view, "#library-remove-camelot")
+    assert has_element?(view, "#library-rows", "Distante")
+    assert has_element?(view, "#library-remove-energy", "Energia ≤ 72")
+    assert has_element?(view, "#library-remove-rating", "Nota ≥ 0")
+    view |> element("#library-filter-toggle") |> render_click()
+    view |> element("#library-wheel-toggle") |> render_click()
+
+    refute has_element?(
+             view,
+             "#library-wheel input[phx-click=toggle_camelot_compatible][checked]"
+           )
+  end
+
+  test "tag, confidence, gold and unclassified chips reflect and release their criteria", %{
+    conn: conn
+  } do
+    tag = "Pico da pista — repertório de sábado"
+
+    for {title, attrs} <- [
+          {"Referência", []},
+          {"Sem tag", [tags: []]},
+          {"Sem confiança", [sc_match_confidence: :low]},
+          {"Sem ouro", [gold_status: nil]},
+          {"Classificada", [genre_folder: "mpb"]}
+        ] do
+      insert(
+        :track,
+        Keyword.merge(
+          [
+            tag_title: title,
+            tags: [tag],
+            sc_match_confidence: :high,
+            gold_status: :confirmed
+          ],
+          attrs
+        )
+      )
+    end
+
+    {:ok, view, _html} = live(conn, ~p"/")
+    view |> element("button[phx-value-tag]", tag) |> render_click()
+    view |> element("button[phx-value-level=high]") |> render_click()
+    view |> element("button[phx-click=toggle_gold_filter]") |> render_click()
+    view |> element("button[phx-click=toggle_unclassified]") |> render_click()
+
+    for {group, label, title} <- [
+          {"tag", "Tag: #{tag}", "Sem tag"},
+          {"confidence", "Confiança alta", "Sem confiança"},
+          {"gold", "Ouro", "Sem ouro"},
+          {"unclassified", "Não classificadas", "Classificada"}
+        ] do
+      assert has_element?(view, "#library-rows", "Referência")
+      assert has_element?(view, "#library-remove-#{group}", label)
+      refute has_element?(view, "#library-rows", title)
+      view |> element("#library-remove-#{group}") |> render_click()
+      assert has_element?(view, "#library-rows", title)
+      refute has_element?(view, "#library-remove-#{group}")
+    end
+
+    refute has_element?(view, "#library-active-filters")
+  end
+
   describe "extended filter rail" do
     test "the key dialog lets a keyboard user choose and clear every Camelot key", %{conn: conn} do
       for {title, key} <- [{"Sina", "8A"}, {"Romaria", "9A"}] do

@@ -108,6 +108,9 @@ defmodule BeatgridWeb.LibraryLiveMoveTest do
       assert html =~ "Referência"
       assert html =~ "Vizinha"
       refute html =~ "Distante"
+      assert has_element?(view, "#library-remove-energy", "Energia 48–72")
+      assert has_element?(view, "#library-remove-camelot", "Tom 8A + compatíveis")
+      assert has_element?(view, "#library-remove-genre_folder", "MPB")
     end
   end
 
