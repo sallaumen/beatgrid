@@ -65,7 +65,82 @@ defmodule BeatgridWeb.MixesLiveTest do
     render_submit(element(view, "#mix-import-form"), %{"url" => "https://youtu.be/a93fldI5DSU"})
     html = render(view)
     assert html =~ "YouTube"
-    assert html =~ "baixando"
+    assert html =~ "Gravação adicionada à fila"
+  end
+
+  test "import confirmation links to the new recording even with a search active", %{conn: conn} do
+    previous = insert(:mix, title: "Baile anterior", status: :ready)
+    {:ok, view, _html} = live(conn, ~p"/sets-online")
+    view |> form("#mix-search", query: "Baile anterior") |> render_change()
+
+    url = "https://soundcloud.com/dj/nova-gravacao"
+    view |> form("#mix-import-form", url: url) |> render_submit()
+
+    mix = Enum.find(Beatgrid.Mixes.list_mixes(), &(&1.source_url == url))
+    assert_enqueued(worker: Beatgrid.Workers.MixDownloadWorker)
+    assert has_element?(view, "#mix-query[value='Baile anterior']")
+    assert has_element?(view, "#recorded-mix-#{previous.id}")
+    refute has_element?(view, "#recorded-mix-#{mix.id}")
+    assert has_element?(view, "#mix-import-feedback [role=status]", "Gravação adicionada à fila")
+
+    assert has_element?(
+             view,
+             "#mix-import-open[href='/sets-online/#{mix.id}']",
+             "Abrir ficha"
+           )
+
+    result = view |> element("#mix-import-open") |> render_click()
+    assert {:ok, _detail, _html} = follow_redirect(result, conn, ~p"/sets-online/#{mix.id}")
+  end
+
+  test "existing recording link opens the right detail rather than reimporting", %{conn: conn} do
+    url = "https://soundcloud.com/dj/gravacao-existente"
+    mix = insert(:mix, title: "Set existente", source_url: url, status: :ready)
+    {:ok, view, _html} = live(conn, ~p"/sets-online")
+    view |> form("#mix-search", query: "Outro DJ") |> render_change()
+
+    view |> form("#mix-import-form", url: url) |> render_submit()
+    refute has_element?(view, "#recorded-mix-#{mix.id}")
+    assert has_element?(view, "#mix-query[value='Outro DJ']")
+    refute_enqueued(worker: Beatgrid.Workers.MixDownloadWorker)
+    assert has_element?(view, "#mix-import-open[href='/sets-online/#{mix.id}']")
+    assert has_element?(view, "#mix-import-feedback [role=status]", "Já existe uma gravação")
+    assert has_element?(view, "#mix-source-url[value='#{url}']")
+
+    view |> form("#mix-import-form", url: "https://vimeo.com/1") |> render_submit()
+    refute has_element?(view, "#mix-import-open")
+    assert has_element?(view, "#mix-import-feedback [role=status]", "YouTube ou SoundCloud")
+  end
+
+  test "recording title and visible detail action share a single internal link", %{conn: conn} do
+    title = String.duplicate("Festival de Forró — ", 9) <> "DJ Raízes"
+    url = "https://soundcloud.com/dj/" <> String.duplicate("a", 150)
+    mix = insert(:mix, title: title, source_url: url, status: :failed, error: "Falha no download")
+
+    pending =
+      insert(:mix,
+        title: nil,
+        source_url: url <> "-pending",
+        status: :downloading
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/sets-online")
+    row = "#recorded-mix-#{mix.id}"
+    detail = "#{row} a[href='/sets-online/#{mix.id}']"
+
+    assert has_element?(view, detail, title)
+    assert has_element?(view, detail, "Abrir ficha")
+    assert has_element?(view, "#{row} a[href='#{url}'][target=_blank]", "SoundCloud")
+    assert has_element?(view, row, "Falha no download")
+
+    assert has_element?(
+             view,
+             "#recorded-mix-#{pending.id} a[href='/sets-online/#{pending.id}']",
+             pending.source_url
+           )
+
+    result = view |> element(detail) |> render_click()
+    assert {:ok, _detail, _html} = follow_redirect(result, conn, ~p"/sets-online/#{mix.id}")
   end
 
   test "rejects an unsupported url with a friendly message", %{conn: conn} do
@@ -80,7 +155,7 @@ defmodule BeatgridWeb.MixesLiveTest do
     insert(:mix, title: "Outra gravação", dj: "DJ X", status: :ready)
 
     {:ok, view, _} = live(conn, ~p"/sets-online")
-    view |> form("#mix-search", query: "raízes") |> render_change()
+    view |> form("#mix-search", query: "raízes") |> render_submit()
     assert has_element?(view, "#recorded-mixes article", "Baile de domingo")
     refute has_element?(view, "#recorded-mixes article", "Outra gravação")
     view |> element("button[phx-click=clear_search]") |> render_click()

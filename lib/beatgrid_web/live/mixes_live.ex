@@ -1,5 +1,5 @@
 defmodule BeatgridWeb.MixesLive do
-  @moduledoc "Curadoria: import + study recorded online DJ sets (SoundCloud) — the index/list."
+  @moduledoc "Curadoria: import + study recorded online DJ sets — the index/list."
   use BeatgridWeb, :live_view
 
   import BeatgridWeb.UI
@@ -30,23 +30,26 @@ defmodule BeatgridWeb.MixesLive do
       socket = assign(socket, url: url)
 
       case Mixes.import_url(url) do
-        {:ok, _mix} ->
+        {:ok, mix} ->
           {:noreply,
            assign(socket,
              mixes: Mixes.list_mixes(),
              url: "",
-             toast: {:ok, "Set na fila — baixando…"}
+             toast: %{kind: :ok, message: "Gravação adicionada à fila.", mix_id: mix.id}
            )}
 
         {:error, :unsupported_source} ->
           {:noreply,
            assign(socket,
-             toast: {:error, "Cole um link do YouTube ou SoundCloud."}
+             toast: %{
+               kind: :error,
+               message: "Cole um link do YouTube ou SoundCloud.",
+               mix_id: nil
+             }
            )}
 
         {:error, _changeset} ->
-          {:noreply,
-           assign(socket, toast: {:error, "Esse set já foi importado (ou URL inválida)."})}
+          {:noreply, existing_recording_feedback(socket, url)}
       end
     end
   end
@@ -59,6 +62,22 @@ defmodule BeatgridWeb.MixesLive do
   @impl true
   def handle_info({:mix_progress, _payload}, socket) do
     {:noreply, assign(socket, mixes: Mixes.list_mixes())}
+  end
+
+  # Exact URL matches are the existing recording, even if the current search hides it.
+  defp existing_recording_feedback(socket, url) do
+    mixes = Mixes.list_mixes()
+
+    toast =
+      case Enum.find(mixes, &(&1.source_url == url)) do
+        nil ->
+          %{kind: :error, message: "Não foi possível importar esse link.", mix_id: nil}
+
+        mix ->
+          %{kind: :ok, message: "Já existe uma gravação para esse link.", mix_id: mix.id}
+      end
+
+    assign(socket, mixes: mixes, toast: toast)
   end
 
   @impl true
@@ -100,16 +119,29 @@ defmodule BeatgridWeb.MixesLive do
           </div>
         </form>
 
-        <p
+        <div
           :if={@toast}
-          role="status"
-          class={[
-            "mt-3 text-body-sm",
-            (elem(@toast, 0) == :error && "text-coral") || "text-ink-secondary"
-          ]}
+          id="mix-import-feedback"
+          class="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1"
         >
-          {elem(@toast, 1)}
-        </p>
+          <p
+            role="status"
+            class={[
+              "min-w-0 text-body",
+              if(@toast.kind == :error, do: "text-coral", else: "text-ink-secondary")
+            ]}
+          >
+            {@toast.message}
+          </p>
+          <.link
+            :if={@toast.mix_id}
+            id="mix-import-open"
+            navigate={~p"/sets-online/#{@toast.mix_id}"}
+            class="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-primary/40 bg-primary/10 px-3 py-1.5 text-body font-semibold text-primary hover:bg-primary/20"
+          >
+            Abrir ficha <span class="hero-chevron-right size-3.5" aria-hidden="true" />
+          </.link>
+        </div>
 
         <section id="recorded-mixes" class="mt-6">
           <div class="flex flex-wrap items-center justify-between gap-3">
@@ -123,6 +155,7 @@ defmodule BeatgridWeb.MixesLive do
               :if={@mixes != []}
               id="mix-search"
               phx-change="search"
+              phx-submit="search"
               class="flex min-w-0 items-center gap-2"
             >
               <label for="mix-query" class="sr-only">Buscar gravações por título ou DJ</label>
@@ -160,13 +193,18 @@ defmodule BeatgridWeb.MixesLive do
               class="grid gap-3 py-4 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,auto)] xl:items-center"
             >
               <div class="min-w-0">
-                <div class="flex flex-wrap items-baseline gap-2">
-                  <.link
-                    navigate={~p"/sets-online/#{mix.id}"}
-                    class="min-w-0 break-words text-body-lg font-semibold text-ink hover:text-primary hover:underline"
-                  >
+                <.link
+                  navigate={~p"/sets-online/#{mix.id}"}
+                  class="group flex min-h-9 min-w-0 items-start justify-between gap-3 rounded-xs text-ink hover:text-primary sm:min-h-0"
+                >
+                  <span class="min-w-0 text-body-lg font-semibold [overflow-wrap:anywhere] group-hover:underline">
                     {mix.title || mix.source_url}
-                  </.link>
+                  </span>
+                  <span class="inline-flex shrink-0 items-center gap-1 text-body-sm font-semibold text-primary">
+                    Abrir ficha <span class="hero-chevron-right size-3.5" aria-hidden="true" />
+                  </span>
+                </.link>
+                <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-body text-ink-muted">
                   <span class={[
                     "shrink-0 rounded-xs px-2 py-0.5 text-caption font-semibold",
                     mix_status_tone(mix.status)
@@ -174,19 +212,21 @@ defmodule BeatgridWeb.MixesLive do
                     {mix_status_label(mix.status)}
                   </span>
                   <span :if={mix.audio_deleted_at} class="text-caption text-ink-muted">Áudio apagado</span>
-                </div>
-                <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-body text-ink-muted">
-                  <span>{mix.dj || "DJ desconhecido"}</span>
+                  <span class="min-w-0 [overflow-wrap:anywhere]">{mix.dj || "DJ desconhecido"}</span>
                   <a
                     href={mix.source_url}
                     target="_blank"
                     rel="noopener"
-                    class="text-primary hover:underline"
-                  >{source_label(mix.source)}</a>
+                    class="inline-flex min-h-7 items-center gap-1 text-ink-muted underline decoration-white/20 hover:text-ink hover:decoration-current"
+                    aria-label={"#{source_label(mix.source)}: #{mix.title || mix.source_url} (nova aba)"}
+                  >
+                    {source_label(mix.source)}
+                    <span class="hero-arrow-up-right size-3" aria-hidden="true" />
+                  </a>
                 </div>
                 <p
                   :if={mix.status == :failed and mix.error}
-                  class="mt-1 break-words text-body-sm text-coral"
+                  class="mt-1 text-body-sm text-coral [overflow-wrap:anywhere]"
                 >
                   {mix.error}
                 </p>

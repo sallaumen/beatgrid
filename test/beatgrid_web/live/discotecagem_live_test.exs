@@ -580,18 +580,69 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     _ = c
   end
 
-  test "loading onto the audible deck is refused; the idle deck accepts", %{conn: conn} do
-    {set, [_a, b]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}])
+  test "LOAD asks the console before replacing a record on the logical set deck", %{conn: conn} do
+    {set, [first, second, third]} =
+      set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}, {"Três", 110.0}])
+
+    {:ok, _} = Sets.set_breather(set, second, true)
     view = open_console(conn, set)
     render_click(view, "play_set", %{})
-    # consume the legitimate start-of-set load before checking the refusal
     assert_push_event(view, "dj_load", %{deck: "a", autoplay: true})
+    assert_push_event(view, "dj_hint", %{transition: %{"breather" => true}})
 
-    render_click(view, "load_deck", %{"deck" => "a", "track_id" => b.id})
-    refute_push_event(view, "dj_load", %{deck: "a"})
+    id = third.id
 
-    render_click(view, "load_deck", %{"deck" => "b", "track_id" => b.id})
-    assert_push_event(view, "dj_load", %{deck: "b", autoplay: false})
+    view
+    |> element(
+      "#dj-queue-list button[phx-click=load_deck][phx-value-deck=a][phx-value-track_id='#{id}']"
+    )
+    |> render_click()
+
+    assert_push_event(view, "dj_load", %{deck: "a", track: %{id: ^id}, autoplay: false})
+
+    assert has_element?(
+             view,
+             "section:has(button[phx-click=eject_deck][phx-value-deck=a]) a[href='/track/#{first.id}']"
+           )
+
+    render_hook(view, "deck_loaded", %{"deck" => "a", "track_id" => id})
+
+    assert has_element?(
+             view,
+             "section:has(button[phx-click=eject_deck][phx-value-deck=a]) a[href='/track/#{id}']"
+           )
+
+    render_hook(view, "deck_error", %{"deck" => "a", "track_id" => id})
+    refute_push_event(view, "dj_load", %{autoplay: true})
+    refute_push_event(view, "dj_hint_clear", %{})
+    assert Playback.now_playing() == %{track_id: first.id, set_id: set.id}
+  end
+
+  test "resync during a breather keeps the prepared deck and the original set pointer", %{
+    conn: conn
+  } do
+    {set, [first, second, third]} =
+      set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}, {"Três", 110.0}])
+
+    {:ok, view, _} = live(conn, ~p"/discotecagem")
+
+    render_hook(view, "console_resync", %{
+      "deck" => "a",
+      "playing_track_id" => first.id,
+      "set_id" => set.id,
+      "auto" => true,
+      "decks" => %{"a" => third.id, "b" => second.id}
+    })
+
+    assert has_element?(
+             view,
+             "section:has(button[phx-click=eject_deck][phx-value-deck=a]) a[href='/track/#{third.id}']"
+           )
+
+    assert Playback.now_playing() == %{track_id: first.id, set_id: set.id}
+    :ok = Sets.remove(set, second)
+    id = third.id
+    assert_push_event(view, "dj_hint", %{track: %{id: ^id}})
   end
 
   test "a requested LOAD changes the deck header only when the console accepts it", %{conn: conn} do

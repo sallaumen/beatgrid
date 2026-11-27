@@ -143,16 +143,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
   def handle_event("load_deck", %{"deck" => deck, "track_id" => id}, socket)
       when deck in ["a", "b"] do
-    cond do
-      socket.assigns.playing? and socket.assigns.active_deck == deck ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           "Deck #{String.upcase(deck)} está no ar — carregue no outro deck."
-         )}
+    # The engine checks the platter when the LOAD arrives. A silent breather
+    # still owns the set pointer while its outgoing platter is free.
+    case get_track(id) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Faixa não encontrada — atualize a lista.")}
 
-      track = get_track(id) ->
+      track ->
         {:noreply,
          push_event(socket, "dj_load", %{
            deck: deck,
@@ -160,9 +157,6 @@ defmodule BeatgridWeb.DiscotecagemLive do
            autoplay: false,
            at_ms: 0
          })}
-
-      true ->
-        {:noreply, put_flash(socket, :error, "Faixa não encontrada — atualize a lista.")}
     end
   end
 
@@ -350,6 +344,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
     socket = put_flash(socket, :error, "Erro ao tocar uma faixa — pulada.")
 
     cond do
+      deck == socket.assigns.active_deck and id != socket.assigns.pointer_id ->
+        {:noreply, put_flash(socket, :error, "Erro ao carregar a faixa preparada.")}
+
       deck == socket.assigns.active_deck and not is_nil(next) ->
         # O cliente enfileira a carga se o outro deck ainda estiver soltando a
         # rampa da transição (pendingLoad) — nada de carga recusada e silêncio.
@@ -384,16 +381,18 @@ defmodule BeatgridWeb.DiscotecagemLive do
     socket =
       socket
       |> adopt_resync_set(params["set_id"])
-      |> restore_loaded_decks(params["decks"])
       |> assign(auto?: params["auto"] == true)
 
-    case params do
-      %{"playing_track_id" => id, "deck" => deck} when is_binary(id) and is_binary(deck) ->
-        handle_event("deck_started", %{"deck" => deck, "track_id" => id}, socket)
+    {:noreply, socket} =
+      case params do
+        %{"playing_track_id" => id, "deck" => deck} when is_binary(id) and is_binary(deck) ->
+          handle_event("deck_started", %{"deck" => deck, "track_id" => id}, socket)
 
-      _params ->
-        {:noreply, socket}
-    end
+        _params ->
+          {:noreply, socket}
+      end
+
+    {:noreply, restore_loaded_decks(socket, params["decks"])}
   end
 
   def handle_event("midi_status", params, socket) do
@@ -574,8 +573,14 @@ defmodule BeatgridWeb.DiscotecagemLive do
     end
   end
 
-  defp active_track(%{assigns: %{active_deck: "a", deck_a: track}}), do: track
-  defp active_track(%{assigns: %{active_deck: "b", deck_b: track}}), do: track
+  defp active_track(%{assigns: %{active_deck: deck, pointer_id: id} = assigns})
+       when deck in ["a", "b"] do
+    case if(deck == "a", do: assigns.deck_a, else: assigns.deck_b) do
+      %{id: ^id} = track -> track
+      _prepared -> get_track(id)
+    end
+  end
+
   defp active_track(_socket), do: nil
 
   defp other_deck("a"), do: "b"
@@ -1886,7 +1891,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             this.pushEvent("console_resync", {
               deck,
               decks: {a: snap.a.trackId, b: snap.b.trackId},
-              playing_track_id: deck ? snap[deck].trackId : null,
+              playing_track_id: snap.breather?.fromTrackId ?? (deck ? snap[deck].trackId : null),
               auto: snap.auto,
               set_id: this.setId || null,
             })

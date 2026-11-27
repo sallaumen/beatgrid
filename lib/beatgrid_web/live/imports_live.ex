@@ -72,13 +72,21 @@ defmodule BeatgridWeb.ImportsLive do
   defp schedule_refresh, do: Process.send_after(self(), :refresh_downloads, 3_000)
 
   defp load_activity(socket) do
-    jobs =
+    {jobs, failed} =
       case socket.assigns.batch do
-        nil -> Jobs.list_recent(worker: "DownloadWorker", limit: 8)
-        id -> Jobs.downloads_in_batch(id)
+        nil ->
+          {Jobs.list_recent(worker: "DownloadWorker", limit: 8), YouTube.failed_download_count()}
+
+        id ->
+          jobs = Jobs.downloads_in_batch(id)
+          {jobs, Enum.count(jobs, &(&1.state in ["discarded", "cancelled"]))}
       end
 
-    assign(socket, downloads: jobs, completed: Enum.count(jobs, &(&1.state == "completed")))
+    assign(socket,
+      downloads: jobs,
+      completed: Enum.count(jobs, &(&1.state == "completed")),
+      failed: failed
+    )
   end
 
   @impl true
@@ -348,6 +356,13 @@ defmodule BeatgridWeb.ImportsLive do
   end
 
   defp download_issue(_), do: nil
+
+  defp download_queue_path(0), do: ~p"/jobs?worker=DownloadWorker"
+  defp download_queue_path(_failed), do: ~p"/jobs?state=failed&worker=DownloadWorker"
+
+  defp download_queue_label(_batch, 0), do: "Ver fila e tentativas"
+  defp download_queue_label(nil, _failed), do: "Ver falhas na fila"
+  defp download_queue_label(_batch, _failed), do: "Ver falhas de todos os downloads"
 
   defp download_state("available"), do: "Na fila"
   defp download_state("executing"), do: "Baixando"
@@ -675,18 +690,41 @@ defmodule BeatgridWeb.ImportsLive do
               {if @batch, do: "Lote de downloads", else: "Downloads recentes"}
             </h2>
             <.link
-              navigate={~p"/jobs?worker=DownloadWorker"}
+              :if={@batch}
+              id="download-recent-link"
+              patch={~p"/importados"}
               class="text-body-sm text-primary-soft underline"
-            >Ver fila e tentativas</.link>
+            >Ver recentes</.link>
           </div>
-          <p :if={@downloads != []} class="mt-2 text-body-sm text-ink-muted" role="status">
-            <span class="font-mono text-ink tabular-nums">{@completed}/{length(@downloads)}</span>
-            concluídos
-            <.link :if={@batch} patch={~p"/importados"} class="ml-2 text-primary-soft underline">Ver recentes</.link>
-          </p>
-          <p :if={@downloads == []} class="mt-2 text-body-sm text-ink-muted">
-            Nenhum download recente.
-          </p>
+          <div class="mt-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <div class="min-w-0 space-y-1">
+              <p :if={@downloads != []} class="text-body-sm text-ink-muted" role="status">
+                <span class="font-mono text-ink tabular-nums">{@completed}/{length(@downloads)}</span>
+                concluídos
+              </p>
+              <p :if={@downloads == []} class="text-body-sm text-ink-muted">
+                {if @batch,
+                  do: "Nenhum download encontrado neste lote.",
+                  else: "Nenhum download recente."}
+              </p>
+              <p
+                :if={@failed > 0}
+                id="download-failures"
+                role="status"
+                class="text-body-sm text-coral-soft"
+              >
+                {if @batch,
+                  do: "Falhas e cancelamentos neste lote:",
+                  else: "Falhas e cancelamentos no histórico:"}
+                <span class="font-mono font-semibold tabular-nums">{@failed}</span>
+              </p>
+            </div>
+            <.link
+              id="download-queue-link"
+              navigate={download_queue_path(@failed)}
+              class="inline-flex min-h-7 items-center text-body-sm text-primary-soft underline"
+            >{download_queue_label(@batch, @failed)}</.link>
+          </div>
           <ul class="mt-2 max-h-40 overflow-y-auto xl:max-h-52">
             <li
               :for={job <- @downloads}

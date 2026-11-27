@@ -809,14 +809,6 @@ defmodule BeatgridWeb.RecSetLive do
             </.link>
             <p :if={@sets == []} class="px-2.5 py-2 text-body-sm text-ink-faint">Nenhum set ainda.</p>
           </div>
-          <button
-            id="open-set-criteria"
-            aria-haspopup="dialog"
-            phx-click="show_criteria"
-            class="mx-4 mb-2 self-start text-body-sm text-ink-muted underline decoration-white/20 underline-offset-2 hover:text-ink lg:my-3"
-          >
-            Critérios de montagem
-          </button>
         </aside>
 
         <button
@@ -970,12 +962,21 @@ defmodule BeatgridWeb.RecSetLive do
 
             <.arc_chart series={@arc} />
 
-            <h2
-              :if={@entries != []}
-              class="mt-4 border-b border-white/8 pb-2 text-body-lg font-semibold"
-            >
-              Ordem das faixas
-            </h2>
+            <div class="mt-4 flex flex-wrap items-center justify-between gap-2 border-b border-white/8 pb-2">
+              <h2 class="text-body-lg font-semibold">Ordem das faixas</h2>
+              <button
+                type="button"
+                id="set-find-track"
+                phx-click={
+                  if MapSet.member?(@open_panels, "search"),
+                    do: JS.focus(to: "#track-search-input"),
+                    else: JS.push("toggle_panel", value: %{panel: "search"})
+                }
+                class="inline-flex min-h-9 items-center gap-1.5 rounded-md bg-input px-3 py-1.5 text-body-sm font-semibold text-primary-soft"
+              >
+                <span class="hero-magnifying-glass size-4" aria-hidden="true" /> Buscar para adicionar
+              </button>
+            </div>
             <ol aria-label="Ordem das faixas" class="mt-2 space-y-0.5">
               <li :for={{e, i} <- Enum.with_index(@entries, 1)} class="space-y-0.5">
                 <div :if={@loudness_jumps[i]} class="flex justify-center">
@@ -1178,6 +1179,7 @@ defmodule BeatgridWeb.RecSetLive do
                     ↺ Resetar
                   </button>
                 </:action>
+                <.criteria_button />
                 <.console_body
                   weights={@weights}
                   filters={@filters}
@@ -1222,11 +1224,26 @@ defmodule BeatgridWeb.RecSetLive do
     """
   end
 
+  defp criteria_button(assigns) do
+    ~H"""
+    <button
+      type="button"
+      id="open-set-criteria"
+      aria-haspopup="dialog"
+      phx-click="show_criteria"
+      class="mx-4 my-2 self-start text-body-sm text-primary-soft underline underline-offset-2"
+    >
+      Consultar arco de energia e afinidade de estilos
+    </button>
+    """
+  end
+
   defp empty_state(assigns) do
     ~H"""
     <div class="flex h-full flex-col items-center justify-center gap-3 text-center">
       <span class="hero-queue-list size-10 text-ink-disabled" />
       <p class="text-ink-muted">Crie um set para começar a montar.</p>
+      <.criteria_button />
       <button phx-click="new_set" class="text-body-sm text-primary hover:underline">+ Novo set</button>
     </div>
     """
@@ -1862,7 +1879,7 @@ defmodule BeatgridWeb.RecSetLive do
             phx-value-track={c.track.id}
             class="shrink-0 rounded-md bg-primary/15 px-2.5 py-1 text-[12px] font-semibold text-primary hover:bg-primary/25"
           >
-            + Add
+            Adicionar
           </button>
         </div>
       </div>
@@ -1884,12 +1901,14 @@ defmodule BeatgridWeb.RecSetLive do
   defp search_box(assigns) do
     ~H"""
     <div class="p-4">
-      <p class="mb-2 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
-        Buscar e adicionar
-      </p>
-      <form id="track-search" phx-change="search">
+      <form id="track-search" phx-change="search" phx-submit="search">
+        <label for="track-search-input" class="mb-2 block text-body-sm text-ink-secondary">
+          Título ou artista
+        </label>
         <input
+          id="track-search-input"
           type="search"
+          phx-mounted={JS.focus()}
           name="q"
           value={@query}
           phx-debounce="250"
@@ -1934,7 +1953,7 @@ defmodule BeatgridWeb.RecSetLive do
             phx-value-track={t.id}
             class="shrink-0 rounded-md bg-primary/15 px-2.5 py-1 text-[12px] font-semibold text-primary hover:bg-primary/25"
           >
-            + Add
+            Adicionar
           </button>
         </div>
       </div>
@@ -1975,10 +1994,6 @@ defmodule BeatgridWeb.RecSetLive do
             class="inline-grid size-8 place-items-center rounded-md text-ink-muted hover:text-ink"
           ><span class="hero-x-mark size-4" aria-hidden="true"></span></button>
         </div>
-        <p class="mb-4 text-caption text-ink-muted">
-          Ajuste o peso de cada critério na <span class="text-ink-secondary">Mesa de mixagem</span>.
-        </p>
-
         <p class="mb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
           Seções (arco de energia)
         </p>
