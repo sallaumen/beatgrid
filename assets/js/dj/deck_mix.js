@@ -1,7 +1,7 @@
 export const neutralMix = Object.freeze({rate: 1, vinyl: false, filter: 0, tone: 0, level: 1})
 
 export function syncedRate(current, bpm, targetBpm) {
-  if (!(bpm > 0 && targetBpm > 0)) return current
+  if (!(bpm > 0 && targetBpm > 0) || current * bpm === targetBpm) return current
   const target = targetBpm / bpm
   const limited = Math.min(1.08, Math.max(0.92, target))
   return Math.abs(limited - target) < Math.abs(current - target) ? limited : current
