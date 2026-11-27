@@ -1,10 +1,10 @@
 // Compare the sound that was heard. The headphone pan and transition kind are
 // intentionally outside the identity. The latter selects one of the two takes.
-function soundKey(pair, plan, bpm) {
+export function rehearsalKey(pair, plan, bpm) {
   if (!plan) return null
   const controls = ({rate, vinyl, filter, tone, level}) => [rate, vinyl, filter, tone, level]
   return JSON.stringify([pair.from, pair.to, pair.fromLoad, pair.toLoad, bpm, plan.exit, plan.inStart,
-    plan.lead, plan.blend, plan.duration, controls(plan.mix.out), controls(plan.mix.into)])
+    plan.lead, plan.blend, plan.duration, controls(plan.mix.out), controls(plan.mix.into), plan.blendCurve ?? null])
 }
 
 function scoreLabel(result, unavailable) {
@@ -46,7 +46,7 @@ export function mountPassageComparison(details, labels, selected) {
     lastPair = pair
     lastPlan = plan
     lastBpm = bpm
-    const next = soundKey(pair, plan, bpm)
+    const next = rehearsalKey(pair, plan, bpm)
     if (next === key) return
     key = next
     heard.clear()

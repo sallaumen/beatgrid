@@ -31,7 +31,8 @@ import {applyFilter, applyTone, createEq, neutralMix, setMixParam, syncedRate} f
 import {startDecodedEntry} from "./decoded_entry.js"
 import {createPassage} from "./passage.js"
 import {observeRoomPassage} from "./passage_meter.js"
-import {createRehearsal, rampRehearsalGain, rehearsalOverlap} from "./rehearsal.js"
+import {scheduleBlend} from "./blend_curve.js"
+import {createRehearsal, rehearsalOverlap} from "./rehearsal.js"
 import {getScratchPcm, retainScratch} from "./waveform.js"
 import {ensureScratchModule, scratchPattern} from "./scratch.js"
 
@@ -153,6 +154,7 @@ class Deck {
     this._meterBuf = new Uint8Array(this.analyser.fftSize)
 
     this.echoSend.gain.value = 0
+    this.echoTailUntil = 0
     this.feedback.gain.value = RAMP.echoFeedback
 
     sourceFor(el).disconnect()
@@ -547,9 +549,33 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     roomReading = null
   }
 
-  const passage = createPassage(decks, (from, to) =>
+  function releaseEchoTail(deck, now) {
+    if (deck.echoTailUntil !== Infinity && deck.echoSend.gain.value < 0.0001) return
+    const feedback = Math.max(0.01, Math.min(deck.feedback.gain.value, 0.99))
+    const repeats = Math.ceil(Math.log(0.0001) / Math.log(feedback))
+    deck.echoTailUntil = now + 0.2 + repeats * deck.delay.delayTime.value
+  }
+
+  function dryForBlend(deck) {
+    return !deck.stopEcho && deck.echoSend.gain.value < 0.0001 && !(ctx.currentTime < deck.echoTailUntil) &&
+      Math.abs(deck.dry.gain.value - 1) < 0.001 && Math.abs(deck.bass.gain.value) < 0.01
+  }
+
+  function canMeasureBlend(from, to, mix) {
+    // Room recall smooths the already-playing deck. Only promise measured headroom
+    // when its live path is already neutral and at or below the saved level.
+    return punch.gain.value <= 1.001 && punchComp.threshold.value >= -0.01 && master.gain.value <= 1.001 &&
+      dryForBlend(from) && dryForBlend(to) && xfade[from.id].gain.value >= 0.999 &&
+      from.el.playbackRate === 1 && from.controls.tone === 0 && from.controls.filter === 0 &&
+      Math.abs(from.hpf.frequency.value - 10) < 0.1 && Math.abs(from.lpf.frequency.value - 20_000) < 1 &&
+      Math.abs(from.toneBass.gain.value) < 0.01 && Math.abs(from.toneTreble.gain.value) < 0.01 &&
+      from.gain.gain.value <= (mix?.out.level ?? 1) + 0.001
+  }
+
+  const passage = createPassage(decks, (from, to, plan, kind) =>
     from.audible() && !deckHeld(from.id) && !from.loop.on && !state.breatherGap &&
-    to.trackId != null && !deckBusy(to.id) && !to.el.error && to.ready(), startPassage, {
+    to.trackId != null && !deckBusy(to.id) && !to.el.error && to.ready() &&
+    (kind !== "blend" || !plan?.blendCurve || canMeasureBlend(from, to, plan.mix)), startPassage, {
       confirmed(choice) {
         if (!callbacks.roomScore) return
         cancelRoomReading()
@@ -596,7 +622,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       if (version === faderVersion) mute.setValueAtTime(previous, ctx.currentTime)
     }
     to.play(plan.inStart * 1000, () => {
-      const owned = to.playToken === playToken && !deckHeld(from.id) && !deckHeld(to.id)
+      const owned = to.playToken === playToken && !deckHeld(from.id) && !deckHeld(to.id) &&
+        (kind !== "blend" || !plan.blendCurve || canMeasureBlend(from, to, plan.mix))
       if (!complete(owned, () => {
         to.playDecoded(plan.incoming, plan.inStart, mix.into)
         if (from.el.playbackRate !== mix.out.rate || from.vinylMode !== mix.out.vinyl) {
@@ -619,8 +646,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       const outGain = xfade[from.id].gain
       const outLevel = outGain.value
       outGain.cancelScheduledValues(now)
-      rampRehearsalGain(outGain, now, fade, outLevel, 0)
-      rampRehearsalGain(mute, now, fade, 0, 1)
+      const curve = kind === "blend" && plan.blendCurve
+      scheduleBlend(outGain, curve, 0, now, fade, now, outLevel)
+      scheduleBlend(mute, curve, 1, now, fade, now)
       if (roomReading?.choice === choice) roomReading.arrive(now)
       animateXfadePos(sideOf(to.id), fade)
       after(fade, () => finishOutgoing(from, token))
@@ -1415,6 +1443,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     deck.gain.gain.setValueAtTime(1, now)
     deck.settleGain(deck.dry)
     deck.dry.gain.setValueAtTime(1, now)
+    releaseEchoTail(deck, now)
     deck.settleGain(deck.echoSend)
     deck.echoSend.gain.setValueAtTime(0, now)
     deck.settleParam(deck.hpf.frequency)
@@ -1508,6 +1537,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     cancelAnimationFrame(xfadeAnim)
     xfade.pos = next
     const g2 = xfadeGains(xfade.pos)
+    const saved = passage.current()
+    if (saved?.kind === "blend" && saved.plan.blendCurve && g2[saved.pair.from] < 0.999) passage.mixChanged()
     for (const side of ["a", "b"]) {
       takeOver(xfade[side].gain, g2[side], RAMP.manualFaderTau)
     }
@@ -1534,6 +1565,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   function setMasterLevel(value) {
+    if (value > 1 && passage.current()?.plan.blendCurve) passage.mixChanged()
     takeOver(master.gain, Math.min(Math.max(value, 0), 1.2), RAMP.manualFaderTau)
   }
 
@@ -2123,6 +2155,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // decks are running.
     rehearsal,
     deckMix,
+    canMeasureBlend: (pair, mix) => canMeasureBlend(decks[pair.from], decks[pair.to], mix),
     armPassage: passage.arm,
     confirmPassage: passage.confirm,
     editPassageMix() { passage.mixChanged("draft") },
@@ -2345,8 +2378,12 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     setEchoSend(deckId, value) {
       const deck = decks[deckId]
       const now = ctx.currentTime
+      const send = Math.min(Math.max(value, 0), 1) * 0.9
+      if (send > 0) deck.echoTailUntil = Infinity
+      else releaseEchoTail(deck, now)
+      if (passage.current()?.plan.blendCurve && send > 0) passage.mixChanged()
       deck.settleGain(deck.echoSend)
-      deck.echoSend.gain.setTargetAtTime(Math.min(Math.max(value, 0), 1) * 0.9, now, 0.02)
+      deck.echoSend.gain.setTargetAtTime(send, now, 0.02)
     },
 
     // "Tom": tilt EQ grave↔agudo. v<0 puxa grave e abafa agudo (quente),
@@ -2396,6 +2433,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     setPunch(value) {
       const now = ctx.currentTime
       const v = Math.min(Math.max(value, 0), 1)
+      if (v > 0 && passage.current()?.plan.blendCurve) passage.mixChanged()
       punchComp.threshold.setTargetAtTime(-24 * v, now, 0.05)
       punch.gain.cancelScheduledValues(now)
       punch.gain.setTargetAtTime(1 + v * 1.2, now, 0.05)

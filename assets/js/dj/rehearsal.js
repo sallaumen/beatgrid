@@ -1,4 +1,5 @@
 import {applyFilter, applyTone, createEq, neutralMix, setMixParam} from "./deck_mix.js"
+import {blendGains, scheduleBlend} from "./blend_curve.js"
 import {createRecordSource} from "./record_source.js"
 
 // Cue points are record seconds. Durations and automation use the audio clock.
@@ -13,21 +14,16 @@ export function planRehearsal(outgoing, incoming, exit, entry, bpm, mix = {out: 
   if (!(blend > 0)) return null
   const lead = Math.min(3, point / outRate)
   const duration = lead + Math.min(blend + 2, inTime)
-  return {outgoing, incoming, exit: point, outStart: point - lead * outRate, inStart, lead, blend, duration, mix}
+  return {outgoing, incoming, exit: point, outStart: point - lead * outRate, inStart, lead, blend, fullBlend: blend === fourBeats / outRate, duration, mix}
 }
 
 export function rehearsalOverlap(plan, kind) {
   return kind === "cut" ? Math.min(0.008, plan.blend) : plan.blend
 }
 
-export function rampRehearsalGain(param, change, fade, start, end) {
-  param.setValueAtTime(start, change)
-  param.linearRampToValueAtTime(end, change + fade)
-}
-
 export function rehearsalGains(plan, kind, time) {
   const p = Math.min(1, Math.max(0, (time - plan.lead) / rehearsalOverlap(plan, kind)))
-  return [1 - p, p]
+  return blendGains(kind === "blend" && plan.blendCurve, p)
 }
 
 export function recordTime(plan, side, time) {
@@ -85,7 +81,7 @@ export function createRehearsal(ctx, phones, pfl) {
     output.connect(phones)
     current = {start, plan, channels: {}, sources: [], nodes: [level, output]}
     try {
-      const add = (side, buffer, at, end, a, b) => {
+      const add = (side, buffer, at, end) => {
         if (end <= at) return null
         const mix = plan.mix[side]
         const source = createRecordSource(ctx, buffer, mix)
@@ -98,8 +94,7 @@ export function createRehearsal(ctx, phones, pfl) {
         const gain = rehearsalGains(plan, kind, at - start)[side === "out" ? 0 : 1]
         fader.gain.setValueAtTime(gain, at)
         if (change + fade > at) {
-          const ramp = Math.max(at, change)
-          rampRehearsalGain(fader.gain, ramp, change + fade - ramp, at < change ? a : gain, b)
+          scheduleBlend(fader.gain, kind === "blend" && plan.blendCurve, side === "out" ? 0 : 1, change, fade, at)
         }
         current.nodes.push(source, ...Object.values(eq), channel, fader)
         source.start(at, Math.max(0, recordTime(plan, side, at - start)), (end - at) * mix.rate)
@@ -107,8 +102,8 @@ export function createRehearsal(ctx, phones, pfl) {
         return source
       }
       pfl.gain.value = 0
-      add("out", plan.outgoing, now, change + fade, 1, 0)
-      const last = add("into", plan.incoming, Math.max(now, change), finish, 0, 1)
+      add("out", plan.outgoing, now, change + fade)
+      const last = add("into", plan.incoming, Math.max(now, change), finish)
       applyMix(current.channels, plan.mix, false)
       // A missing meter must never interrupt the audio already scheduled.
       if (observe) {
@@ -126,7 +121,7 @@ export function createRehearsal(ctx, phones, pfl) {
     discardMeasurement()
     if (!current) return
     const before = current.plan
-    if (["out", "into"].some(s => before.mix[s].rate !== plan.mix[s].rate || before.mix[s].vinyl !== plan.mix[s].vinyl)) {
+    if ((kind === "blend" && before.blendCurve !== plan.blendCurve) || ["out", "into"].some(s => before.mix[s].rate !== plan.mix[s].rate || before.mix[s].vinyl !== plan.mix[s].vinyl)) {
       const elapsed = ctx.currentTime - current.start
       const skip = elapsed < before.lead
         ? (recordTime(before, "out", elapsed) - plan.outStart) / plan.mix.out.rate

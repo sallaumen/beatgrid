@@ -1,6 +1,7 @@
+import {createBlendReview} from "./blend_measurement.js"
 import {mountCueAssist} from "./cue_assist.js"
 import {measurePassage, preparePassageMeter} from "./passage_meter.js"
-import {mountPassageComparison} from "./passage_comparison.js"
+import {mountPassageComparison, rehearsalKey} from "./passage_comparison.js"
 import {scorePassage} from "./passage_score.js"
 import {mountPassageScore} from "./passage_score_view.js"
 import {getDeckAudio} from "./waveform.js"
@@ -48,9 +49,10 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
   const passageState = root.querySelector("[data-passage-state]")
   const open = root.querySelector("[aria-haspopup=dialog]")
   const transport = engine.rehearsal
+  const blendReview = createBlendReview()
   const score = mountPassageScore(dialog.querySelector("#dj-rehearsal-score"))
   const strips = [...dialog.querySelectorAll("[data-side]")]
-  let lastChoice, lastPhase, lastEdit, mix, mixNote = ""
+  let lastChoice, lastPhase, lastEdit, lastAudition, originalAudition, mix, mixNote = ""
   let pair, plan, lastDeckCue, failure, pending = false, request = 0
   const kind = () => dialog.querySelector('input[name="dj-rehearse-kind"]:checked').value
   const comparison = mountPassageComparison(score, [...dialog.querySelectorAll("[data-score-for]")], kind)
@@ -71,6 +73,30 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
     text(timing, "Entrada em " + seconds(plan.lead) + " · " + (kind() === "cut" ? "corte" : "mistura de " + seconds(plan.blend)))
     drawLane(lanes[0], waves[pair.from], plan, kind(), false)
     drawLane(lanes[1], waves[pair.to], plan, kind(), true)
+  }
+
+  const draftKey = () => rehearsalKey(pair, {...plan, blendCurve: null}, engine.decks[pair.from].bpm)
+
+  function keepDraft() {
+    blendReview.lock()
+    lastAudition = {key: draftKey(), curve: plan.blendCurve}
+  }
+
+  function prepareDraft(reopen = false) {
+    blendReview.lock()
+    if (!plan) return
+    if (reopen && lastAudition?.key === draftKey()) {
+      if (lastAudition.curve) plan = {...plan, blendCurve: lastAudition.curve}
+      return
+    }
+    if (transport.elapsed() !== null) { keepDraft(); return }
+    if (!engine.canMeasureBlend(pair, plan.mix)) return
+    const draft = plan
+    blendReview.prepare(draft, curve => {
+      if (!dialog.open || plan !== draft || !engine.canMeasureBlend(pair, plan.mix)) return
+      plan = {...draft, blendCurve: curve}
+      draw()
+    })
   }
 
   function boothMix() {
@@ -105,8 +131,13 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
     const next = withEntry(entry, originalEntry)
     if (!next) return
     engine.editPassageMix()
+    if (originalEntry != null) originalAudition = {key: draftKey(), curve: plan.blendCurve}
     stop()
     plan = next
+    if (originalEntry == null && originalAudition?.key === draftKey()) {
+      blendReview.lock()
+      plan = {...plan, blendCurve: originalAudition.curve}
+    } else prepareDraft()
     failure = ""
     draw()
     update()
@@ -116,7 +147,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
   function editMix(next) {
     if (!plan) return
     engine.editPassageMix()
-    mixNote = ""
+    failure = mixNote = ""
     mix = next
     plan = withEntry(plan.inStart, plan.originalEntry)
     try {
@@ -125,6 +156,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
       stop()
       failure = "Não foi possível ouvir este ajuste. Tente novamente."
     }
+    prepareDraft()
     paintMix()
     draw()
     update()
@@ -158,6 +190,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
       choice.pair.toLoad === b.loadToken ? choice : null
     if (pair?.from !== from || pair.fromLoad !== a.loadToken || pair.toLoad !== b.loadToken) {
       stop()
+      blendReview.lock()
       assist.reset()
       lastDeckCue = null
       pair = {from, to, fromLoad: a.loadToken, toLoad: b.loadToken}
@@ -184,7 +217,10 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
         const outro = out.markers?.find(m => m.type === "outro")?.ms
         const exit = point ?? outro
         plan = saved?.plan ?? planRehearsal(outgoing, incoming, exit == null ? null : exit / 1000, b.platterTime(), a.bpm, mix)
-        if (plan) draw()
+        if (plan) {
+          if (!saved) prepareDraft(true)
+          draw()
+        }
       }
     }
     // The saved version owns its cue. A fresh draft follows an explicit move on the idle deck.
@@ -192,6 +228,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
     if (!saved && plan && !b.audible() && lastDeckCue != null && Math.abs(deckCue - lastDeckCue) > 0.001) {
       stop()
       plan = withEntry(deckCue, null)
+      prepareDraft()
       draw()
     }
     lastDeckCue = deckCue
@@ -226,6 +263,12 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
   arm.onclick = () => {
     update()
     if (arm.disabled) return
+    keepDraft()
+    if (plan.blendCurve && kind() === "blend" && !engine.canMeasureBlend(pair, plan.mix)) {
+      failure = "A cabine mudou. No ensaio, copie os ajustes atuais e ouça a mistura novamente."
+      update()
+      return
+    }
     if (engine.armPassage(pair, plan, kind()).ok) {
       dialog.close()
       update()
@@ -237,7 +280,10 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
   }
   confirm.onclick = () => {
     if (!engine.confirmPassage().ok && engine.passage()?.phase === "armed") {
-      text(passageState, "Solte os controles dos decks antes de confirmar a passagem.")
+      const saved = engine.passage()
+      text(passageState, saved.kind === "blend" && saved.plan.blendCurve && !engine.canMeasureBlend(saved.pair, saved.plan.mix)
+        ? "A cabine mudou. No ensaio, copie os ajustes atuais e ouça a mistura novamente."
+        : "Solte os controles dos decks antes de confirmar a passagem.")
     }
     update()
     passageState.focus()
@@ -256,7 +302,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
     update()
   }
   dialog.querySelector("[data-close]").onclick = () => dialog.close()
-  dialog.onclose = () => { stop(); assist.reset(); pair = plan = null }
+  dialog.onclose = () => { blendReview.lock(); stop(); assist.reset(); pair = plan = null }
   dialog.onchange = e => {
     if (e.target.matches("[data-mix]")) return
     stop(); failure = ""; draw(); update()
@@ -288,6 +334,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
     failure = ""
     update()
     if (listen.disabled) return
+    keepDraft()
     const id = ++request
     pending = true
     try {
@@ -314,5 +361,5 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
   listen.onclick = play
   const resize = new ResizeObserver(() => { if (dialog.open) draw() })
   resize.observe(lanes[0])
-  return {update, stop, destroy() { stop(); assist.reset(); score.destroy(); resize.disconnect(); if (dialog.open) dialog.close() }}
+  return {update, stop, destroy() { blendReview.lock(); stop(); assist.reset(); score.destroy(); resize.disconnect(); if (dialog.open) dialog.close() }}
 }
