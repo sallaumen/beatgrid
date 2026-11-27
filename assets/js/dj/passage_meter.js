@@ -155,7 +155,8 @@ export function createProgramMeter(ctx, input) {
     const {window, report, timer} = pending
     clearTimeout(timer)
     pending = null
-    report(measuredWindow(window, data))
+    const end = data && data.first + data.frames.length / 3 * data.frameSeconds
+    report(end >= window.end - 0.02 ? measuredWindow(window, data) : null)
   }
 
   function stop() {
@@ -176,7 +177,8 @@ export function createProgramMeter(ctx, input) {
       node = new AudioWorkletNode(ctx, "beatgrid-passage-meter", {numberOfInputs: 1, numberOfOutputs: 0,
         processorOptions: {historySeconds: 32}})
       node.port.onmessage = ({data}) => { if (pending?.id === data.id) finish(data) }
-      node.onprocessorerror = () => { finish(null); stop() }
+      const active = node
+      node.onprocessorerror = () => { if (node === active) { finish(null); stop() } }
       input.connect(node)
     }).catch(() => { if (opening === scheduled) stop() }).finally(() => {
       if (opening === scheduled) opening = null
@@ -187,9 +189,10 @@ export function createProgramMeter(ctx, input) {
 
   function read(kind, overlap, bpm, report) {
     cancel()
-    if (!node) return report(null)
-    const change = ctx.currentTime, id = ++serial
-    const window = {kind, change, overlap, bpm, start: Math.max(0, change - 4), end: change + overlap + 4}
+    const change = ctx.currentTime
+    if (!node || change < 4) return report(null)
+    const id = ++serial
+    const window = {kind, change, overlap, bpm, start: change - 4, end: change + overlap + 4}
     pending = {id, window, report, timer: setTimeout(() => finish(null), (overlap + 6) * 1000)}
     node.port.postMessage({id, start: window.start, end: window.end})
   }

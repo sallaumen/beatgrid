@@ -26,8 +26,9 @@ test("the room keeps only the latest handoff, anchors on its audio clock and rel
   history.read("blend", 6, 125, x => readings.push(x))
   const second = tap.port.sent.at(-1)
   assert.ok(second.start < 12 && second.end > 18)
-  const deliver = request => tap.port.onmessage({data: {id: request.id, first: request.start,
-    frames: Float32Array.from([.1, .2, .01]), frameSeconds: .01}})
+  const deliver = (request, count = Math.ceil((request.end - request.start) * 100)) =>
+    tap.port.onmessage({data: {id: request.id, first: request.start,
+      frames: new Float32Array(3 * count), frameSeconds: .01}})
   deliver(first)
   assert.deepEqual(readings, [])
   deliver(second)
@@ -40,6 +41,19 @@ test("the room keeps only the latest handoff, anchors on its audio clock and rel
   history.cancel()
   deliver(third)
   assert.equal(readings.length, 1)
+  history.read("cut", .008, 120, x => readings.push(x))
+  deliver(tap.port.sent.at(-1), 120)
+  assert.equal(readings.at(-1), null, "a missing tail must never supply a score")
+  const staleError = tap.onprocessorerror
+  history.stop()
+  await history.start()
+  ctx.currentTime = 2
+  history.read("cut", .008, 120, x => readings.push(x))
+  assert.equal(instances[1].port.sent.length, 0, "four full seconds of outgoing audio are required")
+  ctx.currentTime = 20
+  history.read("cut", .008, 120, x => readings.push(x))
+  staleError()
+  assert.equal(instances[1].closed, undefined, "an error from the old route cannot retire its replacement")
   history.stop()
   assert.equal(tap.port.closed, true)
   assert.equal(tap.closed, true)
