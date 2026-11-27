@@ -1046,9 +1046,19 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 <button
                   type="button"
                   data-sync
+                  title="Igualar o BPM ao outro deck no fone e manter o CUE."
                   class="min-h-9 rounded-md border border-white/10 px-2 text-body"
                 >SYNC</button>
               </div>
+              <button
+                type="button"
+                data-pulse-sync
+                hidden
+                disabled
+                class="mb-2 min-h-9 rounded-md border border-white/10 px-2 py-1 text-left text-body text-ink"
+              >
+                Ouvir outra contagem
+              </button>
               <label
                 :for={
                   {key, name, low, high} <- [
