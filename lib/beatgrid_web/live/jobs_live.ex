@@ -136,175 +136,177 @@ defmodule BeatgridWeb.JobsLive do
   def render(assigns) do
     ~H"""
     <.app_shell flash={@flash} active={:jobs} socket={@socket}>
-      <header class="border-b border-white/6 bg-rail px-6 py-3">
-        <h1 class="text-[22px] font-semibold">Fila de tarefas</h1>
-        <p class="text-ink-muted text-body-sm">
-          Acompanhe downloads, análises e importações em segundo plano.
-        </p>
+      <header class="border-b border-white/6 bg-rail px-3 py-3 sm:px-6">
+        <div class="mx-auto max-w-[1600px]">
+          <h1 class="text-[22px] font-semibold">Fila de tarefas</h1>
+          <p class="text-body-sm text-ink-muted">
+            Downloads, análises e importações em segundo plano.
+          </p>
+        </div>
       </header>
+      <div class="mx-auto max-w-[1600px] px-3 py-5 sm:px-6">
+        <div class="flex flex-col gap-3 border-b border-white/8 pb-3 lg:flex-row lg:items-end lg:justify-between">
+          <div class="min-w-0 space-y-2">
+            <p id="job-state-label" class="text-body-sm font-semibold text-ink-secondary">
+              Estado da tarefa
+            </p>
+            <nav aria-labelledby="job-state-label" class="flex flex-wrap items-center gap-1.5">
+              <.link
+                :for={
+                  {state, label} <-
+                    [{nil, "Todas"}, {"failed", "Falhas"}] ++
+                      Enum.map(@states, &{&1, state_label(&1)})
+                }
+                patch={jobs_path(state, @worker)}
+                aria-current={@filter == state && "true"}
+                class={["rounded-md border px-2.5 py-1.5 text-body", chip_class(@filter == state)]}
+              >
+                {label}
+              </.link>
+            </nav>
+          </div>
 
-      <div class="mx-auto max-w-[1600px] px-6 py-6">
-        <form id="task-type" phx-change="filter_worker" class="mb-4 flex items-center gap-2">
-          <label for="worker-filter" class="text-body font-medium">Tipo de tarefa</label>
-          <select
-            id="worker-filter"
-            name="worker"
-            class="rounded-md border border-white/10 bg-input px-3 py-2 text-body"
-          >
-            <option value="">Todos os tipos</option>
-            <option
-              :for={{name, label} <- worker_options(@worker)}
-              value={name}
-              selected={name == @worker}
+          <form id="task-type" phx-change="filter_worker" class="w-full shrink-0 lg:w-56">
+            <label
+              for="worker-filter"
+              class="mb-1 block text-body-sm font-semibold text-ink-secondary"
+            >Tipo de tarefa</label>
+            <select
+              id="worker-filter"
+              name="worker"
+              class="w-full rounded-md border border-white/10 bg-input px-3 py-2 text-body"
             >
-              {label}
-            </option>
-          </select>
-        </form>
-        <div class="flex flex-wrap items-center gap-1.5">
-          <.link
-            patch={jobs_path(nil, @worker)}
-            aria-current={is_nil(@filter) && "true"}
-            class={["rounded-sm border px-2.5 py-1 text-body", chip_class(@filter == nil)]}
-          >
-            Todas
-          </.link>
-          <.link
-            patch={jobs_path("failed", @worker)}
-            aria-current={@filter == "failed" && "true"}
-            class={["rounded-sm border px-2.5 py-1 text-body", chip_class(@filter == "failed")]}
-          >
-            Falhas
-          </.link>
-          <.link
-            :for={s <- @states}
-            patch={jobs_path(s, @worker)}
-            aria-current={@filter == s && "true"}
-            class={["rounded-sm border px-2.5 py-1 text-body", chip_class(@filter == s)]}
-          >
-            {state_label(s)}
-          </.link>
-          <span class="text-ink-faint ml-auto font-mono text-caption">Exibindo {length(@jobs)} de até 100 tarefas</span>
+              <option value="">Todos os tipos</option>
+              <option
+                :for={{name, label} <- worker_options(@worker)}
+                value={name}
+                selected={name == @worker}
+              >
+                {label}
+              </option>
+            </select>
+          </form>
         </div>
 
         <div
           :if={@filter == "failed" and @jobs != []}
-          class="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-coral/25 bg-coral/5 px-3 py-2"
+          class="flex flex-wrap items-center justify-between gap-2 py-3"
         >
-          <span class="text-body-sm text-ink-secondary">
-            As ações em lote abrangem todas as falhas do tipo de tarefa selecionado.
-          </span>
-          <button
-            phx-click="retry_all_failed"
-            data-confirm="Tentar novamente todas as tarefas com falha deste filtro?"
-            class="rounded-md bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary hover:bg-primary/25"
-          >
-            Tentar todas novamente
-          </button>
-          <button
-            phx-click="clear_all_failed"
-            data-confirm="Limpar do histórico todas as falhas deste filtro, inclusive as que estão fora desta página?"
-            class="rounded-md bg-white/6 px-2.5 py-1 text-[11px] font-semibold text-ink-muted hover:bg-white/10"
-          >
-            Limpar histórico de falhas
-          </button>
+          <div>
+            <p class="text-body font-semibold">
+              Ações em lote · {if @worker, do: worker_label(@worker), else: "Todos os tipos"}
+            </p>
+            <p class="mt-0.5 text-body-sm text-ink-muted">
+              Incluem as falhas que estão fora desta página.
+            </p>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button
+              phx-click="retry_all_failed"
+              data-confirm="Tentar novamente todas as tarefas com falha deste filtro?"
+              class="rounded-md border border-primary/30 bg-primary/10 px-3 py-1.5 text-body-sm font-semibold text-primary hover:bg-primary/15"
+            >
+              Tentar todas novamente
+            </button>
+            <button
+              phx-click="clear_all_failed"
+              data-confirm="Limpar do histórico todas as falhas deste filtro, inclusive as que estão fora desta página?"
+              class="rounded-md border border-coral/25 bg-coral/10 px-3 py-1.5 text-body-sm font-medium text-coral hover:bg-coral/15"
+            >
+              Limpar histórico de falhas
+            </button>
+          </div>
         </div>
 
-        <div class="mt-4 overflow-x-auto rounded-xl border border-white/6 bg-surface">
-          <table class="w-full text-left text-body-sm">
-            <thead>
-              <tr class="text-ink-faint border-b border-white/6 text-[10px] uppercase tracking-wider">
-                <th class="px-4 py-2.5 font-semibold">Estado</th>
-                <th class="px-4 py-2.5 font-semibold">Tarefa</th>
-                <th class="px-4 py-2.5 font-semibold">Fila</th>
-                <th class="px-4 py-2.5 text-center font-semibold">Tentativas</th>
-                <th class="px-4 py-2.5 font-semibold">Quando</th>
-                <th class="px-4 py-2.5 text-right font-semibold">Ações</th>
-              </tr>
-            </thead>
-            <tbody :for={j <- @jobs} class="border-b border-white/4 last:border-0">
-              <tr class="hover:bg-white/[0.02]">
-                <td class="whitespace-nowrap px-4 py-3 align-top">
-                  <span class={[
-                    "rounded-sm px-2 py-0.5 text-[10px] font-bold uppercase",
-                    state_class(j.state)
-                  ]}>
-                    {state_label(j.state)}
-                  </span>
-                </td>
-                <td class="px-4 py-3 align-top">
-                  <div class="flex items-center gap-2">
-                    <span class="text-body-sm font-medium">{worker_label(j.worker)}</span>
-                    <span class="text-ink-faint rounded bg-white/6 px-1.5 py-0.5 font-mono text-[10px]">
-                      {worker_name(j.worker)}
-                    </span>
-                  </div>
-                  <p class="text-ink-muted mt-0.5 max-w-[680px] truncate font-mono text-caption">
-                    {job_summary(j, @titles)}
-                  </p>
-                  <p :if={last_error(j)} class="text-coral mt-0.5 max-w-[680px] truncate text-caption">
-                    {last_error(j)}
-                  </p>
-                </td>
-                <td class="whitespace-nowrap px-4 py-3 align-top">
-                  <span class="text-ink-muted rounded-sm bg-white/6 px-2 py-0.5 font-mono text-[11px]">
-                    {j.queue}
-                  </span>
-                </td>
-                <td class="text-ink-muted whitespace-nowrap px-4 py-3 text-center align-top font-mono text-[12px]">
-                  {j.attempt}/{j.max_attempts}
-                </td>
-                <td class="text-ink-faint whitespace-nowrap px-4 py-3 align-top font-mono text-[12px]">
-                  {ago(job_time(j))}
-                </td>
-                <td class="whitespace-nowrap px-4 py-3 text-right align-top">
-                  <div class="flex items-center justify-end gap-1.5">
-                    <button
-                      :if={j.errors != []}
-                      type="button"
-                      phx-click="toggle_details"
-                      phx-value-id={j.id}
-                      class="text-ink-faint hover:text-ink text-[11px]"
-                    >
-                      {if MapSet.member?(@expanded, j.id), do: "Ocultar", else: "Detalhes"}
-                    </button>
-                    <button
-                      :if={j.state in ["retryable", "discarded", "cancelled"]}
-                      phx-click="retry"
-                      phx-value-id={j.id}
-                      class="rounded-md bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary hover:bg-primary/25"
-                    >
-                      Tentar novamente
-                    </button>
-                    <button
-                      :if={j.state in ["available", "scheduled", "executing", "retryable"]}
-                      phx-click="cancel"
-                      phx-value-id={j.id}
-                      class="text-coral rounded-md bg-coral/10 px-2.5 py-1 text-[11px] hover:bg-coral/20"
-                    >
-                      Cancelar
-                    </button>
-                  </div>
-                </td>
-              </tr>
-              <tr :if={MapSet.member?(@expanded, j.id)}>
-                <td colspan="6" class="px-4 pb-3">
-                  <div class="space-y-1 rounded-md bg-base px-3 py-2">
-                    <p class="text-ink-muted break-all font-mono text-[11px]">{full_url(j)}</p>
-                    <p
-                      :for={line <- all_errors(j)}
-                      class="text-coral break-all whitespace-pre-wrap font-mono text-[11px]"
-                    >
-                      {line}
-                    </p>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <p :if={@jobs == []} class="text-ink-faint py-12 text-center text-body-sm">
-            Nenhuma tarefa.
+        <div class="mt-3 flex flex-wrap items-baseline justify-between gap-2">
+          <h2 class="text-[18px] font-semibold">Atividade recente</h2>
+          <p class="text-body-sm text-ink-muted">
+            <span class="font-mono tabular-nums text-ink-secondary">{length(@jobs)}</span>
+            exibidas · limite de 100
           </p>
+        </div>
+
+        <ul id="jobs-list" role="list" class="mt-2 divide-y divide-white/8 border-y border-white/8">
+          <li :for={j <- @jobs} id={"job-#{j.id}"} class="space-y-2 py-3">
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(9rem,auto)] lg:grid-cols-[minmax(0,1fr)_minmax(10rem,auto)_auto] lg:gap-4">
+              <div class="min-w-0">
+                <p class="text-body-lg font-semibold text-ink">{worker_label(j.worker)}</p>
+                <p class="mt-0.5 break-words text-body text-ink-secondary">
+                  {job_summary(j, @titles)}
+                </p>
+                <p :if={last_error(j)} class="mt-1 break-words text-body-sm text-coral">
+                  {last_error(j)}
+                </p>
+                <p class="mt-1 text-caption text-ink-muted">
+                  <span class="font-mono">{worker_name(j.worker)}</span>
+                  <span aria-hidden="true"> · </span> Fila <span class="font-mono">{j.queue}</span>
+                </p>
+              </div>
+
+              <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 sm:flex-col sm:items-start">
+                <span class={[
+                  "rounded-xs px-2 py-0.5 text-caption font-semibold",
+                  state_class(j.state)
+                ]}>
+                  {state_label(j.state)}
+                </span>
+                <span class="text-body-sm text-ink-secondary">{ago(job_time(j))}</span>
+                <span class="text-body-sm text-ink-muted">
+                  Tentativa <span class="font-mono tabular-nums">{j.attempt}/{j.max_attempts}</span>
+                </span>
+              </div>
+
+              <div class="flex flex-wrap items-start gap-1.5 sm:col-span-2 lg:col-span-1 lg:justify-end">
+                <button
+                  :if={j.errors != []}
+                  type="button"
+                  phx-click="toggle_details"
+                  phx-value-id={j.id}
+                  aria-expanded={to_string(MapSet.member?(@expanded, j.id))}
+                  class="rounded-md border border-white/10 px-2.5 py-1.5 text-body-sm text-ink-secondary hover:text-ink"
+                >
+                  {if MapSet.member?(@expanded, j.id), do: "Ocultar", else: "Detalhes"}
+                </button>
+                <button
+                  :if={j.state in ["retryable", "discarded", "cancelled"]}
+                  phx-click="retry"
+                  phx-value-id={j.id}
+                  class="rounded-md border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-body-sm font-semibold text-primary hover:bg-primary/15"
+                >
+                  Tentar novamente
+                </button>
+                <button
+                  :if={j.state in ["available", "scheduled", "executing", "retryable"]}
+                  phx-click="cancel"
+                  phx-value-id={j.id}
+                  class="rounded-md border border-coral/25 bg-coral/10 px-2.5 py-1.5 text-body-sm text-coral hover:bg-coral/15"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+
+            <div
+              :if={MapSet.member?(@expanded, j.id)}
+              class="space-y-1 rounded-md bg-surface px-3 py-2"
+            >
+              <p class="break-all font-mono text-body-sm text-ink-muted">{full_url(j)}</p>
+              <p
+                :for={line <- all_errors(j)}
+                class="break-all whitespace-pre-wrap font-mono text-body-sm text-coral"
+              >
+                {line}
+              </p>
+            </div>
+          </li>
+        </ul>
+        <div :if={@jobs == []} class="py-6 text-body text-ink-muted">
+          Nenhuma tarefa neste filtro.
+          <.link
+            :if={@filter || @worker}
+            patch={jobs_path(nil, nil)}
+            class="text-primary hover:underline"
+          >Ver todas as tarefas</.link>
         </div>
       </div>
     </.app_shell>
@@ -378,8 +380,9 @@ defmodule BeatgridWeb.JobsLive do
   defp summarize("ExpandWorker", args, _titles),
     do: args["url"] || args["playlist_url"] || "playlist"
 
-  defp summarize("AnalyzeWorker", args, titles), do: track_ref(args["track_id"], titles)
-  defp summarize("ResolveSongWorker", args, titles), do: track_ref(args["track_id"], titles)
+  defp summarize(worker, args, titles) when is_map_key(@track_id_arg, worker),
+    do: track_ref(args[@track_id_arg[worker]], titles)
+
   defp summarize("EnrichWorker", args, titles), do: enrich_summary(args, titles)
   defp summarize("ReResolveWorker", args, _titles), do: "sugestão ##{args["suggestion_id"]}"
   defp summarize("ReevaluateWorker", args, _titles), do: reeval_summary(args)
@@ -402,6 +405,7 @@ defmodule BeatgridWeb.JobsLive do
     do: Map.get(titles, id, "faixa ##{String.slice(to_string(id), 0, 8)}")
 
   defp enrich_summary(%{"scope" => "pending"}, _titles), do: "todas as pendentes · Soundcharts"
+  defp enrich_summary(%{"scope" => "rare"}, _titles), do: "faixas raras · IA e análise local"
 
   defp enrich_summary(%{"scope" => "track", "id" => id}, titles),
     do: "#{track_ref(id, titles)} · Soundcharts"
@@ -438,6 +442,9 @@ defmodule BeatgridWeb.JobsLive do
 
   # ── Timing ─────────────────────────────────────────────────────────────────
 
+  defp job_time(%Oban.Job{state: state, scheduled_at: at})
+       when state in ["scheduled", "retryable"], do: at
+
   defp job_time(%Oban.Job{} = j) do
     j.completed_at || j.cancelled_at || j.discarded_at || j.attempted_at || j.scheduled_at ||
       j.inserted_at
@@ -449,6 +456,10 @@ defmodule BeatgridWeb.JobsLive do
 
   defp ago(%DateTime{} = dt) do
     case DateTime.diff(DateTime.utc_now(), dt, :second) do
+      s when s <= -86_400 -> "daqui a #{div(-s, 86_400)}d"
+      s when s <= -3_600 -> "daqui a #{div(-s, 3_600)}h"
+      s when s <= -60 -> "daqui a #{div(-s, 60)}min"
+      s when s < -4 -> "daqui a #{-s}s"
       s when s < 5 -> "agora"
       s when s < 60 -> "há #{s}s"
       s when s < 3_600 -> "há #{div(s, 60)}min"
@@ -483,7 +494,7 @@ defmodule BeatgridWeb.JobsLive do
   defp state_label("available"), do: "Na fila"
   defp state_label("scheduled"), do: "Agendada"
   defp state_label("executing"), do: "Executando"
-  defp state_label("retryable"), do: "Retentável"
+  defp state_label("retryable"), do: "Nova tentativa"
   defp state_label("completed"), do: "Concluída"
   defp state_label("discarded"), do: "Descartada"
   defp state_label("cancelled"), do: "Cancelada"
@@ -495,6 +506,6 @@ defmodule BeatgridWeb.JobsLive do
   defp state_class("retryable"), do: "bg-amber/15 text-amber"
   defp state_class(_), do: "bg-white/10 text-ink-muted"
 
-  defp chip_class(true), do: "border-primary/60 bg-primary/20 text-ink"
+  defp chip_class(true), do: "border-primary/60 bg-primary/15 text-ink"
   defp chip_class(false), do: "border-white/8 bg-input text-ink-muted hover:border-white/20"
 end
