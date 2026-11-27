@@ -190,14 +190,15 @@ function levelMetric(before, middle, after, dt, kind, descriptive) {
 
 function headroomMetric(frames) {
   let peak = 0, nearRail = 0
+  const estimated = frames.every(f => Number.isFinite(f.truePeak) && f.truePeak >= f.peak)
   for (const f of frames) {
-    peak = Math.max(peak, f.peak)
+    peak = Math.max(peak, estimated ? f.truePeak : f.peak)
     if (f.peak >= 0.99995) nearRail++
   }
   if (peak < 0.001) return unknown("headroom", "Sem sinal na troca")
   const state = peak > 1 || nearRail >= 2 ? "poor" : db(peak) > -1 ? "watch" : "good"
   const reading = decimal(Math.round(db(peak) * 10) / 10 || 0)
-  return metric("headroom", state, `Pico de ${reading} dBFS`)
+  return metric("headroom", state, estimated ? `Pico estimado de ${reading} dBTP` : `Pico de ${reading} dBFS`)
 }
 
 export function scorePassage({frames, frameSeconds: dt, changeAt, overlap, kind, bpm, descriptive = false} = {}) {

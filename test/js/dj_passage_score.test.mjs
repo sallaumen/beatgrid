@@ -193,3 +193,14 @@ for (const kind of ["brake", "scratch_cut", "spinback", "chirp", "transform", "s
     assert.deepEqual(partial.metrics.map(m => m.state), ["unknown", "unknown"])
   })
 }
+
+test("the peak margin grades reconstructed overs and labels sample-only readings in their own unit", () => {
+  const data = passage({peak: 0.82})
+  const original = metric(scorePassage(data), "headroom")
+  assert.equal(original.state, "good")
+  assert.match(original.value, /dBFS/)
+  const frames = data.frames.map(f => ({...f, truePeak: 1.16}))
+  const measured = metric(scorePassage({...data, frames}), "headroom")
+  assert.equal(measured.state, "poor")
+  assert.match(measured.value, /1,3 dBTP/)
+})

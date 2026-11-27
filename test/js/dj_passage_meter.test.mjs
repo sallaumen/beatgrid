@@ -82,3 +82,29 @@ test("the program tap keeps a bounded stereo envelope and retrieves only a reque
   tap.port.onmessage({data: "stop"})
   assert.equal(tap.process([]), false)
 })
+
+test("both the private and rolling meters see an inter-sample over on either clear stereo channel", () => {
+  for (const rolling of [false, true]) for (const channel of [0, 1]) {
+    let Meter, result
+    const sr = 48000
+    const scope = {sampleRate: sr, currentFrame: 0, AudioWorkletProcessor: class {
+      port = {postMessage(value) { result = value }}
+    }, registerProcessor(_, type) { Meter = type }}
+    vm.runInNewContext(METER_PROCESSOR, scope)
+    const tap = new Meter({processorOptions: rolling ? {historySeconds: 0.04} : {start: 0, end: 0.12}})
+    if (rolling) tap.port.onmessage({data: {id: 1, start: 0.09, end: 0.12}})
+    for (let k = 0; k < sr * .12; k += 128) {
+      scope.currentFrame = k
+      const signal = [new Float32Array(128), new Float32Array(128)]
+      for (let i = 0; i < 128; i++) {
+        signal[channel][i] = 1.16 * Math.sin(Math.PI / 2 * (k + i + .5))
+      }
+      tap.process([signal])
+    }
+    assert.ok(result)
+    const sample = Array.from(result.frames).filter((_, i) => i % 3 === 1)
+    assert.ok(sample.every(p => p > .81 && p < .83))
+    assert.equal(result.truePeaks?.length, sample.length)
+    assert.ok(Array.from(result.truePeaks).every(p => 20 * Math.log10(p) > 1.1 && 20 * Math.log10(p) < 1.55))
+  }
+})

@@ -2,6 +2,34 @@ import {rehearsalOverlap} from "./rehearsal.js"
 
 // The tap has no outputs. Only stereo energy, peaks and attacks leave the render thread.
 export const METER_PROCESSOR = `
+// Four phases of the 12-tap interpolator from ITU-R BS.1770-5, Annex 2.
+const taps = Float32Array.from([
+  14, -239, -155, -68, 90, 240, 271, 122, -161, -424, -477, -218,
+  272, 730, 832, 390, -487, -1364, -1641, -838, 1125, 3810, 6388, 7964,
+  7964, 6388, 3810, 1125, -838, -1641, -1364, -487, 390, 832, 730, 272,
+  -218, -477, -424, -161, 122, 271, 240, 90, -68, -155, -239, 14
+], value => value / 8192)
+
+function interpolatedPeak(history, oldest) {
+  let a = 0, b = 0, c = 0, d = 0
+  for (let i = 0; i < 12; i++) {
+    const x = history[oldest + i], at = 4 * i
+    a += x * taps[at]
+    b += x * taps[at + 1]
+    c += x * taps[at + 2]
+    d += x * taps[at + 3]
+  }
+  return Math.max(Math.abs(a), Math.abs(b), Math.abs(c), Math.abs(d))
+}
+
+function copyRing(ring, from, length) {
+  const result = new Float32Array(length)
+  const k = from % ring.length, tail = Math.min(length, ring.length - k)
+  result.set(ring.subarray(k, k + tail))
+  result.set(ring.subarray(0, length - tail), tail)
+  return result
+}
+
 class PassageMeter extends AudioWorkletProcessor {
   constructor(options) {
     super()
@@ -12,6 +40,9 @@ class PassageMeter extends AudioWorkletProcessor {
     this.hop = Math.max(1, Math.round(sampleRate / 100))
     const samples = this.rolling ? historySeconds * sampleRate : this.end - this.start
     this.frames = new Float32Array(3 * Math.ceil(samples / this.hop))
+    this.truePeaks = new Float32Array(this.frames.length / 3)
+    this.history = [new Float32Array(24), new Float32Array(24)]
+    this.cursor = this.warm = this.truePeak = 0
     this.used = this.count = this.power = this.high = this.peak = 0
     this.lastRms = this.lastHigh = 0
     this.previous = [0, 0]
@@ -29,27 +60,35 @@ class PassageMeter extends AudioWorkletProcessor {
     const block = channels[0]?.length || 128
     const start = Math.max(0, this.start - currentFrame)
     const end = Math.min(block, this.end - currentFrame)
+    const left = channels[0], right = channels[1] || left
     for (let i = start; i < end; i++) {
       if (this.first === null) this.first = currentFrame + i
-      const n = Math.max(1, Math.min(2, channels.length))
-      for (let c = 0; c < n; c++) {
-        const x = channels[c]?.[i] || 0
+      for (let c = 0; c < 2; c++) {
+        const x = (c ? right : left)?.[i] || 0
         const difference = x - this.previous[c]
         this.previous[c] = x
-        this.power += x * x / n
-        this.high += difference * difference / n
+        this.power += x * x / 2
+        this.high += difference * difference / 2
         this.peak = Math.max(this.peak, Math.abs(x))
+        const history = this.history[c]
+        history[this.cursor] = history[this.cursor + 12] = x
+        if (this.warm === 11) {
+          this.truePeak = Math.max(this.truePeak, interpolatedPeak(history, this.cursor + 1))
+        }
       }
+      if (++this.cursor === 12) this.cursor = 0
+      if (this.warm < 11) this.warm++
       if (++this.count === this.hop) {
         const rms = Math.sqrt(this.power / this.hop), high = Math.sqrt(this.high / this.hop)
         const k = this.used % this.frames.length
         this.frames[k] = rms
         this.frames[k + 1] = this.peak
+        this.truePeaks[k / 3] = Math.max(this.peak, this.truePeak)
         this.frames[k + 2] = Math.max(0, rms - this.lastRms) + 2 * Math.max(0, high - this.lastHigh)
         this.used += 3
         this.lastRms = rms
         this.lastHigh = high
-        this.count = this.power = this.high = this.peak = 0
+        this.count = this.power = this.high = this.peak = this.truePeak = 0
       }
     }
     if (this.rolling) {
@@ -60,7 +99,8 @@ class PassageMeter extends AudioWorkletProcessor {
     // WebKit can request another quantum after false. The transfer detaches frames.
     this.finished = true
     this.port.postMessage({frames: this.frames.subarray(0, this.used), first: this.first / sampleRate,
-      frameSeconds: this.hop / sampleRate}, [this.frames.buffer])
+      truePeaks: this.truePeaks.subarray(0, this.used / 3), frameSeconds: this.hop / sampleRate},
+      [this.frames.buffer, this.truePeaks.buffer])
     return false
   }
 
@@ -70,13 +110,11 @@ class PassageMeter extends AudioWorkletProcessor {
     const from = Math.max(0, Math.round((start * sampleRate - this.first) / this.hop))
     const to = Math.min(this.used / 3, Math.round((end * sampleRate - this.first) / this.hop))
     const kept = this.used - 3 * from <= this.frames.length
-    const frames = new Float32Array(kept ? 3 * Math.max(0, to - from) : 0)
-    const k = 3 * from % this.frames.length
-    const tail = Math.min(frames.length, this.frames.length - k)
-    frames.set(this.frames.subarray(k, k + tail))
-    frames.set(this.frames.subarray(0, frames.length - tail), tail)
-    this.port.postMessage({id, frames, first: (this.first + from * this.hop) / sampleRate,
-      frameSeconds: this.hop / sampleRate}, [frames.buffer])
+    const count = kept ? Math.max(0, to - from) : 0
+    const frames = copyRing(this.frames, 3 * from, 3 * count)
+    const truePeaks = copyRing(this.truePeaks, from, count)
+    this.port.postMessage({id, frames, truePeaks, first: (this.first + from * this.hop) / sampleRate,
+      frameSeconds: this.hop / sampleRate}, [frames.buffer, truePeaks.buffer])
   }
 }
 registerProcessor("beatgrid-passage-meter", PassageMeter)
@@ -99,7 +137,8 @@ function measuredWindow(window, data) {
   if (!data || data.first - window.start > 0.1 || data.frames.length < 3) return null
   const frames = []
   for (let i = 0; i < data.frames.length; i += 3) {
-    frames.push({rms: data.frames[i], peak: data.frames[i + 1], onset: data.frames[i + 2]})
+    frames.push({rms: data.frames[i], peak: data.frames[i + 1], onset: data.frames[i + 2],
+      truePeak: data.truePeaks?.[i / 3]})
   }
   return {...window, frames, frameSeconds: data.frameSeconds, changeAt: window.change - data.first}
 }
