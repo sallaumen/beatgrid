@@ -1381,9 +1381,10 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     return gap && gap.deadline !== null ? gap : null
   }
 
-  function interruptTransition() {
+  function interruptTransition({keepPassage = false} = {}) {
     if (roomReading?.arrived) cancelRoomReading()
-    passage.disarm()
+    if (keepPassage) passage.mixChanged()
+    else passage.disarm()
     state.stopScratchDrop?.()
     for (const deck of Object.values(decks)) {
       deck.stopBrake?.()
@@ -1490,13 +1491,22 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     param.setTargetAtTime(target, now, tau)
   }
 
+  // Either adjacent MIDI code can be reported by a resting fader. Keep the
+  // last applied position so a slow move accumulates past one hardware step.
+  function reservedMidiJitter(previous, next, step) {
+    return step > 0 && passage.current() && Math.abs(next - previous) <= step + Number.EPSILON
+  }
+
   // Manual gesture (UI or MIDI): cancel any automated glide and take over.
-  function setCrossfader(pos) {
-    if (passage.current()?.phase === "starting") passage.fail()
+  function setCrossfader(pos, midiStep = 0) {
+    const next = Math.min(Math.max(pos, 0), 1)
+    if (reservedMidiJitter(xfade.pos, next, midiStep)) return
+    if (next !== xfade.pos) passage.mixChanged()
+    else if (passage.current()?.phase === "starting") return // keep the pending input muted
     faderVersion++
     xfadeGlide++
     cancelAnimationFrame(xfadeAnim)
-    xfade.pos = Math.min(Math.max(pos, 0), 1)
+    xfade.pos = next
     const g2 = xfadeGains(xfade.pos)
     for (const side of ["a", "b"]) {
       takeOver(xfade[side].gain, g2[side], RAMP.manualFaderTau)
@@ -1508,7 +1518,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // the CURRENT position through it so the change is heard immediately. Only the
   // gains change — xfade.pos (and thus on-air detection) is untouched.
   function setCrossfaderCurve(mode) {
-    xfade.curve = mode === "sharp" ? "sharp" : "smooth"
+    const next = mode === "sharp" ? "sharp" : "smooth"
+    if (xfade.curve !== next) passage.mixChanged()
+    xfade.curve = next
     setCrossfader(xfade.pos)
     emit("xfadeCurve", {curve: xfade.curve})
   }
@@ -1629,8 +1641,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
   // Keep the latest hand position through buffering, PLAY and the next AUTO fire.
   function placePlatter(deck, seconds) {
-    deck.useMedia(false)
     const targetMs = deck.clampPosition(seconds) * 1000
+    if (Math.abs(deck.platterTime() * 1000 - targetMs) > 1) passage.mixChanged()
+    deck.useMedia(false)
     passage.seek(deck, targetMs)
     if (deck.loop.on && (targetMs < deck.loop.startMs || targetMs >= deck.loop.endMs)) clearLoop(deck)
     deck._cued = true
@@ -1668,6 +1681,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       return
     }
     if (held) {
+      passage.mixChanged()
       cancelBend(deckId)
       applyRate(deck)
       stopAutoScratch(deckId)
@@ -1721,7 +1735,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     }
     // Edge nudge while playing: bend the tempo, then decay back to base —
     // never a position jump (that skip was audible).
-    j.bend = Math.min(Math.max(j.bend + delta * RAMP.bendStep, -RAMP.bendMax), RAMP.bendMax)
+    const bend = Math.min(Math.max(j.bend + delta * RAMP.bendStep, -RAMP.bendMax), RAMP.bendMax)
+    if (bend !== j.bend) passage.mixChanged()
+    j.bend = bend
     applyRate(deck)
     if (!j.decay) {
       j.decay = setInterval(() => {
@@ -1986,7 +2002,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   function pauseTransport(deck) {
-    passage.disarm()
+    passage.mixChanged()
     const other = decks[otherId(deck.id)]
     if (state.activeDeck === deck.id && other.audible() && !other.cueState) {
       // Restore the mix to the outgoing deck, respecting a manual fader takeover.
@@ -2215,7 +2231,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         // Manual restart takes ownership: cancel stale transition cleanups and
         // resume with a SANE chain — a stop mid-echo/filter may have frozen
         // dry at zero or the filter swept; resuming must always sound clean.
-        interruptTransition()
+        interruptTransition({keepPassage: true})
         settleTransitionParams(deck)
         const now = ctx.currentTime
         if (deck.gain.gain.value < 0.05) deck.gain.gain.setValueAtTime(1, now)
@@ -2245,6 +2261,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         return
       }
       if (!deck.trackId || deckHeld(deckId)) return
+      passage.mixChanged()
       deck.cueState = "held"
       const atMs = Math.round(deck.platterTime() * 1000)
       if (deck.audible() || deck.playPending) {
@@ -2303,10 +2320,11 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       return ok
     },
 
-    setRate(deckId, rate) {
+    setRate(deckId, rate, midiStep = 0) {
       const deck = decks[deckId]
-      deck.stopBrake?.()
       const next = Math.min(Math.max(rate, 1 - PITCH_RATE_CLAMP), 1 + PITCH_RATE_CLAMP)
+      if (reservedMidiJitter(deck.baseRate, next, midiStep)) return
+      deck.stopBrake?.()
       if (deck.baseRate !== next) passage.mixChanged()
       deck.baseRate = next
       applyRate(deck)

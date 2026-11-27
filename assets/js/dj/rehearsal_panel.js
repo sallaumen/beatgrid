@@ -104,6 +104,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
     if (!plan) return
     const next = withEntry(entry, originalEntry)
     if (!next) return
+    engine.editPassageMix()
     stop()
     plan = next
     failure = ""
