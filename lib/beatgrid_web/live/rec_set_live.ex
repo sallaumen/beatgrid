@@ -1925,7 +1925,11 @@ defmodule BeatgridWeb.RecSetLive do
       phx-key="Escape"
       class="fixed inset-0 z-50 flex items-center justify-center p-4"
     >
-      <div class="absolute inset-0 bg-black/60" phx-click={JS.exec("data-dismiss", to: "#set-criteria-overlay")}></div>
+      <div
+        class="absolute inset-0 bg-black/60"
+        phx-click={JS.exec("data-dismiss", to: "#set-criteria-overlay")}
+      >
+      </div>
       <.focus_wrap
         id="set-criteria"
         role="dialog"
