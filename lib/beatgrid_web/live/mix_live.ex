@@ -26,6 +26,7 @@ defmodule BeatgridWeb.MixLive do
            progress: nil,
            recorte: nil,
            recorte_initial: nil,
+           recorte_version: 0,
            latest_cut: nil,
            folders: GenreFolders.list()
          )}
@@ -245,7 +246,13 @@ defmodule BeatgridWeb.MixLive do
         Enum.find(socket.assigns.mix.segments, &(&1.id == params["segment"]))
 
     initial = recorte_prefill(socket.assigns.mix, seg)
-    {:noreply, assign(socket, recorte: initial, recorte_initial: initial)}
+
+    {:noreply,
+     assign(socket,
+       recorte: initial,
+       recorte_initial: initial,
+       recorte_version: socket.assigns.recorte_version + 1
+     )}
   end
 
   def handle_event("close_recorte", _params, socket),
@@ -299,7 +306,7 @@ defmodule BeatgridWeb.MixLive do
   def render(assigns) do
     ~H"""
     <.app_shell flash={@flash} active={:mixes} socket={@socket}>
-      <div class="mx-auto max-w-[1100px] px-3 py-5 sm:px-6">
+      <div id={"mix-study-#{@mix.id}"} data-mix-study class="mx-auto max-w-[1100px] px-3 py-5 sm:px-6">
         <.link
           navigate={~p"/sets-online"}
           class="inline-flex items-center gap-1 text-body-sm text-ink-muted hover:text-ink"
@@ -356,13 +363,19 @@ defmodule BeatgridWeb.MixLive do
         </dl>
 
         <div
-          :if={is_integer(@mix.duration_ms) && @mix.duration_ms > 0 && @mix.segments != []}
+          :if={timeline_available?(@mix)}
           id="mix-timeline"
           data-duration-ms={@mix.duration_ms}
           class="mt-3"
         >
           <div class="mb-1 flex flex-wrap items-center justify-between gap-2">
-            <h2 class="text-body-sm font-semibold text-ink-secondary">Linha do tempo</h2>
+            <h2
+              id="mix-timeline-heading"
+              tabindex="-1"
+              class="scroll-mt-20 text-body-sm font-semibold text-ink-secondary"
+            >
+              Linha do tempo
+            </h2>
             <div class="flex items-center gap-2 text-caption text-ink-muted">
               <span class="flex items-center gap-1"><span class="size-2 rounded-xs bg-green/70"></span>
               Na biblioteca</span>
@@ -390,8 +403,16 @@ defmodule BeatgridWeb.MixLive do
             >
             </div>
           </div>
-          <div class="mt-1 flex justify-between font-mono text-caption tabular-nums text-ink-muted">
-            <span>00:00</span><span>{format_clock(@mix.duration_ms)}</span>
+          <div class="mt-1 flex items-center justify-between gap-2 font-mono text-caption tabular-nums text-ink-muted">
+            <span>00:00</span>
+            <a
+              id="mix-to-tracks"
+              href="#mix-tracklist-heading"
+              class="font-sans text-body-sm text-primary-soft underline"
+            >
+              Ver faixas
+            </a>
+            <span>{format_clock(@mix.duration_ms)}</span>
           </div>
         </div>
 
@@ -579,10 +600,30 @@ defmodule BeatgridWeb.MixLive do
         </div>
 
         <section
-          class="mt-5 flex flex-wrap items-center justify-between gap-2"
+          class="mt-5 space-y-2"
           aria-labelledby="mix-tracklist-heading"
         >
-          <h2 id="mix-tracklist-heading" class="text-[18px] font-semibold">Faixas do set</h2>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h2
+              id="mix-tracklist-heading"
+              tabindex="-1"
+              class="scroll-mt-20 text-[18px] font-semibold"
+            >
+              Faixas do set
+            </h2>
+            <button
+              :if={playable?(@mix)}
+              id="recorte-open-free"
+              type="button"
+              phx-click="open_recorte"
+              disabled={not is_nil(@recorte)}
+              aria-controls="recorte-editor"
+              aria-expanded={to_string(not is_nil(@recorte) and is_nil(@recorte.segment_id))}
+              class="inline-flex items-center gap-1.5 rounded-md bg-primary-deep px-3 py-1.5 text-body-sm font-semibold text-white hover:bg-primary-deep/90 disabled:opacity-40"
+            >
+              <span class="hero-scissors size-3.5" aria-hidden="true" /> Recortar trecho
+            </button>
+          </div>
           <div class="flex flex-wrap items-center gap-2">
             <button
               :if={playable?(@mix)}
@@ -603,14 +644,14 @@ defmodule BeatgridWeb.MixLive do
               Incluir faixas já consultadas
             </button>
             <.integration_gate :if={playable?(@mix)} key={:audd} />
-            <button
-              :if={playable?(@mix) and is_nil(@recorte)}
-              type="button"
-              phx-click="open_recorte"
-              class="inline-flex items-center gap-1.5 rounded-md bg-primary-deep px-3 py-1.5 text-body-sm font-semibold text-white hover:bg-primary-deep/90"
+            <a
+              :if={timeline_available?(@mix)}
+              id="mix-to-timeline"
+              href="#mix-timeline-heading"
+              class="text-body-sm text-primary-soft underline"
             >
-              <span class="hero-scissors size-3.5" aria-hidden="true" /> Recortar trecho
-            </button>
+              Linha do tempo
+            </a>
           </div>
         </section>
 
@@ -629,6 +670,8 @@ defmodule BeatgridWeb.MixLive do
           :if={@recorte}
           id="recorte-editor"
           phx-hook=".RecorteDraft"
+          data-origin-id={recorte_origin(@recorte_initial.segment_id)}
+          data-draft-version={@recorte_version}
           data-initial-range={@recorte_initial.range}
           data-initial-artist={@recorte_initial.artist}
           data-initial-title={@recorte_initial.title}
@@ -637,8 +680,9 @@ defmodule BeatgridWeb.MixLive do
           class="mt-4 scroll-mt-36 rounded-xl border border-primary/25 bg-surface p-3 sm:p-4"
         >
           <div class="flex items-center justify-between">
-            <h2 id="recorte-title" class="text-[18px] font-semibold">Novo recorte</h2>
+            <h2 id="recorte-title" tabindex="-1" class="text-[18px] font-semibold">Novo recorte</h2>
             <button
+              id="recorte-close"
               type="button"
               phx-click="close_recorte"
               aria-label="Fechar recorte"
@@ -851,10 +895,32 @@ defmodule BeatgridWeb.MixLive do
             </li>
             <li :for={{seg, i} <- Enum.with_index(segs)}>
               <.transition_row :if={i > 0} t={Transition.between(Enum.at(segs, i - 1), seg)} />
-              <.segment_row seg={seg} playable={playable?(@mix)} recorte_open={not is_nil(@recorte)} />
+              <.segment_row seg={seg} playable={playable?(@mix)} recorte={@recorte} />
             </li>
           <% end %>
         </ol>
+
+        <nav
+          :if={@mix.segments != []}
+          aria-label="Navegação da lista de faixas"
+          class="mt-3 flex flex-wrap items-center justify-between gap-2"
+        >
+          <a
+            id="mix-back-to-tracks"
+            href="#mix-tracklist-heading"
+            class="inline-flex min-h-9 items-center gap-1 text-body text-primary-soft underline"
+          >
+            <span class="hero-arrow-up size-3.5" aria-hidden="true" /> Início da lista
+          </a>
+          <a
+            :if={timeline_available?(@mix)}
+            id="mix-back-to-timeline"
+            href="#mix-timeline-heading"
+            class="inline-flex min-h-9 items-center gap-1 text-body text-primary-soft underline"
+          >
+            Linha do tempo
+          </a>
+        </nav>
 
         <p
           :if={@mix.status == :ready and @mix.segments == []}
@@ -867,6 +933,7 @@ defmodule BeatgridWeb.MixLive do
     <script :type={Phoenix.LiveView.ColocatedHook} name=".RecorteDraft">
       export default {
         mounted() {
+          this.study = this.el.closest("[data-mix-study]")
           this.guardDraft = (event) => {
             const button = event.target.closest("button[data-recorte-confirm]")
             if (!button) return
@@ -888,9 +955,42 @@ defmodule BeatgridWeb.MixLive do
             }
           }
           window.addEventListener("click", this.guardDraft, true)
+          this.onEscape = (event) => {
+            if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return
+            event.preventDefault()
+            event.stopPropagation()
+            // The close button runs the same unsaved-draft confirmation as a click.
+            this.el.querySelector("#recorte-close")?.click()
+          }
+          this.el.addEventListener("keydown", this.onEscape)
+          this.revealDraft()
+        },
+        updated() {
+          // Form changes and background ticks must not steal the DJ's focus.
+          if (this.draftVersion !== this.el.dataset.draftVersion) this.revealDraft()
+        },
+        revealDraft() {
+          this.draftVersion = this.el.dataset.draftVersion
+          this.originId = this.el.dataset.originId
+          const version = this.draftVersion
+          requestAnimationFrame(() => {
+            if (!this.el.isConnected || this.el.dataset.draftVersion !== version) return
+            this.el.querySelector("#recorte-title")?.focus({preventScroll: true})
+            this.el.scrollIntoView({block: "start", inline: "nearest"})
+          })
         },
         destroyed() {
           window.removeEventListener("click", this.guardDraft, true)
+          this.el.removeEventListener("keydown", this.onEscape)
+          // The draft has been closed or queued. Restore the exact row after
+          // LiveView applies the removal (the opener may have been far below).
+          requestAnimationFrame(() => {
+            if (!this.study?.isConnected || this.study.querySelector("#recorte-editor")) return
+            const opener = document.getElementById(this.originId) || this.study.querySelector("#mix-tracklist-heading")
+            if (!opener || !this.study.contains(opener)) return
+            opener.focus({preventScroll: true})
+            opener.scrollIntoView({block: "center", inline: "nearest"})
+          })
         },
       }
     </script>
@@ -1043,6 +1143,12 @@ defmodule BeatgridWeb.MixLive do
     </script>
     """
   end
+
+  defp timeline_available?(mix),
+    do: is_integer(mix.duration_ms) and mix.duration_ms > 0 and mix.segments != []
+
+  defp recorte_origin(nil), do: "recorte-open-free"
+  defp recorte_origin(segment_id), do: "recorte-open-#{segment_id}"
 
   defp playable?(mix), do: is_nil(mix.audio_deleted_at) and is_binary(mix.audio_path)
 
@@ -1261,7 +1367,7 @@ defmodule BeatgridWeb.MixLive do
 
   attr :seg, :map, required: true
   attr :playable, :boolean, required: true
-  attr :recorte_open, :boolean, required: true
+  attr :recorte, :map, required: true
 
   defp segment_row(assigns) do
     ~H"""
@@ -1336,11 +1442,14 @@ defmodule BeatgridWeb.MixLive do
         <button
           :if={@playable}
           type="button"
+          id={recorte_origin(@seg.id)}
           phx-click="open_recorte"
           phx-value-segment={@seg.id}
+          aria-controls="recorte-editor"
+          aria-expanded={to_string(not is_nil(@recorte) and @recorte.segment_id == @seg.id)}
           title="Recortar este trecho como uma faixa da biblioteca"
           data-recorte-confirm={
-            if @recorte_open, do: "Substituir a edição de recorte pelo trecho desta faixa?"
+            if @recorte, do: "Substituir a edição de recorte pelo trecho desta faixa?"
           }
           aria-label={"Recortar o trecho a partir de #{format_clock(@seg.start_ms)}"}
           class="shrink-0 rounded-md border border-white/10 px-2 py-1 text-body-sm text-ink-secondary hover:text-ink"
