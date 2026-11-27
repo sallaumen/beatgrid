@@ -2,9 +2,12 @@
 const MAX_LATE_MS = 100
 
 export function createPassage(decks, available, start, observer = {}) {
-  let choice = null, timer = null, abortStart = null
+  let choice = null, timer = null, abortStart = null, roomAvailable = true
+
+  let startVersion = 0
 
   function stopWaiting(saved = choice) {
+    startVersion++
     if (saved) observer.abandoned?.(saved)
     clearTimeout(timer)
     const abort = abortStart
@@ -39,7 +42,7 @@ export function createPassage(decks, available, start, observer = {}) {
     const {pair, phase, exitMs} = choice
     const from = decks[pair.from], to = decks[pair.to]
     if (from.loadToken !== pair.fromLoad || to.loadToken !== pair.toLoad) return disarm()
-    if (phase !== "confirmed" && phase !== "armed") return
+    if (!roomAvailable || (phase !== "confirmed" && phase !== "armed")) return
     clearTimeout(timer)
     const remaining = exitMs - from.positionMs()
     if (remaining < (phase === "armed" ? 0 : -MAX_LATE_MS)) return fail("missed")
@@ -53,8 +56,9 @@ export function createPassage(decks, available, start, observer = {}) {
     saved.phase = "starting"
     // A late decoder must never fade the room after the rehearsed beat has gone by.
     timer = setTimeout(fail, MAX_LATE_MS)
+    const version = ++startVersion
     abortStart = start(from, to, saved, (ok, startAudio) => {
-      if (choice !== saved || saved.phase !== "starting") return false
+      if (version !== startVersion || choice !== saved || saved.phase !== "starting") return false
       if (!ok || !from.audible() || Math.abs(from.positionMs() - exitMs) > MAX_LATE_MS) {
         fail()
         return false
@@ -74,7 +78,7 @@ export function createPassage(decks, available, start, observer = {}) {
 
   function confirm() {
     check()
-    if (choice?.phase !== "armed") return {ok: false}
+    if (!roomAvailable || choice?.phase !== "armed") return {ok: false}
     const {from, to} = choice.pair
     if (!available(decks[from], decks[to], choice.plan, choice.kind)) return {ok: false}
     choice.review = null
@@ -96,5 +100,23 @@ export function createPassage(decks, available, start, observer = {}) {
     choice.review = reason
   }
 
-  return {arm, confirm, disarm, check, seek, fail, mixChanged, current: () => choice}
+  function setRoomAvailable(next) {
+    if (roomAvailable === next) return
+    roomAvailable = next
+    if (!choice) return
+    if (!next) {
+      if (choice.phase === "starting") choice.phase = "confirmed"
+      stopWaiting()
+    } else {
+      if (choice.phase === "confirmed") observer.confirmed?.(choice)
+      check()
+    }
+  }
+
+  function sourceEnded() {
+    if (roomAvailable) disarm()
+    else fail("missed")
+  }
+
+  return {arm, confirm, disarm, check, seek, fail, mixChanged, setRoomAvailable, sourceEnded, current: () => choice}
 }

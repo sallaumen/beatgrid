@@ -58,6 +58,8 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert html =~ "Fone (cue)"
     assert has_element?(view, "#dj-out-device.h-8")
     assert has_element?(view, "#dj-cue-device.h-8")
+    assert has_element?(view, "#dj-out-device[aria-describedby=dj-out-recovery]")
+    assert has_element?(view, "#dj-out-recovery[role=status]")
   end
 
   test "both decks identify each pad and disable the empty deck's controls", %{conn: conn} do

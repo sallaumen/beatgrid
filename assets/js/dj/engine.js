@@ -559,7 +559,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       cue.mode = "stereo"
     }
     routedChannels = maxCh
-    if (decks.a.audible() || decks.b.audible()) programMeter?.start()
+    if (roomAvailable && (decks.a.audible() || decks.b.audible())) programMeter?.start()
     emit("cueMode", {mode: cue.mode, maxChannels: maxCh})
   }
 
@@ -612,6 +612,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     return null
   }
 
+  let roomAvailable = true
   const programMeter = callbacks.programScore && createProgramMeter(ctx, masterAnalyser)
   let roomReading = null
   function cancelRoomReading() {
@@ -742,7 +743,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   function watchOutgoing(deck) {
     const listen = (event, fn) => deck.el.addEventListener(event, fn, {signal: mediaEvents.signal})
     deck.recordProgress = () => maybeFire(deck)
-    listen("playing", () => programMeter?.start())
+    listen("playing", () => { if (roomAvailable) programMeter?.start() })
     listen("timeupdate", () => { if (!deck.entry) deck.recordProgress() })
     // A deck going silent is the moment a queued hint can claim it. Event-driven
     // on purpose: rAF loops don't run in background tabs, and re-arming the next
@@ -804,7 +805,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     state.rescue?.finishCut?.()
     state.postponeMs = 0
     if (passage.current()?.pair.from === deck.id) {
-      passage.disarm()
+      passage.sourceEnded()
       boundaryOnce(trackId, () => emit("trackEnded", {trackId}))
       return
     }
@@ -1021,7 +1022,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     state.postponeMs = 0
     from._seekGuard = false
     to._seekGuard = false
-    if (overlap != null && programMeter) {
+    if (overlap != null && programMeter && roomAvailable) {
       const kind = event.type === "cut" ? "cut" : "blend"
       const names = {from: from.title, fromDeck: from.id, into: to.title, toDeck: to.id}
       programMeter.read(kind, overlap, from.bpm * from.playbackRate,
@@ -2399,6 +2400,15 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     canMeasureBlend: (pair, mix) => canMeasureBlend(decks[pair.from], decks[pair.to], mix),
     armPassage: passage.arm,
     confirmPassage: passage.confirm,
+    setRoomOutputAvailable(available) {
+      roomAvailable = available
+      if (!available) {
+        state.cancelEntry?.()
+        cancelRoomReading()
+        programMeter?.stop()
+      } else if (sessionDeck()) programMeter?.start()
+      passage.setRoomAvailable(available)
+    },
     editPassageMix() { passage.mixChanged("draft") },
     disarmPassage() {
       const current = passage.current()

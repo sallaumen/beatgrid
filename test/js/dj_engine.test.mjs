@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import {createEngine} from "../../assets/js/dj/engine.js"
 import {loadPeaks} from "../../assets/js/dj/waveform.js"
+import {watchRoomOutput} from "../../assets/js/dj/outputs.js"
 
 // Media events and the clock are controlled independently: decoding can stall
 // while wall time advances, and canplay can arrive after a stop or a new hint.
@@ -84,13 +85,14 @@ function booth(t, callbacks = {}) {
   return {a, b, engine, hint, breath, advances, ends, tick: ms => t.mock.timers.tick(ms)}
 }
 
-async function scratchBooth(t, ids, channels = 1, callbacks = {}) {
+async function scratchBooth(t, ids, channels = 1, callbacks = {}, beforeDecode) {
   const commands = []
   globalThis.AudioWorkletNode = class extends AudioNodeStub {
     port = {postMessage: message => commands.push(message)}
   }
   t.after(() => { delete globalThis.AudioWorkletNode })
   const rig = booth(t, callbacks)
+  beforeDecode?.(rig)
   t.mock.method(globalThis, "fetch", async () => new Response(new ArrayBuffer(0)))
   const samples = new Float32Array(8 * 8000)
   for (const id of [ids].flat()) {
@@ -1354,13 +1356,16 @@ test("stopping a vinyl drop releases the reserved deck without a delayed restart
 async function preparedDrop(t, type, fromId = "a", accepted = false) {
   const out = "drop-out-" + t.name, into = "drop-in-" + t.name
   const refused = [], start = []
-  const rig = await scratchBooth(t, [out, into], 2, {entryRefused: e => refused.push(e.deck)})
-  const {engine, hint, a, b} = rig
-  engine.stopAll()
-  engine.loadDeck(fromId, {id: out, src: out, bpm: 120}, {autoplay: true})
+  const rig = await scratchBooth(t, [out, into], 2, {entryRefused: e => refused.push(e.deck)}, ({engine, hint, a, b}) => {
+    // Mount the intended pair before decoding, just as the console does with its two recording slots.
+    engine.stopAll()
+    engine.loadDeck(fromId, {id: out, src: out, bpm: 120}, {autoplay: true})
+    const outgoing = fromId === "a" ? a : b
+    outgoing.at(3)
+    hint({type, from_ms: 48_000, to_ms: 1500}, into)
+  })
+  const {engine, a, b} = rig
   const toId = fromId === "a" ? "b" : "a", from = fromId === "a" ? a : b, to = fromId === "a" ? b : a
-  from.at(3)
-  hint({type, from_ms: 48_000, to_ms: 1500}, into)
   engine.cueTo(toId, 2750)
   const gate = Promise.withResolvers()
   t.mock.method(to, "play", () => { to.paused = false; return gate.promise })
@@ -2495,6 +2500,14 @@ test("the PA meter releases its listener when the last playing deck pauses and o
   a.dispatchEvent(new Event("playing"))
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(meters.length, 2)
+  engine.setRoomOutputAvailable(false)
+  assert.deepEqual(meters[1].commands, ["stop"], "disconnect excludes the missing room from the grade")
+  a.dispatchEvent(new Event("playing"))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(meters.length, 2, "a decoder waking up cannot reopen a missing PA")
+  engine.setRoomOutputAvailable(true)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(meters.length, 3)
 })
 
 for (const type of ["cut", "crossfade"]) {
@@ -2509,4 +2522,99 @@ for (const type of ["cut", "crossfade"]) {
       [[null, type === "cut" ? "cut" : "blend", "auto", "a", "b"]])
     assert.equal(engine.sessionDeck(), "b")
   })
+}
+
+test("a missing room holds a saved confirmation and never launches it past the cue", async t => {
+  const rig = booth(t), {engine, a, b, advances} = rig
+  const {ctx} = engine
+  restoreOutputStub(t, ctx)
+  ctx.sinkId = "pa"
+  ctx.setSinkId = async id => { ctx.sinkId = id }
+  ctx.resume = async () => { ctx.state = "running" }
+  const room = watchRoomOutput(ctx, engine.setRoomOutputAvailable)
+  room.observe([{deviceId: "pa"}, {deviceId: "other"}])
+  assert.equal(preparePassage(rig, "cut").ok, true)
+  assert.equal(engine.confirmPassage().ok, true)
+  const saved = engine.passage()
+  ctx.state = "suspended"
+  room.observe([{deviceId: "other"}])
+  a.at(48)
+  rig.tick(500)
+  assert.equal(engine.passage(), saved)
+  assert.equal(b.plays, 0)
+  a.at(49)
+  const request = room.choice()
+  await engine.setOutputDevice("other")
+  assert.equal(await room.selected("other", request), true)
+  assert.equal(engine.passage().phase, "missed")
+  assert.equal(engine.passage().plan, saved.plan)
+  assert.deepEqual(advances, [])
+})
+
+test("a restored room before the cue keeps the armed take and launches only after confirmation", async t => {
+  const rig = booth(t), {engine, a, b, advances} = rig
+  assert.equal(preparePassage(rig, "cut").ok, true)
+  engine.setRoomOutputAvailable(false)
+  assert.equal(engine.confirmPassage().ok, false)
+  engine.setRoomOutputAvailable(true)
+  assert.equal(engine.passage().phase, "armed")
+  assert.equal(engine.confirmPassage().ok, true)
+  engine.setRoomOutputAvailable(false)
+  a.at(42)
+  engine.setRoomOutputAvailable(true)
+  assert.equal(engine.passage().phase, "confirmed")
+  a.at(48)
+  await Promise.resolve()
+  assert.equal(b.plays, 1)
+  assert.deepEqual(advances.map(e => e.origin), ["rehearsal"])
+})
+
+test("a late driver callback from the lost room cannot fail the new attempt at the same beat", async t => {
+  const rig = booth(t), {engine, a, b, advances} = rig, attempts = []
+  b.play = () => new Promise(resolve => attempts.push(resolve))
+  preparePassage(rig, "cut")
+  engine.confirmPassage()
+  a.at(48)
+  engine.setRoomOutputAvailable(false)
+  engine.setRoomOutputAvailable(true)
+  assert.equal(attempts.length, 2)
+  attempts[0]()
+  await Promise.resolve()
+  assert.equal(engine.passage().phase, "starting")
+  attempts[1]()
+  await Promise.resolve()
+  assert.deepEqual(advances.map(e => e.origin), ["rehearsal"])
+})
+
+test("the record ending during a room outage keeps the missed take available for review", t => {
+  const rig = booth(t), {engine, a, advances} = rig
+  preparePassage(rig, "cut")
+  engine.confirmPassage()
+  const take = engine.passage()
+  engine.setRoomOutputAvailable(false)
+  a.end()
+  assert.equal(engine.passage(), take)
+  assert.equal(take.phase, "missed")
+  engine.setRoomOutputAvailable(true)
+  assert.deepEqual(advances, [])
+})
+
+for (const [type, from] of [["brake", "a"], ["scratch_cut", "b"]]) {
+  for (const primed of [false, true]) {
+    test(`losing the PA cancels a ${primed ? "primed" : "pending"} ${type} without landing its private cue`, async t => {
+      const {engine, to, advances, gate, start, tick} = await preparedDrop(t, type, from, primed)
+      assert.deepEqual(advances, [], "the incoming cue is still private before the PA disappears")
+      engine.setRoomOutputAvailable(false)
+      gate.resolve()
+      await Promise.resolve()
+      tick(5000)
+      assert.equal(engine.sessionDeck(), from)
+      assert.equal(to.paused, true)
+      assert.equal(start.includes(2.75), false, "the receiving cue never starts")
+      assert.deepEqual(advances, [])
+      engine.setRoomOutputAvailable(true)
+      tick(5000)
+      assert.deepEqual(advances, [])
+    })
+  }
 }
