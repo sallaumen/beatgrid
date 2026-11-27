@@ -35,10 +35,7 @@ defmodule BeatgridWeb.Layouts do
         id="client-error"
         kind={:error}
         title="Sem conexão"
-        phx-disconnected={
-          show(".phx-client-error #client-error")
-          |> JS.remove_attribute("hidden", to: ".phx-client-error #client-error")
-        }
+        phx-disconnected={show_connection_notice(".phx-client-error #client-error")}
         phx-connected={hide("#client-error") |> JS.set_attribute({"hidden", ""})}
         hidden
       >
@@ -50,10 +47,7 @@ defmodule BeatgridWeb.Layouts do
         id="server-error"
         kind={:error}
         title="Algo deu errado"
-        phx-disconnected={
-          show(".phx-server-error #server-error")
-          |> JS.remove_attribute("hidden", to: ".phx-server-error #server-error")
-        }
+        phx-disconnected={show_connection_notice(".phx-server-error #server-error")}
         phx-connected={hide("#server-error") |> JS.set_attribute({"hidden", ""})}
         hidden
       >
@@ -62,5 +56,19 @@ defmodule BeatgridWeb.Layouts do
       </.flash>
     </div>
     """
+  end
+
+  defp show_connection_notice(selector) do
+    # JS.show defaults to display: block, which would override the flash's flex layout.
+    JS.show(
+      to: selector,
+      display: "flex",
+      time: 300,
+      transition:
+        {"transition-all ease-out duration-300",
+         "opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95",
+         "opacity-100 translate-y-0 sm:scale-100"}
+    )
+    |> JS.remove_attribute("hidden", to: selector)
   end
 end
