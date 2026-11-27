@@ -981,6 +981,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
             disabled
             class="min-h-9 rounded-md border border-primary/40 bg-primary/15 px-3 text-body font-semibold text-ink hover:border-primary disabled:opacity-40"
           >Ouvir no fone</button>
+          <button
+            type="button"
+            data-listen-both
+            disabled
+            class="min-h-9 rounded-md border border-white/10 px-3 text-body font-semibold text-ink-secondary hover:border-primary/50 hover:text-ink disabled:opacity-40"
+          >Ouvir as duas</button>
           <label class="flex items-center gap-2 text-body">
             Fone
             <select class="h-9 rounded-md border border-white/10 bg-input px-2 text-body">

@@ -43,17 +43,18 @@ export function createRehearsal(ctx, phones, pfl) {
     cancelMeasurement = null
   }
 
-  function stop(completed = false) {
+  function stop(completed = false, keepPhones = false) {
     if (!completed) discardMeasurement()
+    if (!keepPhones) pfl.gain.value = 1
     if (!current) return
-    const {sources, nodes} = current
+    const {sources, nodes, finish} = current
     current = null
     for (const source of sources) {
       source.onended = null
       source.stop()
     }
     for (const node of nodes) node.disconnect()
-    pfl.gain.value = 1
+    finish(completed)
   }
 
   function applyMix(channels, mix, smooth) {
@@ -64,9 +65,9 @@ export function createRehearsal(ctx, phones, pfl) {
     }
   }
 
-  function play(plan, kind, pan, skip = 0, observe) {
-    stop()
-    if (skip >= plan.duration) return
+  function play(plan, kind, pan, skip = 0, observe, keepPhones = false) {
+    if (skip >= plan.duration) { stop(); return Promise.resolve(false) }
+    stop(false, true)
     const now = ctx.currentTime
     const start = now - Math.max(0, skip)
     const change = start + plan.lead
@@ -91,7 +92,9 @@ export function createRehearsal(ctx, phones, pfl) {
     }
     monitor.connect(output)
     output.connect(phones)
-    current = {start, plan, channels: {}, sources: [], nodes: [...buses, output]}
+    const ended = new Promise(finish => {
+      current = {start, plan, channels: {}, sources: [], nodes: [...buses, output], finish}
+    })
     try {
       const add = (side, buffer, at, end) => {
         if (end <= at) return null
@@ -127,7 +130,8 @@ export function createRehearsal(ctx, phones, pfl) {
         try { cancelMeasurement = observe(level, {start, change, end: finish, overlap: fade, kind}) }
         catch { cancelMeasurement = null }
       }
-      last.onended = () => { if (current?.sources.includes(last)) stop(true) }
+      last.onended = () => { if (current?.sources.includes(last)) stop(true, keepPhones) }
+      return ended
     } catch (error) {
       stop()
       throw error
