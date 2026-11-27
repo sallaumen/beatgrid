@@ -283,6 +283,110 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert_push_event(view, "dj_hint", %{track: %{title: "Segunda"}})
   end
 
+  test "homonymous recordings remain identifiable in both decks, the queue, library and next card",
+       %{conn: conn} do
+    {:ok, set} = Sets.create("Duas versões")
+
+    [a, b] =
+      for path <- ["MPB/Sina - estúdio.mp3", "_Inbox/Sina - ao vivo.mp3"] do
+        track =
+          insert(:track,
+            status: :present,
+            tag_title: "Sina",
+            tag_artist: "Djavan",
+            rel_path: path,
+            filename: Path.basename(path),
+            bpm_detected: 100.0,
+            duration_ms: 180_000,
+            cue_points: [%{"ms" => 150_000, "type" => "outro", "source" => "auto"}]
+          )
+
+        {:ok, _} = Sets.append(set, track)
+        track
+      end
+
+    view = open_console(conn, set)
+    render_click(view, "play_set", %{})
+    render_hook(view, "hint_armed", %{"deck" => "b", "track_id" => b.id})
+
+    for {deck, track} <- [{"a", a}, {"b", b}] do
+      assert has_element?(view, "#dj-deck-#{deck} [data-version-path]", track.rel_path)
+      assert has_element?(view, "#dj-deck-#{deck} a[href='/track/#{track.id}'][target='_blank']")
+      assert has_element?(view, "#dj-queue-track-#{track.id} [data-version-path]", track.rel_path)
+
+      assert has_element?(
+               view,
+               "#dj-library-track-#{track.id} [data-version-path]",
+               track.rel_path
+             )
+
+      assert has_element?(
+               view,
+               "#dj-queue-track-#{track.id} [data-loaded-deck='#{deck}']",
+               "Deck #{String.upcase(deck)}"
+             )
+
+      assert has_element?(
+               view,
+               "#dj-queue-track-#{track.id} button[phx-value-deck=a][aria-label*='#{track.rel_path}']"
+             )
+    end
+
+    assert has_element?(view, "#dj-next-card [data-version-path]", b.rel_path)
+    assert has_element?(view, "#dj-next-card", "Fila #2")
+    assert has_element?(view, "#dj-queue-list a[target='_blank']", "Sina")
+    assert has_element?(view, "a[href='/set/#{set.id}'][target='_blank']", "Editar set")
+  end
+
+  test "queue status and position follow track identity after a live reorder and stop", %{
+    conn: conn
+  } do
+    {set, [a, b, c]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}, {"Três", 108.0}])
+    view = open_console(conn, set)
+    render_click(view, "play_set", %{})
+    render_hook(view, "deck_started", %{"deck" => "a", "track_id" => a.id})
+
+    assert has_element?(
+             view,
+             "#dj-queue-track-#{a.id} [data-queue-state=current]",
+             "Atual do set"
+           )
+
+    assert has_element?(view, "#dj-queue-track-#{b.id} [data-queue-state=next]", "Próxima")
+
+    :ok = Sets.move(set, c, :up)
+
+    assert has_element?(
+             view,
+             "#dj-queue-track-#{c.id}[data-position='2'] [data-queue-state=next]",
+             "Próxima"
+           )
+
+    assert has_element?(view, "#dj-queue-track-#{b.id}[data-position='3']")
+    refute has_element?(view, "#dj-queue-track-#{b.id} [data-queue-state=next]")
+    assert has_element?(view, "#dj-next-card", "Três")
+    assert has_element?(view, "#dj-next-card", "Fila #2")
+
+    render_click(view, "stop_all", %{})
+    refute has_element?(view, "#dj-queue-list [data-queue-state=current]")
+    refute has_element?(view, "#dj-queue-list [data-queue-state=next]")
+  end
+
+  test "an empty selected queue and playback outside the set do not claim the last track is playing",
+       %{conn: conn} do
+    {:ok, empty} = Sets.create("Vazio")
+    view = open_console(conn, empty)
+    assert has_element?(view, "button[phx-click=play_set][disabled]")
+    assert has_element?(view, "#dj-queue-panel", "Este set não tem faixas.")
+
+    {set, [_]} = set_with_tracks([{"Única", 120.0}])
+    render_change(view, "select_set", %{"set_id" => set.id})
+    track = insert(:track, status: :present, tag_title: "Avulsa", duration_ms: 90_000)
+    render_hook(view, "deck_started", %{"deck" => "a", "track_id" => track.id})
+    assert has_element?(view, "#dj-next-empty", "Faixa fora do set — sem próxima armada")
+    refute has_element?(view, "#dj-next-empty", "Última faixa do set")
+  end
+
   test "transition_started advances the pointer and re-arms the following hint", %{conn: conn} do
     {set, [a, b, c]} =
       set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}, {"Tres", 108.0}])

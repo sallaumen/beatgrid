@@ -31,6 +31,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
   alias Beatgrid.Library.Tracks
   alias Beatgrid.Playback
   alias Beatgrid.Sets
+  alias BeatgridWeb.TrackIdentity
 
   @library_page 50
 
@@ -696,8 +697,45 @@ defmodule BeatgridWeb.DiscotecagemLive do
   defp bpm_text(bpm) when is_number(bpm), do: bpm |> round() |> Integer.to_string()
   defp bpm_text(_bpm), do: "—"
 
+  defp recording_identity(assigns) do
+    deck_tracks =
+      Enum.reject([assigns.deck_a, assigns.deck_b, assigns.hint && assigns.hint.track], &is_nil/1)
+
+    tracks = Enum.map(assigns.entries, & &1.track) ++ assigns.lib_tracks ++ deck_tracks
+    TrackIdentity.ambiguous_ids(tracks)
+  end
+
+  defp empty_hint_label(%{set: nil}), do: "Sem próxima armada"
+  defp empty_hint_label(%{entries: []}), do: "Set sem faixas"
+
+  defp empty_hint_label(%{playing?: true, pointer_id: pointer, entries: entries}) do
+    cond do
+      List.last(entries).track.id == pointer -> "Última faixa do set"
+      Enum.any?(entries, &(&1.track.id == pointer)) -> "Sem próxima armada"
+      true -> "Faixa fora do set — sem próxima armada"
+    end
+  end
+
+  defp empty_hint_label(_), do: "Sem próxima armada"
+
+  defp hint_position(%{hint: nil}), do: nil
+
+  defp hint_position(%{hint: %{track: track}, entries: entries}),
+    do: Enum.find_value(entries, &(&1.track.id == track.id && &1.position))
+
   @impl true
   def render(assigns) do
+    assigns =
+      assign(assigns,
+        ambiguous_ids: recording_identity(assigns),
+        deck_ids: [
+          {"a", assigns.deck_a && assigns.deck_a.id},
+          {"b", assigns.deck_b && assigns.deck_b.id}
+        ],
+        hint_position: hint_position(assigns),
+        empty_hint_label: empty_hint_label(assigns)
+      )
+
     ~H"""
     <.app_shell flash={@flash} active={:discotecagem} socket={@socket}>
       <div class="mx-auto max-w-7xl px-4 py-3">
@@ -737,9 +775,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
               :if={@set}
               type="button"
               phx-click="play_set"
-              class="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary-deep px-3 text-body font-semibold text-white hover:bg-primary-deep/90"
+              disabled={@entries == []}
+              class="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary-deep px-3 text-body font-semibold text-white hover:bg-primary-deep/90 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <.icon name="hero-play-solid" class="size-3.5" /> Tocar set
+              <.icon name="hero-play-solid" class="size-3.5" /> Tocar set do início
             </button>
             <button
               type="button"
@@ -758,8 +797,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
             <button
               type="button"
               phx-click="stop_all"
+              disabled={not @playing? and is_nil(@deck_a) and is_nil(@deck_b)}
               aria-label="Parar os dois decks"
-              class="inline-flex h-9 items-center gap-1.5 rounded-lg border border-coral/30 px-2.5 text-body-sm font-semibold text-coral hover:bg-coral/10"
+              class="inline-flex h-9 items-center gap-1.5 rounded-lg border border-coral/30 px-2.5 text-body-sm font-semibold text-coral hover:bg-coral/10 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <.icon name="hero-stop-solid" class="size-3.5" /> Parar
             </button>
@@ -809,6 +849,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               <span class="font-mono text-ink-faint">#{issue.position}</span>
               <span class="font-medium">{issue.title}</span>
               — {Enum.map_join(issue.problems, " · ", &preflight_label/1)}
+              <.version_path :if={entry = Enum.at(@entries, issue.position - 1)} track={entry.track} />
             </li>
           </ul>
         </section>
@@ -932,7 +973,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
               active={@playing? and @active_deck == "a"}
               accent="#8b7bf0"
             />
-            <.mixer hint={@hint} hint_deck={@hint_deck} playing={@playing?} in_set={@set != nil} />
+            <.mixer
+              hint={@hint}
+              hint_deck={@hint_deck}
+              hint_position={@hint_position}
+              empty_hint_label={@empty_hint_label}
+            />
             <.deck_panel
               d="b"
               track={@deck_b}
@@ -1032,8 +1078,11 @@ defmodule BeatgridWeb.DiscotecagemLive do
             <.queue_panel
               set={@set}
               entries={@entries}
-              pointer_id={@pointer_id}
+              pointer_id={@active_deck && @pointer_id}
+              playing={@playing?}
               hint={@hint}
+              ambiguous_ids={@ambiguous_ids}
+              deck_ids={@deck_ids}
               rail_tab={@rail_tab}
               played={@played}
             />
@@ -1041,6 +1090,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
               rail_tab={@rail_tab}
               lib_query={@lib_query}
               lib_tracks={@lib_tracks}
+              ambiguous_ids={@ambiguous_ids}
+              deck_ids={@deck_ids}
               played={@played}
               member_ids={@entries |> MapSet.new(& &1.track.id)}
             />
@@ -3083,6 +3134,59 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
   # ── componentes ──────────────────────────────────────────────────────────────
 
+  attr :track, :map, required: true
+  attr :class, :string, default: ""
+
+  defp version_path(assigns) do
+    ~H"""
+    <p
+      data-version-path
+      class={[
+        "min-w-0 break-words font-mono text-body-sm leading-tight text-ink-secondary [overflow-wrap:anywhere]",
+        @class
+      ]}
+    >
+      {@track.rel_path}
+    </p>
+    """
+  end
+
+  attr :track, :map, required: true
+
+  defp booth_track_link(assigns) do
+    ~H"""
+    <.link
+      href={~p"/track/#{@track.id}"}
+      target="_blank"
+      rel="noopener"
+      aria-label={"Abrir ficha de #{@track.tag_title || @track.filename} — #{@track.rel_path} em outra aba"}
+      class="block min-w-0 break-words text-body font-medium leading-tight text-ink hover:text-primary hover:underline [overflow-wrap:anywhere]"
+    >
+      {@track.tag_title || @track.filename}
+      <.icon name="hero-arrow-top-right-on-square" class="inline-block size-3 text-ink-muted" />
+    </.link>
+    """
+  end
+
+  attr :track_id, :string, required: true
+  attr :deck_ids, :list, default: []
+
+  defp loaded_decks(assigns) do
+    ~H"""
+    <span
+      :for={{deck, id} <- @deck_ids}
+      :if={id == @track_id}
+      data-loaded-deck={deck}
+      class={[
+        "shrink-0 rounded bg-white/6 px-1.5 py-px text-body-sm font-semibold",
+        if(deck == "a", do: "text-primary", else: "text-info")
+      ]}
+    >
+      Deck {String.upcase(deck)}
+    </span>
+    """
+  end
+
   attr :d, :string, required: true
   attr :track, :map, default: nil
   attr :active, :boolean, default: false
@@ -3094,11 +3198,14 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
     ~H"""
     <section
-      class="rounded-2xl border p-2 transition-colors"
+      id={"dj-deck-#{@d}"}
+      aria-labelledby={"dj-deck-label-#{@d}"}
+      class="min-w-0 rounded-2xl border p-2 transition-colors"
       style={"background:linear-gradient(180deg,#11131a,#0e0f15);box-shadow:0 10px 30px rgba(0,0,0,.35);border-color:#{if @active, do: @accent <> "66", else: "rgba(255,255,255,.08)"}"}
     >
       <div class="flex items-center justify-between gap-1">
         <h2
+          id={"dj-deck-label-#{@d}"}
           class="rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em]"
           style={"background:#{@accent}22;color:#{@accent}"}
         >
@@ -3126,14 +3233,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
       <div class="mt-2 flex min-h-[36px] items-center gap-2">
         <.cover :if={@track} src={cover_src(@track)} artist={@track.tag_artist} size={32} />
-        <div :if={@track} class="min-w-0">
-          <.link
-            navigate={~p"/track/#{@track.id}"}
-            class="block truncate text-[12px] font-medium text-ink hover:text-primary"
-          >
-            {@track.tag_title || @track.filename}
-          </.link>
-          <p class="truncate text-[10px] text-ink-muted">{@track.tag_artist || "—"}</p>
+        <div :if={@track} class="min-w-0 flex-1">
+          <.booth_track_link track={@track} />
+          <p class="break-words text-body-sm text-ink-muted">{@track.tag_artist || "—"}</p>
+          <.version_path track={@track} class="mt-0.5" />
         </div>
         <p :if={!@track} class="text-[11px] text-ink-faint">
           Deck vazio — carregue pela fila do set ou pela Biblioteca.
@@ -3143,8 +3246,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
           type="button"
           phx-click="eject_deck"
           phx-value-deck={@d}
+          disabled={@active}
+          aria-label={"Ejetar deck #{String.upcase(@d)}"}
           title="Ejetar o deck (só quando parado)"
-          class="ml-auto flex h-6 w-5 shrink-0 items-center justify-center rounded-md text-[10px] text-ink-faint transition-colors hover:bg-white/5 hover:text-coral"
+          class="ml-auto flex h-6 w-5 shrink-0 items-center justify-center rounded-md text-[10px] text-ink-faint transition-colors hover:bg-white/5 hover:text-coral disabled:cursor-not-allowed disabled:opacity-40"
         >
           ✕
         </button>
@@ -3371,8 +3476,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
   attr :hint, :map, default: nil
   attr :hint_deck, :string, default: nil
-  attr :playing, :boolean, default: false
-  attr :in_set, :boolean, default: false
+  attr :hint_position, :integer, default: nil
+  attr :empty_hint_label, :string, required: true
 
   defp mixer(assigns) do
     ~H"""
@@ -3473,21 +3578,30 @@ defmodule BeatgridWeb.DiscotecagemLive do
         </div>
       </div>
 
-      <div :if={@hint} class="mt-2 rounded-lg border border-amber/25 bg-amber/8 p-2">
+      <div :if={@hint} id="dj-next-card" class="mt-2 rounded-lg border border-amber/25 bg-amber/8 p-2">
         <div class="flex items-center justify-between gap-2">
           <span class="text-[9px] font-bold uppercase tracking-[0.16em] text-amber">
-            Próxima · {if @hint.transition && @hint.transition["breather"],
-              do: "🤝 "}{transition_label(@hint.transition && @hint.transition["type"])}{if @hint_deck,
-              do: " · deck #{String.upcase(@hint_deck)}"}
+            Próxima · {if @hint_deck, do: "Deck #{String.upcase(@hint_deck)}", else: "Aguardando deck"}
           </span>
           <span id="dj-countdown-wrap" phx-update="ignore" class="font-mono text-[10px] text-amber">
             <span id="dj-countdown">—</span>
           </span>
         </div>
-        <p class="mt-0.5 truncate text-[11px] font-medium text-ink">
+        <p class="mt-1 text-body-sm text-ink-muted">
+          {if @hint_position, do: "Fila ##{@hint_position}", else: "Faixa avulsa"} · {if @hint.transition &&
+                                                                                           @hint.transition[
+                                                                                             "breather"
+                                                                                           ],
+                                                                                         do:
+                                                                                           "Respiro · "}{transition_label(
+            @hint.transition && @hint.transition["type"]
+          )}
+        </p>
+        <p class="mt-0.5 break-words text-body font-medium text-ink">
           {@hint.track.tag_title || @hint.track.filename}
         </p>
-        <p class="truncate text-[10px] text-ink-muted">{@hint.track.tag_artist || "—"}</p>
+        <p class="break-words text-body-sm text-ink-muted">{@hint.track.tag_artist || "—"}</p>
+        <.version_path track={@hint.track} class="mt-0.5" />
         <p
           :if={@hint.transition && @hint.transition["reason"]}
           class="mt-1 text-[9px] leading-tight text-amber/70"
@@ -3497,9 +3611,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
       </div>
       <div
         :if={!@hint}
-        class="mt-2 rounded-lg border border-white/6 p-2 text-center text-[10px] text-ink-faint"
+        id="dj-next-empty"
+        class="mt-2 rounded-lg border border-white/6 p-2 text-center text-body-sm text-ink-muted"
       >
-        {if @playing && @in_set, do: "Última faixa do set", else: "Sem próxima armada"}
+        {@empty_hint_label}
       </div>
     </section>
     """
@@ -3521,6 +3636,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
   attr :set, :map, default: nil
   attr :entries, :list, default: []
   attr :pointer_id, :string, default: nil
+  attr :playing, :boolean, default: false
+  attr :ambiguous_ids, :any, default: %MapSet{}
+  attr :deck_ids, :list, default: []
   attr :hint, :map, default: nil
   attr :rail_tab, :string, default: "fila"
   attr :played, :any, default: %MapSet{}
@@ -3530,17 +3648,21 @@ defmodule BeatgridWeb.DiscotecagemLive do
   # seção da controladora fazem o mesmo via `rail_tab`.
   defp queue_panel(assigns) do
     ~H"""
-    <section class={[
-      "flex max-h-[calc(100vh-600px)] min-h-[200px] flex-col overflow-hidden rounded-2xl border bg-surface p-3 transition-colors",
-      @rail_tab == "fila" && "border-primary/40",
-      @rail_tab != "fila" && "border-white/8"
-    ]}>
+    <section
+      id="dj-queue-panel"
+      class={[
+        "flex max-h-[calc(100vh-600px)] min-h-[200px] flex-col overflow-hidden rounded-2xl border bg-surface p-3 transition-colors",
+        @rail_tab == "fila" && "border-primary/40",
+        @rail_tab != "fila" && "border-white/8"
+      ]}
+    >
       <div class="flex shrink-0 items-center justify-between gap-2">
         <h2 class="flex items-center">
           <button
             type="button"
             phx-click="rail_tab"
             phx-value-tab="fila"
+            aria-pressed={to_string(@rail_tab == "fila")}
             title="Marcar a fila como a lista que o browse navega"
             class="flex min-h-6 items-center gap-2"
           >
@@ -3551,21 +3673,28 @@ defmodule BeatgridWeb.DiscotecagemLive do
               :if={@rail_tab == "fila"}
               class="rounded bg-primary/15 px-1.5 py-px text-[8px] font-bold uppercase tracking-wider text-primary"
             >
-              browse ▸
+              Browse ativo
             </span>
           </button>
         </h2>
         <.link
           :if={@set}
-          navigate={~p"/set/#{@set.id}"}
-          class="truncate text-[11px] font-semibold text-primary hover:underline"
+          href={~p"/set/#{@set.id}"}
+          target="_blank"
+          rel="noopener"
+          aria-label={"Editar set #{@set.name} em outra aba"}
+          class="inline-flex shrink-0 items-center gap-1 text-body-sm font-semibold text-primary hover:underline"
         >
-          {@set.name}
+          Editar set <.icon name="hero-arrow-top-right-on-square" class="size-3.5" />
         </.link>
       </div>
 
       <p :if={!@set} class="mt-3 text-[12px] text-ink-faint">
         Escolha um set acima para montar a fila — os botões A/B carregam a faixa no deck.
+      </p>
+
+      <p :if={@set && @entries == []} class="mt-3 text-body text-ink-muted">
+        Este set não tem faixas.
       </p>
 
       <ol
@@ -3575,10 +3704,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
       >
         <li
           :for={e <- @entries}
+          id={"dj-queue-track-#{e.track.id}"}
           data-dj-entry
           data-track-id={e.track.id}
+          data-position={e.position}
           class={[
-            "flex items-center gap-2.5 rounded-lg border px-2 py-1.5",
+            "grid grid-cols-[1.25rem_auto_minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1 rounded-lg border px-2 py-1.5",
             @pointer_id == e.track.id && "border-primary/40 bg-primary/10",
             @hint && @hint.track.id == e.track.id && @pointer_id != e.track.id &&
               "border-amber/30 bg-amber/6",
@@ -3586,37 +3717,48 @@ defmodule BeatgridWeb.DiscotecagemLive do
               "border-transparent hover:bg-white/3"
           ]}
         >
-          <span class="w-5 text-right font-mono text-[10px] text-ink-faint">{e.position}</span>
+          <span class="text-right font-mono text-body-sm text-ink-muted">{e.position}</span>
           <.cover src={cover_src(e.track)} artist={e.track.tag_artist} size={28} />
-          <div class="min-w-0 flex-1">
-            <.link
-              navigate={~p"/track/#{e.track.id}"}
-              class={[
-                "block truncate text-[12px] font-medium hover:text-primary",
-                MapSet.member?(@played, e.track.id) && "text-ink-muted",
-                !MapSet.member?(@played, e.track.id) && "text-ink"
-              ]}
-            >
-              {e.track.tag_title || e.track.filename}
-            </.link>
-            <p class="truncate text-[10px] text-ink-muted">{e.track.tag_artist || "—"}</p>
+          <div class="min-w-0">
+            <.booth_track_link track={e.track} />
+            <p class="break-words text-body-sm text-ink-secondary">{e.track.tag_artist || "—"}</p>
           </div>
-          <.played_seal :if={MapSet.member?(@played, e.track.id)} />
-          <span class="font-mono text-[10px] text-ink-faint">
-            {bpm_text(Library.effective(e.track).bpm)}
-          </span>
-          <span
-            :if={e.transition}
-            class={[
-              "rounded px-1.5 py-px text-[9px] font-bold uppercase",
-              e.transition["type"] == "echo" && "bg-amber/15 text-amber",
-              e.transition["type"] != "echo" && "bg-white/6 text-ink-muted"
-            ]}
-            title={e.transition["reason"] || "Transição de entrada desta faixa"}
-          >
-            {if Sets.breather?(e), do: "🤝 "}{transition_label(e.transition["type"])}
-          </span>
-          <.load_buttons track_id={e.track.id} />
+          <.load_buttons track={e.track} />
+          <.version_path
+            :if={MapSet.member?(@ambiguous_ids, e.track.id)}
+            track={e.track}
+            class="col-start-3 col-span-2"
+          />
+          <div class="col-start-3 col-span-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <span
+              :if={@pointer_id == e.track.id}
+              data-queue-state="current"
+              class="text-body-sm font-semibold text-primary"
+            >
+              {if @playing, do: "Atual do set", else: "Ponto do set"}
+            </span>
+            <span
+              :if={@hint && @hint.track.id == e.track.id && @pointer_id != e.track.id}
+              data-queue-state="next"
+              class="text-body-sm font-semibold text-amber"
+            >Próxima</span>
+            <.loaded_decks track_id={e.track.id} deck_ids={@deck_ids} />
+            <.played_seal :if={MapSet.member?(@played, e.track.id)} />
+            <span class="font-mono text-body-sm text-ink-muted">{bpm_text(
+              Library.effective(e.track).bpm
+            )} BPM</span>
+            <span
+              :if={e.transition}
+              class={[
+                "rounded px-1.5 py-px text-[9px] font-bold uppercase",
+                e.transition["type"] == "echo" && "bg-amber/15 text-amber",
+                e.transition["type"] != "echo" && "bg-white/6 text-ink-muted"
+              ]}
+              title={e.transition["reason"] || "Transição de entrada desta faixa"}
+            >
+              {if Sets.breather?(e), do: "Respiro · "}{transition_label(e.transition["type"])}
+            </span>
+          </div>
         </li>
       </ol>
     </section>
@@ -3628,6 +3770,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
   attr :lib_tracks, :list, default: []
   attr :played, :any, default: %MapSet{}
   attr :member_ids, :any, default: %MapSet{}
+  attr :ambiguous_ids, :any, default: %MapSet{}
+  attr :deck_ids, :list, default: []
 
   # Biblioteca — sempre visível na coluna da direita. Mesma mecânica de "lista
   # ativa" da fila: o browse navega a que estiver marcada.
@@ -3643,6 +3787,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           type="button"
           phx-click="rail_tab"
           phx-value-tab="biblioteca"
+          aria-pressed={to_string(@rail_tab == "biblioteca")}
           title="Marcar a biblioteca como a lista que o browse navega"
           class="flex min-h-6 w-full items-center gap-2"
         >
@@ -3653,7 +3798,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             :if={@rail_tab == "biblioteca"}
             class="rounded bg-primary/15 px-1.5 py-px text-[8px] font-bold uppercase tracking-wider text-primary"
           >
-            browse ▸
+            Browse ativo
           </span>
         </button>
       </h2>
@@ -3676,40 +3821,38 @@ defmodule BeatgridWeb.DiscotecagemLive do
       <ol id="dj-lib-list" class="mt-2 flex min-h-0 flex-1 flex-col gap-1 overflow-auto pr-1">
         <li
           :for={t <- @lib_tracks}
+          id={"dj-library-track-#{t.id}"}
           data-dj-entry
           data-track-id={t.id}
-          class="flex items-center gap-2.5 rounded-lg border border-transparent px-2 py-1.5 hover:bg-white/3"
+          class="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1 rounded-lg border border-transparent px-2 py-1.5 hover:bg-white/3"
         >
           <.cover src={cover_src(t)} artist={t.tag_artist} size={28} />
-          <div class="min-w-0 flex-1">
-            <.link
-              navigate={~p"/track/#{t.id}"}
-              class="block truncate text-[12px] font-medium text-ink hover:text-primary"
-            >
-              {t.tag_title || t.filename}
-            </.link>
-            <p class="truncate text-[10px] text-ink-muted">{t.tag_artist || "—"}</p>
+          <div class="min-w-0">
+            <.booth_track_link track={t} />
+            <p class="break-words text-body-sm text-ink-secondary">{t.tag_artist || "—"}</p>
           </div>
-          <span
-            :if={MapSet.member?(@member_ids, t.id)}
-            class="rounded bg-primary/15 px-1.5 py-px text-[9px] font-bold uppercase tracking-wider text-primary"
-            title="Já está no set atual"
-          >
-            no set
-          </span>
-          <.played_seal :if={MapSet.member?(@played, t.id)} />
-          <span class="font-mono text-[10px] text-ink-faint">
-            {bpm_text(Library.effective(t).bpm)}
-          </span>
-          <.camelot_seal value={Library.effective(t).camelot} />
-          <span
-            :if={t.rating}
-            class="font-mono text-[10px] font-bold"
-            style={"color:#{rating_color(t.rating)}"}
-          >
-            {t.rating}
-          </span>
-          <.load_buttons track_id={t.id} />
+          <.load_buttons track={t} />
+          <.version_path
+            :if={MapSet.member?(@ambiguous_ids, t.id)}
+            track={t}
+            class="col-start-2 col-span-2"
+          />
+          <div class="col-start-2 col-span-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <span
+              :if={MapSet.member?(@member_ids, t.id)}
+              class="rounded bg-primary/15 px-1.5 py-px text-[9px] font-bold uppercase tracking-wider text-primary"
+              title="Já está no set atual"
+            >no set</span>
+            <.loaded_decks track_id={t.id} deck_ids={@deck_ids} />
+            <.played_seal :if={MapSet.member?(@played, t.id)} />
+            <span class="font-mono text-body-sm text-ink-muted">{bpm_text(Library.effective(t).bpm)} BPM</span>
+            <.camelot_seal value={Library.effective(t).camelot} />
+            <span
+              :if={t.rating}
+              class="font-mono text-body-sm font-bold"
+              style={"color:#{rating_color(t.rating)}"}
+            >Nota {t.rating}</span>
+          </div>
         </li>
       </ol>
       <p :if={length(@lib_tracks) >= 50} class="mt-1.5 text-center text-[10px] text-ink-faint">
@@ -3730,7 +3873,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
     end
   end
 
-  attr :track_id, :string, required: true
+  attr :track, :map, required: true
 
   defp load_buttons(assigns) do
     ~H"""
@@ -3739,7 +3882,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
         type="button"
         phx-click="load_deck"
         phx-value-deck="a"
-        phx-value-track_id={@track_id}
+        phx-value-track_id={@track.id}
+        aria-label={"Carregar #{@track.tag_title || @track.filename} no deck A — #{@track.rel_path}"}
         title="Carregar no deck A"
         class="flex size-6 items-center justify-center rounded-md border border-white/10 text-[10px] font-bold text-primary transition-colors hover:border-primary hover:bg-primary/15"
       >
@@ -3749,7 +3893,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
         type="button"
         phx-click="load_deck"
         phx-value-deck="b"
-        phx-value-track_id={@track_id}
+        phx-value-track_id={@track.id}
+        aria-label={"Carregar #{@track.tag_title || @track.filename} no deck B — #{@track.rel_path}"}
         title="Carregar no deck B"
         class="flex size-6 items-center justify-center rounded-md border border-white/10 text-[10px] font-bold text-info transition-colors hover:border-info hover:bg-info/15"
       >
