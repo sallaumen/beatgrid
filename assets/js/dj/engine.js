@@ -27,6 +27,7 @@
 // the headphones either as channels 3/4 of a 4-channel interface (DJ2GO2
 // Touch main = 1/2, phones = 3/4) or via a routable MediaStream element.
 
+import {createRehearsal} from "./rehearsal.js"
 import {getScratchPcm, retainScratch} from "./waveform.js"
 import {ensureScratchModule, scratchPattern} from "./scratch.js"
 
@@ -404,8 +405,11 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   cue.b.gain.value = 0
   decks.a.channel.connect(cue.a)
   decks.b.channel.connect(cue.b)
-  cue.a.connect(cue.bus)
-  cue.b.connect(cue.bus)
+  const pfl = ctx.createGain()
+  cue.a.connect(pfl)
+  cue.b.connect(pfl)
+  pfl.connect(cue.bus)
+  const rehearsal = createRehearsal(ctx, cue.bus, pfl)
   // Force the two buses stereo at the tap points: mono tracks would otherwise
   // reach the quad splitters as 1 channel and zero-pad the right side dead.
   master.channelCount = 2
@@ -426,6 +430,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   function wireOutputs() {
     const maxCh = ctx.destination.maxChannelCount || 2
     if (maxCh === routedChannels) return
+    rehearsal.stop()
     try {
       master.disconnect()
     } catch (_e) {
@@ -1277,6 +1282,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
   // Transition cleanup resets effects only: the DJ may have armed a new loop since fire.
   function resetDeck(deck) {
+    rehearsal.stop()
     clearLoop(deck)
     resetChain(deck)
   }
@@ -1968,6 +1974,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
     // "No ar" for the UI and for manual fires: crossfader side wins when both
     // decks are running.
+    rehearsal,
     audibleDeck: audibleDeckId,
     sessionDeck,
 
@@ -2280,6 +2287,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // Point the WHOLE context at another output device (e.g. the controller's
     // 4-channel interface) and rewire main/phones for what it offers.
     async setOutputDevice(deviceId) {
+      rehearsal.stop()
       await ctx.setSinkId(deviceId)
       if (!mediaEvents.signal.aborted) wireOutputs()
       return this.cueMode()
@@ -2305,6 +2313,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // global) takes over; loads and the armed hint survive. Params settle at
     // their CURRENT values; resuming via playPause re-sanitizes the chain.
     pauseAll() {
+      rehearsal.stop()
       interruptTransition()
       decks.a.pause()
       decks.b.pause()
@@ -2352,6 +2361,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     },
 
     destroy() {
+      rehearsal.stop()
       mediaEvents.abort()
       interruptTransition()
       state.activeDeck = null
@@ -2377,6 +2387,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         punchComp,
         master,
         masterAnalyser,
+        pfl,
         cue.a,
         cue.b,
         cue.bus,

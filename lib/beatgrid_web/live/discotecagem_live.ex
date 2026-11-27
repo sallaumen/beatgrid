@@ -863,6 +863,91 @@ defmodule BeatgridWeb.DiscotecagemLive do
     """
   end
 
+  defp rehearsal_panel(assigns) do
+    ~H"""
+    <div id="dj-rehearsal" phx-update="ignore" class="px-3 pb-2">
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        aria-controls="dj-rehearse-dialog"
+        class="min-h-9 rounded-md border border-white/10 px-3 text-body font-semibold text-ink-secondary hover:border-primary/50 hover:text-ink"
+      >
+        <.icon name="hero-musical-note" class="size-4" /> Ensaiar a próxima
+      </button>
+      <dialog
+        id="dj-rehearse-dialog"
+        aria-labelledby="dj-rehearse-title"
+        class="fixed inset-0 m-auto max-h-[90dvh] w-[min(94vw,40rem)] overflow-y-auto rounded-xl border border-white/10 bg-surface p-5 text-ink shadow-2xl backdrop:bg-black/70"
+      >
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <h2 id="dj-rehearse-title" class="text-title font-semibold">Ensaiar a próxima</h2>
+            <p class="mt-1 text-body text-ink-muted">
+              Compare a mesma entrada com as faixas dos decks.
+            </p>
+          </div>
+          <button
+            type="button"
+            data-close
+            aria-label="Fechar ensaio"
+            class="min-h-9 rounded-md border border-white/10 px-3 text-body font-semibold text-ink-secondary hover:border-primary/50 hover:text-ink"
+          >
+            <.icon name="hero-x-mark" class="size-4" />
+          </button>
+        </div>
+        <fieldset class="my-4 flex flex-wrap gap-3 text-body">
+          <legend class="sr-only">Transição do ensaio</legend>
+          <label class="flex items-center gap-1.5">
+            <input type="radio" name="dj-rehearse-kind" value="cut" checked /> Corte na entrada
+          </label>
+          <label class="flex items-center gap-1.5">
+            <input type="radio" name="dj-rehearse-kind" value="blend" /> Mistura de quatro tempos
+          </label>
+        </fieldset>
+        <div class="relative overflow-hidden rounded-md border border-white/10 bg-base">
+          <div class="px-2 pt-1 text-body text-amber">
+            Sai <span data-out class="text-ink"></span>
+          </div>
+          <canvas
+            data-wave="out"
+            aria-label="Onda e volume da faixa que sai"
+            role="img"
+            class="block h-14 w-full"
+          ></canvas>
+          <div class="border-t border-white/8 px-2 pt-1 text-body text-green">
+            Entra <span data-in class="text-ink"></span>
+          </div>
+          <canvas
+            data-wave="in"
+            aria-label="Onda e volume da faixa que entra"
+            role="img"
+            class="block h-14 w-full"
+          ></canvas>
+          <span data-cursor hidden class="pointer-events-none absolute inset-y-0 w-px bg-primary"></span>
+        </div>
+        <p data-timing class="mt-1 font-mono text-caption text-ink-muted"></p>
+        <div class="mt-4 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            data-listen
+            disabled
+            class="min-h-9 rounded-md border border-primary/40 bg-primary/15 px-3 text-body font-semibold text-ink hover:border-primary disabled:opacity-40"
+          >Ouvir no fone</button>
+          <label class="flex items-center gap-2 text-body">
+            Fone
+            <select class="min-h-9 rounded-md border border-white/10 bg-input px-2 text-body">
+              <option value="0">Estéreo</option>
+              <option value="-1">Só esquerda</option>
+              <option value="1">Só direita</option>
+            </select>
+          </label>
+        </div>
+        <p role="status" class="mt-2 text-body text-ink-muted"></p>
+      </dialog>
+    </div>
+    """
+  end
+
   defp bpm_text(bpm) when is_number(bpm), do: bpm |> round() |> Integer.to_string()
   defp bpm_text(_bpm), do: "—"
 
@@ -1273,6 +1358,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                     </span>
                   </div>
                 </summary>
+                <.rehearsal_panel />
                 <div
                   id="dj-transitions"
                   phx-update="ignore"
@@ -1553,6 +1639,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
         import {paintDeckStatus, paintLoopRegion} from "@/js/dj/deck_status.js"
         import {tripVersionPath, tripTransportLabel, tripTransitionLabel} from "@/js/dj/trip_identity.js"
         import {hotCues} from "@/js/dj/hot_cues.js"
+        import {mountRehearsal} from "@/js/dj/rehearsal_panel.js"
         import {loadPeaks, drawWave} from "@/js/dj/waveform.js"
 
         const ACCENTS = {a: "#8b7bf0", b: "#2d9cff"}
@@ -1647,6 +1734,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                   window.dispatchEvent(new CustomEvent("beatgrid:playing", {detail: {source: "dj-console"}}))
                 },
                 transitionStarted: ({fromTrackId, toTrackId, type, deck, mode, origin, atMs}) => {
+                  this.rehearsal?.stop()
                   this.hint = null
                   this.lastPlayedId = toTrackId
                   this.pushEvent("transition_started", {
@@ -1822,6 +1910,18 @@ defmodule BeatgridWeb.DiscotecagemLive do
             }
 
             // Depuração no console do navegador (e testes sem controladora).
+            this.rehearsal = mountRehearsal({
+              root: byId("dj-rehearsal"), engine: this.engine, tracks: this.tracks, waves: this.waves,
+              hint: () => this.hint,
+              hasPhones: () => {
+                if (this.movingOutput) return false
+                if (this.engine.cueMode().mode === "quad") return true
+                const device = byId("dj-cue-device").value
+                return !!device && this.cueAudio.sinkId === device && !this.cueAudio.paused &&
+                  this.cueAudio.srcObject === this.engine.cueStream() &&
+                  separateOutputs(this.engine.ctx.sinkId, device, this.audioOutputs)
+              },
+            })
             window.__djEngine = this.engine
 
             this.handleEvent("dj_load", (payload) => {
@@ -2054,6 +2154,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               if (!signal.aborted) await refreshDevices(true)
             })
             const devicesChanged = event => {
+              this.rehearsal.stop()
               if (!listVersion || (event.type === "sinkchange" && this.movingOutput)) return
               // A former headphone device can become the room's default on unplug.
               this.disconnectHeadphones()
@@ -2066,6 +2167,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               const select = e.currentTarget
               if (select.disabled) return
               const phones = byId("dj-cue-device")
+              this.rehearsal.stop()
               this.movingOutput = true
               select.disabled = true
               phones.disabled = true
@@ -2104,14 +2206,17 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
             // Exclusão mútua com o player global: uma única fonte audível.
             this.onForeignPlay = (e) => {
-              if (e.detail.source !== "dj-console") this.engine.pauseAll()
+              if (e.detail.source !== "dj-console") {
+                this.rehearsal.stop()
+                this.engine.pauseAll()
+              }
             }
             window.addEventListener("beatgrid:playing", this.onForeignPlay)
 
             // Teclado da viagem: mão no volante, olho na pista. Nunca rouba
             // teclas de quem está digitando num campo.
             this.onKeys = (e) => {
-              if (e.metaKey || e.ctrlKey || e.altKey) return
+              if (byId("dj-rehearse-dialog").open || e.metaKey || e.ctrlKey || e.altKey) return
               const t = e.target
               if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return
               const k = e.key.toLowerCase()
@@ -2180,6 +2285,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               this.paintDeck("a")
               this.paintDeck("b")
               this.paintWaves()
+              this.rehearsal.update()
               this.paintCountdown()
               this.paintTrip()
               this.paintTransitions()
@@ -2216,6 +2322,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
           destroyed() {
             cancelAnimationFrame(this.raf)
+            this.rehearsal.destroy()
             this.outputEvents.abort()
             this.disconnectHeadphones()
             window.removeEventListener("resize", this.sizeWaves)
@@ -2509,6 +2616,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           },
 
           disconnectHeadphones() {
+            this.rehearsal?.stop()
             this.cueRouteVersion++
             this.cueAudio.pause()
             this.cueAudio.srcObject = null
