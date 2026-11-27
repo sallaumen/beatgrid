@@ -103,7 +103,7 @@ defmodule BeatgridWeb.AjustesLive do
               <section
                 :for={e <- entries}
                 id={"ajuste-card-#{e.key}"}
-                class="grid gap-3 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(19rem,auto)] lg:items-start"
+                class="grid gap-3 py-4 lg:grid-cols-[minmax(0,1fr)_23rem] lg:items-start"
               >
                 <div class="min-w-0">
                   <label for={"ajuste-value-#{e.key}"} class="text-body-lg font-semibold">{e.label}</label>
