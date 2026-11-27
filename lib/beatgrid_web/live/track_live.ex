@@ -500,187 +500,120 @@ defmodule BeatgridWeb.TrackLive do
 
         <.enrich_toast :if={@toast} toast={@toast} />
 
-        <div class="mt-3 grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-          <header class="min-w-0 rounded-xl border border-white/6 bg-surface p-4">
-            <div class="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3 md:grid-cols-[auto_minmax(0,1fr)_auto] md:gap-4">
-              <div class={[
-                "shrink-0 rounded-xl",
-                @track.id == @playing_track_id && "ring-2 ring-primary"
-              ]}>
-                <.cover src={cover_src(@track)} artist={@track.tag_artist} size={82} />
-              </div>
+        <header class="mt-3 min-w-0 rounded-xl border border-white/6 bg-surface p-4">
+          <div class="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3 md:grid-cols-[auto_minmax(0,1fr)_auto] md:gap-4">
+            <div class={[
+              "shrink-0 rounded-xl",
+              @track.id == @playing_track_id && "ring-2 ring-primary"
+            ]}>
+              <.cover src={cover_src(@track)} artist={@track.tag_artist} size={82} />
+            </div>
 
-              <div class="min-w-0 flex-1">
-                <div class="flex min-w-0 flex-wrap items-center gap-2">
-                  <h1 class="w-full min-w-0 break-words text-[24px] font-semibold leading-tight sm:text-[28px]">
-                    {title(@track)}
-                  </h1>
-                  <.track_gold_toggle track={@track} />
-                  <span
-                    :if={@track.id == @playing_track_id}
-                    class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary"
-                  >
-                    <.vinyl size={12} /> Tocando agora
-                  </span>
-                </div>
-
-                <p class="mt-1 break-words text-body-lg text-ink-secondary">
-                  {@track.tag_artist || "—"}
-                </p>
-
-                <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-                  <.stat label="BPM" value={bpm(@track)} class="text-primary" />
-                  <div class="flex items-center gap-1.5">
-                    <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
-                      Tom
-                    </span>
-                    <.camelot_seal value={camelot(@track)} />
-                  </div>
-                  <.stat
-                    :if={@track.loudness_lufs}
-                    label="Ganho"
-                    value={format_gain(Loudness.gain_db(@track.loudness_lufs, @track.true_peak_dbtp))}
-                  />
-                  <.confidence_chip level={@track.sc_match_confidence} />
-                </div>
-              </div>
-
-              <div
-                :if={not needs_recovery?(@track)}
-                class="col-span-2 md:col-span-1 md:justify-self-end"
-              >
-                <button
-                  id="play-track"
-                  type="button"
-                  phx-click={
-                    toggle_track(%{src: ~p"/audio/#{@track.id}", id: @track.id, preview: false})
-                  }
-                  class="inline-flex w-full items-center justify-center gap-2 rounded-full bg-primary-deep md:w-auto px-4 py-2 text-[13px] font-semibold text-white shadow-lg shadow-primary/25 hover:bg-primary-deep/90"
-                  title="Tocar no player global"
+            <div class="min-w-0 flex-1">
+              <div class="flex min-w-0 flex-wrap items-center gap-2">
+                <h1 class="w-full min-w-0 break-words text-[24px] font-semibold leading-tight sm:text-[28px]">
+                  {title(@track)}
+                </h1>
+                <.track_gold_toggle track={@track} />
+                <span
+                  :if={@track.id == @playing_track_id}
+                  class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary/15 px-2.5 py-1 text-[11px] font-semibold text-primary"
                 >
-                  <.vinyl :if={@track.id == @playing_track_id} size={17} />
-                  <span :if={@track.id != @playing_track_id} aria-hidden="true">▶</span>
-                  {if @track.id == @playing_track_id, do: "Tocar / pausar", else: "Tocar faixa"}
-                </button>
+                  <.vinyl size={12} /> Tocando agora
+                </span>
+              </div>
+
+              <p class="mt-1 break-words text-body-lg text-ink-secondary">
+                {@track.tag_artist || "—"}
+              </p>
+
+              <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+                <.stat label="BPM" value={bpm(@track)} class="text-primary" />
+                <div class="flex items-center gap-1.5">
+                  <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+                    Tom
+                  </span>
+                  <.camelot_seal value={camelot(@track)} />
+                </div>
+                <.stat
+                  :if={@track.loudness_lufs}
+                  label="Ganho recomendado"
+                  value={format_gain(Loudness.gain_db(@track.loudness_lufs, @track.true_peak_dbtp))}
+                />
+                <.confidence_chip level={@track.sc_match_confidence} />
               </div>
             </div>
 
             <div
-              :if={needs_recovery?(@track)}
-              class="mt-3 flex flex-wrap items-center gap-2 border-t border-white/6 pt-3 text-body-sm"
+              :if={not needs_recovery?(@track)}
+              class="col-span-2 md:col-span-1 md:justify-self-end"
             >
-              <span class="text-amber">{file_status(@track)}</span>
-              <.link
-                navigate={~p"/resgate" <> "#arquivo-#{@track.id}"}
-                class="text-primary hover:underline"
-              >
-                Ver recuperação do arquivo
-              </.link>
-            </div>
-
-            <.link
-              :if={is_binary((@track.raw_tags || %{})["recorte_mix_id"])}
-              navigate={~p"/sets-online/#{@track.raw_tags["recorte_mix_id"]}"}
-              class="mt-3 inline-block text-body-sm text-primary hover:underline"
-            >
-              Set de origem: {@track.raw_tags["recorte_mix_title"] || "abrir gravação"}
-            </.link>
-            <nav
-              aria-label="Seções da ficha"
-              class="mt-3 flex flex-wrap gap-x-4 gap-y-2 border-t border-white/6 pt-3 text-body-sm"
-            >
-              <a href="#track-edit" class="text-ink-secondary hover:text-ink hover:underline">Editar faixa</a>
-              <a href="#track-loudness" class="text-ink-secondary hover:text-ink hover:underline">Volume</a>
-              <a href="#track-markers" class="text-ink-secondary hover:text-ink hover:underline">Marcadores</a>
-              <a href="#track-versions" class="text-ink-secondary hover:text-ink hover:underline">Versões</a>
-            </nav>
-          </header>
-
-          <section
-            id="track-loudness"
-            class="min-w-0 scroll-mt-4 rounded-xl border border-white/6 bg-surface p-4"
-          >
-            <div class="flex items-center justify-between gap-3">
-              <.section_label major>Loudness</.section_label>
-              <span class="text-caption text-ink-faint">
-                Alvo {format_lufs(Loudness.target_lufs())}
-              </span>
-            </div>
-
-            <div :if={@track.loudness_lufs} class="mt-3 space-y-2 text-body-sm">
-              <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span class="w-28 text-ink-faint">Arquivo atual</span>
-                <span class="text-amber font-mono">{format_lufs(@track.loudness_lufs)}</span>
-                <span :if={@track.true_peak_dbtp} class="text-ink-secondary font-mono">
-                  {Float.round(@track.true_peak_dbtp, 1)} dBTP
-                </span>
-                <span class="font-mono text-primary">
-                  {format_gain(Loudness.gain_db(@track.loudness_lufs, @track.true_peak_dbtp))}
-                </span>
-              </div>
-
-              <div
-                :if={@track.original_loudness_lufs}
-                class="flex flex-wrap items-center gap-x-3 gap-y-1"
-              >
-                <span class="w-28 text-ink-faint">Backup original</span>
-                <span class="font-mono text-ink-secondary">
-                  {format_lufs(@track.original_loudness_lufs)}
-                </span>
-                <span :if={@track.original_true_peak_dbtp} class="font-mono text-ink-muted">
-                  {Float.round(@track.original_true_peak_dbtp, 1)} dBTP
-                </span>
-              </div>
-
-              <div :if={@track.gain_applied_at} class="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span class="w-28 text-ink-faint">Ganho aplicado</span>
-                <span class="font-mono text-primary">{format_gain(@track.gain_applied_db)}</span>
-                <span class="text-ink-muted">Backup original completo disponível</span>
-              </div>
-            </div>
-
-            <p :if={!@track.loudness_lufs} class="text-ink-faint mt-3 text-caption">
-              Loudness ainda não medido.
-              <.link
-                navigate={~p"/manutencao" <> "#maintenance-loudness"}
-                class="text-primary hover:underline"
-              >
-                Medir loudness em Manutenção
-              </.link>
-            </p>
-
-            <div :if={@gain_backup} class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
               <button
+                id="play-track"
                 type="button"
                 phx-click={
-                  JS.dispatch("beatgrid:play",
-                    to: "#player-audio",
-                    detail: %{src: ~p"/audio/#{@track.id}/original", id: @track.id, preview: true}
-                  )
+                  toggle_track(%{src: ~p"/audio/#{@track.id}", id: @track.id, preview: false})
                 }
-                class="inline-flex items-center justify-center gap-2 rounded-md border border-primary/35 bg-primary/10 px-3 py-2 text-[12px] font-semibold text-primary hover:bg-primary/20"
+                class="inline-flex w-full items-center justify-center gap-2 rounded-full bg-primary-deep md:w-auto px-4 py-2 text-[13px] font-semibold text-white shadow-lg shadow-primary/25 hover:bg-primary-deep/90"
+                title="Tocar no player global"
               >
-                <span aria-hidden="true">▶</span> Tocar original
-              </button>
-              <button
-                type="button"
-                phx-click="restore_gain_backup"
-                data-confirm="Restaurar o backup original (pré-ganho) por cima do arquivo atual?"
-                class="inline-flex items-center justify-center rounded-md border border-amber/35 bg-amber/10 px-3 py-2 text-[12px] font-semibold text-amber hover:bg-amber/20"
-              >
-                Restaurar backup original
+                <.vinyl :if={@track.id == @playing_track_id} size={17} />
+                <span :if={@track.id != @playing_track_id} aria-hidden="true">▶</span>
+                {if @track.id == @playing_track_id, do: "Tocar / pausar", else: "Tocar faixa"}
               </button>
             </div>
-          </section>
-        </div>
+          </div>
 
-        <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(340px,0.95fr)] xl:grid-cols-[minmax(0,1fr)_380px]">
+          <div
+            :if={needs_recovery?(@track)}
+            class="mt-3 flex flex-wrap items-center gap-2 border-t border-white/6 pt-3 text-body-sm"
+          >
+            <span class="text-amber">{file_status(@track)}</span>
+            <.link
+              navigate={~p"/resgate" <> "#arquivo-#{@track.id}"}
+              class="text-primary hover:underline"
+            >
+              Ver recuperação do arquivo
+            </.link>
+          </div>
+
+          <.link
+            :if={is_binary((@track.raw_tags || %{})["recorte_mix_id"])}
+            navigate={~p"/sets-online/#{@track.raw_tags["recorte_mix_id"]}"}
+            class="mt-3 inline-block text-body-sm text-primary hover:underline"
+          >
+            Set de origem: {@track.raw_tags["recorte_mix_title"] || "abrir gravação"}
+          </.link>
+          <nav
+            aria-label="Seções da ficha"
+            class="mt-3 space-y-2 border-t border-white/6 pt-3 text-body-sm"
+          >
+            <div class="flex flex-wrap items-baseline gap-x-4 gap-y-2">
+              <span class="font-semibold text-ink-muted">Preparar</span>
+              <a href="#track-edit" class="text-ink-secondary hover:text-ink hover:underline">Editar faixa</a>
+              <a href="#track-curation" class="text-ink-secondary hover:text-ink hover:underline">Nota e tags</a>
+              <a href="#track-markers" class="text-ink-secondary hover:text-ink hover:underline">Marcadores</a>
+              <a href="#track-loudness" class="text-ink-secondary hover:text-ink hover:underline">Volume</a>
+            </div>
+            <div class="flex flex-wrap items-baseline gap-x-4 gap-y-2">
+              <span class="font-semibold text-ink-muted">Consultar</span>
+              <a href="#track-analysis" class="text-ink-secondary hover:text-ink hover:underline">Análise</a>
+              <a href="#track-origin" class="text-ink-secondary hover:text-ink hover:underline">Origem</a>
+              <a href="#track-versions" class="text-ink-secondary hover:text-ink hover:underline">Versões</a>
+              <a href="#track-next" class="text-ink-secondary hover:text-ink hover:underline">Próxima faixa</a>
+              <a href="#track-matches" class="text-ink-secondary hover:text-ink hover:underline">Parecidas (IA)</a>
+            </div>
+          </nav>
+        </header>
+
+        <div class="mt-4 grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(340px,0.95fr)] xl:grid-cols-[minmax(0,1fr)_380px]">
           <div class="min-w-0 space-y-4">
             <section
               id="track-edit"
               class="min-w-0 scroll-mt-4 rounded-xl border border-white/6 bg-surface p-4"
             >
               <.section_label major>Editar faixa</.section_label>
+              <p class="mt-1 text-body-sm text-ink-muted">Use o lápis para corrigir um campo.</p>
               <div class="divide-y divide-white/4 mt-2">
                 <.editable_row
                   field={:title}
@@ -810,8 +743,11 @@ defmodule BeatgridWeb.TrackLive do
               </div>
             </section>
 
-            <section class="min-w-0 rounded-xl border border-white/6 bg-surface p-4">
-              <.section_label major>Minha nota</.section_label>
+            <section
+              id="track-curation"
+              class="min-w-0 scroll-mt-4 rounded-xl border border-white/6 bg-surface p-4"
+            >
+              <.section_label major>Minha nota e tags</.section_label>
               <div class="mt-3"><.rating_control value={@track.rating} /></div>
 
               <div class="mt-4 border-t border-white/6 pt-3">
@@ -860,16 +796,154 @@ defmodule BeatgridWeb.TrackLive do
                 >{@track.personal_note}</textarea>
               </form>
             </section>
+          </div>
+          <div class="min-w-0 space-y-4">
+            <section
+              id="track-markers"
+              class="min-w-0 scroll-mt-4 rounded-xl border border-white/6 bg-surface p-4"
+            >
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <.section_label major>Marcadores</.section_label>
+                <div class="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    phx-click="detect_markers"
+                    class="rounded-md border border-white/10 bg-input px-2.5 py-1 text-[11px] text-ink-secondary hover:text-ink"
+                    title="Detectar intro/saída automaticamente por análise de áudio"
+                  >
+                    Detectar
+                  </button>
+                  <button
+                    id="track-add-marker"
+                    type="button"
+                    data-track-id={@track.id}
+                    phx-click={
+                      JS.dispatch("beatgrid:add-marker",
+                        to: "#player-audio",
+                        detail: %{track_id: @track.id}
+                      )
+                    }
+                    disabled
+                    aria-describedby="track-add-marker-help"
+                    class="rounded-md border border-amber/40 bg-amber/10 px-2.5 py-1 text-[11px] font-semibold text-amber hover:bg-amber/20 disabled:cursor-not-allowed disabled:opacity-40"
+                    title="Toque esta faixa antes de adicionar um marcador"
+                  >
+                    Adicionar marcador
+                  </button>
+                </div>
+              </div>
+              <p id="track-add-marker-help" class="mt-2 text-body-sm text-ink-muted">
+                Toque esta faixa no player desta aba e avance até a posição do marcador.
+              </p>
+              <div class="mt-3">
+                <.marker_list
+                  markers={@track.cue_points || []}
+                  track_id={@track.id}
+                  play_src={~p"/audio/#{@track.id}"}
+                  seekable={false}
+                  id_prefix="track"
+                />
+              </div>
+            </section>
 
-            <section class="min-w-0 rounded-xl border border-white/6 bg-surface p-4">
+            <section
+              id="track-loudness"
+              class="min-w-0 scroll-mt-4 rounded-xl border border-white/6 bg-surface p-4"
+            >
               <div class="flex items-center justify-between gap-3">
-                <.section_label major>Análise (Soundcharts × local)</.section_label>
+                <.section_label major>Volume (loudness)</.section_label>
+                <span class="text-caption text-ink-faint">
+                  Alvo {format_lufs(Loudness.target_lufs())}
+                </span>
+              </div>
+
+              <div :if={@track.loudness_lufs} class="mt-3 space-y-2 text-body-sm">
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span class="w-28 text-ink-faint">Arquivo atual</span>
+                  <span class="text-amber font-mono">{format_lufs(@track.loudness_lufs)}</span>
+                  <span :if={@track.true_peak_dbtp} class="text-ink-secondary font-mono">
+                    {Float.round(@track.true_peak_dbtp, 1)} dBTP
+                  </span>
+                </div>
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span class="w-28 text-ink-faint">Ganho recomendado</span>
+                  <span class="font-mono text-primary">{format_gain(
+                    Loudness.gain_db(@track.loudness_lufs, @track.true_peak_dbtp)
+                  )}</span>
+                </div>
+
+                <div
+                  :if={@track.original_loudness_lufs}
+                  class="flex flex-wrap items-center gap-x-3 gap-y-1"
+                >
+                  <span class="w-28 text-ink-faint">Backup original</span>
+                  <span class="font-mono text-ink-secondary">
+                    {format_lufs(@track.original_loudness_lufs)}
+                  </span>
+                  <span :if={@track.original_true_peak_dbtp} class="font-mono text-ink-muted">
+                    {Float.round(@track.original_true_peak_dbtp, 1)} dBTP
+                  </span>
+                </div>
+
+                <div :if={@track.gain_applied_at} class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span class="w-28 text-ink-faint">Ganho aplicado</span>
+                  <span class="font-mono text-primary">{format_gain(@track.gain_applied_db)}</span>
+                  <span class="text-ink-muted">{if @gain_backup,
+                    do: "Backup original registrado",
+                    else: "Sem backup original registrado"}</span>
+                </div>
+              </div>
+
+              <p :if={!@track.loudness_lufs} class="text-ink-faint mt-3 text-caption">
+                Loudness ainda não medido.
+                <.link
+                  navigate={~p"/manutencao" <> "#maintenance-loudness"}
+                  class="text-primary hover:underline"
+                >
+                  Medir loudness em Manutenção
+                </.link>
+              </p>
+
+              <div :if={@gain_backup} class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  phx-click={
+                    JS.dispatch("beatgrid:play",
+                      to: "#player-audio",
+                      detail: %{src: ~p"/audio/#{@track.id}/original", id: @track.id, preview: true}
+                    )
+                  }
+                  class="inline-flex items-center justify-center gap-2 rounded-md border border-primary/35 bg-primary/10 px-3 py-2 text-[12px] font-semibold text-primary hover:bg-primary/20"
+                >
+                  <span aria-hidden="true">▶</span> Tocar original
+                </button>
+                <button
+                  type="button"
+                  phx-click="restore_gain_backup"
+                  data-confirm="Restaurar o backup original (pré-ganho) por cima do arquivo atual?"
+                  class="inline-flex items-center justify-center rounded-md border border-amber/35 bg-amber/10 px-3 py-2 text-[12px] font-semibold text-amber hover:bg-amber/20"
+                >
+                  Restaurar backup original
+                </button>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <div class="mt-4 grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(340px,0.95fr)] xl:grid-cols-[minmax(0,1fr)_380px]">
+          <div class="min-w-0 space-y-4">
+            <section
+              id="track-analysis"
+              class="min-w-0 scroll-mt-4 rounded-xl border border-white/6 bg-surface p-4"
+            >
+              <div class="flex items-center justify-between gap-3">
+                <.section_label major>Análise de BPM e tom</.section_label>
                 <button
                   phx-click="reanalyze"
                   disabled={@analyzing?}
                   class="rounded-md border border-white/10 bg-input px-2.5 py-1 text-[11px] text-ink-secondary hover:text-ink disabled:opacity-50"
                 >
-                  {if @analyzing?, do: "Analisando…", else: "Re-analisar"}
+                  {if @analyzing?, do: "Analisando…", else: "Reanalisar áudio local"}
                 </button>
               </div>
               <div class="mt-3 grid grid-cols-2 gap-4">
@@ -902,7 +976,10 @@ defmodule BeatgridWeb.TrackLive do
               </p>
             </section>
 
-            <section class="min-w-0 rounded-xl border border-white/6 bg-surface p-4">
+            <section
+              id="track-origin"
+              class="min-w-0 scroll-mt-4 rounded-xl border border-white/6 bg-surface p-4"
+            >
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <.section_label major>Metadados de origem</.section_label>
                 <div class="flex flex-wrap items-center gap-2">
@@ -963,54 +1040,6 @@ defmodule BeatgridWeb.TrackLive do
           </div>
           <div class="min-w-0 space-y-4">
             <section
-              id="track-markers"
-              class="min-w-0 scroll-mt-4 rounded-xl border border-white/6 bg-surface p-4"
-            >
-              <div class="flex flex-wrap items-center justify-between gap-3">
-                <.section_label major>Marcadores</.section_label>
-                <div class="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    phx-click="detect_markers"
-                    class="rounded-md border border-white/10 bg-input px-2.5 py-1 text-[11px] text-ink-secondary hover:text-ink"
-                    title="Detectar intro/saída automaticamente por análise de áudio"
-                  >
-                    Detectar
-                  </button>
-                  <button
-                    id="track-add-marker"
-                    type="button"
-                    data-track-id={@track.id}
-                    phx-click={
-                      JS.dispatch("beatgrid:add-marker",
-                        to: "#player-audio",
-                        detail: %{track_id: @track.id}
-                      )
-                    }
-                    disabled
-                    aria-describedby="track-add-marker-help"
-                    class="rounded-md border border-amber/40 bg-amber/10 px-2.5 py-1 text-[11px] font-semibold text-amber hover:bg-amber/20 disabled:cursor-not-allowed disabled:opacity-40"
-                    title="Toque esta faixa antes de adicionar um marcador"
-                  >
-                    Adicionar marcador
-                  </button>
-                </div>
-              </div>
-              <p id="track-add-marker-help" class="mt-2 text-body-sm text-ink-muted">
-                Toque esta faixa no player desta aba e avance até a posição do marcador.
-              </p>
-              <div class="mt-3">
-                <.marker_list
-                  markers={@track.cue_points || []}
-                  track_id={@track.id}
-                  play_src={~p"/audio/#{@track.id}"}
-                  seekable={false}
-                  id_prefix="track"
-                />
-              </div>
-            </section>
-
-            <section
               id="track-versions"
               class="min-w-0 scroll-mt-4 rounded-xl border border-white/6 bg-surface p-4"
             >
@@ -1066,8 +1095,11 @@ defmodule BeatgridWeb.TrackLive do
               </p>
             </section>
 
-            <section class="min-w-0 rounded-xl border border-white/6 bg-surface p-4">
-              <.section_label major>Próxima faixa ideal (harmônica)</.section_label>
+            <section
+              id="track-next"
+              class="min-w-0 scroll-mt-4 rounded-xl border border-white/6 bg-surface p-4"
+            >
+              <.section_label major>Próxima faixa compatível (harmônica)</.section_label>
               <div :if={@next != []} class="mt-3 space-y-1">
                 <.link
                   :for={s <- @next}
@@ -1088,7 +1120,10 @@ defmodule BeatgridWeb.TrackLive do
               </p>
             </section>
 
-            <section class="min-w-0 rounded-xl border border-white/6 bg-surface p-4">
+            <section
+              id="track-matches"
+              class="min-w-0 scroll-mt-4 rounded-xl border border-white/6 bg-surface p-4"
+            >
               <div class="flex items-center justify-between gap-3">
                 <div class="min-w-0">
                   <.section_label major>Sugestões parecidas (IA)</.section_label>
@@ -1293,11 +1328,11 @@ defmodule BeatgridWeb.TrackLive do
           type="button"
           phx-click="edit_field"
           phx-value-field={@field}
-          class="ml-auto inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-body-sm text-ink-muted hover:text-ink focus-visible:outline-primary"
+          class="ml-auto inline-flex size-8 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-surface-2 hover:text-ink focus-visible:outline-primary"
           aria-label={"Editar #{@label}"}
           title={"Editar #{@label}"}
         >
-          <span class="hero-pencil-square size-3.5" aria-hidden="true" /> Editar
+          <span class="hero-pencil-square size-4" aria-hidden="true" />
         </button>
       </span>
     </div>
