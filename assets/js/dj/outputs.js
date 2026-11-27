@@ -55,3 +55,48 @@ export async function unlockOutputNames(devices) {
     clearTimeout(timeout)
   }
 }
+
+// A named room can disappear while AudioContext keeps its sinkId. An inventory
+// or a returning device cannot grant permission to resume a different room.
+export function watchRoomOutput(ctx, available) {
+  let devices = [], known = null, missing = null, version = 0
+  const current = () => ctx.sinkId === "default" ? "" : ctx.sinkId || ""
+  const named = id => id && !isAlias(id) ? devices.find(d => d.deviceId === id) ?? null : null
+
+  function interrupt() {
+    if (!known) return
+    version++
+    if (missing) return
+    missing = known
+    available(false)
+  }
+
+  return {
+    get missing() { return missing },
+    choice() { return ++version },
+    interrupt,
+    observe(next) {
+      if (typeof ctx.setSinkId !== "function") return
+      devices = next
+      if (!missing && known && (known.deviceId !== current() || !named(known.deviceId))) interrupt()
+      if (!missing) known = named(current())
+    },
+    async selected(id, request) {
+      if (request !== version || id !== current()) return false
+      if (missing) {
+        if (id && !devices.some(d => d.deviceId === id)) return false
+        try {
+          if (ctx.state !== "running") await ctx.resume()
+        } catch {
+          return false
+        }
+        if (request !== version || id !== current() || ctx.state !== "running" ||
+            (id && !devices.some(d => d.deviceId === id))) return false
+        missing = null
+        available(true)
+      }
+      known = named(id)
+      return true
+    }
+  }
+}
