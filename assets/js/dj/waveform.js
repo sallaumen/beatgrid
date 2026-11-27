@@ -1,3 +1,5 @@
+import {prepareHeadphoneFold} from "./headphone_fold.js"
+
 // Serato-style scrolling waveforms for the Discotecagem console.
 //
 // The audio file is fetched once, decoded off the playback path and reduced to
@@ -56,6 +58,8 @@ async function decode(clip, src, ctx) {
   clip.audio = audio
   const ch0 = audio.getChannelData(0)
   const ch1 = audio.numberOfChannels > 1 ? audio.getChannelData(1) : ch0
+
+  if (audio.numberOfChannels === 2) prepareHeadphoneFold(audio, ch0, ch1)
 
   // Mono downmix at ctx rate — the scratch worklet reads this back and forth.
   const mono = new Float32Array(ch0.length)
