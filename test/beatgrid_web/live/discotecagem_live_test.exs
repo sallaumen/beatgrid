@@ -182,6 +182,17 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
            )
   end
 
+  test "each play button owns the pointer target and names its deck", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/discotecagem")
+
+    for deck <- ["a", "b"] do
+      assert has_element?(
+               view,
+               ~s(#dj-play-#{deck}[aria-label="Reprodução do deck #{String.upcase(deck)}"][aria-pressed=false] > span.pointer-events-none[aria-hidden=true])
+             )
+    end
+  end
+
   test "the two waveform lanes expose independent media status before a load", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/discotecagem")
 
