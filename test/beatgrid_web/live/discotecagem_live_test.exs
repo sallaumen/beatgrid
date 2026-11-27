@@ -59,6 +59,31 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert html =~ "dj-cue-device"
   end
 
+  test "both decks identify each pad and disable the empty deck's controls", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/discotecagem")
+
+    for deck <- ["a", "b"] do
+      side = String.upcase(deck)
+
+      for slot <- 1..4 do
+        assert has_element?(
+                 view,
+                 "#dj-pad-#{deck}-#{slot}[disabled] .sr-only",
+                 "Hot cue #{slot} do deck #{side}"
+               )
+      end
+
+      for beats <- [1, 2, 4, 8] do
+        unit = if beats == 1, do: "tempo", else: "tempos"
+
+        assert has_element?(
+                 view,
+                 ~s(#dj-loops-#{deck}[disabled] #dj-loop-#{deck}-#{beats}[aria-label="Loop de #{beats} #{unit} no deck #{side}"][aria-pressed="false"])
+               )
+      end
+    end
+  end
+
   test "the two waveform lanes expose independent media status before a load", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/discotecagem")
 

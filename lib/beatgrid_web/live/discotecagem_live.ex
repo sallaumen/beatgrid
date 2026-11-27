@@ -1212,7 +1212,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           background: rgba(255, 176, 32, 0.12);
           box-shadow: 0 0 10px rgba(255, 176, 32, 0.35);
         }
-        [id^="dj-loop-"][data-on="true"] {
+        [id^="dj-loop-"][aria-pressed="true"] {
           border-color: #5ad1a0;
           color: #5ad1a0;
           background: rgba(90, 209, 160, 0.12);
@@ -1439,7 +1439,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 loopState: ({deck, on, beats}) => {
                   for (const b of [1, 2, 4, 8]) {
                     const chip = byId(`dj-loop-${deck}-${b}`)
-                    if (chip) chip.dataset.on = on && beats === b ? "true" : "false"
+                    if (chip) chip.setAttribute("aria-pressed", String(on && beats === b))
                   }
                   paintLoopRegion(byId(`dj-loopregion-${deck}`), this.engine.decks[deck])
                   if (on) {
@@ -2057,6 +2057,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           },
 
           clearDeckStatics(d) {
+            byId(`dj-loops-${d}`).disabled = true
             this.setVinyl(d, null)
             const marks = byId(`dj-marks-${d}`)
             if (marks) marks.innerHTML = ""
@@ -2160,6 +2161,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           },
 
           renderDeckStatics(d, track) {
+            byId(`dj-loops-${d}`).disabled = false
             this.setVinyl(d, track)
             this.renderMarkers(d, track)
             const bpmEl = byId(`dj-jogbpm-${d}`)
@@ -3313,11 +3315,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 title={"Hot cue #{n}"}
                 class="flex h-7 items-center justify-center rounded-md border border-white/8 bg-[#101218] text-[9px] font-semibold text-ink-faint transition-colors disabled:opacity-40"
               >
+                <span class="sr-only">Hot cue {n} do deck {String.upcase(@d)} · </span>
                 <span id={"dj-padlab-#{@d}-#{n}"}>—</span>
               </button>
             </div>
 
-            <div class="flex w-full items-center gap-1">
+            <fieldset id={"dj-loops-#{@d}"} disabled class="flex w-full items-center gap-1">
               <span class="w-7 text-[8px] font-bold uppercase tracking-wider text-ink-faint">
                 Loop
               </span>
@@ -3325,13 +3328,14 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 :for={beats <- [1, 2, 4, 8]}
                 id={"dj-loop-#{@d}-#{beats}"}
                 type="button"
-                data-on="false"
+                aria-pressed="false"
+                aria-label={"Loop de #{beats} #{if beats == 1, do: "tempo", else: "tempos"} no deck #{String.upcase(@d)}"}
                 title={"Loop de #{beats} #{if beats == 1, do: "tempo", else: "tempos"}"}
-                class="h-6 flex-1 rounded-md border border-white/8 bg-[#101218] font-mono text-[9px] font-bold text-ink-faint transition-colors hover:border-green/50 hover:text-green"
+                class="h-6 flex-1 rounded-md border border-white/8 bg-[#101218] font-mono text-[9px] font-bold text-ink-faint transition-colors hover:border-green/50 hover:text-green disabled:opacity-40"
               >
                 {beats}
               </button>
-            </div>
+            </fieldset>
           </div>
 
           <div class="flex w-9 flex-col items-center gap-1">
