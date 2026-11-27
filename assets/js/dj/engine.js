@@ -328,7 +328,19 @@ class Deck {
 
   seek(seconds, positionAfter) {
     const recording = this.entry
-    recording?.seek(seconds, positionAfter)
+    if (recording) {
+      recording.seek(seconds, positionAfter)
+    } else if (this.wantsPlayback && this.audible() && !this.stopBrake && seconds !== this.el.currentTime) {
+      const buffer = getDeckAudio(this.trackId)
+      if (buffer && seconds < buffer.duration) {
+        // A compressed media seek can report the requested time while playing a different sample.
+        let prepared
+        try {
+          prepared = this.preparePassageAudio(buffer, seconds, {rate: this.playbackRate, vinyl: this.vinylMode}, true)
+          prepared.launch(this.ctx.currentTime, seconds)
+        } catch { prepared?.discard() }
+      }
+    }
     this.el.currentTime = seconds
     if (recording && this.wantsPlayback && this.el.paused) this.el.play().catch(() => {})
   }
