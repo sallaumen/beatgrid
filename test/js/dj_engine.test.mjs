@@ -59,7 +59,7 @@ class Context {
   createDelay() { return new AudioNodeStub() }
 }
 
-function booth(t) {
+function booth(t, callbacks = {}) {
   t.mock.timers.enable({apis: ["setTimeout", "setInterval", "Date"], now: 1000})
   t.mock.method(performance, "now", () => Date.now())
   globalThis.window = {AudioContext: Context}
@@ -69,7 +69,8 @@ function booth(t) {
   const advances = [], ends = []
   const engine = createEngine({deckElA: a, deckElB: b, callbacks: {
     transitionStarted: event => advances.push(event),
-    trackEnded: event => ends.push(event)
+    trackEnded: event => ends.push(event),
+    ...callbacks
   }})
   t.after(() => engine.destroy())
   const track = id => ({id, src: id, duration_ms: 60_000, bpm: 120})
@@ -922,4 +923,29 @@ test("stopping a scratch drop cannot silence a new scratch pad on its next tick"
   engine.stopAutoScratch("a")
   assert.equal(engine.scratchPosSec("a"), null)
   assert.equal(b.plays, 0)
+})
+
+test("stopping an echo turns off its indicator once", t => {
+  const lights = []
+  const {engine, hint, tick} = booth(t, {echoState: ({on}) => lights.push(on)})
+  hint(null)
+  assert.equal(engine.fireManual("echo").ok, true)
+  engine.stopAll()
+  assert.deepEqual(lights, [true, false])
+  tick(12_000)
+  assert.deepEqual(lights, [true, false])
+})
+
+test("a rescued echo cannot turn off the next echo early", t => {
+  const lights = []
+  const {engine, hint, tick} = booth(t, {echoState: ({on}) => lights.push(on)})
+  hint(null)
+  assert.equal(engine.fireManual("echo").ok, true)
+  tick(2000)
+  assert.equal(engine.cancelTransition().ok, true)
+  assert.equal(engine.fireManual("echo").ok, true)
+  tick(5000)
+  assert.deepEqual(lights, [true, false, true])
+  tick(2000)
+  assert.deepEqual(lights, [true, false, true, false])
 })
