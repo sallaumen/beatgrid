@@ -1502,3 +1502,30 @@ test("a manual echo after arming keeps the heard blend saved until the tail clea
   engine.ctx.currentTime += 15
   assert.equal(engine.confirmPassage().ok, true)
 })
+
+test("SYNC keeps the rehearsed recording when the effective tempo already matches", async t => {
+  const rig = booth(t)
+  const {engine, a, b, tick} = rig
+  preparePassage(rig, "cut")
+  engine.confirmPassage()
+  a.at(48)
+  await Promise.resolve()
+  tick(12)
+  const deck = engine.decks.b
+  deck.bpm = engine.decks.a.bpm = 120
+  const recorded = deck.entry
+  assert.ok(recorded)
+  engine.ctx.currentTime += 1
+  assert.ok(engine.sync("b"))
+  assert.equal(deck.entry, recorded)
+  assert.equal(deck.mediaGain.gain.value, 0)
+  assert.equal(b.currentTime, 2.5)
+  assert.equal(deck.positionMs(), 3500)
+
+  engine.decks.a.bpm = 126
+  assert.ok(engine.sync("b"))
+  assert.equal(deck.entry, null)
+  assert.equal(deck.mediaGain.gain.value, 1)
+  assert.equal(b.currentTime, 3.5)
+  assert.equal(b.playbackRate, 1.05)
+})

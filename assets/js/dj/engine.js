@@ -295,10 +295,10 @@ class Deck {
   // SYNC: match this deck's tempo to `targetBpm`; the rate KEEPS for the rest of
   // the track (the old engine's snap-back at handoff was audible), reset on load.
   syncTo(targetBpm) {
-    this.useMedia()
     if (!this.bpm || !targetBpm) return false
     const rate = targetBpm / this.bpm
     this.baseRate = syncedRate(this.baseRate, this.bpm, targetBpm)
+    if (this.el.playbackRate !== this.baseRate) this.useMedia()
     this.el.preservesPitch = !this.vinylMode
     this.el.playbackRate = this.baseRate
     return Math.abs(this.baseRate - rate) < 1e-9
