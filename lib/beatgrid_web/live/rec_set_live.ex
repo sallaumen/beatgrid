@@ -221,9 +221,14 @@ defmodule BeatgridWeb.RecSetLive do
     {:noreply,
      with_current_set(socket, fn current ->
        case Sets.set_target_style(current, blank_to_nil(style)) do
-         {:ok, set} -> load_set(socket, set)
-         {:error, %Beatgrid.Error{code: :set_not_found}} -> missing_set(socket)
-         {:error, _changeset} -> put_flash(socket, :error, "Não foi possível alterar o estilo-alvo.")
+         {:ok, set} ->
+           load_set(socket, set)
+
+         {:error, %Beatgrid.Error{code: :set_not_found}} ->
+           missing_set(socket)
+
+         {:error, _changeset} ->
+           put_flash(socket, :error, "Não foi possível alterar o estilo-alvo.")
        end
      end)}
   end
@@ -365,16 +370,32 @@ defmodule BeatgridWeb.RecSetLive do
     {:noreply, socket |> assign(active_section: blank_to_nil(role)) |> assign_candidates()}
   end
 
+  def handle_event("fill", _params, %{assigns: %{set: nil}} = socket),
+    do: {:noreply, missing_set(socket)}
+
   def handle_event("fill", %{"role" => role, "count" => count}, socket) do
     n = to_count(count)
     opts = console_opts(%{socket.assigns | active_section: blank_to_nil(role)})
 
-    case blank_to_nil(role) do
-      nil -> Sets.auto_fill(socket.assigns.set, Keyword.put(opts, :count, n))
-      r -> Sets.fill_section(socket.assigns.set, r, n, opts)
-    end
+    result =
+      case blank_to_nil(role) do
+        nil -> Sets.auto_fill(socket.assigns.set, Keyword.put(opts, :count, n))
+        r -> Sets.fill_section(socket.assigns.set, r, n, opts)
+      end
 
-    {:noreply, reload(socket)}
+    case result do
+      {:ok, _set} ->
+        {:noreply, reload(socket)}
+
+      {:error, %Beatgrid.Error{code: :set_not_found}} ->
+        {:noreply, missing_set(socket)}
+
+      {:error, _reason} ->
+        {:noreply,
+         socket
+         |> reload()
+         |> put_flash(:error, "Não foi possível preencher a seção. O set ficou como estava.")}
+    end
   end
 
   # Picking a preset pre-fills the studio controls (its allowed/excluded styles +
