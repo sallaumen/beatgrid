@@ -43,7 +43,11 @@ class ScratchProcessor extends AudioWorkletProcessor {
     this.HOLD = Math.round(0.06 * sampleRate) // command silence -> the hand is holding still
     this.MINDT = 0.004 * sampleRate // floor the interval: coalesced bursts can't spike
     this.VMAX = 32 // a hard backspin flick; the anti-alias pole covers the sound up there
-    this.KP = 1.5e-4 // position-error bleed per sample (~150 ms) — closes the loop softly
+    // Keep the 48 kHz platter response and bass cutoff when the output device changes rate.
+    const rateRatio = 48000 / sampleRate
+    this.KP = 1.5e-4 * rateRatio
+    this.gainStep = 1 - 0.992 ** rateRatio
+    this.dcPole = 0.995 ** rateRatio
     this.port.onmessage = (e) => {
       const d = e.data
       if (d.type === "load") {
@@ -82,7 +86,7 @@ class ScratchProcessor extends AudioWorkletProcessor {
     const on = this.active && pcm && len > 4
     const gTarget = on ? 1 : 0
     for (let i = 0; i < n; i++) {
-      this.g += (gTarget - this.g) * 0.008
+      this.g += (gTarget - this.g) * this.gainStep
       if (on) {
         if (this.sinceCmd > this.HOLD) this.targetV = 0
         // Error bleed: whatever the smoothing/clamps cost in position (hold
@@ -116,7 +120,7 @@ class ScratchProcessor extends AudioWorkletProcessor {
       // one-pole with speed, like the blur of a real needle whipping past.
       const speed = this.v < 0 ? -this.v : this.v
       this.lp += (raw - this.lp) * (speed > 1 ? 1 / speed : 1)
-      const dc = this.lp - this.xp + 0.995 * this.yp
+      const dc = this.lp - this.xp + this.dcPole * this.yp
       this.xp = this.lp
       this.yp = dc
       ch[i] = dc * this.g
