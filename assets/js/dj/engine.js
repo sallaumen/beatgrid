@@ -556,6 +556,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     })
     listen("canplay", () => retryReadyHint(deck))
     listen("durationchange", () => {
+      emit("durationChanged", {deck: deck.id})
       if (deck.loop.on && deck.loop.beats && !loopFits(deck, deck.loop.endMs)) {
         const beats = deck.loop.beats
         clearLoop(deck)
