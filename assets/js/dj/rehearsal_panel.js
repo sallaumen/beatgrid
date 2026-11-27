@@ -1,4 +1,5 @@
 import {measurePassage, preparePassageMeter} from "./passage_meter.js"
+import {mountPassageComparison} from "./passage_comparison.js"
 import {scorePassage} from "./passage_score.js"
 import {mountPassageScore} from "./passage_score_view.js"
 import {getDeckAudio} from "./waveform.js"
@@ -50,13 +51,14 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
   const strips = [...dialog.querySelectorAll("[data-side]")]
   let lastChoice, lastPhase, lastEdit, mix, mixNote = ""
   let pair, plan, failure, pending = false, request = 0
-  const kind = () => dialog.querySelector("input:checked").value
+  const kind = () => dialog.querySelector('input[name="dj-rehearse-kind"]:checked').value
+  const comparison = mountPassageComparison(score, [...dialog.querySelectorAll("[data-score-for]")], kind)
 
   function stop() {
     request++
     pending = false
     transport.stop()
-    score.clear()
+    comparison.select()
   }
 
   function draw() {
@@ -93,7 +95,6 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
 
   function editMix(next) {
     if (!plan) return
-    score.clear()
     engine.editPassageMix()
     mixNote = ""
     mix = next
@@ -139,7 +140,10 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
       plan = null
       const saved = choice?.pair.from === from ? choice : null
       mix = saved?.plan.mix ?? boothMix()
-      if (saved) dialog.querySelector(`input[value="${saved.kind}"]`).checked = true
+      if (saved) {
+        dialog.querySelector(`input[value="${saved.kind}"]`).checked = true
+        comparison.select()
+      }
       paintMix()
       failure = mixNote = ""
       text(timing, "")
@@ -160,6 +164,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
         if (plan) draw()
       }
     }
+    comparison.bind(pair, plan, a.bpm)
     for (const strip of strips) strip.disabled = !plan
     const phones = hasPhones()
     const elapsed = transport.elapsed()
@@ -256,13 +261,14 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
       update()
       if (id !== request || !dialog.open || !hasPhones()) return
       transport.play(plan, kind(), Number(pan.value), 0, (node, timing) => {
-        score.listening()
+        const take = comparison.begin(timing.kind)
         const bpm = engine.decks[pair.from].bpm * plan.mix.out.rate
         const cancel = measurePassage(engine.ctx, node, {...timing, bpm}, data => {
-          if (dialog.open && id === request) score.show(data ? scorePassage(data) :
-            {score: null, metrics: [], summary: "Não foi possível medir esta reprodução inteira."})
+          if (!dialog.open || id !== request) return
+          if (data) take.finish(scorePassage(data))
+          else take.unavailable()
         })
-        return () => { cancel(); score.clear() }
+        return () => { cancel(); take.cancel() }
       })
     } catch {
       if (id === request) failure = "Não foi possível iniciar o ensaio. Tente novamente."
