@@ -460,7 +460,11 @@ defmodule BeatgridWeb.ImportsLive do
       <ol
         id="spotify-tracks"
         class="max-h-96 overflow-y-auto"
-        phx-mounted={if is_integer(@last_index), do: JS.focus(to: "#spotify-version-#{@last_index}")}
+        phx-mounted={
+          if is_integer(@last_index),
+            do: JS.focus(to: "#spotify-version-#{@last_index}"),
+            else: JS.focus(to: "#spotify-filters [aria-pressed=true]")
+        }
       >
         <li
           :for={{track, i} <- @visible}
@@ -492,10 +496,10 @@ defmodule BeatgridWeb.ImportsLive do
         </li>
       </ol>
       <p :if={@visible == []} role="status" class="py-3 text-body-sm text-ink-muted">
-        {case @filter do
-          "library" -> "Nenhuma faixa desta prévia foi encontrada na biblioteca."
-          "missing" -> "Todas as faixas desta prévia estão na biblioteca."
-          _ -> "A prévia pública está vazia."
+        {cond do
+          @tracks == [] -> "A prévia pública está vazia."
+          @filter == "library" -> "Nenhuma faixa desta prévia foi encontrada na biblioteca."
+          true -> "Todas as faixas desta prévia estão na biblioteca."
         end}
       </p>
     </section>
@@ -589,16 +593,6 @@ defmodule BeatgridWeb.ImportsLive do
           </p>
           <p :if={@error} role="alert" class="mt-3 text-body-sm text-coral-soft">{@error}</p>
 
-          <a
-            :if={@search}
-            href={"https://www.youtube.com/results?" <> URI.encode_query(%{"search_query" => @search})}
-            target="_blank"
-            rel="noopener"
-            class="mt-2 inline-flex text-body-sm text-primary-soft underline"
-          >
-            Procurar “{@search}” no YouTube
-          </a>
-
           <form
             :if={@rows != []}
             id="confirm-downloads"
@@ -662,6 +656,15 @@ defmodule BeatgridWeb.ImportsLive do
                 else: "faixas"}
             </button>
           </form>
+          <a
+            :if={@search}
+            href={"https://www.youtube.com/results?" <> URI.encode_query(%{"search_query" => @search})}
+            target="_blank"
+            rel="noopener"
+            class="mt-2 inline-flex text-body-sm text-primary-soft underline"
+          >
+            Procurar “{@search}” no YouTube
+          </a>
         </section>
         <section
           id="download-activity"
