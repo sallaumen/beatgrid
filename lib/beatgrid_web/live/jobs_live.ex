@@ -1,6 +1,6 @@
 defmodule BeatgridWeb.JobsLive do
   @moduledoc """
-  Background-jobs visibility: a live table of recent Oban jobs across all queues,
+  Background-jobs visibility: a live list of recent Oban jobs across all queues,
   with their state, queue, a human-readable summary of what each job is doing,
   attempts, timing, the last error, and retry/cancel actions.
   """
@@ -12,27 +12,33 @@ defmodule BeatgridWeb.JobsLive do
   alias Beatgrid.Library.Tracks
 
   @refresh_ms 2_000
-  @states ~w(available scheduled executing retryable completed discarded cancelled)
+  @active_states ~w(available scheduled executing retryable suspended)
+  @failed_states ~w(discarded cancelled)
+  @states @active_states ++ @failed_states ++ ["completed"]
 
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: Process.send_after(self(), :refresh, @refresh_ms)
 
-    {:ok, assign(socket, page_title: "Fila de tarefas", states: @states, expanded: MapSet.new())}
+    {:ok, assign(socket, page_title: "Fila de tarefas", expanded: MapSet.new())}
   end
 
-  # URL-driven filters (`?state=failed&worker=DownloadWorker`) so Maintenance can
+  # URL-driven filters (`?state=failed&worker=DownloadWorker`) so callers can
   # deep-link straight to "the downloads that gave up" and the view survives
-  # refresh/back. "failed" is a pseudo-state covering discarded + cancelled.
+  # refresh/back. "active" covers unfinished work; "failed" covers discarded + cancelled.
   @impl true
   def handle_params(params, _uri, socket) do
     filter = valid_state(params["state"])
     worker = valid_worker(params["worker"])
 
-    {:noreply, socket |> assign(filter: filter, worker: worker) |> assign_jobs()}
+    {:noreply,
+     socket
+     |> assign(filter: filter, group: state_group(filter), worker: worker)
+     |> assign(context_link: worker_destination(worker))
+     |> assign_jobs()}
   end
 
-  defp valid_state(state) when state in @states or state == "failed", do: state
+  defp valid_state(state) when state in @states or state in ["active", "failed"], do: state
   defp valid_state(_state), do: nil
 
   defp valid_worker(worker) when is_binary(worker) do
@@ -54,12 +60,20 @@ defmodule BeatgridWeb.JobsLive do
 
   def handle_event("retry", %{"id" => id}, socket) do
     Jobs.retry(String.to_integer(id))
-    {:noreply, assign_jobs(socket)}
+
+    {:noreply,
+     socket
+     |> put_flash(:info, "Pedido de nova tentativa enviado. Acompanhe em andamento.")
+     |> assign_jobs()}
   end
 
   def handle_event("cancel", %{"id" => id}, socket) do
     Jobs.cancel(String.to_integer(id))
-    {:noreply, assign_jobs(socket)}
+
+    {:noreply,
+     socket
+     |> put_flash(:info, "Pedido de cancelamento enviado. Confira o estado em Todas.")
+     |> assign_jobs()}
   end
 
   def handle_event("retry_all_failed", _params, socket) do
@@ -95,8 +109,35 @@ defmodule BeatgridWeb.JobsLive do
     do: Jobs.list_recent(limit: 100, states: filter_states(filter), worker: worker)
 
   defp filter_states(nil), do: nil
-  defp filter_states("failed"), do: ["discarded", "cancelled"]
+  defp filter_states("active"), do: @active_states
+  defp filter_states("failed"), do: @failed_states
   defp filter_states(state), do: [state]
+
+  defp active_state?(state), do: state in @active_states
+  defp retryable_state?(state), do: state == "retryable" or state in @failed_states
+
+  defp state_group(state) when state in @active_states, do: "active"
+  defp state_group(state) when state in @failed_states, do: "failed"
+  defp state_group(state), do: state
+
+  defp group_phases("active"), do: @active_states
+  defp group_phases("failed"), do: @failed_states
+  defp group_phases(_), do: []
+
+  defp worker_destination(worker) when worker in ~w(DownloadWorker ExpandWorker),
+    do: {~p"/importados", "Importações"}
+
+  defp worker_destination("ImportWorker"), do: {~p"/importados?origem=local", "Arquivos locais"}
+
+  defp worker_destination(worker)
+       when worker in ~w(MixDownloadWorker MixAnalyzeWorker MixDjAudioWorker MixDjVisionWorker MixRecognizeWorker MixCutWorker),
+       do: {~p"/sets-online", "Sets gravados"}
+
+  defp worker_destination(worker)
+       when worker in ~w(AnalyzeWorker MarkerAnalyzeWorker LoudnessWorker GainApplyWorker DbBackupWorker EnrichWorker),
+       do: {~p"/manutencao", "Manutenção"}
+
+  defp worker_destination(_), do: nil
 
   # Resolve the track titles referenced by the visible jobs in one batched query,
   # so the summary reads "Asa Branca" instead of a bare UUID.
@@ -140,7 +181,7 @@ defmodule BeatgridWeb.JobsLive do
         <div class="mx-auto max-w-[1600px]">
           <h1 class="text-[22px] font-semibold">Fila de tarefas</h1>
           <p class="text-body-sm text-ink-muted">
-            Downloads, análises e importações em segundo plano.
+            Acompanhe tarefas em segundo plano e tente novamente as que falharam.
           </p>
         </div>
       </header>
@@ -150,23 +191,51 @@ defmodule BeatgridWeb.JobsLive do
             <p id="job-state-label" class="text-body-sm font-semibold text-ink-secondary">
               Estado da tarefa
             </p>
-            <nav aria-labelledby="job-state-label" class="flex flex-wrap items-center gap-1.5">
+            <nav
+              id="job-state-groups"
+              aria-labelledby="job-state-label"
+              class="flex flex-wrap items-center gap-1.5"
+            >
               <.link
                 :for={
                   {state, label} <-
-                    [{nil, "Todas"}, {"failed", "Falhas"}] ++
-                      Enum.map(@states, &{&1, state_label(&1)})
+                    [
+                      {"active", "Em andamento"},
+                      {"failed", "Falhas"},
+                      {"completed", "Concluídas"},
+                      {nil, "Todas"}
+                    ]
                 }
                 patch={jobs_path(state, @worker)}
                 aria-current={@filter == state && "true"}
-                class={["rounded-md border px-2.5 py-1.5 text-body", chip_class(@filter == state)]}
+                class={["rounded-md border px-2.5 py-1.5 text-body", chip_class(@group == state)]}
               >
                 {label}
               </.link>
             </nav>
+            <nav
+              :if={group_phases(@group) != []}
+              id="job-state-phases"
+              aria-label="Filtrar por etapa"
+              class="flex flex-wrap items-center gap-2"
+            >
+              <span class="text-body-sm text-ink-muted">Etapa:</span>
+              <.link
+                :for={state <- group_phases(@group)}
+                patch={jobs_path(state, @worker)}
+                aria-current={@filter == state && "true"}
+                class={["rounded-md border px-2 py-1 text-body-sm", chip_class(@filter == state)]}
+              >
+                {state_label(state)}
+              </.link>
+            </nav>
           </div>
 
-          <form id="task-type" phx-change="filter_worker" class="w-full shrink-0 lg:w-56">
+          <form
+            id="task-type"
+            phx-change="filter_worker"
+            class="w-full shrink-0 lg:w-56 lg:self-start"
+          >
             <label
               for="worker-filter"
               class="mb-1 block text-body-sm font-semibold text-ink-secondary"
@@ -185,6 +254,14 @@ defmodule BeatgridWeb.JobsLive do
                 {label}
               </option>
             </select>
+            <.link
+              :if={@context_link}
+              id="jobs-context-link"
+              navigate={elem(@context_link, 0)}
+              class="mt-2 inline-flex items-center gap-1 text-body-sm text-primary hover:underline"
+            >
+              Abrir {elem(@context_link, 1)} <.icon name="hero-arrow-right-mini" class="size-4" />
+            </.link>
           </form>
         </div>
 
@@ -197,13 +274,13 @@ defmodule BeatgridWeb.JobsLive do
               Ações em lote · {if @worker, do: worker_label(@worker), else: "Todos os tipos"}
             </p>
             <p class="mt-0.5 text-body-sm text-ink-muted">
-              Incluem as falhas que estão fora desta página.
+              Incluem tarefas descartadas e canceladas, mesmo fora desta lista.
             </p>
           </div>
           <div class="flex flex-wrap gap-2">
             <button
               phx-click="retry_all_failed"
-              data-confirm="Tentar novamente todas as tarefas com falha deste filtro?"
+              data-confirm="Recolocar na fila todas as tarefas descartadas e canceladas deste filtro?"
               class="rounded-md border border-primary/30 bg-primary/10 px-3 py-1.5 text-body-sm font-semibold text-primary hover:bg-primary/15"
             >
               Tentar todas novamente
@@ -219,10 +296,10 @@ defmodule BeatgridWeb.JobsLive do
         </div>
 
         <div class="mt-3 flex flex-wrap items-baseline justify-between gap-2">
-          <h2 class="text-[18px] font-semibold">Atividade recente</h2>
+          <h2 class="text-[18px] font-semibold">{results_heading(@filter)}</h2>
           <p class="text-body-sm text-ink-muted">
             <span class="font-mono tabular-nums text-ink-secondary">{length(@jobs)}</span>
-            exibidas · limite de 100
+            {if length(@jobs) == 100, do: "mais recentes", else: "exibidas"}
           </p>
         </div>
 
@@ -259,17 +336,7 @@ defmodule BeatgridWeb.JobsLive do
               </div>
 
               <div
-                :if={
-                  j.errors != [] or
-                    j.state in [
-                      "retryable",
-                      "discarded",
-                      "cancelled",
-                      "available",
-                      "scheduled",
-                      "executing"
-                    ]
-                }
+                :if={j.errors != [] or active_state?(j.state) or retryable_state?(j.state)}
                 class="flex flex-wrap items-start gap-1.5 sm:col-span-2 lg:col-span-1 lg:justify-end"
               >
                 <button
@@ -283,7 +350,7 @@ defmodule BeatgridWeb.JobsLive do
                   {if MapSet.member?(@expanded, j.id), do: "Ocultar", else: "Detalhes"}
                 </button>
                 <button
-                  :if={j.state in ["retryable", "discarded", "cancelled"]}
+                  :if={retryable_state?(j.state)}
                   phx-click="retry"
                   phx-value-id={j.id}
                   class="rounded-md border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-body-sm font-semibold text-primary hover:bg-primary/15"
@@ -291,9 +358,10 @@ defmodule BeatgridWeb.JobsLive do
                   Tentar novamente
                 </button>
                 <button
-                  :if={j.state in ["available", "scheduled", "executing", "retryable"]}
+                  :if={active_state?(j.state)}
                   phx-click="cancel"
                   phx-value-id={j.id}
+                  data-confirm="Cancelar esta tarefa? Se já estiver executando, pode haver alterações parciais. Cancelar não desfaz o que já foi realizado."
                   class="rounded-md border border-coral/25 bg-coral/10 px-2.5 py-1.5 text-body-sm text-coral hover:bg-coral/15"
                 >
                   Cancelar
@@ -316,7 +384,7 @@ defmodule BeatgridWeb.JobsLive do
           </li>
         </ul>
         <div :if={@jobs == []} class="py-6 text-body text-ink-muted">
-          Nenhuma tarefa neste filtro.
+          {empty_message(@filter)}
           <.link
             :if={@filter || @worker}
             patch={jobs_path(nil, nil)}
@@ -327,6 +395,15 @@ defmodule BeatgridWeb.JobsLive do
     </.app_shell>
     """
   end
+
+  defp results_heading("active"), do: "Tarefas em andamento"
+  defp results_heading("failed"), do: "Falhas e cancelamentos"
+  defp results_heading("completed"), do: "Tarefas concluídas"
+  defp results_heading(_), do: "Atividade recente"
+
+  defp empty_message("active"), do: "Nenhuma tarefa em andamento neste filtro."
+  defp empty_message("failed"), do: "Nenhuma tarefa descartada ou cancelada neste filtro."
+  defp empty_message(_), do: "Nenhuma tarefa neste filtro."
 
   # ── Worker name + label ────────────────────────────────────────────────────
 
@@ -509,6 +586,7 @@ defmodule BeatgridWeb.JobsLive do
   defp state_label("scheduled"), do: "Agendada"
   defp state_label("executing"), do: "Executando"
   defp state_label("retryable"), do: "Nova tentativa"
+  defp state_label("suspended"), do: "Pausada"
   defp state_label("completed"), do: "Concluída"
   defp state_label("discarded"), do: "Descartada"
   defp state_label("cancelled"), do: "Cancelada"
@@ -517,7 +595,7 @@ defmodule BeatgridWeb.JobsLive do
   defp state_class("completed"), do: "bg-green/15 text-green"
   defp state_class("executing"), do: "bg-primary/15 text-primary"
   defp state_class(s) when s in ["discarded", "cancelled"], do: "bg-coral/15 text-coral"
-  defp state_class("retryable"), do: "bg-amber/15 text-amber"
+  defp state_class(s) when s in ["retryable", "suspended"], do: "bg-amber/15 text-amber"
   defp state_class(_), do: "bg-white/10 text-ink-muted"
 
   defp chip_class(true), do: "border-primary/60 bg-primary/15 text-ink"
