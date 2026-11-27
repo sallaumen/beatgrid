@@ -1063,10 +1063,33 @@ defmodule BeatgridWeb.DiscotecagemLive do
           <button
             type="button"
             data-listen-both
+            aria-controls="dj-heard-differences"
             disabled
             class="min-h-9 rounded-md border border-white/10 px-3 text-body font-semibold text-ink-secondary hover:border-primary/50 hover:text-ink disabled:opacity-40"
           >Ouvir as duas</button>
         </div>
+        <table id="dj-heard-differences" hidden class="mt-3 w-full table-fixed text-left text-body">
+          <caption class="pb-1 text-left font-semibold text-ink">Diferenças no fone</caption>
+          <thead>
+            <tr class="text-ink-secondary">
+              <th scope="col" class="w-1/4 py-1 pr-2 font-normal">Leitura</th>
+              <th :for={_ <- 1..2} scope="col" class="py-1 pr-2 font-semibold"></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+          <template>
+            <tr class="border-t border-white/10 align-top">
+              <th scope="row" class="py-1.5 pr-2 font-normal text-ink-secondary"></th>
+              <td :for={_ <- 1..2} class="py-1.5 pr-2">
+                <span data-value class="tabular-nums"></span>
+                <span
+                  data-state
+                  class="block text-body-sm text-ink-muted data-[state=watch]:text-amber data-[state=poor]:text-coral-soft"
+                ></span>
+              </td>
+            </tr>
+          </template>
+        </table>
         <section data-cue-assist hidden aria-label="Encaixe da entrada no fone" class="mt-3">
           <div class="flex flex-wrap items-center gap-x-3">
             <span class="text-body font-semibold text-ink">Encaixe da entrada</span>

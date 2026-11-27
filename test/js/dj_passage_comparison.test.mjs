@@ -3,6 +3,7 @@ import test from "node:test"
 import {execFileSync} from "node:child_process"
 import {fileURLToPath} from "node:url"
 import {mountPassageComparison} from "../../assets/js/dj/passage_comparison.js"
+import {scorePassage} from "../../assets/js/dj/passage_score.js"
 import {neutralMix} from "../../assets/js/dj/deck_mix.js"
 
 const pair = {from: "a", to: "b", fromLoad: 2, toLoad: 7}
@@ -10,17 +11,18 @@ const plan = {exit: 32, inStart: 4, lead: 3, duration: 7, blend: 2, mix: {out: n
 const result = score => ({score, summary: "Leitura", metrics: []})
 
 function setup(kinds = ["cut", "blend"]) {
-  const events = [], labels = kinds.map(kind => ({dataset: {scoreFor: kind}}))
+  const differences = [], events = [], labels = kinds.map(kind => ({dataset: {scoreFor: kind}}))
   const details = {
     clear() { events.push(["clear"]) },
     listening() { events.push(["listening"]) },
     show(value, options) { events.push(["show", value, options]) }
   }
   let selected = "cut"
-  const view = mountPassageComparison(details, labels, () => selected, kind =>
-    ({cut: "Corte na entrada", blend: "Mistura de quatro tempos", bass_swap: "Troca de graves"})[kind])
+  const view = mountPassageComparison(details, labels, () => selected, (kind, short) =>
+    ({cut: short ? "Corte" : "Corte na entrada", blend: short ? "Mistura" : "Mistura de quatro tempos",
+      bass_swap: "Troca de graves"})[kind], value => differences.push(value))
   view.bind(pair, plan, 120)
-  return {view, labels, events, select(kind) { selected = kind; view.select() }}
+  return {view, labels, events, differences, select(kind) { selected = kind; view.select() }}
 }
 
 test("changing kind and headphone side retains each completed score, including unscored audio", () => {
@@ -175,4 +177,63 @@ test("monitoring the alternative keeps the chosen score in view and identifies b
 test("a finished comparison can keep its score without pinning either decoded track", () => {
   const fixture = fileURLToPath(new URL("./fixtures/collected_passage_audio.mjs", import.meta.url))
   execFileSync(process.execPath, ["--expose-gc", fixture])
+})
+
+// A held note has level and headroom even when there are no beats to grade.
+function sustained(kind, centerGain = 1, peak = 0.4, truePeak = true) {
+  const overlap = kind === "cut" ? 0.01 : 2
+  const frames = Array.from({length: Math.round((5 + overlap) * 100)}, (_, i) => {
+    const inMix = i >= 300 && i < Math.round((3 + overlap) * 100)
+    const rms = 0.15 * (inMix ? centerGain : 1)
+    const amplitude = inMix ? peak : 0.4
+    return {rms, onset: 0, peak: amplitude, ...(truePeak ? {truePeak: amplitude} : {})}
+  })
+  return scorePassage({frames, frameSeconds: 0.01, changeAt: 3, overlap, kind, bpm: 120})
+}
+
+test("two ungraded listens show only the measured differences and leave the chosen take intact", () => {
+  const {view, differences} = setup()
+  const first = sustained("cut")
+  const second = sustained("blend", 0.25, 0.98)
+  assert.equal(first.score, null)
+  assert.equal(second.score, null)
+  view.begin("cut").finish(first)
+  view.begin("blend").finish(second)
+  view.finishPair(["cut", "blend"])
+  const contrast = differences.at(-1)
+  assert.deepEqual(contrast.names, ["Corte", "Mistura"])
+  assert.deepEqual(contrast.rows.map(({first, second}) => [first.value, second.value]), [
+    ["Variação de 0 dB", "Queda de 12 dB na mistura"],
+    ["Pico estimado de -8 dBTP", "Pico estimado de -0,2 dBTP"]
+  ])
+  assert.equal(view.reading(), first)
+  assert.match(view.summary(), /diferenças de nível e margem de pico/)
+  assert.equal(differences.filter(Boolean).length, 1)
+  view.bind({...pair}, plan, 120)
+  assert.equal(differences.filter(Boolean).length, 1)
+  view.begin("blend").unavailable()
+  view.finishPair(["cut", "blend"])
+  assert.equal(differences.at(-1), null)
+  assert.deepEqual(view.reading(), first)
+})
+
+test("distinct findings at the same severity compare, equivalent diagnoses and missing readings stay quiet", () => {
+  const {view, differences} = setup(["cut", "blend", "bass_swap"])
+  function compare(first, second) {
+    view.begin("bass_swap").finish(first)
+    view.begin("blend").finish(second)
+    view.finishPair(["bass_swap", "blend"])
+    return differences.at(-1)
+  }
+  assert.equal(compare(sustained("blend"), sustained("blend", 1.15, 0.5)), null)
+  assert.equal(compare(sustained("blend", 0.23), sustained("blend", 0.26)), null)
+  assert.equal(compare(sustained("blend", 1, 0.4, false), sustained("blend", 1, 0.99)), null)
+  const drop = sustained("bass_swap", 0.2), surge = sustained("blend", 2.6, 0.75)
+  const contrasting = compare(drop, surge)
+  assert.deepEqual(contrasting.names, ["Troca de graves", "Mistura"])
+  assert.deepEqual(contrasting.rows.map(row => [row.first.state, row.second.state]), [["poor", "poor"]])
+  assert.match(contrasting.rows[0].first.value, /Queda/)
+  assert.match(contrasting.rows[0].second.value, /Subida/)
+  view.bind(pair, {...plan, inStart: 7}, 120)
+  assert.equal(differences.at(-1), null)
 })
