@@ -74,7 +74,7 @@ defmodule BeatgridWeb.DedupLiveTest do
 
   @tag :tmp_dir
   test "renders a pending group card with its members and match tag", %{conn: conn, tmp_dir: root} do
-    %{keep: keep, dup: dup} = exact_pair(root)
+    %{group: group, keep: keep, dup: dup} = exact_pair(root)
 
     {:ok, view, html} = live(conn, ~p"/dedup")
 
@@ -87,9 +87,30 @@ defmodule BeatgridWeb.DedupLiveTest do
     assert html =~ "Sina"
     assert has_element?(view, "a[href='/track/#{keep.id}']", "Sina")
     assert has_element?(view, "a[href='/track/#{dup.id}']", "Sina")
-    # a mono quality/placement line for the members
-    assert html =~ "320"
-    assert html =~ "128"
+    # A DJ must be able to identify the specific recording and its file, even when
+    # the artist/title match exactly.
+    assert has_element?(view, "#copy-#{keep.id}", "MPB/a.mp3")
+    assert has_element?(view, "#copy-#{dup.id}", "MPB/b.mp3")
+    assert has_element?(view, "#copy-#{keep.id} dd", "320 kbps")
+    assert has_element?(view, "#copy-#{dup.id} dd", "128 kbps")
+
+    assert has_element?(
+             view,
+             "#copy-#{keep.id} input[type=radio][name='keeper-#{group.id}'][checked]"
+           )
+
+    assert has_element?(view, "#copy-#{dup.id} input[type=radio][name='keeper-#{group.id}']")
+    refute has_element?(view, "#copy-#{dup.id} input[checked]")
+    assert has_element?(view, "footer p", "1 cópia será mantida")
+
+    assert has_element?(
+             view,
+             "button[phx-click=resolve]",
+             "Manter selecionada e mover 1 cópia para a quarentena"
+           )
+
+    assert has_element?(view, "#copy-#{keep.id}", "Cópia selecionada")
+    assert has_element?(view, "#copy-#{dup.id}", "Vai para a quarentena")
   end
 
   @tag :tmp_dir
@@ -153,6 +174,12 @@ defmodule BeatgridWeb.DedupLiveTest do
       "input[phx-click=pick_keeper][phx-value-group='#{g.id}'][phx-value-track='#{dup.id}']"
     )
     |> render_click()
+
+    assert has_element?(view, "#copy-#{dup.id} input[checked]")
+    refute has_element?(view, "#copy-#{keep.id} input[checked]")
+    assert has_element?(view, "#copy-#{dup.id}", "Cópia selecionada")
+    assert has_element?(view, "#copy-#{keep.id}", "Vai para a quarentena")
+    assert Tracks.get(keep.id).status == :present
 
     view
     |> element("button[phx-click=resolve][phx-value-group='#{g.id}']")
