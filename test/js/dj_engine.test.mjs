@@ -1051,3 +1051,53 @@ test("unplugging and reconnecting the four-channel output rewires the PFL during
   assert.deepEqual(engine.pflState(), {a: false, b: true})
   assert.equal(a.paused, false)
 })
+
+for (const type of ["fade", "filter", "lowpass", "echo", "bass_swap", "brake"]) {
+  test(`a loop prepared on the outgoing record survives ${type} cleanup`, t => {
+    const {engine, a, b, hint, tick} = booth(t)
+    hint(null)
+    assert.equal(engine.fireManual(type).ok, true)
+    if (!a.paused) engine.playPause("a")
+    engine.cueTo("a", 1250)
+    engine.beatLoop("a", 2)
+    tick(12_000)
+    tick(1000)
+    assert.deepEqual(engine.loopState("a"), {on: true, startMs: 1250, endMs: 2250, beats: 2})
+    assert.equal(a.paused, true)
+    assert.equal(b.paused, false)
+    assert.equal(engine.loadDeck("a", {id: "fresh", src: "fresh"}), true)
+    assert.equal(engine.loopState("a").on, false)
+  })
+}
+
+test("AUTO fits its crossfade to the section remaining after a prepared hot cue", t => {
+  const {engine, a, b, tick} = booth(t)
+  engine.armHint({
+    track: {id: "next", src: "next", markers: [{type: "cue", ms: 6000}]},
+    transition: {type: "crossfade", from_ms: 48_000, to_ms: 0},
+  })
+  engine.cueTo("b", 4000)
+  a.at(48)
+  assert.equal(b.currentTime, 4)
+  tick(1900)
+  assert.equal(a.paused, false)
+  tick(400)
+  assert.equal(a.paused, true)
+  assert.equal(b.paused, false)
+})
+
+for (const playing of [false, true]) {
+  test(`a hot cue moves the scratch pattern and its ${playing ? "playing" : "paused"} release point`, async t => {
+    const {engine, b, tick} = await scratchBooth(t, "pad-record")
+    engine.loadDeck("b", {id: "pad-record", src: "pad-record"}, {autoplay: playing})
+    engine.cueTo("b", 1250)
+    assert.equal(engine.startAutoScratch("b", "baby").ok, true)
+    engine.cueTo("b", 4000)
+    assert.equal(engine.scratchPosSec("b"), 4)
+    tick(50)
+    assert.ok(Math.abs(engine.scratchPosSec("b") - 4) < 0.2)
+    engine.stopAutoScratch("b")
+    assert.equal(b.currentTime, 4)
+    assert.equal(b.paused, !playing)
+  })
+}

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import {paintDeckStatus} from "../../assets/js/dj/deck_status.js"
+import {paintDeckStatus, paintLoopRegion} from "../../assets/js/dj/deck_status.js"
 
 test("each waveform follows the mounted deck across loading, preview, scratch and eject", () => {
   const deck = {trackId: null, el: {}, ready: () => false, audible: () => false}
@@ -38,4 +38,18 @@ test("the animation loop only announces an actual state change", () => {
   paintDeckStatus(readout, deck, null)
   paintDeckStatus(readout, deck, null)
   assert.equal(writes, 1)
+})
+
+test("an armed loop region follows the playable duration as metadata arrives", () => {
+  const region = {style: {}}
+  const deck = {durationMs: 60_000, el: {duration: NaN}, loop: {on: true, startMs: 2000, endMs: 4000}}
+  paintLoopRegion(region, deck)
+  assert.equal(parseFloat(region.style.width).toFixed(2), "3.33")
+  deck.el.duration = 40
+  paintLoopRegion(region, deck)
+  assert.deepEqual(region.style, {left: "5%", width: "5%", display: "block"})
+
+  deck.loop.on = false
+  paintLoopRegion(region, deck)
+  assert.equal(region.style.display, "none")
 })
