@@ -974,7 +974,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             <button
               type="button"
               data-cue-check
-              class="min-h-9 text-body font-semibold text-primary-soft hover:underline disabled:text-ink-muted"
+              class="min-h-9 text-body font-semibold text-primary-soft hover:underline disabled:text-ink-muted aria-disabled:text-ink-muted"
             >Verificar encaixe</button>
             <button
               type="button"
@@ -989,7 +989,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               class="min-h-9 text-body font-semibold text-primary-soft hover:underline"
             >Restaurar CUE</button>
           </div>
-          <p data-cue-note aria-live="polite" class="text-body text-ink-muted"></p>
+          <p data-cue-note aria-live="polite" tabindex="-1" class="text-body text-ink-muted"></p>
         </section>
         <details class="mt-3 border-y border-white/10 py-2">
           <summary class="cursor-pointer text-body font-semibold text-ink">Ajustar no fone</summary>

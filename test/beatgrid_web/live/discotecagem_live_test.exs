@@ -88,6 +88,16 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     end
   end
 
+  test "passage score panels adapt to their own width instead of the viewport", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/discotecagem")
+
+    for id <- ["dj-room-score", "dj-rehearsal-score"] do
+      assert has_element?(view, ~s(##{id}[class~="@container"]))
+      assert has_element?(view, ~s(##{id} [data-score-metrics][class~="@md:grid-cols-3"]))
+      refute has_element?(view, ~s(##{id} [data-score-metrics][class~="sm:grid-cols-3"]))
+    end
+  end
+
   test "rehearsing opens a private comparison without binding a live transition", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/discotecagem")
 
