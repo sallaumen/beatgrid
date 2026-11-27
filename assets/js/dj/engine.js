@@ -2262,10 +2262,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // Point the WHOLE context at another output device (e.g. the controller's
     // 4-channel interface) and rewire main/phones for what it offers.
     async setOutputDevice(deviceId) {
-      if (typeof ctx.setSinkId === "function") {
-        await ctx.setSinkId(deviceId)
-        wireOutputs()
-      }
+      await ctx.setSinkId(deviceId)
+      if (!mediaEvents.signal.aborted) wireOutputs()
       return this.cueMode()
     },
 

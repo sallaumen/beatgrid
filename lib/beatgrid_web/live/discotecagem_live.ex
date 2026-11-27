@@ -1712,6 +1712,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
             // Saídas de áudio: "principal" move a mesa inteira (ctx.setSinkId —
             // na controladora de 4 canais o fone passa a sair na 3/4); o "fone
             // avulso" toca o stream do cue em outro dispositivo (só em estéreo).
+            const mainSink = () => {
+              const id = this.engine.ctx.sinkId
+              return id === "default" ? "" : id || ""
+            }
             const fillDevices = (sel, devs, placeholder) => {
               const selected = sel.value
               sel.innerHTML = ""
@@ -1756,7 +1760,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 this.log("nenhuma saída listável — permita o microfone para liberar a lista")
                 return
               }
-              fillDevices(byId("dj-out-device"), devs, "— saída principal —")
+              const main = byId("dj-out-device")
+              fillDevices(main, devs.filter(d => d.deviceId !== "default"), "Padrão do sistema")
+              main.value = mainSink()
+              main.disabled = typeof this.engine.ctx.setSinkId !== "function" || this.movingOutput
+              if (main.disabled && !this.movingOutput && this.cueModeNow !== "quad") {
+                byId("dj-cue-mode").textContent = "Para usar a controladora, escolha a saída principal nos ajustes de som do sistema."
+              }
               fillDevices(byId("dj-cue-device"), devs, "— saída do fone —")
               byId("dj-out-device").classList.remove("hidden")
               byId("dj-out-device-label").classList.remove("hidden")
@@ -1771,9 +1781,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
               )
             })
             byId("dj-out-device").addEventListener("change", async (e) => {
-              if (!e.target.value) return
+              const select = e.currentTarget
+              if (select.disabled) return
+              this.movingOutput = true
+              select.disabled = true
               try {
-                const {mode} = await this.engine.setOutputDevice(e.target.value)
+                const {mode} = await this.engine.setOutputDevice(select.value)
                 this.log(
                   mode === "quad"
                     ? "mesa na nova saída — fone pelos canais 3/4"
@@ -1781,6 +1794,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 )
               } catch (_err) {
                 this.log("não consegui mover a mesa para essa saída")
+              } finally {
+                this.movingOutput = false
+                select.value = mainSink()
+                select.disabled = false
               }
             })
             byId("dj-cue-device").addEventListener("change", (e) => this.routeHeadphones(e.target))
