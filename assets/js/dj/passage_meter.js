@@ -12,11 +12,12 @@ class PassageMeter extends AudioWorkletProcessor {
     this.lastRms = this.lastHigh = 0
     this.previous = [0, 0]
     this.first = null
-    this.port.onmessage = () => { this.canceled = true }
+    this.finished = false
+    this.port.onmessage = () => { this.finished = true }
   }
 
   process([channels]) {
-    if (this.canceled) return false
+    if (this.finished) return false
     const block = channels[0]?.length || 128
     const start = Math.max(0, this.start - currentFrame)
     const end = Math.min(block, this.end - currentFrame)
@@ -42,6 +43,8 @@ class PassageMeter extends AudioWorkletProcessor {
       }
     }
     if (currentFrame + block < this.end) return true
+    // WebKit can request another quantum after false. The transfer detaches frames.
+    this.finished = true
     this.port.postMessage({frames: this.frames.subarray(0, this.used), first: this.first / sampleRate,
       frameSeconds: this.hop / sampleRate}, [this.frames.buffer])
     return false

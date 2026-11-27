@@ -21,3 +21,24 @@ test("the meter windows actual stereo samples on the audio clock and sees opposi
   assert.ok(Math.abs(data.frames[3] - 1.1) < 1e-5 && data.frames[4] > 1 && data.frames[5] > 0)
   assert.equal(data.frames.length, 9)
 })
+
+test("a final render quantum after transfer cannot publish the same recording twice", () => {
+  let Meter
+  const messages = []
+  const scope = {
+    sampleRate: 1000, currentFrame: 0,
+    AudioWorkletProcessor: class {
+      port = {postMessage(message, transfer) { messages.push(structuredClone(message, {transfer})) }}
+    },
+    registerProcessor(_, type) { Meter = type }
+  }
+  vm.runInNewContext(METER_PROCESSOR, scope)
+  const tap = new Meter({processorOptions: {start: 0, end: 0.016}})
+  const input = [[new Float32Array(16).fill(0.25)]]
+  assert.equal(tap.process(input), false)
+  scope.currentFrame = 16
+  assert.equal(tap.process(input), false)
+  assert.equal(tap.process([]), false)
+  assert.equal(messages.length, 1)
+  assert.equal(messages[0].frames[0], 0.25)
+})
