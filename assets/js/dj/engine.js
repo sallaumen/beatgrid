@@ -499,6 +499,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // must never reach a device's main channels by accident.
   const cueStreamDest = ctx.createMediaStreamDestination()
 
+  let deviceFeed
   let outputNodes = []
   let routedChannels = 0
 
@@ -544,7 +545,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       masterSplit.connect(merger, 1, 1)
       cueSplit.connect(merger, 0, 2)
       cueSplit.connect(merger, 1, 3)
-      merger.connect(ctx.destination)
+      deviceFeed = merger
       outputNodes = [merger, masterSplit, cueSplit]
       cue.mode = "quad"
     } else {
@@ -552,12 +553,13 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       ctx.destination.channelCountMode = "explicit"
       ctx.destination.channelCount = Math.min(2, Math.max(maxCh, 1))
       ctx.destination.channelInterpretation = "speakers"
-      master.connect(ctx.destination)
+      deviceFeed = master
       // The routable fallback only exists in stereo mode — in quad the cue
       // rides channels 3/4 and must not double anywhere else.
       cue.bus.connect(cueStreamDest)
       cue.mode = "stereo"
     }
+    if (roomAvailable) deviceFeed.connect(ctx.destination)
     routedChannels = maxCh
     if (roomAvailable && (decks.a.audible() || decks.b.audible())) programMeter?.start()
     emit("cueMode", {mode: cue.mode, maxChannels: maxCh})
@@ -613,6 +615,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   let roomAvailable = true
+  let roomEnd = null // a single unheard boundary, cleared when the DJ takes over
   const programMeter = callbacks.programScore && createProgramMeter(ctx, masterAnalyser)
   let roomReading = null
   function cancelRoomReading() {
@@ -799,13 +802,20 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     else if (state.waitingForNext) handleEnded(decks[state.activeDeck])
   }
 
-  function handleEnded(deck, trackId = deck.trackId) {
+  function handleEnded(deck, trackId = deck.trackId, heldPassage = null) {
     if (state.cancelEntry) return // the receiving play owns this boundary until it settles
+    const saved = passage.current()
+    if (!roomAvailable) {
+      if (saved?.pair.from === deck.id) passage.sourceEnded()
+      roomEnd = {deck, trackId, saved}
+      return
+    }
     // An entry close to EOF can end before the outgoing cut envelope.
     state.rescue?.finishCut?.()
     state.postponeMs = 0
-    if (passage.current()?.pair.from === deck.id) {
-      passage.sourceEnded()
+    if (saved?.pair.from === deck.id) {
+      // The held take already expired in the missing room and stays available for review.
+      if (saved !== heldPassage) passage.sourceEnded()
       boundaryOnce(trackId, () => emit("trackEnded", {trackId}))
       return
     }
@@ -837,8 +847,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     const id = state.activeDeck
     if (!id) return null
     const deck = decks[id]
-    if (deck.audible() || deck.playPending || restartingLoop(deck) || platterWillResume(deck) || state.pendingEntry === id || state.cancelEntry || state.breatherGap || state.waitingForNext ||
-        (deck.el.ended && deck.wantsPlayback && state.autoOn && state.hint)) return id
+    if (deck.audible() || deck.playPending || restartingLoop(deck) || platterWillResume(deck) || state.pendingEntry === id || state.cancelEntry || state.breatherGap || roomEnd || state.waitingForNext ||
+        (deck.el.ended && deck.wantsPlayback && (!roomAvailable || (state.autoOn && state.hint)))) return id
     return audibleDeckId()
   }
 
@@ -853,7 +863,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   function maybeFire(deck) {
     if (passage.current()?.pair.from === deck.id) return passage.check()
     const hint = state.hint
-    if (!state.autoOn || !hint || deck.id !== state.activeDeck) return
+    if (!roomAvailable || !state.autoOn || !hint || deck.id !== state.activeDeck) return
     if (deck.seeking()) return
     // pause() and scrubbing both fire 'timeupdate' — a jog-held (or otherwise
     // silent) deck must never be the source of an automatic transition. Nor may
@@ -1546,7 +1556,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         gap.timer = setTimeout(gap.start, wait)
       },
       start(retry = false) {
-        if (token !== state.transitionToken || state.breatherGap !== gap || state.cancelEntry) return
+        if (!roomAvailable || token !== state.transitionToken || state.breatherGap !== gap || state.cancelEntry) return
         gap.deadline = performance.now()
         clearTimeout(gap.timer)
         if (!hintFireable(state.hint) || (!retry && gap.attemptedLoad === to.loadToken)) return
@@ -1588,6 +1598,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
   function interruptTransition({keepPassage = false, resumeOutgoing = true} = {}) {
     programMeter?.cancel()
+    roomEnd = null
     state.cancelEntry?.(resumeOutgoing)
     if (roomReading?.arrived) cancelRoomReading()
     if (keepPassage) passage.mixChanged()
@@ -1882,6 +1893,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   function placePlatter(deck, seconds) {
     const targetMs = deck.clampPosition(seconds) * 1000
     if (Math.abs(deck.platterTime() * 1000 - targetMs) > 1) {
+      if (roomEnd?.deck === deck) roomEnd = null
       if (state.pendingEntry === deck.id) state.cancelEntry?.()
       passage.mixChanged()
     }
@@ -2209,6 +2221,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // back on air with a neutral chain, the incoming is pulled off, and the
   // server hears transitionCancelled to rewind the set pointer.
   function cancelTransition({keepFader = false} = {}) {
+    if (!roomAvailable) return {ok: false, reason: "room_unavailable"}
     if (state.cancelEntry) {
       const outgoing = decks[state.rescue.deck]
       state.cancelEntry()
@@ -2271,7 +2284,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     state.cancelEntry?.()
     passage.mixChanged()
     const other = decks[otherId(deck.id)]
-    if (state.activeDeck === deck.id && other.audible() && !other.cueState) {
+    if (roomAvailable && state.activeDeck === deck.id && other.audible() && !other.cueState) {
       // Restore the mix to the outgoing deck, respecting a manual fader takeover.
       const keepFader = state.faderVersion !== faderVersion
       if (state.rescue?.deck === other.id && cancelTransition({keepFader}).ok) return
@@ -2299,10 +2312,11 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     decks,
 
     resume() {
-      if (ctx.state === "suspended") ctx.resume()
+      if (roomAvailable && ctx.state === "suspended") ctx.resume()
     },
 
     loadDeck(deckId, track, {autoplay = false, atMs = 0} = {}) {
+      if (autoplay && !roomAvailable) return false
       const deck = decks[deckId]
       if (state.pendingEntry === deckId) state.cancelEntry?.()
       // Only a silent breather frees a deck that still owns a live set boundary.
@@ -2409,13 +2423,33 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     armPassage: passage.arm,
     confirmPassage: passage.confirm,
     setRoomOutputAvailable(available) {
+      if (roomAvailable === available) return
       roomAvailable = available
       if (!available) {
+        // Unplugging can leave a running browser rendering into its default device.
+        deviceFeed.disconnect(ctx.destination)
+        const gap = activeBreatherGap()
+        if (gap && state.cancelEntry) gap.attemptedLoad = null
         state.cancelEntry?.()
         cancelRoomReading()
         programMeter?.stop()
-      } else if (sessionDeck()) programMeter?.start()
+      } else {
+        deviceFeed.connect(ctx.destination)
+        if (sessionDeck()) programMeter?.start()
+      }
       passage.setRoomAvailable(available)
+      if (!available) return
+
+      const ended = roomEnd
+      roomEnd = null
+      const gap = activeBreatherGap(), from = decks[state.activeDeck]
+      if (ended) handleEnded(ended.deck, ended.trackId, ended.saved)
+      else if (state.waitingForNext && from?.ended()) handleEnded(from)
+      else if (gap && gap.deadline <= performance.now()) gap.start()
+      else if (from && state.hint?.transition && from.positionMs() >= firePoint(state.hint.transition, from)) {
+        // The ordinary AUTO window passed unheard. Keep this record until its next boundary.
+        from._seekGuard = true
+      }
     },
     editPassageMix() { passage.mixChanged("draft") },
     disarmPassage() {
@@ -2431,6 +2465,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // crossfader says is on air, into the other deck. Works with AUTO on or
     // off — the server hears the same transition_started either way.
     fireManual(type) {
+      if (!roomAvailable) return {ok: false, reason: "room_unavailable"}
       if (passage.current()) return {ok: false, reason: "passage_reserved"}
       // Double-click guard: two near-simultaneous fires would reverse the
       // transition that just started and double-advance the boundary.
@@ -2487,6 +2522,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // (the keyboard cousin of AUTO's own fire; works with AUTO off too).
     // Durante um respiro, T PULA o resto do silêncio: a próxima entra já.
     fireHint() {
+      if (!roomAvailable) return {ok: false, reason: "room_unavailable"}
       if (passage.current()) return {ok: false, reason: "passage_reserved"}
       const gap = activeBreatherGap()
       if (gap) {
@@ -2522,6 +2558,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         return
       }
       const latchPreview = deck.cueState === "preview"
+      if (!roomAvailable && (latchPreview || (!deck.audible() && !deck.playPending))) return
       deck.cueState = null
       if (!latchPreview && (deck.audible() || deck.playPending)) {
         pauseTransport(deck)
@@ -2760,7 +2797,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       try {
         await ctx.setSinkId(deviceId)
       } catch (error) {
-        const needsResume = () => !mediaEvents.signal.aborted && ctx.state === "suspended" && ctx.sinkId === previous
+        const needsResume = () => roomAvailable && !mediaEvents.signal.aborted && ctx.state === "suspended" && ctx.sinkId === previous
         // A driver can fail after suspending the renderer. Keep output controls
         // available even if resuming the original room needs another gesture.
         if (wasRunning && needsResume()) {
