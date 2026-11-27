@@ -1271,7 +1271,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
       <script :type={Phoenix.LiveView.ColocatedHook} name=".DjConsole">
         import {createEngine} from "@/js/dj/engine.js"
         import {separateOutputs, unlockOutputNames} from "@/js/dj/outputs.js"
-        import {paintDeckStatus} from "@/js/dj/deck_status.js"
+        import {paintDeckStatus, paintLoopRegion} from "@/js/dj/deck_status.js"
         import {hotCues} from "@/js/dj/hot_cues.js"
         import {loadPeaks, drawWave} from "@/js/dj/waveform.js"
 
@@ -1430,31 +1430,18 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 },
                 durationChanged: ({deck}) => {
                   if (this.tracks[deck]) this.renderMarkers(deck, this.tracks[deck])
+                  paintLoopRegion(byId(`dj-loopregion-${deck}`), this.engine.decks[deck])
                 },
                 loopTooLong: ({deck, beats}) => {
                   const length = beats === 1 ? "1 tempo" : `${beats} tempos`
                   this.notice(`O loop de ${length} passa do fim da faixa no deck ${deck.toUpperCase()}.`)
                 },
-                loopState: ({deck, on, startMs, endMs, beats}) => {
+                loopState: ({deck, on, beats}) => {
                   for (const b of [1, 2, 4, 8]) {
                     const chip = byId(`dj-loop-${deck}-${b}`)
                     if (chip) chip.dataset.on = on && beats === b ? "true" : "false"
                   }
-                  const region = byId(`dj-loopregion-${deck}`)
-                  if (region) {
-                    // Mesma fonte de duração do playhead: a mídia real primeiro
-                    // (metadados de VBR mentem), o banco como fallback.
-                    const dur =
-                      (this.engine.decks[deck].el.duration || 0) * 1000 ||
-                      (this.tracks[deck] && this.tracks[deck].duration_ms)
-                    if (on && endMs != null && dur) {
-                      region.style.left = `${(startMs / dur) * 100}%`
-                      region.style.width = `${((endMs - startMs) / dur) * 100}%`
-                      region.style.display = "block"
-                    } else {
-                      region.style.display = "none"
-                    }
-                  }
+                  paintLoopRegion(byId(`dj-loopregion-${deck}`), this.engine.decks[deck])
                   if (on) {
                     this.log(
                       `loop ${beats ? beats + (beats === 1 ? " tempo" : " tempos") : "manual"} no deck ${deck.toUpperCase()}`
