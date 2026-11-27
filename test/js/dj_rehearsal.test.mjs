@@ -33,8 +33,9 @@ test("a fractional BPM fits a full four-beat fallback, but a missing audio frame
   }
 })
 
-test("auditions schedule independent sources only into phones and restore PFL on stop or completion", async () => {
-  const sources = [], splitters = []
+function rehearsalFixture() {
+  const sources = [], splitters = [], routed = []
+  const preparationDelays = []
   const param = () => ({value: 1, setValueAtTime(v) { this.value = v }, linearRampToValueAtTime() {}, cancelScheduledValues() {}})
   const node = () => ({
     connections: [],
@@ -43,12 +44,15 @@ test("auditions schedule independent sources only into phones and restore PFL on
     frequency: param(), gain: param()
   })
   const ctx = {
-    currentTime: 10,
     createBuffer(channels, frames, sampleRate) {
       const samples = Array.from({length: channels}, () => new Float32Array(frames))
       return {length: frames, sampleRate, numberOfChannels: channels, getChannelData: i => samples[i]}
     },
-    createStereoPanner: () => ({...node(), pan: {value: 0}}),
+    currentTime: 10, sampleRate: 48000,
+    createStereoPanner: () => ({...node(), pan: {value: 0}, connect(dest) {
+      this.connections.push({next: dest})
+      routed.push(ctx.currentTime)
+    }}),
     createGain: node, createBiquadFilter: node,
     createChannelSplitter() {
       const splitter = node()
@@ -56,7 +60,10 @@ test("auditions schedule independent sources only into phones and restore PFL on
       return splitter
     },
     createBufferSource() {
-      const source = {...node(), playbackRate: param(), start(...args) { this.args = args }, stop() { this.stopped = true }}
+      const source = {...node(), playbackRate: param(), start(...args) {
+        this.args = args
+        if (args[1] === 9) ctx.currentTime += preparationDelays.shift() ?? 0
+      }, stop(when) { this.stopped = true; this.stopAt = when }}
       sources.push(source)
       return source
     }
@@ -69,6 +76,11 @@ test("auditions schedule independent sources only into phones and restore PFL on
     return {duration, length: left.length, sampleRate: 1000, numberOfChannels: 2, getChannelData: ch => [left, right][ch]}
   }
   const plan = planRehearsal(track(14, 1), track(8, -1), 12, 5, 120)
+  return {preview, plan, ctx, phones, pfl, sources, splitters, routed, preparationDelays}
+}
+
+test("auditions schedule independent sources only into phones and restore PFL on stop or completion", async () => {
+  const {preview, plan, ctx, phones, pfl, sources, splitters} = rehearsalFixture()
   let canceled = 0, stereoTap, clock
   const observe = (tap, times) => {
     stereoTap = tap
@@ -76,14 +88,16 @@ test("auditions schedule independent sources only into phones and restore PFL on
     return () => { canceled++ }
   }
   const interrupted = preview.play(plan, "blend", -1, 0, observe)
-  assert.equal(clock.change, 13)
-  assert.equal(clock.end, 16)
+  assert.ok(clock.start > ctx.currentTime)
+  assert.equal(clock.change, clock.start + 3)
+  assert.equal(clock.end, clock.start + 6)
   assert.equal(stereoTap.connections.length, 0)
   const [a, b] = sources
   assert.equal(a.buffer, plan.outgoing)
   assert.equal(b.buffer, plan.incoming)
-  assert.deepEqual(a.args, [10, 9, 5])
-  assert.deepEqual(b.args, [13, 5, 3])
+  assert.deepEqual(a.args, [clock.start, 9, 5])
+  assert.deepEqual(b.args.slice(0, 2), [clock.change, 5])
+  assert.ok(Math.abs(b.args[2] - 3) < 1 / ctx.sampleRate)
   for (const [index, source] of [a, b].entries()) {
     let fader = source
     while (fader.connections.length === 1) fader = fader.connections[0].next
@@ -149,6 +163,83 @@ test("auditions schedule independent sources only into phones and restore PFL on
   preview.stop()
 })
 
+test("a slow setup retimes both sources before routing or measuring the take", async () => {
+  const {preview, plan, pfl, sources, routed, preparationDelays} = rehearsalFixture()
+  const measurements = []
+  preparationDelays.push(.04, .04)
+  const take = preview.play(plan, "blend", 0, 0, (_tap, times) => { measurements.push(times) })
+  assert.equal(measurements.length, 1)
+  assert.equal(routed.length, 1)
+  const [clock] = measurements
+  assert.ok(clock.start > routed[0])
+  assert.equal(preview.elapsed(), 0)
+  const [staleOut, staleIn, freshOut, freshIn] = sources
+  assert.ok(staleOut.stopped && staleIn.stopped)
+  assert.equal(freshOut.args[0], clock.start)
+  assert.equal(freshIn.args[0], clock.change)
+  assert.equal(freshOut.args[1], 9)
+  assert.equal(freshIn.args[1], 5)
+  preview.stop()
+  assert.equal(await take, false)
+  assert.equal(pfl.gain.value, 1)
+})
+
+test("two missed starts leave no audition or measurement and return private cue control", () => {
+  const {preview, plan, pfl, sources, routed, preparationDelays} = rehearsalFixture()
+  preparationDelays.push(.04, .2)
+  let measured = false
+  assert.throws(() => preview.play(plan, "blend", 0, 0, () => { measured = true }), /scheduled start/)
+  assert.equal(measured, false)
+  assert.equal(routed.length, 0)
+  assert.ok(sources.every(source => source.stopped))
+  assert.equal(preview.elapsed(), null)
+  assert.equal(pfl.gain.value, 1)
+})
+
+test("resuming a private take keeps its record position while the start is queued", () => {
+  const {preview, plan, ctx} = rehearsalFixture()
+  let origin
+  void preview.play(plan, "cut", 0, 2.5, (_tap, times) => { origin = times.start })
+  assert.equal(preview.elapsed(), 2.5)
+  ctx.currentTime = origin + 2.75
+  assert.equal(preview.elapsed(), 2.75)
+  preview.stop()
+})
+
+test("rapid pitch edits keep the playing source until each replacement reaches the same record position", () => {
+  const {preview, plan, ctx, pfl, sources} = rehearsalFixture()
+  let originalStart
+  void preview.play(plan, "blend", 0, 0, (_tap, times) => { originalStart = times.start })
+  ctx.currentTime += .7
+  const revised = rate => ({...plan, mix: {...plan.mix, out: {...plan.mix.out, rate, vinyl: true}}})
+  preview.edit(revised(1.004), "blend", 0)
+  const first = sources[2]
+  assert.ok(first.args[0] > ctx.currentTime)
+  assert.ok(sources[0].stopAt >= first.args[0] + .0059)
+  assert.ok(Math.abs(first.args[1] - recordTime(plan, "out", first.args[0] - originalStart)) < 1e-8)
+  ctx.currentTime += .008
+  preview.edit(revised(.996), "blend", 0)
+  const second = sources[4]
+  assert.ok(second.args[0] > first.args[0])
+  assert.ok(first.stopAt >= second.args[0] + .0059)
+  assert.ok(Math.abs(second.args[1] - first.args[1] - (second.args[0] - first.args[0]) * 1.004) < 1e-8)
+  assert.equal(pfl.gain.value, 0)
+  preview.stop()
+  assert.ok(sources.every(source => source.stopped && source.stopAt === undefined && !source.connections.length))
+  assert.equal(pfl.gain.value, 1)
+})
+
+test("failed replacement preparation restores private cue and frees the take that was still playing", async () => {
+  const {preview, plan, ctx, pfl, sources} = rehearsalFixture()
+  const take = preview.play(plan, "blend", 0)
+  ctx.currentTime += .2
+  ctx.createStereoPanner = () => { throw new Error("cannot allocate a panner") }
+  assert.throws(() => preview.edit({...plan, mix: {...plan.mix, out: {...plan.mix.out, rate: 1.01}}}, "blend", 0), /panner/)
+  assert.equal(pfl.gain.value, 1)
+  assert.equal(preview.elapsed(), null)
+  assert.ok(sources.every(source => source.stopped && !source.connections.length))
+  assert.equal(await take, false)
+})
 
 test("source cues, wave positions and the four-beat blend account for both effective tempos", () => {
   const plan = planRehearsal({duration: 60}, {duration: 10}, 45, 8.75, 100,
