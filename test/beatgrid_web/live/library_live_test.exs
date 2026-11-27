@@ -105,6 +105,118 @@ defmodule BeatgridWeb.LibraryLiveTest do
     refute html =~ ~s(<a href="/track/#{track.id}" class="contents">)
   end
 
+  test "an exact imported track URL finds only the identified copy and retains the library return path",
+       %{conn: conn} do
+    first =
+      insert(:track,
+        status: :present,
+        tag_artist: "Djavan",
+        tag_title: "Sina",
+        rel_path: "MPB/Sina.mp3",
+        filename: "Sina.mp3"
+      )
+
+    chosen =
+      insert(:track,
+        status: :present,
+        tag_artist: "Djavan",
+        tag_title: "Sina",
+        rel_path: "_Inbox/Sina.mp3",
+        filename: "Sina.mp3"
+      )
+
+    library = ~p"/?#{%{search: chosen.id}}"
+    {:ok, view, html} = live(conn, library)
+
+    assert html =~ "1 faixa"
+    assert has_element?(view, "#library-track-#{chosen.id}", "_Inbox/Sina.mp3")
+    refute has_element?(view, "#library-track-#{first.id}")
+    assert has_element?(view, "#library-search input[value='#{chosen.id}']")
+
+    assert has_element?(
+             view,
+             "a[href='#{~p"/track/#{chosen.id}?#{%{library: library}}"}']",
+             "Sina"
+           )
+  end
+
+  test "filter and sort changes travel in the URL and restore the same result on reentry", %{
+    conn: conn
+  } do
+    first =
+      insert(:track,
+        status: :present,
+        genre_folder: "mpb",
+        tag_title: "Sina",
+        tag_artist: "Djavan",
+        bpm_manual: 90
+      )
+
+    chosen =
+      insert(:track,
+        status: :present,
+        genre_folder: "mpb",
+        tag_title: "Flor de Lis",
+        tag_artist: "Djavan",
+        bpm_manual: 100
+      )
+
+    insert(:track,
+      status: :present,
+      genre_folder: "forro_roots",
+      tag_title: "Asa Branca",
+      tag_artist: "Gonzaga"
+    )
+
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    view |> form("#library-search", %{search: "Djavan"}) |> render_change()
+    assert_patch(view, ~p"/?#{%{search: "Djavan"}}")
+    view |> element("button[phx-value-key='mpb']") |> render_click()
+    assert_patch(view, ~p"/?#{%{genre_folder: "mpb", search: "Djavan"}}")
+    view |> element("button[phx-click=sort][phx-value-by=bpm]", "BPM") |> render_click()
+    _ascending = assert_patch(view)
+    view |> element("button[phx-click=sort][phx-value-by=bpm]", "BPM") |> render_click()
+    path = assert_patch(view)
+
+    assert URI.decode_query(URI.parse(path).query) == %{
+             "genre_folder" => "mpb",
+             "search" => "Djavan",
+             "sort" => "bpm",
+             "dir" => "desc"
+           }
+
+    {:ok, reentered, html} = live(conn, path)
+    assert before?(html, ~s(id="library-track-#{chosen.id}"), ~s(id="library-track-#{first.id}"))
+    assert has_element?(reentered, "#library-search input[value=Djavan]")
+    assert has_element?(reentered, "#library-remove-genre_folder")
+    assert has_element?(reentered, "a[href='#{~p"/track/#{chosen.id}?#{%{library: path}}"}']")
+    refute html =~ "Asa Branca"
+  end
+
+  test "matching titles display their distinct files in search results", %{conn: conn} do
+    first = insert(:track, tag_artist: "Djavan", tag_title: "Sina", rel_path: "MPB/Sina.mp3")
+    second = insert(:track, tag_artist: "Djavan", tag_title: "Sina", rel_path: "_Inbox/Sina.mp3")
+    {:ok, view, _html} = live(conn, ~p"/?#{%{search: "Sina"}}")
+    assert has_element?(view, "#library-track-#{first.id}", "MPB/Sina.mp3")
+    assert has_element?(view, "#library-track-#{second.id}", "_Inbox/Sina.mp3")
+  end
+
+  test "malformed URL filters are ignored rather than crashing or escaping the library", %{
+    conn: conn
+  } do
+    insert(:track, tag_title: "Sobrevive")
+
+    {:ok, view, _html} =
+      live(
+        conn,
+        ~p"/?#{%{confidence: "not_an_atom", camelot: "0Z", dir: "bad", sort: "bad", rating_min: "invalid", gold: "false"}}"
+      )
+
+    assert render(view) =~ "Sobrevive"
+    refute has_element?(view, "#library-active-filters")
+  end
+
   test "shows the empty state when filters match nothing", %{conn: conn} do
     insert(:track,
       status: :present,
@@ -622,35 +734,62 @@ defmodule BeatgridWeb.LibraryLiveTest do
     refute html =~ "Comum"
   end
 
-  test "paginates at 100, appends on load_more, and Marcar todas spans all pages", %{conn: conn} do
-    for i <- 1..101 do
-      n = String.pad_leading(Integer.to_string(i), 3, "0")
+  test "paged selection spans every result, survives sorting and excludes tracks outside a changed filter",
+       %{conn: conn} do
+    tracks =
+      for i <- 1..101 do
+        n = String.pad_leading(Integer.to_string(i), 3, "0")
 
-      insert(:track,
-        status: :present,
-        tag_artist: "A#{n}",
-        tag_title: "T#{n}",
-        norm_artist: "a#{n}",
-        norm_title: "t#{n}"
-      )
-    end
+        insert(:track,
+          status: :present,
+          tag_artist: "A#{n}",
+          tag_title: "T#{n}",
+          norm_artist: "a#{n}",
+          norm_title: "t#{n}"
+        )
+      end
 
     {:ok, view, html} = live(conn, ~p"/")
-    # Header counts ALL matching, not just the loaded page.
+    first = List.first(tracks)
+    last = List.last(tracks)
     assert html =~ "101 faixas"
-    # Page 1 = first 100 by artist; the 101st only arrives on scroll.
-    assert html =~ "A001"
-    refute html =~ "A101"
+    assert has_element?(view, "#library-track-#{first.id}")
+    refute has_element?(view, "#library-track-#{last.id}")
     assert html =~ "Carregar mais faixas"
 
-    html_2 = render_hook(view, "load_more", %{})
-    assert html_2 =~ "A101"
-    refute html_2 =~ "Carregar mais faixas"
-
-    # "Marcar todas" selects every matching id (across pages), not just loaded rows.
+    # Selecting all includes the not-yet-loaded page.
     view |> element("button[phx-click=toggle_select_mode]") |> render_click()
-    html_3 = view |> element("button[phx-click=select_all]") |> render_click()
-    assert html_3 =~ "101 selecionadas"
+    html = view |> element("button[phx-click=select_all]") |> render_click()
+    assert html =~ "101 selecionadas"
+
+    html = render_hook(view, "load_more", %{})
+
+    assert has_element?(
+             view,
+             "#library-track-#{last.id} button[phx-click=toggle_select][aria-pressed=true]"
+           )
+
+    refute html =~ "Carregar mais faixas"
+
+    # Sorting reloads page 1 in the inverse order without losing off-page selections.
+    view |> element("button[phx-click=sort][phx-value-by=artist]", "Faixa") |> render_click()
+    assert render(view) =~ "101 selecionadas"
+    refute has_element?(view, "#library-track-#{first.id}")
+
+    # The new exact result contains the initially off-page selection only.
+    html = view |> form("#library-search", %{search: first.id}) |> render_change()
+    assert html =~ "1 selecionada"
+    assert html =~ "100 faixas saíram da seleção"
+
+    assert has_element?(
+             view,
+             "#library-track-#{first.id} button[phx-click=toggle_select][aria-pressed=true]"
+           )
+
+    refute has_element?(view, "#library-track-#{last.id}")
+    # A stale event from an earlier result cannot add a hidden track again.
+    render_click(view, "toggle_select", %{"id" => last.id})
+    assert render(view) =~ "1 selecionada"
   end
 
   test "a hostile sort column is ignored, never crashes the view", %{conn: conn} do
