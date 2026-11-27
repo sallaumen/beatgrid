@@ -1072,7 +1072,9 @@ defmodule BeatgridWeb.RecSetLive do
                       {role_label(e.role)}
                     </span>
                     <.camelot_seal value={camelot(e.track)} />
-                    <span class="shrink-0 font-mono text-body text-primary"><span class="sr-only">BPM </span>{bpm(e.track)}</span>
+                    <span class="shrink-0 font-mono text-body text-primary"><span class="sr-only">BPM </span>{bpm(
+                      e.track
+                    )}</span>
                     <div class="ml-auto flex shrink-0 items-center gap-1 text-body [&>button]:inline-grid [&>button]:min-h-7 [&>button]:min-w-7 [&>button]:place-items-center">
                       <button
                         phx-click="move"
