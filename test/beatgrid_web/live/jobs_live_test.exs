@@ -25,6 +25,100 @@ defmodule BeatgridWeb.JobsLiveTest do
     assert_patch(view, ~p"/jobs?state=failed")
   end
 
+  test "the active filter finds pending work hidden behind recent completed jobs", %{conn: conn} do
+    active =
+      for state <- ~w(available scheduled executing retryable suspended) do
+        insert_job(%{"url" => "https://y/#{state}"}, state)
+      end
+
+    for index <- 1..100 do
+      insert_job(%{"url" => "https://y/completed-#{index}"}, "completed")
+    end
+
+    discarded = insert_job(%{"url" => "https://y/discarded"}, "discarded")
+    cancelled = insert_job(%{"url" => "https://y/cancelled"}, "cancelled")
+
+    {:ok, view, _} = live(conn, ~p"/jobs?worker=DownloadWorker")
+
+    for job <- active, do: refute(has_element?(view, "#job-#{job.id}"))
+    view |> element("#job-state-groups a", "Em andamento") |> render_click()
+    assert_patch(view, ~p"/jobs?state=active&worker=DownloadWorker")
+
+    for job <- active, do: assert(has_element?(view, "#job-#{job.id}"))
+    refute has_element?(view, "#job-#{discarded.id}")
+    refute has_element?(view, "#job-#{cancelled.id}")
+    refute has_element?(view, "#jobs-list li", "Concluída")
+    assert has_element?(view, "#job-state-groups a[aria-current='true']", "Em andamento")
+
+    view |> element("#job-state-phases a", "Executando") |> render_click()
+    assert_patch(view, ~p"/jobs?state=executing&worker=DownloadWorker")
+    [queued, _, executing, _, paused] = active
+    assert has_element?(view, "#job-#{executing.id}")
+    refute has_element?(view, "#job-#{queued.id}")
+    assert has_element?(view, "#job-state-phases a[aria-current='true']", "Executando")
+
+    view |> element("#job-state-groups a", "Em andamento") |> render_click()
+    assert_patch(view, ~p"/jobs?state=active&worker=DownloadWorker")
+    assert has_element?(view, "#job-#{queued.id}")
+    assert has_element?(view, "#job-#{paused.id}", "Pausada")
+  end
+
+  test "the active filter updates when a job completes", %{conn: conn} do
+    job = insert_job(%{"url" => "https://y/finishes"}, "executing")
+    {:ok, view, _} = live(conn, ~p"/jobs?state=active")
+    assert has_element?(view, "#job-#{job.id}", "Executando")
+
+    job |> Ecto.Changeset.change(state: "completed") |> Beatgrid.Repo.update!()
+    send(view.pid, :refresh)
+
+    refute has_element?(view, "#job-#{job.id}")
+    assert has_element?(view, "main", "Nenhuma tarefa em andamento neste filtro.")
+    assert has_element?(view, "#job-state-groups a[aria-current='true']", "Em andamento")
+  end
+
+  test "failed and exact discarded filters keep their distinct scope and destination", %{
+    conn: conn
+  } do
+    discarded = insert_job(%{"url" => "https://y/discarded"}, "discarded")
+    cancelled = insert_job(%{"url" => "https://y/cancelled"}, "cancelled")
+    {:ok, view, _} = live(conn, ~p"/jobs?state=failed&worker=DownloadWorker")
+
+    assert has_element?(view, "#jobs-context-link[href='/importados']", "Importações")
+    assert has_element?(view, "#job-#{discarded.id}")
+    assert has_element?(view, "#job-#{cancelled.id}")
+    assert has_element?(view, "button[phx-click=retry_all_failed][data-confirm*=canceladas]")
+
+    view |> element("#job-state-phases a", "Descartada") |> render_click()
+    assert_patch(view, ~p"/jobs?state=discarded&worker=DownloadWorker")
+    assert has_element?(view, "#job-#{discarded.id}")
+    refute has_element?(view, "#job-#{cancelled.id}")
+    refute has_element?(view, "button[phx-click=retry_all_failed]")
+
+    view |> form("#task-type", worker: "AnalyzeWorker") |> render_change()
+    assert_patch(view, ~p"/jobs?state=discarded&worker=AnalyzeWorker")
+    assert has_element?(view, "#jobs-context-link[href='/manutencao']", "Manutenção")
+  end
+
+  test "retry provides feedback after leaving failures, while cancel warns it does not undo work",
+       %{
+         conn: conn
+       } do
+    job = insert_job(%{"url" => "https://y/retry-from-failed"}, "discarded")
+    {:ok, view, _} = live(conn, ~p"/jobs?state=failed&worker=DownloadWorker")
+
+    view |> element("#job-#{job.id} button[phx-click=retry]") |> render_click()
+    refute has_element?(view, "#job-#{job.id}")
+    assert render(view) =~ "Acompanhe em andamento"
+
+    view |> element("#job-state-groups a", "Em andamento") |> render_click()
+    assert_patch(view, ~p"/jobs?state=active&worker=DownloadWorker")
+    assert has_element?(view, "#job-#{job.id} button[phx-click=cancel][data-confirm*=desfaz]")
+
+    view |> element("#job-#{job.id} button[phx-click=cancel]") |> render_click()
+    refute has_element?(view, "#job-#{job.id}")
+    assert Beatgrid.Repo.get(Oban.Job, job.id).state == "cancelled"
+  end
+
   test "lists jobs with state and args, and a retry button for failed ones", %{conn: conn} do
     insert_job(%{"url" => "https://y/bad"}, "discarded")
 
