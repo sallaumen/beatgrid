@@ -1002,3 +1002,24 @@ test("a manual LOAD distinguishes a silent gap from a session waiting for its ne
   assert.deepEqual(ends, [{trackId: "one"}])
   assert.equal(engine.snapshot().a.trackId, "three")
 })
+
+for (const method of ["LOAD", "set preload"]) {
+  test(`replacing the outgoing record via ${method} turns off its echo light immediately`, t => {
+    const lights = []
+    const {engine, a, b, hint, tick} = booth(t, {echoState: ({on}) => lights.push(on)})
+    hint(null)
+    assert.equal(engine.fireManual("echo").ok, true)
+    engine.playPause("a")
+    assert.deepEqual(lights, [true])
+    if (method === "LOAD") {
+      assert.equal(engine.loadDeck("a", {id: "three", src: "three"}), true)
+    } else {
+      assert.equal(hint(null, "three"), "a")
+    }
+    assert.deepEqual(lights, [true, false])
+    tick(12_000)
+    assert.deepEqual(lights, [true, false])
+    assert.equal(a.paused, true)
+    assert.equal(b.paused, false)
+  })
+}
