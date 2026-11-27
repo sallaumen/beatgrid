@@ -9,6 +9,7 @@ defmodule BeatgridWeb.ImportsLiveLocalTest do
 
   alias Beatgrid.Audio.Metadata
   alias Beatgrid.Library
+  alias Beatgrid.Library.Tracks
   alias Beatgrid.Workers.ImportWorker
 
   setup :set_mox_global
@@ -181,6 +182,81 @@ defmodule BeatgridWeb.ImportsLiveLocalTest do
     assert html =~ "parecida já existe"
     # it is NOT the hard exact-skip tag — the row stays importable
     refute html =~ "duplicada — será pulada"
+  end
+
+  @tag :tmp_dir
+  test "the local preview links an exact duplicate, not a different recording with the same title",
+       %{
+         conn: conn,
+         tmp_dir: root
+       } do
+    file = Path.join(root, "Djavan - Sina.mp3")
+    File.write!(file, "same-bytes")
+    hash = :crypto.hash(:sha256, "same-bytes") |> Base.encode16(case: :lower)
+
+    exact = insert(:track, content_sha256: hash, tag_title: "Renomeada")
+    other = insert(:track, content_sha256: "other-hash", tag_artist: "Djavan", tag_title: "Sina")
+
+    stub(Beatgrid.Audio.Mock, :read_metadata, fn _path ->
+      {:ok, %Metadata{title: "Sina", artist: "Djavan", duration_ms: 211_000}}
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/importados?origem=local")
+    view |> form("#import-source", %{source: file}) |> render_submit()
+    render_async(view)
+
+    assert has_element?(view, "#import-run a[href='/track/#{exact.id}']", "Abrir faixa")
+    refute has_element?(view, "#import-run a[href='/track/#{other.id}']")
+    refute_enqueued(worker: ImportWorker)
+
+    insert(:track, content_sha256: hash, tag_title: "Outra cópia")
+    view |> form("#import-source", %{source: file}) |> render_submit()
+    render_async(view)
+    assert has_element?(view, "#import-run", "Mais de uma faixa com este conteúdo")
+    refute has_element?(view, "#import-run a[href='/track/#{exact.id}']")
+  end
+
+  @tag :tmp_dir
+  test "local completion links reviewed hashes and reports a concurrent duplicate honestly", %{
+    conn: conn,
+    tmp_dir: root
+  } do
+    src = Path.join(root, "src")
+    File.mkdir_p!(src)
+    File.write!(Path.join(src, "new.mp3"), "new-recording")
+    File.write!(Path.join(src, "other.mp3"), "other-recording")
+    hash = :crypto.hash(:sha256, "other-recording") |> Base.encode16(case: :lower)
+
+    stub(Beatgrid.Audio.Mock, :read_metadata, fn _path ->
+      {:ok, %Metadata{title: "Sina", artist: "Djavan", duration_ms: 211_000}}
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/importados?origem=local")
+    view |> form("#import-source", %{source: src}) |> render_submit()
+    render_async(view)
+    view |> form("#import-run") |> render_submit()
+    assert [job] = all_enqueued(worker: ImportWorker)
+
+    existing = insert(:track, content_sha256: hash, tag_title: "Outra versão renomeada")
+    wrong = insert(:track, content_sha256: "different", tag_artist: "Djavan", tag_title: "Sina")
+
+    assert %{imported: 1, skipped: 1} =
+             Library.import_files(job.args["items"], job.args["batch_id"])
+
+    [new] =
+      Tracks.list_by(status: :present)
+      |> Enum.filter(&(&1.source_playlist == "import"))
+
+    assert has_element?(view, "#local-import-activity", "1 faixa(s) importada(s), 1 duplicada(s)")
+    assert has_element?(view, "#local-import-receipt a[href='/track/#{new.id}']", "Abrir faixa")
+
+    assert has_element?(
+             view,
+             "#local-import-receipt a[href='/track/#{existing.id}']",
+             "Abrir faixa"
+           )
+
+    refute has_element?(view, "#local-import-receipt a[href='/track/#{wrong.id}']")
   end
 
   test "a running import-progress event shows a live progress bar", %{conn: conn} do

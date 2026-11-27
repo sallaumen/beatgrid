@@ -3,7 +3,7 @@ defmodule BeatgridWeb.LocalImportComponent do
   use BeatgridWeb, :live_component
 
   alias Beatgrid.Library
-  alias Beatgrid.Library.SourceBrowser
+  alias Beatgrid.Library.{SourceBrowser, Tracks}
   alias Beatgrid.Workers.ImportWorker
 
   @impl true
@@ -12,6 +12,7 @@ defmodule BeatgridWeb.LocalImportComponent do
      assign(socket,
        local_import: %{source: "", loading: false},
        local_progress: %{},
+       local_batches: %{},
        local_result: nil
      )}
   end
@@ -161,6 +162,7 @@ defmodule BeatgridWeb.LocalImportComponent do
           &Map.merge(&1, %{source: "", rows: nil, error: nil, ai: false, soundcharts: false})
         )
         |> assign(local_result: nil)
+        |> update(:local_batches, &Map.put(&1, batch_id, items))
         |> track_local_progress(progress)
 
       {:error, _reason} ->
@@ -173,15 +175,31 @@ defmodule BeatgridWeb.LocalImportComponent do
   end
 
   defp track_local_progress(socket, %{status: :done} = progress) do
+    {items, batches} = Map.pop(socket.assigns.local_batches, progress.batch_id)
+    receipt = local_receipt(items)
+
     socket
     |> update(:local_progress, &Map.delete(&1, progress.batch_id))
-    |> assign(local_result: progress)
+    |> assign(local_batches: batches, local_result: Map.put(progress, :receipt, receipt))
   end
 
   defp track_local_progress(socket, nil), do: socket
 
   defp track_local_progress(socket, progress),
     do: update(socket, :local_progress, &Map.put(&1, progress.batch_id, progress))
+
+  # The worker's counts describe outcomes, not track IDs. The receipt separately
+  # identifies present files by exact reviewed content, including a concurrent skip.
+  defp local_receipt(nil), do: nil
+
+  defp local_receipt(items) do
+    hashes = for %{"sha256" => sha} <- items, is_binary(sha), do: sha
+    matches = Tracks.present_track_ids_by_hashes(hashes)
+
+    for item <- items do
+      %{filename: Path.basename(item["source_path"]), ids: Map.get(matches, item["sha256"], [])}
+    end
+  end
 
   # Only reviewed, non-duplicate paths can reach the copying worker.
   defp items_from_params(%{"items" => edits}, rows) when is_map(edits) do
@@ -215,13 +233,19 @@ defmodule BeatgridWeb.LocalImportComponent do
   def handle_async(:local_preview, result, socket) do
     outcome =
       case result do
-        {:ok, {:ok, rows}} -> %{rows: rows}
+        {:ok, {:ok, rows}} -> %{rows: attach_duplicate_matches(rows)}
         {:ok, {:error, :not_found}} -> %{error: "Caminho não encontrado ou não é áudio."}
         _ -> %{error: "Falha ao pré-visualizar. Tente novamente."}
       end
 
     {:noreply,
      update(socket, :local_import, &(&1 |> Map.merge(outcome) |> Map.put(:loading, false)))}
+  end
+
+  defp attach_duplicate_matches(rows) do
+    hashes = for row <- rows, row.duplicate, is_binary(row.sha256), do: row.sha256
+    matches = Tracks.present_track_ids_by_hashes(hashes)
+    Enum.map(rows, &Map.put(&1, :library_ids, Map.get(matches, &1.sha256, [])))
   end
 
   attr :import, :map, required: true
@@ -330,7 +354,7 @@ defmodule BeatgridWeb.LocalImportComponent do
       <div :if={@result} class="flex flex-wrap items-center gap-3 border-b border-white/8 py-2">
         <p role="status" class="grow text-body-sm text-ink">{import_summary(@result)}</p>
         <.link
-          :if={@result.imported > 0}
+          :if={library_fallback?(@result)}
           navigate={~p"/"}
           class="text-body-sm text-primary-soft underline"
         >
@@ -345,7 +369,45 @@ defmodule BeatgridWeb.LocalImportComponent do
           Fechar aviso
         </button>
       </div>
+      <div :if={@result && @result[:receipt]} id="local-import-receipt" class="mt-3">
+        <h3 class="text-body font-semibold text-ink-secondary">
+          Faixas do lote — correspondência por conteúdo
+        </h3>
+        <ul class="mt-1 max-h-64 overflow-y-auto divide-y divide-white/6">
+          <li
+            :for={row <- @result.receipt}
+            class="flex flex-wrap items-center justify-between gap-2 py-1.5 text-body-sm"
+          >
+            <span class="min-w-0 [overflow-wrap:anywhere]">{row.filename}</span>
+            <.local_library_match ids={row.ids} filename={row.filename} />
+          </li>
+        </ul>
+      </div>
     </section>
+    """
+  end
+
+  defp library_fallback?(%{imported: imported, receipt: receipt}) do
+    imported > 0 and (is_nil(receipt) or Enum.any?(receipt, &(length(&1.ids) != 1)))
+  end
+
+  attr :ids, :list, required: true
+  attr :filename, :string, required: true
+
+  defp local_library_match(assigns) do
+    ~H"""
+    <%= case @ids do %>
+      <% [id] -> %>
+        <.link
+          navigate={~p"/track/#{id}"}
+          aria-label={"Abrir faixa #{@filename}"}
+          class="inline-flex min-h-7 items-center text-body-sm text-primary-soft underline"
+        >Abrir faixa</.link>
+      <% [] -> %>
+        <span class="text-caption text-ink-muted">Faixa não localizada</span>
+      <% _ -> %>
+        <span class="text-caption text-ink-muted">Mais de uma faixa com este conteúdo</span>
+    <% end %>
     """
   end
 
@@ -354,6 +416,9 @@ defmodule BeatgridWeb.LocalImportComponent do
 
     "#{result.imported} importada(s), #{result.skipped} duplicada(s), #{failed} com falha (#{files}). Confira os arquivos e tente novamente."
   end
+
+  defp import_summary(%{imported: n, skipped: skipped}) when skipped > 0,
+    do: "#{n} faixa(s) importada(s), #{skipped} duplicada(s)."
 
   defp import_summary(%{imported: n}) when n > 0, do: "#{n} faixa(s) importada(s)."
   defp import_summary(_result), do: "Nada novo para importar."
@@ -493,6 +558,7 @@ defmodule BeatgridWeb.LocalImportComponent do
             >
               duplicada — será pulada
             </span>
+            <.local_library_match :if={row.duplicate} ids={row.library_ids} filename={row.filename} />
             <span
               :if={row.near_dup}
               class="inline-block rounded bg-amber/15 px-1.5 py-px text-[10px] font-semibold text-amber"
