@@ -201,6 +201,13 @@ defmodule BeatgridWeb.RecSetLive do
   # --- set lifecycle ---
 
   @impl true
+  def handle_event("open_set", %{"set_id" => id}, socket) do
+    case Enum.find(socket.assigns.sets, &(&1.id == id)) do
+      nil -> {:noreply, socket}
+      set -> {:noreply, push_patch(socket, to: ~p"/set/#{set.id}")}
+    end
+  end
+
   def handle_event("new_set", _params, socket) do
     {:ok, set} = Sets.create("Novo set")
 
@@ -720,7 +727,7 @@ defmodule BeatgridWeb.RecSetLive do
   def render(assigns) do
     ~H"""
     <.app_shell flash={@flash} active={:sets} socket={@socket}>
-      <h1 class="border-b border-white/6 bg-rail px-4 py-2 text-[18px] font-semibold">
+      <h1 class="border-b border-white/6 bg-rail px-4 py-2 text-title font-semibold">
         Montagem de sets
       </h1>
       <div class="flex min-w-0 flex-col lg:h-[calc(100dvh_-_8rem)] lg:flex-row">
@@ -729,7 +736,21 @@ defmodule BeatgridWeb.RecSetLive do
           class="flex w-full shrink-0 flex-col border-b border-white/6 bg-rail lg:w-48 lg:border-r lg:border-b-0 xl:w-56"
         >
           <div class="flex items-center justify-between px-4 py-3">
-            <h2 class="text-body-lg font-semibold">Meus sets</h2>
+            <h2 class="hidden text-body-lg font-semibold lg:block">Meus sets</h2>
+            <form id="compact-set-picker" phx-change="open_set" class="min-w-0 flex-1 pr-3 lg:hidden">
+              <label for="compact-set-id" class="block text-caption text-ink-muted">Meus sets</label>
+              <select
+                id="compact-set-id"
+                name="set_id"
+                disabled={@sets == []}
+                class="h-9 w-full min-w-0 rounded-md border border-white/10 bg-input px-2 text-body text-ink"
+              >
+                <option :if={@sets == []} value="">Nenhum set</option>
+                <option :for={s <- @sets} value={s.id} selected={@set && @set.id == s.id}>
+                  {s.name}
+                </option>
+              </select>
+            </form>
             <div class="flex items-center gap-1.5">
               <button
                 phx-click="new_set"
@@ -741,13 +762,13 @@ defmodule BeatgridWeb.RecSetLive do
                 phx-click="toggle_sets"
                 title="Recolher lista de sets"
                 aria-label="Recolher lista de sets"
-                class="rounded-md p-1 text-ink-faint hover:bg-white/5 hover:text-ink"
+                class="hidden rounded-md p-1 text-ink-faint hover:bg-white/5 hover:text-ink lg:inline-flex"
               >
                 <span class="hero-chevron-double-left size-4" />
               </button>
             </div>
           </div>
-          <div class="max-h-40 min-h-0 flex-1 overflow-y-auto px-2 pb-3 lg:max-h-none">
+          <div class="hidden min-h-0 flex-1 overflow-y-auto px-2 pb-3 lg:block">
             <.link
               :for={s <- @sets}
               patch={set_path(s)}
@@ -762,7 +783,7 @@ defmodule BeatgridWeb.RecSetLive do
               <span
                 :if={@set_health[s.id]}
                 class="shrink-0 rounded bg-amber/15 px-1 text-[10px] font-bold text-amber"
-                title={"#{@set_health[s.id]} faixa(s) fora da biblioteca — abra o set para trocar, ou rode o ✈ Checar na Discotecagem"}
+                title={"#{@set_health[s.id]} faixa(s) fora da biblioteca — abra o set para trocar, ou use Conferir na Discotecagem"}
               >
                 ⚠ {@set_health[s.id]}
               </span>
@@ -770,10 +791,12 @@ defmodule BeatgridWeb.RecSetLive do
             <p :if={@sets == []} class="px-2.5 py-2 text-body-sm text-ink-faint">Nenhum set ainda.</p>
           </div>
           <button
+            id="open-set-criteria"
+            aria-haspopup="dialog"
             phx-click="show_criteria"
-            class="m-2 rounded-md border border-white/8 px-2.5 py-1.5 text-[12px] text-ink-muted hover:text-ink"
+            class="mx-4 mb-2 self-start text-body-sm text-ink-muted underline decoration-white/20 underline-offset-2 hover:text-ink lg:my-3"
           >
-            ⓘ Critérios de montagem
+            Critérios de montagem
           </button>
         </aside>
 
@@ -802,17 +825,19 @@ defmodule BeatgridWeb.RecSetLive do
                 id="set-name"
                 phx-change="rename"
                 phx-submit="rename"
-                class="min-w-0 grow basis-56"
+                class="w-full min-w-0"
               >
                 <input type="hidden" name="set_id" value={@set.id} />
+                <label for="set-title-input" class="block text-caption text-ink-muted">Nome do set</label>
                 <input
+                  id="set-title-input"
                   name="name"
                   value={@name_input || @set.name}
                   phx-debounce="500"
                   aria-label="Nome do set"
                   aria-invalid={@name_error && "true"}
                   aria-describedby={@name_error && "set-name-error"}
-                  class="w-full bg-transparent text-[22px] font-semibold"
+                  class="w-full rounded-sm bg-transparent text-title font-semibold text-ink"
                 />
                 <p
                   :if={@name_error}
@@ -847,47 +872,54 @@ defmodule BeatgridWeb.RecSetLive do
                 >
                   Tocar set
                 </button>
-                <button
-                  :if={length(@entries) > 1}
-                  phx-click="remix"
-                  disabled={MapSet.member?(@planning_sets, @set.id)}
-                  class="rounded-md border border-primary/40 bg-primary/10 px-3 py-1.5 text-body-sm font-semibold text-primary hover:bg-primary/20 disabled:opacity-40"
-                  title="Reorganiza as faixas atuais no arco de energia (ouro nos picos) e reconecta"
-                >
-                  Remixar
-                </button>
-                <button
-                  :if={length(@entries) > 1}
-                  phx-click="connect_all"
-                  class="rounded-md border border-primary/40 bg-primary/10 px-3 py-1.5 text-body-sm font-semibold text-primary hover:bg-primary/20"
-                  title="Conectar todas as faixas com transições sugeridas (BPM/marcadores)"
-                >
-                  Conectar todas
-                </button>
-                <button
-                  phx-click="export"
-                  disabled={@entries == []}
-                  class="rounded-md bg-primary-deep px-3 py-1.5 text-body-sm font-semibold text-white disabled:opacity-40"
-                >
-                  Exportar M3U
-                </button>
-                <button
-                  phx-click="duplicate_set"
-                  phx-value-id={@set.id}
-                  class="rounded-md px-2 py-1.5 text-body-sm text-ink-muted hover:text-primary"
-                  title="Cria uma cópia deste set — faça backup antes de editar"
-                >
-                  Duplicar
-                </button>
-                <button
-                  phx-click="delete_set"
-                  phx-value-id={@set.id}
-                  data-confirm="Excluir este set?"
-                  class="rounded-md px-2 py-1.5 text-body-sm text-ink-muted hover:text-coral"
-                >
-                  Excluir
-                </button>
               </div>
+              <details id={"set-tools-#{@set.id}"} class="basis-full border-b border-white/8 pb-2">
+                <summary class="w-fit cursor-pointer rounded-sm py-1 text-body-sm font-medium text-ink-secondary">
+                  Ferramentas do set
+                </summary>
+                <div class="mt-1 flex flex-wrap items-center gap-2">
+                  <button
+                    :if={length(@entries) > 1}
+                    phx-click="remix"
+                    disabled={MapSet.member?(@planning_sets, @set.id)}
+                    class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm font-semibold text-ink-secondary hover:text-ink disabled:opacity-40"
+                    title="Reorganiza as faixas atuais no arco de energia (ouro nos picos) e reconecta"
+                  >
+                    Remixar
+                  </button>
+                  <button
+                    :if={length(@entries) > 1}
+                    phx-click="connect_all"
+                    class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm font-semibold text-ink-secondary hover:text-ink"
+                    title="Conectar todas as faixas com transições sugeridas (BPM/marcadores)"
+                  >
+                    Conectar todas
+                  </button>
+                  <button
+                    phx-click="export"
+                    disabled={@entries == []}
+                    class="rounded-md border border-white/10 px-3 py-1.5 text-body-sm font-semibold text-ink-secondary disabled:opacity-40"
+                  >
+                    Exportar M3U
+                  </button>
+                  <button
+                    phx-click="duplicate_set"
+                    phx-value-id={@set.id}
+                    class="rounded-md px-2 py-1.5 text-body-sm text-ink-muted hover:text-primary"
+                    title="Criar uma cópia com as faixas deste set"
+                  >
+                    Duplicar
+                  </button>
+                  <button
+                    phx-click="delete_set"
+                    phx-value-id={@set.id}
+                    data-confirm="Excluir este set?"
+                    class="rounded-md px-2 py-1.5 text-body-sm text-ink-muted hover:text-coral"
+                  >
+                    Excluir
+                  </button>
+                </div>
+              </details>
             </header>
 
             <div class="mt-2 flex flex-wrap items-center gap-3">
@@ -910,7 +942,7 @@ defmodule BeatgridWeb.RecSetLive do
                   </select>
                 </label>
               </form>
-              <span class="text-caption text-ink-faint">
+              <span class="font-mono text-caption text-ink-muted">
                 {length(@entries)} faixas · {total_time(@entries)}
               </span>
             </div>
@@ -919,7 +951,13 @@ defmodule BeatgridWeb.RecSetLive do
 
             <.arc_chart series={@arc} />
 
-            <ol class="mt-4 space-y-0.5">
+            <h2
+              :if={@entries != []}
+              class="mt-4 border-b border-white/8 pb-2 text-body-lg font-semibold"
+            >
+              Ordem das faixas
+            </h2>
+            <ol aria-label="Ordem das faixas" class="mt-2 space-y-0.5">
               <li :for={{e, i} <- Enum.with_index(@entries, 1)} class="space-y-0.5">
                 <div :if={@loudness_jumps[i]} class="flex justify-center">
                   <span class={[
@@ -1880,20 +1918,37 @@ defmodule BeatgridWeb.RecSetLive do
 
   defp criteria_modal(assigns) do
     ~H"""
-    <div class="fixed inset-0 z-20 flex items-center justify-center p-4">
-      <div class="absolute inset-0 bg-black/60" phx-click="hide_criteria"></div>
-      <div class="relative max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-white/10 bg-surface p-5">
+    <div
+      id="set-criteria-overlay"
+      data-dismiss={JS.push("hide_criteria") |> JS.focus(to: "#open-set-criteria")}
+      phx-window-keydown={JS.exec("data-dismiss")}
+      phx-key="Escape"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4"
+    >
+      <div
+        class="absolute inset-0 bg-black/60"
+        phx-click={JS.exec("data-dismiss", to: "#set-criteria-overlay")}
+      >
+      </div>
+      <.focus_wrap
+        id="set-criteria"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="set-criteria-title"
+        phx-mounted={JS.focus(to: "#close-set-criteria")}
+        class="relative max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-white/10 bg-surface p-5"
+      >
         <div class="mb-4 flex items-center justify-between">
-          <h3 class="text-[18px] font-semibold">Critérios de montagem</h3>
+          <h2 id="set-criteria-title" class="text-heading font-semibold">Critérios de montagem</h2>
           <button
-            phx-click="hide_criteria"
+            id="close-set-criteria"
+            phx-click={JS.exec("data-dismiss", to: "#set-criteria-overlay")}
             aria-label="Fechar critérios"
-            class="text-ink-muted hover:text-ink"
-          >✕</button>
+            class="inline-grid size-8 place-items-center rounded-md text-ink-muted hover:text-ink"
+          ><span class="hero-x-mark size-4" aria-hidden="true"></span></button>
         </div>
         <p class="mb-4 text-caption text-ink-muted">
-          O arco de energia e a afinidade de estilos vêm do backend. Os pesos de cada critério
-          agora se ajustam ao vivo na <span class="text-ink-secondary">Mesa de mixagem</span>.
+          Ajuste o peso de cada critério na <span class="text-ink-secondary">Mesa de mixagem</span>.
         </p>
 
         <p class="mb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
@@ -1945,7 +2000,7 @@ defmodule BeatgridWeb.RecSetLive do
           </table>
         </div>
         <p class="mt-2 text-caption text-ink-faint">✅ combina · ⚠️ com cuidado · ❌ evitar</p>
-      </div>
+      </.focus_wrap>
     </div>
     """
   end

@@ -74,7 +74,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
     # mas a sequência para na faixa atual.
     {:noreply,
      socket
-     |> assign(set: nil, entries: [], played: MapSet.new())
+     |> assign(set: nil, entries: [], played: MapSet.new(), preflight: nil)
      |> push_event("dj_set", %{id: nil})
      |> push_hint(nil)}
   end
@@ -646,19 +646,18 @@ defmodule BeatgridWeb.DiscotecagemLive do
     ~H"""
     <.app_shell flash={@flash} active={:discotecagem} socket={@socket}>
       <div class="mx-auto max-w-7xl px-4 py-3">
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <div class="flex items-baseline gap-3">
-            <h1 class="text-[22px] font-semibold tracking-tight">Discotecagem</h1>
-            <p class="hidden text-[11px] text-ink-muted xl:block">
-              Dois decks, transições visíveis — na tela e na controladora.
-            </p>
-          </div>
-          <div class="flex flex-wrap items-center gap-2">
-            <form id="dj-set-picker" phx-change="select_set">
+        <header class="flex flex-wrap items-center gap-x-5 gap-y-2.5 border-b border-white/8 pb-3">
+          <h1 class="text-[22px] font-semibold tracking-tight">Discotecagem</h1>
+          <div
+            role="group"
+            aria-label="Preparação do set"
+            class="flex w-full min-w-0 items-center gap-1.5 sm:w-auto sm:min-w-48 sm:flex-1"
+          >
+            <form id="dj-set-picker" phx-change="select_set" class="min-w-0 flex-1 sm:max-w-64">
               <select
                 name="set_id"
                 aria-label="Escolher set"
-                class="h-9 rounded-lg border border-white/10 bg-input px-3 text-[12px] text-ink focus:border-primary/60 focus:outline-none"
+                class="h-9 w-full min-w-0 truncate rounded-lg border border-white/10 bg-input px-2 text-body text-ink"
               >
                 <option value="">Escolher set…</option>
                 <option :for={s <- @sets} value={s.id} selected={@set && @set.id == s.id}>
@@ -669,54 +668,63 @@ defmodule BeatgridWeb.DiscotecagemLive do
             <button
               :if={@set}
               type="button"
-              phx-click="play_set"
-              class="flex h-9 items-center gap-1.5 rounded-lg bg-primary/15 px-3 text-[12px] font-semibold text-primary hover:bg-primary/25"
+              phx-click={if @preflight, do: "close_preflight", else: "preflight"}
+              aria-expanded={to_string(!is_nil(@preflight))}
+              aria-controls={@preflight && "dj-preflight"}
+              title="Conferir arquivos, marcadores e BPM do set"
+              class="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-2 text-body-sm font-medium text-ink-secondary hover:bg-white/5 hover:text-ink"
             >
-              ▶ Tocar set
+              <.icon name="hero-clipboard-document-check" class="size-4" /> Conferir
             </button>
+          </div>
+          <div role="group" aria-label="Transporte" class="flex flex-wrap items-center gap-1.5">
             <button
               :if={@set}
               type="button"
-              phx-click="preflight"
-              title="Checagem pré-viagem: arquivos, marcadores e BPM de cada faixa do set"
-              class="flex h-9 items-center gap-1.5 rounded-lg border border-white/10 px-3 text-[12px] font-semibold text-ink-secondary hover:text-ink"
+              phx-click="play_set"
+              class="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary-deep px-3 text-body font-semibold text-white hover:bg-primary-deep/90"
             >
-              ✈ Checar
-            </button>
-            <button
-              id="dj-trip-toggle"
-              type="button"
-              title="Modo Viagem: tela limpa com o essencial gigante (mouse e teclado)"
-              class="flex h-9 items-center gap-1.5 rounded-lg border border-white/10 px-3 text-[12px] font-semibold text-ink-secondary hover:text-ink"
-            >
-              🚐 Viagem
+              <.icon name="hero-play-solid" class="size-3.5" /> Tocar set
             </button>
             <button
               type="button"
               phx-click="toggle_auto"
               aria-pressed={to_string(@auto?)}
-              title="Com AUTO ligado, o console dispara as transições sozinho na janela marcada."
+              title="Com AUTO ligado, o console dispara as transições na janela marcada."
               class={[
-                "flex h-9 items-center gap-1.5 rounded-lg border px-3 text-[11px] font-bold uppercase tracking-wider",
-                @auto? && "border-amber/50 bg-amber/15 text-amber",
-                !@auto? && "border-white/10 bg-input text-ink-faint hover:text-ink"
+                "inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-body-sm font-semibold",
+                @auto? && "border-amber/30 bg-amber/10 text-amber",
+                !@auto? && "border-white/10 text-ink-muted hover:text-ink"
               ]}
             >
-              <span class={["size-1.5 rounded-full", (@auto? && "bg-amber") || "bg-white/20"]}></span>
+              <span class={["size-1.5 rounded-full", (@auto? && "bg-amber") || "bg-ink-faint"]}></span>
               Auto
             </button>
             <button
               type="button"
               phx-click="stop_all"
-              class="flex h-9 items-center rounded-lg border border-coral/30 bg-coral/10 px-3 text-[11px] font-bold uppercase tracking-wider text-coral hover:bg-coral/20"
+              aria-label="Parar os dois decks"
+              class="inline-flex h-9 items-center gap-1.5 rounded-lg border border-coral/30 px-2.5 text-body-sm font-semibold text-coral hover:bg-coral/10"
             >
-              Stop
+              <.icon name="hero-stop-solid" class="size-3.5" /> Parar
+            </button>
+            <button
+              id="dj-trip-toggle"
+              type="button"
+              aria-haspopup="dialog"
+              aria-controls="dj-trip"
+              title="Modo viagem em tela cheia"
+              class="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-body-sm font-medium text-ink-muted hover:bg-white/5 hover:text-ink"
+            >
+              <.icon name="hero-arrows-pointing-out" class="size-4" /> Viagem
             </button>
           </div>
-        </div>
+        </header>
 
-        <div
+        <section
           :if={@preflight}
+          id="dj-preflight"
+          aria-label="Conferência do set"
           class={[
             "mt-3 rounded-xl border p-3",
             (@preflight.issues == [] && "border-green/30 bg-green/5") || "border-amber/30 bg-amber/5"
@@ -725,8 +733,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
           <div class="flex items-center justify-between">
             <p class="text-body-sm font-semibold">
               {if @preflight.issues == [],
-                do: "✈ Tudo pronto: #{@preflight.total} faixas checadas, nenhum problema.",
-                else: "✈ #{length(@preflight.issues)} de #{@preflight.total} faixas com pendência:"}
+                do: "#{@preflight.total} faixas conferidas. Tudo pronto.",
+                else: "#{length(@preflight.issues)} de #{@preflight.total} faixas com pendência"}
             </p>
             <button
               type="button"
@@ -734,7 +742,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               aria-label="Fechar checagem"
               class="inline-flex min-h-6 items-center text-ink-faint hover:text-ink"
             >
-              ✕
+              <.icon name="hero-x-mark" class="size-4" />
             </button>
           </div>
           <ul :if={@preflight.issues != []} class="mt-1.5 space-y-0.5">
@@ -744,7 +752,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               — {Enum.map_join(issue.problems, " · ", &preflight_label/1)}
             </li>
           </ul>
-        </div>
+        </section>
 
         <%!-- -mb-20 cancels the app shell's pb-20 so the console fills to the very
         bottom (no wasted 80px); the lists reclaim it and the page fits the fold. --%>
@@ -758,11 +766,11 @@ defmodule BeatgridWeb.DiscotecagemLive do
         >
           <%!-- Modo Viagem: overlay em tela cheia com o essencial GIGANTE,
           dirigido pelo mesmo engine (o hook pinta; o servidor nunca toca). --%>
-          <div
+          <dialog
             id="dj-trip"
+            aria-label="Modo viagem"
             phx-update="ignore"
-            data-on="false"
-            class="fixed inset-0 z-40 hidden flex-col items-center justify-center gap-6 bg-base px-8 data-[on=true]:flex"
+            class="fixed inset-0 m-0 hidden h-dvh max-h-none w-screen max-w-none flex-col items-center justify-center gap-4 overflow-y-auto border-0 bg-base p-4 text-ink open:flex sm:gap-6 sm:p-8"
           >
             <div class="text-center">
               <p class="text-caption uppercase tracking-[0.2em] text-ink-faint">tocando agora</p>
@@ -781,21 +789,21 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 data-trip="postpone"
                 class="h-16 flex-1 rounded-xl border border-white/15 text-lg font-bold text-ink hover:border-primary/50"
               >
-                ⏳ Adiar +15s <span class="text-ink-faint">(W)</span>
+                Adiar 15 s
               </button>
               <button
                 type="button"
                 data-trip="fire"
                 class="h-16 flex-1 rounded-xl bg-primary-deep text-lg font-bold text-white hover:bg-primary-deep/90"
               >
-                ▶ Disparar <span class="opacity-60">(T)</span>
+                Disparar <kbd class="font-mono text-body">(T)</kbd>
               </button>
               <button
                 type="button"
                 data-trip="cancel"
                 class="h-16 flex-1 rounded-xl border border-coral/40 text-lg font-bold text-coral hover:bg-coral/10"
               >
-                ✕ Cancelar <span class="opacity-60">(X)</span>
+                Cancelar <kbd class="font-mono text-body">(X)</kbd>
               </button>
             </div>
             <div class="flex items-center gap-4">
@@ -810,12 +818,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
               <button
                 type="button"
                 data-trip="off"
+                autofocus
                 class="rounded-lg border border-white/15 px-4 py-2 text-body-sm font-semibold text-ink-secondary hover:text-ink"
               >
                 Sair do modo viagem
               </button>
             </div>
-          </div>
+          </dialog>
 
           <%!-- Resposta visual dos atalhos: pílula temporária sobre o console
           (o hook escreve e esconde sozinho — o servidor nunca toca aqui). --%>
@@ -829,26 +838,31 @@ defmodule BeatgridWeb.DiscotecagemLive do
           <div
             id="dj-waves"
             phx-update="ignore"
-            class="mb-1 overflow-hidden rounded-xl border border-white/8"
-            style="background:linear-gradient(180deg,#0e0f15,#0b0c10)"
+            class="mb-1 divide-y divide-white/8 overflow-hidden rounded-xl border border-white/8 bg-deep"
           >
-            <div class="relative">
-              <canvas id="dj-wave-a" class="block w-full cursor-crosshair" style="height:44px"></canvas>
-              <span
-                class="pointer-events-none absolute left-2 top-1 text-[9px] font-bold uppercase tracking-wider"
-                style="color:#8b7bf0"
-              >
-                A
-              </span>
-            </div>
-            <div class="relative border-t border-white/5">
-              <canvas id="dj-wave-b" class="block w-full cursor-crosshair" style="height:44px"></canvas>
-              <span
-                class="pointer-events-none absolute left-2 top-1 text-[9px] font-bold uppercase tracking-wider"
-                style="color:#2d9cff"
-              >
-                B
-              </span>
+            <div :for={d <- ["a", "b"]} class="grid grid-cols-[5rem_minmax(0,1fr)] items-stretch">
+              <div class="flex min-w-0 flex-col justify-center border-r border-white/8 bg-surface px-2">
+                <span class={[
+                  "text-[9px] font-bold uppercase tracking-wider",
+                  if(d == "a", do: "text-primary", else: "text-info")
+                ]}>
+                  Deck {String.upcase(d)}
+                </span>
+                <span
+                  id={"dj-media-status-#{d}"}
+                  role="status"
+                  aria-label={"Estado do deck #{String.upcase(d)}"}
+                  data-state="empty"
+                  class="dj-wave-status relative text-caption font-medium text-ink-muted data-[state=loading]:text-amber data-[state=error]:text-coral data-[state=playing]:text-ink"
+                >
+                  Vazio
+                </span>
+              </div>
+              <canvas
+                id={"dj-wave-#{d}"}
+                aria-label={"Forma de onda do deck #{String.upcase(d)}"}
+                class="block h-11 w-full cursor-crosshair"
+              ></canvas>
             </div>
           </div>
 
@@ -1094,6 +1108,23 @@ defmodule BeatgridWeb.DiscotecagemLive do
       </div>
 
       <style>
+        @media (prefers-reduced-motion: no-preference) {
+          .dj-wave-status[data-state="loading"]::after {
+            content: "";
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            width: 0.75rem;
+            height: 2px;
+            background: currentColor;
+            animation: dj-buffer-activity 750ms cubic-bezier(0.45, 0, 0.55, 1) alternate infinite;
+          }
+          @keyframes dj-buffer-activity {
+            to {
+              transform: translateX(1.5rem);
+            }
+          }
+        }
         #dj-echo-light[data-on="true"] {
           background: #ffb020;
           box-shadow: 0 0 12px #ffb020, 0 0 3px #ffb020;
@@ -1180,6 +1211,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
       <script :type={Phoenix.LiveView.ColocatedHook} name=".DjConsole">
         import {createEngine} from "@/js/dj/engine.js"
+        import {paintDeckStatus} from "@/js/dj/deck_status.js"
         import {loadPeaks, drawWave} from "@/js/dj/waveform.js"
 
         const ACCENTS = {a: "#8b7bf0", b: "#2d9cff"}
@@ -1223,6 +1255,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
             this.setId = this.el.dataset.setId || null
             this.tracks = {a: null, b: null}
             this.waves = {a: null, b: null}
+            this.reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)")
+            this.mediaReadouts = {a: byId("dj-media-status-a"), b: byId("dj-media-status-b")}
             this.hint = null
             this.pendingHint = null
             this.cursor = -1
@@ -1732,13 +1766,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
               const trip = byId("dj-trip")
               if (!trip) return
               if (e.target.closest("#dj-trip-toggle")) {
-                trip.dataset.on = "true"
+                if (!trip.open) trip.showModal()
                 return
               }
               const btn = e.target.closest("[data-trip]")
               if (!btn) return
               const act = btn.dataset.trip
-              if (act === "off") trip.dataset.on = "false"
+              if (act === "off") trip.close()
               else if (act === "fire") this.actFire()
               else if (act === "postpone") this.actPostpone(15_000)
               else if (act === "cancel") this.actCancel()
@@ -2081,6 +2115,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
             const dur = deck.el.duration
               ? deck.el.duration * 1000
               : (track && track.duration_ms) || 0
+            const scratchPosition = this.engine.scratchPosSec(d)
+            paintDeckStatus(this.mediaReadouts[d], deck, scratchPosition)
             const pos = deck.positionMs()
             const elapsed = byId(`dj-el-${d}`)
             const rem = byId(`dj-rem-${d}`)
@@ -2113,9 +2149,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
             // playing, the scratch read-head when scratching (so the disquinho
             // turns back and forth WITH the scratch, as one thing). ~1.8 s/rev.
             const vinyl = byId(`dj-vinyl-${d}`)
-            if (vinyl) {
-              const scratchS = this.engine.scratchPosSec(d)
-              const posS = scratchS != null ? scratchS : deck.el.currentTime || 0
+            if (vinyl && !this.reducedMotion.matches) {
+              const posS = scratchPosition ?? (deck.el.currentTime || 0)
               const deg = ((posS / 1.8) * 360) % 360
               vinyl.style.transform = `translate(-50%,-50%) rotate(${deg}deg)`
             }
@@ -2207,7 +2242,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
           paintTrip() {
             const trip = byId("dj-trip")
-            if (!trip || trip.dataset.on !== "true") return
+            if (!trip?.open) return
             const snap = this.engine.snapshot()
             const active = snap.activeDeck
             const track = active && this.tracks[active]

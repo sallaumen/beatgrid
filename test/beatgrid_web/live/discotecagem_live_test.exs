@@ -51,6 +51,19 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert html =~ "dj-cue-device"
   end
 
+  test "the two waveform lanes expose independent media status before a load", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/discotecagem")
+
+    for deck <- ["a", "b"] do
+      assert has_element?(view, "#dj-waves #dj-media-status-#{deck}[role=status]", "Vazio")
+
+      assert has_element?(
+               view,
+               ~s(#dj-wave-#{deck}[aria-label="Forma de onda do deck #{String.upcase(deck)}"])
+             )
+    end
+  end
+
   # The scratch engine lives entirely in the `.DjConsole` colocated hook, which
   # wires itself to these elements by id at mount. When a layout change moves the
   # scratch panel around the DOM (as the viewport-fit work did), nothing tells us
@@ -84,12 +97,34 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert html =~ ~s(id="dj-xfader-curve"), "missing the crossfader curve toggle"
 
     # trip-mode overlay + toggle: the hook paints and drives these by id
+    assert html =~ ~s(aria-haspopup="dialog")
+    assert html =~ ~s(<dialog)
+
     for id <- ~w(dj-trip dj-trip-toggle trip-title trip-next trip-countdown trip-auto) do
       assert html =~ ~s(id="#{id}"), "missing trip element ##{id} — the DjConsole hook drives it"
     end
   end
 
-  test "✈ Checar runs the pre-trip check and the report can be dismissed", %{conn: conn} do
+  test "the preparation report follows the selected set and its disclosure button", %{conn: conn} do
+    {set, _tracks} = set_with_tracks([{"Um", 100.0}])
+    view = open_console(conn, set)
+
+    view |> element("button[phx-click=preflight]") |> render_click()
+    assert has_element?(view, ~s(button[aria-expanded=true][aria-controls=dj-preflight]))
+    assert has_element?(view, "#dj-preflight", "arquivo sumido do disco")
+
+    view |> element("button[aria-controls=dj-preflight]") |> render_click()
+    refute has_element?(view, "#dj-preflight")
+    assert has_element?(view, "button[phx-click=preflight][aria-expanded=false]")
+
+    view |> element("button[phx-click=preflight]") |> render_click()
+    view |> form("#dj-set-picker", %{set_id: ""}) |> render_change()
+    refute has_element?(view, "#dj-preflight")
+    refute has_element?(view, "button[phx-click=play_set]")
+    assert has_element?(view, "button[phx-click=stop_all]")
+  end
+
+  test "checking a set reports missing audio and the report can be dismissed", %{conn: conn} do
     {set, [_a, _b]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}])
     view = open_console(conn, set)
 

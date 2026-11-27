@@ -308,6 +308,7 @@ defmodule BeatgridWeb.RecSetLiveTest do
 
     # the energy arc + a style-affinity cell, both sourced from the backend (the
     # per-criterion weights moved to the live "Mesa de mixagem" console)
+    assert has_element?(view, "#set-criteria[role=dialog][aria-labelledby=set-criteria-title]")
     assert html =~ "Critérios"
     assert html =~ "arco de energia"
     assert html =~ "Pico"

@@ -89,6 +89,8 @@
   --text-body-sm: 11px;
   --text-body: 12px;
   --text-body-lg: 13px;
+  --text-heading: 18px;
+  --text-title: 22px;
 
   --radius-xs: 5px;
   --radius-sm: 7px;
@@ -109,6 +111,12 @@ html, body { color-scheme: dark; background: var(--bg-base); color: var(--text-p
    carry their own focus treatment (`focus:border-primary/50` and friends) win
    on specificity and keep it. */
 :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+@media (max-width: 63.999rem) {
+  body:has(#player-bar:not(.hidden)) #workspace-content {
+    padding-bottom: calc(7rem + env(safe-area-inset-bottom));
+  }
+}
 
 /* Library table columns, shared by the header row and every track row. The title
    is the one thing you actually read, so it never collapses: it keeps a floor

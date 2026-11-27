@@ -221,13 +221,15 @@ defmodule BeatgridWeb.PlayerLive do
     ~H"""
     <div
       id="player-bar"
+      role="region"
+      aria-label="Reprodutor"
       class={[
         "fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-rail/95 px-3 py-2 backdrop-blur",
         !@now_playing && "hidden"
       ]}
     >
-      <div class="mx-auto flex max-w-5xl items-center gap-4">
-        <div class="flex w-56 shrink-0 items-center gap-2.5">
+      <div class="mx-auto grid max-w-5xl grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-2 gap-y-1 lg:flex lg:gap-4">
+        <div class="flex min-w-0 items-center gap-2 lg:w-56 lg:shrink-0">
           <.cover
             :if={@now_playing}
             src={cover_src(@now_playing)}
@@ -248,14 +250,14 @@ defmodule BeatgridWeb.PlayerLive do
         <.link
           :if={@playing_set}
           navigate={~p"/set/#{@playing_set.id}"}
-          class="hidden shrink-0 items-center gap-1.5 rounded-full bg-primary/15 px-2.5 py-1 text-caption font-semibold text-primary hover:bg-primary/25 sm:flex"
+          class="col-start-2 inline-flex min-w-0 items-center gap-1 rounded-md px-1 py-1 text-caption font-medium text-primary hover:underline"
           title="Ir para o set"
         >
           <span class="hero-queue-list size-3.5" aria-hidden="true" />
-          <span class="max-w-[160px] truncate">{@playing_set.name}</span>
+          <span class="max-w-16 truncate sm:max-w-40">{@playing_set.name}</span>
         </.link>
 
-        <div :if={@now_playing} class="relative shrink-0">
+        <div :if={@now_playing} class="relative col-start-3 shrink-0">
           <button
             type="button"
             phx-click="toggle_markers"
@@ -265,14 +267,17 @@ defmodule BeatgridWeb.PlayerLive do
               !@show_markers && "bg-amber/10 text-amber hover:bg-amber/20"
             ]}
             aria-label="Marcadores"
+            aria-expanded={to_string(@show_markers)}
+            aria-controls="player-markers"
             title="Marcadores"
           >
-            <span aria-hidden="true">🚩</span>
+            <span class="hero-flag size-3.5" aria-hidden="true"></span>
             <span>{length(@now_playing.cue_points || [])}</span>
           </button>
           <div
             :if={@show_markers}
-            class="absolute bottom-full left-0 z-50 mb-2 w-72 rounded-lg border border-white/10 bg-rail p-3 shadow-xl"
+            id="player-markers"
+            class="absolute right-0 bottom-full z-50 mb-2 max-h-[60dvh] w-72 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-lg border border-white/10 bg-rail p-3 shadow-xl"
           >
             <div class="mb-2 flex items-center justify-between">
               <span class="text-caption font-semibold text-ink-secondary">Marcadores</span>
@@ -295,7 +300,11 @@ defmodule BeatgridWeb.PlayerLive do
           </div>
         </div>
 
-        <div id="player-controls" phx-update="ignore" class="flex flex-1 items-center gap-3">
+        <div
+          id="player-controls"
+          phx-update="ignore"
+          class="col-span-full flex min-w-0 flex-1 items-center gap-1.5 sm:gap-3"
+        >
           <button
             id="player-toggle"
             type="button"
@@ -307,7 +316,7 @@ defmodule BeatgridWeb.PlayerLive do
             <span id="player-toggle-icon" aria-hidden="true">▶</span>
           </button>
           <span id="player-elapsed" class="text-ink-faint w-9 text-right font-mono text-[11px]">0:00</span>
-          <div class="relative flex-1">
+          <div class="relative min-w-0 flex-1">
             <div id="player-marker-lane" class="pointer-events-none absolute inset-x-0 -top-2 h-2.5">
             </div>
             <input
@@ -322,7 +331,7 @@ defmodule BeatgridWeb.PlayerLive do
             />
           </div>
           <span id="player-duration" class="text-ink-faint w-9 font-mono text-[11px]">0:00</span>
-          <span class="text-ink-faint ml-2 text-[13px]" aria-hidden="true">🔊</span>
+          <span class="hero-speaker-wave size-3.5 shrink-0 text-ink-muted" aria-hidden="true"></span>
           <input
             id="player-volume"
             type="range"
@@ -330,13 +339,13 @@ defmodule BeatgridWeb.PlayerLive do
             max="100"
             value="100"
             aria-label="Volume"
-            class="h-1 w-20"
+            class="h-1 w-12 shrink-0 sm:w-20"
             style="accent-color:var(--color-primary)"
           />
           <button
             type="button"
             phx-click={JS.push("close") |> JS.dispatch("beatgrid:stop", to: "#player-audio")}
-            class="text-ink-muted hover:text-ink flex size-7 items-center justify-center rounded-full"
+            class="flex size-8 shrink-0 items-center justify-center rounded-md text-ink-muted hover:text-ink"
             aria-label="Fechar"
             title="Fechar"
           >

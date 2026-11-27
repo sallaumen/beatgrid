@@ -5,6 +5,19 @@ defmodule BeatgridWeb.RecSetNavigationTest do
 
   alias Beatgrid.Sets
 
+  test "the compact picker opens the chosen set at its own URL", %{conn: conn} do
+    {:ok, first} = Sets.create("Abertura")
+    {:ok, second} = Sets.create("Segundo bloco")
+    {:ok, view, _html} = live(conn, ~p"/set/#{first.id}")
+
+    view |> form("#compact-set-picker", %{set_id: second.id}) |> render_change()
+    assert_patch(view, ~p"/set/#{second.id}")
+    assert has_element?(view, "#compact-set-picker option[selected][value='#{second.id}']")
+    assert has_element?(view, "details summary", "Ferramentas do set")
+    assert has_element?(view, "details button[phx-click=delete_set]")
+    assert has_element?(view, "a[href='/discotecagem?set=#{second.id}']", "Abrir na discotecagem")
+  end
+
   test "selecting a set updates the URL and reloads the same set", %{conn: conn} do
     {:ok, first} = Sets.create("Primeiro baile")
     {:ok, second} = Sets.create("Segundo baile")
