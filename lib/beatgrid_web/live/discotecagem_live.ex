@@ -1501,7 +1501,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                       if (cueLab) cueLab.classList.add("hidden")
                       this.disconnectHeadphones()
                       cueSel.value = ""
-                    } else if (cueSel.options.length) {
+                    } else if (this.audioOutputs.length) {
                       cueSel.classList.remove("hidden")
                       if (cueLab) cueLab.classList.remove("hidden")
                     }
@@ -1734,6 +1734,43 @@ defmodule BeatgridWeb.DiscotecagemLive do
               if (devs.some(d => d.deviceId === selected)) sel.value = selected
               else if (selected && sel.id === "dj-cue-device") this.disconnectHeadphones()
             }
+            this.outputEvents = new AbortController()
+            const {signal} = this.outputEvents
+            let listVersion = 0
+            const refreshDevices = async (announce) => {
+              const version = ++listVersion
+              let devs = []
+              try {
+                devs = (await navigator.mediaDevices.enumerateDevices()).filter(
+                  (d) => d.kind === "audiooutput" && d.deviceId
+                )
+              } catch (_e) {
+                // fica vazio e avisamos abaixo
+              }
+              if (version !== listVersion || signal.aborted) return
+              this.audioOutputs = devs
+              this.checkHeadphoneOutput(this.engine.ctx.sinkId)
+              const main = byId("dj-out-device")
+              fillDevices(main, devs.filter(d => d.deviceId !== "default"), "Padrão do sistema")
+              main.value = mainSink()
+              main.disabled = typeof this.engine.ctx.setSinkId !== "function" || this.movingOutput
+              if (main.disabled && !this.movingOutput && this.cueModeNow !== "quad") {
+                byId("dj-cue-mode").textContent = "Para usar a controladora, escolha a saída principal nos ajustes de som do sistema."
+              }
+              const phones = byId("dj-cue-device")
+              fillDevices(phones, devs, "— saída do fone —")
+              if (phones.value && !this.cueAudio.srcObject && !this.movingOutput) this.routeHeadphones(phones)
+              for (const id of ["dj-out-device", "dj-out-device-label"]) {
+                byId(id).classList.toggle("hidden", !devs.length)
+              }
+              for (const id of ["dj-cue-device", "dj-cue-device-label"]) {
+                byId(id).classList.toggle("hidden", !devs.length || this.cueModeNow === "quad")
+              }
+              if (announce) {
+                if (!devs.length) this.log("nenhuma saída listável — permita o microfone para liberar a lista")
+                else this.log(devs.length === 1 ? "1 saída de áudio encontrada" : `${devs.length} saídas de áudio encontradas`)
+              }
+            }
             byId("dj-cue-pick").addEventListener("click", async () => {
               if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
                 this.log("este navegador não expõe as saídas de áudio")
@@ -1750,40 +1787,17 @@ defmodule BeatgridWeb.DiscotecagemLive do
               } catch (_e) {
                 // sem a permissão os dispositivos podem vir sem id/nome
               }
-              let devs = []
-              try {
-                devs = (await navigator.mediaDevices.enumerateDevices()).filter(
-                  (d) => d.kind === "audiooutput" && d.deviceId
-                )
-              } catch (_e) {
-                // fica vazio e avisamos abaixo
-              }
-              this.audioOutputs = devs
-              this.checkHeadphoneOutput(this.engine.ctx.sinkId)
-              if (!devs.length) {
-                this.log("nenhuma saída listável — permita o microfone para liberar a lista")
-                return
-              }
-              const main = byId("dj-out-device")
-              fillDevices(main, devs.filter(d => d.deviceId !== "default"), "Padrão do sistema")
-              main.value = mainSink()
-              main.disabled = typeof this.engine.ctx.setSinkId !== "function" || this.movingOutput
-              if (main.disabled && !this.movingOutput && this.cueModeNow !== "quad") {
-                byId("dj-cue-mode").textContent = "Para usar a controladora, escolha a saída principal nos ajustes de som do sistema."
-              }
-              fillDevices(byId("dj-cue-device"), devs, "— saída do fone —")
-              byId("dj-out-device").classList.remove("hidden")
-              byId("dj-out-device-label").classList.remove("hidden")
-              if (this.cueModeNow !== "quad") {
-                byId("dj-cue-device").classList.remove("hidden")
-                byId("dj-cue-device-label").classList.remove("hidden")
-              }
-              this.log(
-                devs.length === 1
-                  ? "1 saída de áudio encontrada"
-                  : `${devs.length} saídas de áudio encontradas`
-              )
+              if (!signal.aborted) await refreshDevices(true)
             })
+            const devicesChanged = event => {
+              if (!listVersion || (event.type === "sinkchange" && this.movingOutput)) return
+              // A former headphone device can become the room's default on unplug.
+              this.disconnectHeadphones()
+              this.audioOutputs = []
+              refreshDevices(false)
+            }
+            navigator.mediaDevices?.addEventListener("devicechange", devicesChanged, {signal})
+            this.engine.ctx.addEventListener("sinkchange", devicesChanged, {signal})
             byId("dj-out-device").addEventListener("change", async (e) => {
               const select = e.currentTarget
               if (select.disabled) return
@@ -1804,6 +1818,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
               } finally {
                 this.movingOutput = false
                 phones.disabled = false
+                if (!signal.aborted && phones.value && !this.cueAudio.srcObject && this.audioOutputs.length) {
+                  this.routeHeadphones(phones)
+                }
                 select.value = mainSink()
                 select.disabled = false
               }
@@ -1924,6 +1941,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
           destroyed() {
             cancelAnimationFrame(this.raf)
+            this.outputEvents.abort()
             this.disconnectHeadphones()
             window.removeEventListener("resize", this.sizeWaves)
             window.removeEventListener("dj:midi", this.onMidi)
