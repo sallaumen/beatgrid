@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import {separateOutputs} from "../../assets/js/dj/outputs.js"
+import {separateOutputs, unlockOutputNames} from "../../assets/js/dj/outputs.js"
 
 const outputs = [
   {deviceId: "default", groupId: "speakers"},
@@ -21,4 +21,17 @@ test("an unidentified default cannot be used to establish a private headphone ro
   const unnamed = outputs.map(output => ({...output, groupId: ""}))
   assert.equal(separateOutputs("", "phones", unnamed), false)
   assert.equal(separateOutputs("pa", "phones", unnamed), true)
+})
+
+test("listing outputs releases a microphone granted after the device-list timeout", async t => {
+  t.mock.timers.enable({apis: ["setTimeout"]})
+  const permission = Promise.withResolvers()
+  const listed = unlockOutputNames({getUserMedia: () => permission.promise})
+  t.mock.timers.tick(3000)
+  await listed
+
+  const stopped = []
+  permission.resolve({getTracks: () => [1, 2].map(id => ({stop: () => stopped.push(id)}))})
+  await Promise.resolve()
+  assert.deepEqual(stopped, [1, 2])
 })
