@@ -15,8 +15,14 @@ const MAX_CLIPS = 2
 const platterTracks = new Map()
 
 export function retainScratch(platter, trackId) {
+  const previous = platterTracks.get(platter)
   if (trackId == null) platterTracks.delete(platter)
   else platterTracks.set(platter, trackId)
+  const pending = clips.get(previous)?.loading
+  if (pending && previous !== trackId && ![...platterTracks.values()].includes(previous)) {
+    clips.delete(previous)
+    pending.abort()
+  }
 }
 
 export function loadPeaks(trackId, src, ctx) {
@@ -24,11 +30,11 @@ export function loadPeaks(trackId, src, ctx) {
   if (clip) {
     clips.delete(trackId)
   } else {
-    clip = {pcm: null}
+    clip = {pcm: null, loading: new AbortController()}
     clip.ready = decode(clip, src, ctx).catch(error => {
       if (clips.get(trackId) === clip) clips.delete(trackId)
       throw error
-    })
+    }).finally(() => { clip.loading = null })
   }
   clips.set(trackId, clip)
   if (clips.size > MAX_CLIPS) {
@@ -70,10 +76,14 @@ function scratchSamples(audio, left, right) {
 }
 
 async function decode(clip, src, ctx) {
-  const res = await fetch(src)
+  const {signal} = clip.loading
+  const res = await fetch(src, {signal})
   if (!res.ok) throw new Error(`audio fetch failed: ${res.status}`)
   const buf = await res.arrayBuffer()
+  signal.throwIfAborted()
   const audio = await ctx.decodeAudioData(buf)
+  // A running decoder cannot be aborted, but an abandoned buffer needs no scratch copy.
+  signal.throwIfAborted()
   clip.audio = audio
   const ch0 = audio.getChannelData(0)
   const ch1 = audio.numberOfChannels > 1 ? audio.getChannelData(1) : ch0

@@ -2815,18 +2815,17 @@ defmodule BeatgridWeb.DiscotecagemLive do
           // Decodifica e guarda o envelope de picos; se o deck trocar de faixa
           // no meio, o resultado é descartado (o cache fica para a volta).
           loadWave(deck, track) {
+            const source = this.engine.decks[deck]
+            const load = source.loadToken
+            const current = () => source.loadToken === load && this.tracks[deck]?.id === track.id
             this.waves[deck] = null
             loadPeaks(track.id, track.src, this.engine.ctx)
               .then((entry) => {
-                if (this.tracks[deck] && this.tracks[deck].id === track.id) {
-                  this.waves[deck] = entry
-                }
+                if (current()) this.waves[deck] = entry
               })
-              .catch(() => {
-                // Memo de falha: a lane não pode dizer "decodificando" para sempre.
-                if (this.tracks[deck] && this.tracks[deck].id === track.id) {
-                  this.waves[deck] = {failed: true}
-                }
+              .catch(error => {
+                if (error.name === "AbortError" || !current()) return
+                this.waves[deck] = {failed: true}
                 this.log(`sem forma de onda para ${track.title}`)
               })
           },
