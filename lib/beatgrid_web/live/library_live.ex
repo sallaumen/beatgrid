@@ -362,18 +362,13 @@ defmodule BeatgridWeb.LibraryLive do
         filters[:confidence] == to_string(level) && label
       end)
 
-    key = filters[:camelot]
-
-    key_label =
-      key && "Tom #{key}#{if filters[:camelot_compatible], do: " + compatíveis", else: ""}"
-
     for {group, keys, label} <- [
           {"genre_folder", [:genre_folder], folder_name && "Pasta: #{folder_name}"},
           {"unclassified", [:unclassified], filters[:unclassified] && "Não classificadas"},
           {"gold", [:gold], filters[:gold] && "Ouro"},
           {"tag", [:tag], filters[:tag] && "Tag: #{filters[:tag]}"},
           {"confidence", [:confidence], confidence && "Confiança #{confidence}"},
-          {"camelot", [:camelot, :camelot_compatible], key_label},
+          {"camelot", [:camelot, :camelot_compatible], camelot_filter_label(filters)},
           {"rating", [:rating_min, :rating_max],
            range_label("Nota", filters[:rating_min], filters[:rating_max])},
           {"energy", [:energy_min, :energy_max],
@@ -383,6 +378,12 @@ defmodule BeatgridWeb.LibraryLive do
         is_binary(label),
         do: {group, keys, label}
   end
+
+  defp camelot_filter_label(%{camelot: key, camelot_compatible: true}),
+    do: "Tom #{key} + compatíveis"
+
+  defp camelot_filter_label(%{camelot: key}), do: "Tom #{key}"
+  defp camelot_filter_label(_filters), do: nil
 
   defp range_label(_label, nil, nil), do: nil
   defp range_label(label, min, nil), do: "#{label} ≥ #{min}"
