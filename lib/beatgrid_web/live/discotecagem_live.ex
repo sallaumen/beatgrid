@@ -1428,6 +1428,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
                     this.pushEvent("console_idle", {})
                   }
                 },
+                durationChanged: ({deck}) => {
+                  if (this.tracks[deck]) this.renderMarkers(deck, this.tracks[deck])
+                },
                 loopTooLong: ({deck, beats}) => {
                   const length = beats === 1 ? "1 tempo" : `${beats} tempos`
                   this.notice(`O loop de ${length} passa do fim da faixa no deck ${deck.toUpperCase()}.`)
@@ -1622,10 +1625,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
               this.wireCue(d)
               byId(`dj-sync-${d}`).addEventListener("click", () => this.applySync(d))
               byId(`dj-strip-${d}`).addEventListener("click", (e) => {
-                const track = this.tracks[d]
-                if (!track || !track.duration_ms) return
+                const duration = this.engine.decks[d].el.duration
+                if (!Number.isFinite(duration)) return
                 const rect = e.currentTarget.getBoundingClientRect()
-                this.engine.cueTo(d, ((e.clientX - rect.left) / rect.width) * track.duration_ms)
+                this.engine.cueTo(d, ((e.clientX - rect.left) / rect.width) * duration * 1000)
               })
               byId(`dj-pitch-${d}`).addEventListener("input", (e) =>
                 this.applyPitch(d, Number(e.target.value) / 100)
@@ -2182,12 +2185,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
           renderMarkers(d, track) {
             const marks = byId(`dj-marks-${d}`)
-            const dur = track.duration_ms || 0
+            const duration = this.engine.decks[d].el.duration
+            const dur = Number.isFinite(duration) ? duration * 1000 : 0
             const COLORS = {cue: "#ffb020", intro: "#5ad1a0", outro: "#ff5d6c"}
             if (marks) {
               marks.innerHTML = ""
               ;(track.markers || []).forEach((m) => {
-                if (!dur || m.ms < 0 || m.ms > dur) return
+                if (!dur || m.ms < 0 || m.ms >= dur) return
                 const tick = document.createElement("div")
                 tick.style.cssText =
                   `position:absolute;top:0;bottom:0;left:${(m.ms / dur) * 100}%;` +
@@ -2195,7 +2199,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 marks.appendChild(tick)
               })
             }
-            const pads = hotCues(track.markers)
+            const pads = hotCues(track.markers, dur)
             for (let n = 1; n <= 4; n++) {
               const pad = byId(`dj-pad-${d}-${n}`)
               const lab = byId(`dj-padlab-${d}-${n}`)
