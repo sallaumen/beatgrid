@@ -467,9 +467,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
       end
     else
       _ ->
-        socket
-        |> put_flash(:error, "Set não encontrado.")
-        |> push_patch(to: ~p"/discotecagem", replace: true)
+        socket |> clear_selected_set() |> put_flash(:error, "Set não encontrado.")
     end
   end
 
