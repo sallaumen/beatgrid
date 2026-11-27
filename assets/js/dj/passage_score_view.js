@@ -28,11 +28,11 @@ export function mountPassageScore(root) {
     if (announce.textContent !== listeningMessage) announce.textContent = listeningMessage
   }
 
-  function show(result) {
+  function show(result, {restored = false, announcement} = {}) {
     if (disposed || previous === result) return
     previous = result
     const scored = Number.isFinite(result.score)
-    if (scored) {
+    if (scored && !restored) {
       const digits = Array.from(String(result.score), digit => {
         const span = root.ownerDocument.createElement("span")
         span.dataset.scoreDigit = ""
@@ -41,7 +41,7 @@ export function mountPassageScore(root) {
       })
       number.replaceChildren(...digits)
     } else {
-      number.textContent = "Sem nota"
+      number.textContent = scored ? String(result.score) : "Sem nota"
     }
 
     panel.hidden = total.hidden = false
@@ -50,7 +50,7 @@ export function mountPassageScore(root) {
     metrics.replaceChildren(...result.metrics.map(reading))
     metrics.hidden = result.metrics.length === 0
     const grade = scored ? `${result.score} de 100` : "Sem nota"
-    announce.textContent = `Nota da passagem. ${grade}. ${result.summary}`
+    announce.textContent = announcement ?? (restored ? "" : `Nota da passagem. ${grade}. ${result.summary}`)
   }
 
   function clear() {

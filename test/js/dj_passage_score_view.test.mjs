@@ -59,3 +59,12 @@ test("insufficient evidence, zero and clearing cannot leave a previous score or 
   view.show({score: 99, summary: "Resposta de um ensaio anterior.", metrics: []})
   assert.equal(nodes.panel.hidden, true)
 })
+
+test("revisiting a measured kind renders its details quietly without animating again", () => {
+  const {view, nodes} = fixture()
+  view.show({score: 75, metrics: [], summary: "Houve uma queda de nível."}, {restored: true})
+  assert.equal(nodes.number.textContent, "75")
+  assert.deepEqual(nodes.number.children, [])
+  assert.equal(nodes.announce.textContent, "")
+  assert.equal(nodes.summary.textContent, "Houve uma queda de nível.")
+})

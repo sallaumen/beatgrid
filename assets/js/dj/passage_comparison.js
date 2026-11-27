@@ -1,0 +1,82 @@
+// Compare the sound that was heard. The headphone pan and transition kind are
+// intentionally outside the identity. The latter selects one of the two takes.
+function soundKey(pair, plan, bpm) {
+  if (!plan) return null
+  const controls = ({rate, vinyl, filter, tone, level}) => [rate, vinyl, filter, tone, level]
+  return JSON.stringify([pair.from, pair.to, pair.fromLoad, pair.toLoad, bpm, plan.exit, plan.inStart,
+    plan.lead, plan.blend, plan.duration, controls(plan.mix.out), controls(plan.mix.into)])
+}
+
+function scoreLabel(result, unavailable) {
+  if (!result) return unavailable ? "Sem medição" : "Falta ouvir"
+  return result.score == null ? "Sem nota" : `${result.score}/100`
+}
+
+export function mountPassageComparison(details, labels, selected) {
+  const heard = new Map()
+  const unavailable = new Set()
+  let key = null, active = null
+  let lastPair, lastPlan, lastBpm
+
+  function render(restored) {
+    for (const label of labels) {
+      const kind = label.dataset.scoreFor
+      label.hidden = !heard.size && !unavailable.size
+      label.textContent = scoreLabel(heard.get(kind), unavailable.has(kind))
+    }
+    const kind = selected()
+    const current = heard.get(kind)
+    if (unavailable.has(kind)) {
+      const summary = current ? "Medição incompleta. A leitura é do ensaio anterior." :
+        "Não foi possível medir esta reprodução inteira."
+      const retained = {score: current?.score ?? null, metrics: current?.metrics ?? [], summary}
+      details.show(retained, {restored: true, announcement: restored ? "" : summary})
+    } else if (current) details.show(current, {restored})
+    else details.clear()
+  }
+
+  function select() {
+    active = null
+    render(true)
+  }
+
+  function bind(pair, plan, bpm) {
+    // The transport replaces the plan on edits and polls the panel while playing.
+    if (pair === lastPair && plan === lastPlan && bpm === lastBpm) return
+    lastPair = pair
+    lastPlan = plan
+    lastBpm = bpm
+    const next = soundKey(pair, plan, bpm)
+    if (next === key) return
+    key = next
+    heard.clear()
+    unavailable.clear()
+    select()
+  }
+
+  function begin(kind) {
+    const take = {
+      finish(result) {
+        if (active !== take) return
+        active = null
+        heard.set(kind, result)
+        unavailable.delete(kind)
+        render(false)
+      },
+      unavailable() {
+        if (active !== take) return
+        active = null
+        unavailable.add(kind)
+        render(false)
+      },
+      cancel() {
+        if (active === take) select()
+      }
+    }
+    active = take
+    details.listening()
+    return take
+  }
+
+  return {select, bind, begin}
+}

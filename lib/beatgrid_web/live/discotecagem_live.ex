@@ -911,13 +911,21 @@ defmodule BeatgridWeb.DiscotecagemLive do
             <.icon name="hero-x-mark" class="size-4" />
           </button>
         </div>
-        <fieldset class="my-4 flex flex-wrap gap-3 text-body">
+        <fieldset class="my-3 grid gap-x-4 text-body sm:grid-cols-2">
           <legend class="sr-only">Transição do ensaio</legend>
-          <label class="flex items-center gap-1.5">
-            <input type="radio" name="dj-rehearse-kind" value="cut" checked /> Corte na entrada
-          </label>
-          <label class="flex items-center gap-1.5">
-            <input type="radio" name="dj-rehearse-kind" value="blend" /> Mistura de quatro tempos
+          <label
+            :for={
+              {kind, name} <- [{"cut", "Corte na entrada"}, {"blend", "Mistura de quatro tempos"}]
+            }
+            class="flex min-h-9 cursor-pointer items-center gap-2 border-b border-white/10"
+          >
+            <input type="radio" name="dj-rehearse-kind" value={kind} checked={kind == "cut"} />
+            <span>{name}</span>
+            <span
+              data-score-for={kind}
+              hidden
+              class="ml-auto shrink-0 font-mono text-body-sm tabular-nums text-ink-secondary"
+            ></span>
           </label>
         </fieldset>
         <div class="relative overflow-hidden rounded-md border border-white/10 bg-base">
