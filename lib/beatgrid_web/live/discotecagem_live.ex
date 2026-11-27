@@ -968,6 +968,29 @@ defmodule BeatgridWeb.DiscotecagemLive do
             </select>
           </label>
         </div>
+        <section data-cue-assist hidden aria-label="Encaixe da entrada no fone" class="mt-3">
+          <div class="flex flex-wrap items-center gap-x-3">
+            <span class="text-body font-semibold text-ink">Encaixe da entrada</span>
+            <button
+              type="button"
+              data-cue-check
+              class="min-h-9 text-body font-semibold text-primary-soft hover:underline disabled:text-ink-muted"
+            >Verificar encaixe</button>
+            <button
+              type="button"
+              data-cue-try
+              hidden
+              class="min-h-9 text-body font-semibold text-primary-soft hover:underline disabled:text-ink-muted"
+            >Experimentar ajuste</button>
+            <button
+              type="button"
+              data-cue-restore
+              hidden
+              class="min-h-9 text-body font-semibold text-primary-soft hover:underline"
+            >Restaurar CUE</button>
+          </div>
+          <p data-cue-note aria-live="polite" class="text-body text-ink-muted"></p>
+        </section>
         <details class="mt-3 border-y border-white/10 py-2">
           <summary class="cursor-pointer text-body font-semibold text-ink">Ajustar no fone</summary>
           <p class="mt-2 text-body text-ink-muted">
