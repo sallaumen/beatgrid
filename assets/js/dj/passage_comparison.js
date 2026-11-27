@@ -44,10 +44,11 @@ export function mountPassageComparison(details, labels, selected, name) {
   }
 
   function bind(pair, plan, bpm) {
-    // The transport replaces the plan on edits and polls the panel while playing.
-    if (pair === lastPair && plan === lastPlan && bpm === lastBpm) return
+    // Memoize polling without keeping the decoded tracks alive after the dialog closes.
+    const samePlan = plan ? lastPlan?.deref() === plan : lastPlan === null
+    if (pair === lastPair && samePlan && bpm === lastBpm) return
     lastPair = pair
-    lastPlan = plan
+    lastPlan = plan ? new WeakRef(plan) : null
     lastBpm = bpm
     const next = rehearsalKey(pair, plan, bpm)
     if (next === key) return
