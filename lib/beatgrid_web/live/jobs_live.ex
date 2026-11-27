@@ -227,13 +227,15 @@ defmodule BeatgridWeb.JobsLive do
         </div>
 
         <ul id="jobs-list" role="list" class="mt-2 divide-y divide-white/8 border-y border-white/8">
-          <li :for={j <- @jobs} id={"job-#{j.id}"} class="space-y-2 py-3">
-            <div class="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(9rem,auto)] lg:grid-cols-[minmax(0,1fr)_minmax(10rem,auto)_auto] lg:gap-4">
+          <li :for={j <- @jobs} id={"job-#{j.id}"} class="space-y-2 py-2.5">
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(9rem,auto)] lg:grid-cols-[minmax(0,1fr)_14rem_12rem] lg:items-center lg:gap-4">
               <div class="min-w-0">
-                <p class="text-body-lg font-semibold text-ink">{worker_label(j.worker)}</p>
-                <p class="mt-0.5 break-words text-body text-ink-secondary">
-                  {job_summary(j, @titles)}
-                </p>
+                <div class="lg:flex lg:flex-wrap lg:items-baseline lg:gap-x-3">
+                  <p class="text-body-lg font-semibold text-ink">{worker_label(j.worker)}</p>
+                  <p class="mt-0.5 min-w-0 break-words text-body text-ink-secondary">
+                    {job_summary(j, @titles)}
+                  </p>
+                </div>
                 <p :if={last_error(j)} class="mt-1 break-words text-body-sm text-coral">
                   {last_error(j)}
                 </p>
@@ -243,7 +245,7 @@ defmodule BeatgridWeb.JobsLive do
                 </p>
               </div>
 
-              <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 sm:flex-col sm:items-start">
+              <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 sm:flex-col sm:items-start lg:flex-row lg:items-baseline">
                 <span class={[
                   "rounded-xs px-2 py-0.5 text-caption font-semibold",
                   state_class(j.state)
@@ -256,7 +258,20 @@ defmodule BeatgridWeb.JobsLive do
                 </span>
               </div>
 
-              <div class="flex flex-wrap items-start gap-1.5 sm:col-span-2 lg:col-span-1 lg:justify-end">
+              <div
+                :if={
+                  j.errors != [] or
+                    j.state in [
+                      "retryable",
+                      "discarded",
+                      "cancelled",
+                      "available",
+                      "scheduled",
+                      "executing"
+                    ]
+                }
+                class="flex flex-wrap items-start gap-1.5 sm:col-span-2 lg:col-span-1 lg:justify-end"
+              >
                 <button
                   :if={j.errors != []}
                   type="button"
