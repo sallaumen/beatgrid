@@ -25,13 +25,22 @@ defmodule BeatgridWeb.GenresLiveTest do
     {:ok, view, html} = live(conn, ~p"/generos")
     assert html =~ "Gêneros"
     assert html =~ "MPB"
-    assert html =~ "old"
+    assert has_element?(view, "#genre-mpb p", "old")
+    refute has_element?(view, "#folder-mpb textarea")
+
+    view
+    |> element("#genre-mpb button[phx-click=edit_description]", "Editar descrição")
+    |> render_click()
+
+    assert has_element?(view, "#folder-mpb textarea", "old")
 
     view
     |> form("#folder-mpb", %{description: "Songwriter MPB; voz+violão."})
     |> render_submit()
 
     assert GenreFolders.get_by_key("mpb").description == "Songwriter MPB; voz+violão."
+    refute has_element?(view, "#folder-mpb textarea")
+    assert has_element?(view, "#genre-mpb p", "Songwriter MPB; voz+violão.")
   end
 
   test "creating via the form adds a folder", %{conn: conn} do
@@ -92,6 +101,8 @@ defmodule BeatgridWeb.GenresLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/generos")
 
+    view |> element("#genre-mpb button[phx-click=edit_description]") |> render_click()
+
     view
     |> element(~s(button[phx-click="suggest_description"][phx-value-key="mpb"]))
     |> render_click()
@@ -99,5 +110,11 @@ defmodule BeatgridWeb.GenresLiveTest do
     html = render_async(view)
 
     assert html =~ "Songwriter-driven Brazilian popular music."
+    assert has_element?(view, "#folder-mpb textarea")
+    assert GenreFolders.get_by_key("mpb").description == ""
+
+    view |> element("#folder-mpb button[phx-click=cancel_edit]", "Cancelar") |> render_click()
+    refute has_element?(view, "#folder-mpb textarea")
+    refute render(view) =~ "Songwriter-driven Brazilian popular music."
   end
 end
