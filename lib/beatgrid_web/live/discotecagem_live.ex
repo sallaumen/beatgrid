@@ -1925,12 +1925,14 @@ defmodule BeatgridWeb.DiscotecagemLive do
                   window.dispatchEvent(new CustomEvent("beatgrid:playing", {detail: {source: "dj-console"}}))
                 },
                 programScore: ({data, kind, mode, names}) => {
-                  const type = kind === "cut" ? "Corte" : "Crossfade"
+                  const button = this.fireBtns.find(btn => btn.dataset.djFire === kind)
+                  const type = kind === "blend" ? "Crossfade" : (button?.textContent.trim() || "Troca")
                   const from = names.from || "Deck " + names.fromDeck.toUpperCase()
                   const into = names.into || "Deck " + names.toDeck.toUpperCase()
                   const pair = type + (mode === "auto" ? " em AUTO" : " manual") + " · " + from + " → " + into
-                  const result = data ? scorePassage(data) :
-                    {score: null, metrics: [], summary: "O trecho da pista não foi medido por inteiro."}
+                  const descriptive = kind !== "cut" && kind !== "blend"
+                  const result = data ? scorePassage({...data, descriptive}) :
+                    {score: null, descriptive, metrics: [], summary: "O trecho da pista não foi medido por inteiro."}
                   this.programScore.show(result, {reference: {pair}})
                 },
                 roomScore: ({data, reference}) => this.roomScore.show(data ? scorePassage(data) :

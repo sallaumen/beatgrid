@@ -45,7 +45,8 @@ export function mountPassageScore(root) {
       number.textContent = scored ? String(result.score) : "Sem nota"
     }
 
-    panel.hidden = total.hidden = false
+    panel.hidden = false
+    total.hidden = result.descriptive === true
     scale.hidden = !scored
     summary.textContent = result.summary
     metrics.replaceChildren(...result.metrics.map(reading))
@@ -62,7 +63,7 @@ export function mountPassageScore(root) {
       part("reference-metrics").replaceChildren(...(hearing?.metrics ?? []).map(reading))
     }
     const grade = scored ? `${result.score} de 100` : "Sem nota"
-    announce.textContent = announcement ?? (restored ? "" : [part("title").textContent, reference?.pair, grade, result.summary].filter(Boolean).join(". "))
+    announce.textContent = announcement ?? (restored ? "" : [part("title").textContent, reference?.pair, result.descriptive ? null : grade, result.summary].filter(Boolean).join(". "))
   }
 
   function clear() {

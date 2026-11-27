@@ -2510,7 +2510,7 @@ test("the PA meter releases its listener when the last playing deck pauses and o
   assert.equal(meters.length, 3)
 })
 
-for (const type of ["cut", "crossfade"]) {
+for (const type of ["cut", "crossfade", "fade", "echo", "bass_swap", "filter", "lowpass"]) {
   test(`the public reading identifies the actual ${type} only once the receiver accepts playback`, async t => {
     const readings = []
     const {engine, play, advances} = pendingCut(t, "a", {programScore: value => readings.push(value)}, type)
@@ -2519,7 +2519,7 @@ for (const type of ["cut", "crossfade"]) {
     await Promise.resolve()
     assert.equal(advances.at(-1)?.type, type)
     assert.deepEqual(readings.map(({data, kind, mode, names}) => [data, kind, mode, names.fromDeck, names.toDeck]),
-      [[null, type === "cut" ? "cut" : "blend", "auto", "a", "b"]])
+      [[null, type === "crossfade" ? "blend" : type, "auto", "a", "b"]])
     assert.equal(engine.sessionDeck(), "b")
   })
 }

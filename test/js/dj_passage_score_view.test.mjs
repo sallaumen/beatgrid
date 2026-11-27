@@ -89,3 +89,15 @@ test("the room compares only the audition attached to the played version", () =>
   assert.equal(nodes["reference-metrics"].children.length, 0)
   assert.equal(nodes.pair.textContent, "Corte · Quatro → Cinco")
 })
+
+test("intentional effects announce the observations without an empty numeric grade", () => {
+  const {view, nodes} = fixture()
+  const pair = "Fade em AUTO · Saída → Entrada"
+  view.show({score: null, descriptive: true, metrics: [], summary: "Entrada 6 dB abaixo"}, {reference: {pair}})
+  assert.equal(nodes.total.hidden, true)
+  assert.equal(nodes.summary.textContent, "Entrada 6 dB abaixo")
+  assert.match(nodes.announce.textContent, /Fade em AUTO.*Entrada 6 dB abaixo/)
+  assert.doesNotMatch(nodes.announce.textContent, /Sem nota|de 100/)
+  view.show({score: 80, metrics: [], summary: "Pulso alinhado"}, {reference: {pair: "Corte manual"}})
+  assert.equal(nodes.total.hidden, false)
+})
