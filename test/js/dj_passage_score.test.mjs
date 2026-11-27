@@ -145,6 +145,16 @@ for (const kind of ["cut", "blend"]) {
     }
   })
 
+  test(kind + " keeps an audible accent reversal inconclusive even with missing or double-time metadata", () => {
+    for (const bpm of [null, 46.875, 187.5, 120]) {
+      const take = alternatingAccents(kind, true, {bpm})
+      const result = scorePassage(take)
+      assert.equal(metric(result, "pulse").state, "unknown")
+      assert.equal(result.score, null)
+      assert.equal(metric(scorePassage(alternatingAccents(kind, false, {bpm})), "pulse").state, "good")
+    }
+  })
+
   test(kind + " ignores equal subdivisions as evidence that the beat has switched", () => {
     for (const accent of [1, 1.05]) {
       assert.equal(metric(scorePassage(alternatingAccents(kind, true, {accent})), "pulse").state, "good")
@@ -152,6 +162,20 @@ for (const kind of ["cut", "blend"]) {
     assert.equal(metric(scorePassage(alternatingAccents(kind, false, {bpm: 70})), "pulse").state, "good")
   })
 }
+
+test("a mixed signal with aligned endpoints only attests to the pulse before and after the overlap", () => {
+  const take = alternatingAccents("blend", false)
+  const reversed = alternatingAccents("blend", true)
+  take.frames = take.frames.map((frame, i) =>
+    i * dt >= take.changeAt && i * dt < take.changeAt + take.overlap ? reversed.frames[i] : frame
+  )
+  for (const data of [take, {...take, kind: "echo", descriptive: true}]) {
+    const result = scorePassage(data)
+    assert.equal(metric(result, "pulse").state, "good")
+    assert.match(metric(result, "pulse").value, /antes e depois/)
+    assert.match(result.summary, /antes e depois/)
+  }
+})
 
 for (const kind of ["fade", "echo", "filter", "lowpass", "bass_swap"]) {
   test(`${kind} reports the two ends and peak without grading its intentional envelope`, () => {
