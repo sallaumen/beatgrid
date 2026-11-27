@@ -15,10 +15,22 @@ defmodule BeatgridWeb.RescueLiveTest do
   test "renders the census and the empty states", %{conn: conn} do
     insert(:track, status: :present, rel_path: "ok.mp3", integrity_status: :ok)
 
-    {:ok, _view, html} = live(conn, ~p"/resgate")
+    {:ok, view, html} = live(conn, ~p"/resgate")
+
+    assert has_element?(
+             view,
+             "nav[aria-label='Categorias de recuperação'] a[href='#arquivos-danificados']",
+             "Arquivos danificados"
+           )
+
+    assert has_element?(
+             view,
+             "nav[aria-label='Categorias de recuperação'] a[href='#quarentena']",
+             "Quarentena"
+           )
 
     assert html =~ "Recuperação de arquivos"
-    assert html =~ "íntegras"
+    assert html =~ "Íntegras"
     assert html =~ "Nenhum arquivo danificado identificado"
     assert html =~ "Quarentena vazia"
   end
@@ -74,7 +86,15 @@ defmodule BeatgridWeb.RescueLiveTest do
 
     assert has_element?(view, "#quarentena a[href='/dedup']", "Revisar duplicatas")
     assert html =~ "arquivo sumido"
-    assert html =~ "Restaurar do backup"
+    assert has_element?(view, "#arquivo-#{ghost.id} dd", "Forró/adeus.mp3")
+
+    assert has_element?(
+             view,
+             "#arquivo-#{ghost.id} button[phx-click=restore][data-confirm]",
+             "Restaurar do backup"
+           )
+
+    refute has_element?(view, "#arquivo-#{quarantined.id} button[phx-click=unquarantine]")
     assert html =~ "Restaurar todas com backup (1)"
     assert html =~ "Dupla Esquecida"
     assert html =~ "Forró/dupla.mp3"
@@ -100,9 +120,10 @@ defmodule BeatgridWeb.RescueLiveTest do
         batch_id: Uniq.UUID.uuid7()
       })
 
-    {:ok, _view, html} = live(conn, ~p"/resgate")
+    {:ok, view, html} = live(conn, ~p"/resgate")
 
-    assert html =~ "Restaurar"
+    assert has_element?(view, "#arquivo-#{track.id} dd", "Forró/viva.mp3")
+    assert has_element?(view, "#arquivo-#{track.id} button[phx-click=unquarantine]", "Restaurar")
     refute html =~ "Arquivo ausente na quarentena"
   end
 
@@ -112,6 +133,6 @@ defmodule BeatgridWeb.RescueLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/resgate")
 
-    assert render_click(view, "check_all", %{}) =~ "Verificando 2 faixa(s)"
+    assert render_click(view, "check_all", %{}) =~ "Verificação de 2 faixa(s) enfileirada"
   end
 end
