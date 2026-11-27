@@ -167,10 +167,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
         case socket.assigns.hint do
           %{track: %{id: ^previous}} = hint ->
-            transition = hint.transition && Map.put(hint.transition, "to_ms", nil)
-
-            {:noreply,
-             assign(socket, hint: %{hint | track: track, transition: transition}, hint_deck: deck)}
+            {:noreply, assign(socket, hint: replace_hint_track(hint, track), hint_deck: deck)}
 
           _ ->
             {:noreply, socket}
@@ -222,6 +219,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
   # ── protocolo do console (o cliente reporta, o servidor adota a realidade) ──
 
   def handle_event("deck_started", %{"deck" => deck, "track_id" => id}, socket) do
+    resuming? =
+      not socket.assigns.playing? and socket.assigns.active_deck == deck and
+        socket.assigns.pointer_id == id
+
     socket =
       socket
       |> assign(active_deck: deck, playing?: true)
@@ -232,7 +233,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
       nil ->
         Playback.set_now_playing(%{track_id: id, set_id: nil})
         Playback.activate_quiet_mode()
-        {:noreply, socket |> assign(pointer_id: id, predecessors: nil) |> push_hint(nil)}
+        hint = resumed_removed_source_hint(socket, resuming?)
+
+        {:noreply,
+         socket
+         |> assign(pointer_id: id, predecessors: if(resuming?, do: socket.assigns.predecessors))
+         |> push_hint(hint)}
 
       _entry ->
         set = socket.assigns.set
@@ -330,48 +336,17 @@ defmodule BeatgridWeb.DiscotecagemLive do
   end
 
   # Erro de mídia: a faixa é PULADA, nunca derruba o som (regra nunca-mais).
-  def handle_event("deck_error", %{"deck" => deck, "track_id" => id}, socket) do
-    set = socket.assigns.set
-    next = set && Sets.entry_after(set.id, id, active_track(socket))
+  def handle_event("deck_error", %{"deck" => deck, "track_id" => id} = params, socket) do
     socket = put_flash(socket, :error, "Erro ao tocar uma faixa — pulada.")
 
-    cond do
-      deck == socket.assigns.active_deck and id != socket.assigns.pointer_id ->
-        {:noreply, put_flash(socket, :error, "Erro ao carregar a faixa preparada.")}
+    socket =
+      if deck == socket.assigns.active_deck do
+        failed_active_deck(socket, deck, id, error_was_playing(params, socket))
+      else
+        failed_preload(socket, id)
+      end
 
-      deck == socket.assigns.active_deck and not is_nil(next) ->
-        # O cliente enfileira a carga se o outro deck ainda estiver soltando a
-        # rampa da transição (pendingLoad) — nada de carga recusada e silêncio.
-        {:noreply,
-         push_event(socket, "dj_load", %{
-           deck: other_deck(deck),
-           track: track_payload(next.track),
-           autoplay: true,
-           set_id: set.id,
-           at_ms: transition_to_ms(next.transition)
-         })}
-
-      deck == socket.assigns.active_deck ->
-        # A faixa no ar morreu e não há próxima: o silêncio é real — o estado
-        # (e o quiet mode!) precisam refletir isso, como em track_ended.
-        Playback.set_now_playing(%{track_id: id, set_id: nil})
-        Playback.deactivate_quiet_mode()
-
-        {:noreply,
-         assign(socket,
-           playing?: false,
-           active_deck: nil,
-           pointer_id: nil,
-           hint: nil,
-           hint_deck: nil
-         )}
-
-      is_nil(set) ->
-        {:noreply, socket}
-
-      true ->
-        {:noreply, push_hint(socket, next)}
-    end
+    {:noreply, socket}
   end
 
   # Reconexão de socket: o servidor remonta com assigns zerados, então o
@@ -393,16 +368,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           else: {:noreply, socket}
 
       %{"paused_deck" => deck} when deck in ["a", "b"] and is_map(decks) ->
-        socket = restore_loaded_decks(socket, decks)
-        track = if deck == "a", do: socket.assigns.deck_a, else: socket.assigns.deck_b
-
-        if track do
-          hint = Sets.live_hint(socket.assigns.entries, track, nil)
-          socket = assign(socket, active_deck: deck, pointer_id: track.id, playing?: false)
-          {:noreply, if(hint, do: push_hint(socket, hint), else: clear_client_hint(socket))}
-        else
-          {:noreply, socket}
-        end
+        {:noreply, restore_paused_session(socket, deck, decks, params["manual_hint"])}
 
       _ ->
         {:noreply, restore_loaded_decks(socket, decks)}
@@ -448,6 +414,68 @@ defmodule BeatgridWeb.DiscotecagemLive do
   def terminate(_reason, _socket), do: :ok
 
   # ── helpers ──────────────────────────────────────────────────────────────────
+
+  defp error_was_playing(%{"was_playing" => value}, _socket) when is_boolean(value), do: value
+  defp error_was_playing(_params, socket), do: socket.assigns.playing?
+
+  defp failed_active_deck(socket, _deck, id, _was_playing)
+       when id != socket.assigns.pointer_id,
+       do: put_flash(socket, :error, "Erro ao carregar a faixa preparada.")
+
+  defp failed_active_deck(socket, _deck, _id, false) do
+    Playback.release_now_playing()
+    Playback.deactivate_quiet_mode()
+
+    socket
+    |> put_flash(:error, "Erro na faixa pausada — escolha a próxima antes de tocar.")
+    |> assign(playing?: false, active_deck: nil, pointer_id: nil, predecessors: nil)
+    |> push_hint(nil)
+  end
+
+  defp failed_active_deck(socket, deck, id, true) do
+    if next = next_after_failed(socket, id) do
+      # The client queues the load if the other deck is still releasing a ramp.
+      push_event(socket, "dj_load", %{
+        deck: other_deck(deck),
+        track: track_payload(next.track),
+        autoplay: true,
+        set_id: socket.assigns.set.id,
+        at_ms: transition_to_ms(next.transition)
+      })
+    else
+      Playback.set_now_playing(%{track_id: id, set_id: nil})
+      Playback.deactivate_quiet_mode()
+
+      assign(socket,
+        playing?: false,
+        active_deck: nil,
+        pointer_id: nil,
+        hint: nil,
+        hint_deck: nil
+      )
+    end
+  end
+
+  defp failed_preload(%{assigns: %{set: nil}} = socket, _id), do: socket
+  defp failed_preload(socket, id), do: push_hint(socket, next_after_failed(socket, id))
+
+  defp next_after_failed(socket, id) do
+    set = socket.assigns.set
+    set && Sets.entry_after(set.id, id, active_track(socket))
+  end
+
+  defp restore_paused_session(socket, deck, decks, manual) do
+    socket = restore_loaded_decks(socket, decks)
+    track = if deck == "a", do: socket.assigns.deck_a, else: socket.assigns.deck_b
+
+    if track do
+      hint = Sets.live_hint(socket.assigns.entries, track, nil)
+      socket = assign(socket, active_deck: deck, pointer_id: track.id, playing?: false)
+      restore_paused_hint(socket, hint, manual)
+    else
+      socket
+    end
+  end
 
   defp select_set(socket, id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
@@ -679,7 +707,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
     end
   end
 
-  defp push_hint(socket, hint) do
+  defp push_hint(socket, planned) do
+    planned = identify_hint(socket, planned)
+    hint = preserve_manual_hint(socket.assigns.hint, planned)
+    push_effective_hint(socket, hint)
+  end
+
+  defp push_effective_hint(socket, hint) do
     if same_hint?(socket.assigns.hint, hint) do
       assign(socket, hint: hint)
     else
@@ -689,7 +723,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
       |> push_event("dj_hint", %{
         track: track_payload(hint.track),
         transition: hint.transition,
-        position: hint.position
+        position: hint.position,
+        planned_track_id: hint.planned_track_id,
+        source_track_id: hint.source_track_id,
+        set_id: hint.set_id
       })
     end
   end
@@ -697,10 +734,90 @@ defmodule BeatgridWeb.DiscotecagemLive do
   defp clear_client_hint(socket),
     do: socket |> assign(hint: nil, hint_deck: nil) |> push_event("dj_hint_clear", %{})
 
-  defp same_hint?(%{track: %{id: id}, transition: t}, %{track: %{id: id}, transition: t}),
-    do: true
+  defp identify_hint(socket, hint) do
+    Map.merge(hint, %{
+      planned_track_id: hint.track.id,
+      source_track_id: socket.assigns.pointer_id,
+      set_id: socket.assigns.set && socket.assigns.set.id
+    })
+  end
+
+  defp preserve_manual_hint(
+         %{
+           track: %{id: actual} = track,
+           planned_track_id: planned,
+           source_track_id: source,
+           set_id: set
+         },
+         %{planned_track_id: planned, source_track_id: source, set_id: set} = hint
+       )
+       when actual != planned,
+       do: replace_hint_track(hint, track)
+
+  defp preserve_manual_hint(_current, planned), do: planned
+
+  defp replace_hint_track(hint, track),
+    do: %{
+      hint
+      | track: track,
+        transition: hint.transition && Map.put(hint.transition, "to_ms", nil)
+    }
+
+  defp restore_paused_hint(socket, nil, _manual), do: clear_client_hint(socket)
+
+  defp restore_paused_hint(socket, hint, manual) do
+    planned = identify_hint(socket, hint)
+    hint = restore_manual_hint(socket, planned, manual)
+    push_effective_hint(socket, hint)
+  end
+
+  defp restore_manual_hint(
+         socket,
+         %{planned_track_id: planned, source_track_id: source, set_id: set} = hint,
+         %{
+           "planned_track_id" => planned,
+           "source_track_id" => source,
+           "set_id" => set,
+           "deck" => deck,
+           "track_id" => actual
+         }
+       )
+       when actual != planned and deck in ["a", "b"] do
+    loaded = if deck == "a", do: socket.assigns.deck_a, else: socket.assigns.deck_b
+
+    if deck == other_deck(socket.assigns.active_deck) and match?(%{id: ^actual}, loaded),
+      do: replace_hint_track(hint, loaded),
+      else: hint
+  end
+
+  defp restore_manual_hint(_socket, hint, _manual), do: hint
+
+  defp same_hint?(
+         %{
+           track: %{id: id},
+           transition: t,
+           planned_track_id: planned,
+           source_track_id: source,
+           set_id: set
+         },
+         %{
+           track: %{id: id},
+           transition: t,
+           planned_track_id: planned,
+           source_track_id: source,
+           set_id: set
+         }
+       ),
+       do: true
 
   defp same_hint?(_current, _new), do: false
+
+  defp resumed_removed_source_hint(%{assigns: %{set: %{}}} = socket, true) do
+    if track = active_track(socket),
+      do: Sets.live_hint(Sets.entries(socket.assigns.set), track, socket.assigns.predecessors)
+  end
+
+  defp resumed_removed_source_hint(_socket, _resuming), do: nil
 
   # The manual-fire palette: {engine key, button label, one-line description, accent}.
   defp transition_buttons(:classicas) do
@@ -1453,8 +1570,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
                   this.pushEvent("track_ended", {track_id: trackId})
                   this.log("fim do set")
                 },
-                deckError: ({deck, trackId}) => {
-                  this.pushEvent("deck_error", {deck, track_id: trackId})
+                deckError: ({deck, trackId, wasPlaying}) => {
+                  this.pushEvent("deck_error", {deck, track_id: trackId, was_playing: wasPlaying})
                   this.log(`⚠ erro no deck ${deck.toUpperCase()} — pulando a faixa`)
                 },
                 xfadePos: ({pos}) => {
@@ -1987,10 +2104,17 @@ defmodule BeatgridWeb.DiscotecagemLive do
             const deck = this.engine.sessionDeck()
             const paused = snap.activeDeck
             const pausedSource = !deck && this.lastPlayedId && snap[paused]?.trackId === this.lastPlayedId
+            const armed = this.hint
+            const manualHint = pausedSource && armed?.planned_track_id &&
+              armed.track.id !== armed.planned_track_id && snap[armed.deck]?.trackId === armed.track.id
+              ? {deck: armed.deck, track_id: armed.track.id, planned_track_id: armed.planned_track_id,
+                 source_track_id: armed.source_track_id, set_id: armed.set_id}
+              : null
             this.pushEvent("console_resync", {
               deck,
               decks: {a: snap.a.trackId, b: snap.b.trackId},
               paused_deck: pausedSource ? paused : null,
+              manual_hint: manualHint,
               has_hint: !!(this.hint || this.pendingHint),
               playing_track_id: snap.breather?.fromTrackId ?? (deck ? snap[deck].trackId : null),
               auto: snap.auto,

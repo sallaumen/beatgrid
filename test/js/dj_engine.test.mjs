@@ -98,6 +98,21 @@ async function scratchBooth(t, id) {
   return {...rig, commands}
 }
 
+test("media errors report whether the source was playing before the pause", t => {
+  const reports = []
+  const {a, engine} = booth(t, {deckError: event => reports.push(event)})
+  engine.playPause("a")
+  a.error = {code: 3}
+  a.dispatchEvent(new Event("error"))
+  assert.equal(reports.at(-1).wasPlaying, false)
+
+  a.error = null
+  engine.playPause("a")
+  a.error = {code: 3}
+  a.dispatchEvent(new Event("error"))
+  assert.equal(reports.at(-1).wasPlaying, true)
+})
+
 test("a missed AUTO window still waits the full breather after ended", t => {
   const {a, b, hint, breath, advances, tick} = booth(t)
   hint(breath)
