@@ -78,10 +78,10 @@ defmodule BeatgridWeb.ImportsLiveLocalTest do
     |> render_submit()
 
     html = render_async(view)
-    assert html =~ "1 nova(s), 0 duplicada(s)"
+    assert html =~ "1 nova, 0 duplicadas"
     assert html =~ "Djavan"
     assert html =~ "Sina"
-    assert html =~ "Importar 1 faixa(s)"
+    assert html =~ "Importar 1 faixa"
   end
 
   @tag :tmp_dir
@@ -141,6 +141,8 @@ defmodule BeatgridWeb.ImportsLiveLocalTest do
       }
     )
 
+    batch_url = assert_patch(view)
+    assert batch_url =~ "/importados?origem=local&lote=" or batch_url =~ "/importados?lote="
     assert render(view) =~ "Importando — na fila"
     refute has_element?(view, "#import-run")
     assert has_element?(view, "#import-source")
@@ -247,7 +249,7 @@ defmodule BeatgridWeb.ImportsLiveLocalTest do
       Tracks.list_by(status: :present)
       |> Enum.filter(&(&1.source_playlist == "import"))
 
-    assert has_element?(view, "#local-import-activity", "1 faixa(s) importada(s), 1 duplicada(s)")
+    assert has_element?(view, "#local-import-activity", "1 faixa importada, 1 duplicada")
     assert has_element?(view, "#local-import-receipt a[href='/track/#{new.id}']", "Abrir faixa")
 
     assert has_element?(
@@ -257,6 +259,136 @@ defmodule BeatgridWeb.ImportsLiveLocalTest do
            )
 
     refute has_element?(view, "#local-import-receipt a[href='/track/#{wrong.id}']")
+  end
+
+  @tag :tmp_dir
+  test "local batch deep links survive reload and isolate a second batch with partial failure", %{
+    conn: conn,
+    tmp_dir: root
+  } do
+    first_source = Path.join(root, "first")
+    File.mkdir_p!(first_source)
+    File.write!(Path.join(first_source, "good.mp3"), "good bytes")
+    missing = Path.join(first_source, "missing.mp3")
+    File.write!(missing, "will disappear")
+    second_source = Path.join(root, "next.mp3")
+    File.write!(second_source, "next bytes")
+
+    stub(Beatgrid.Audio.Mock, :read_metadata, fn _path ->
+      {:ok, %Metadata{title: "Sina", artist: "Djavan", duration_ms: 211_000}}
+    end)
+
+    {:ok, original, _} = live(conn, ~p"/importados?origem=local")
+    {first_job, first_path} = confirm_local_batch(original, first_source)
+    {:ok, reopened, _} = live(conn, first_path)
+    assert has_element?(reopened, "#local-import-batch-status", "Na fila")
+    refute has_element?(reopened, "#local-import-receipt a")
+
+    {second_job, second_path} = confirm_local_batch(original, second_source)
+    refute second_path == first_path
+    assert has_element?(original, "#local-import-batch-status", "Na fila")
+
+    first_job |> Ecto.Changeset.change(state: "executing") |> Beatgrid.Repo.update!()
+    send(reopened.pid, :refresh_downloads)
+    assert has_element?(reopened, "#local-import-batch-status", "Em andamento")
+
+    File.rm!(missing)
+
+    assert %{imported: 1, failed: 1} =
+             Library.import_files(first_job.args["items"], first_job.args["batch_id"])
+
+    first_job |> Ecto.Changeset.change(state: "discarded") |> Beatgrid.Repo.update!()
+    send(reopened.pid, :refresh_downloads)
+
+    [first_track] =
+      Enum.filter(Tracks.list_by(status: :present), &(&1.source_playlist == "import"))
+
+    assert has_element?(reopened, "#local-import-batch-status", "1 faixa importada")
+    assert has_element?(reopened, "#local-import-receipt a[href='/track/#{first_track.id}']")
+    assert has_element?(reopened, "#local-import-receipt", "missing.mp3")
+    assert has_element?(reopened, "#local-import-receipt", "Faixa não localizada")
+    refute has_element?(original, "#local-import-receipt a[href='/track/#{first_track.id}']")
+    assert has_element?(original, "#local-import-batch-status", "Na fila")
+
+    {:ok, first_reloaded, _} = live(conn, first_path)
+    assert has_element?(first_reloaded, "#local-import-batch-status", "Lote com falha")
+    refute has_element?(first_reloaded, "#local-import-batch-status", "1 faixa importada")
+
+    assert has_element?(
+             first_reloaded,
+             "#local-import-receipt a[href='/track/#{first_track.id}']"
+           )
+
+    assert %{imported: 1, failed: 0} =
+             Library.import_files(second_job.args["items"], second_job.args["batch_id"])
+
+    second_job |> Ecto.Changeset.change(state: "completed") |> Beatgrid.Repo.update!()
+    {:ok, second_reloaded, _} = live(conn, second_path)
+    [second_track] = Enum.filter(Tracks.list_by(status: :present), &(&1.id != first_track.id))
+    assert has_element?(second_reloaded, "#local-import-batch-status", "Lote concluído")
+
+    assert has_element?(
+             second_reloaded,
+             "#local-import-receipt a[href='/track/#{second_track.id}']"
+           )
+
+    refute has_element?(
+             second_reloaded,
+             "#local-import-receipt a[href='/track/#{first_track.id}']"
+           )
+
+    view_path = ~p"/importados?origem=local"
+    original |> element("#import-sources a", "YouTube e Spotify") |> render_click()
+    assert_patch(original, ~p"/importados")
+    original |> element("#import-sources a", "Pasta ou arquivo") |> render_click()
+    assert_patch(original, second_path)
+    original |> element("#local-import-recent-link") |> render_click()
+    assert_patch(original, view_path)
+  end
+
+  @tag :tmp_dir
+  test "a reopened pending batch finds its exact track by polling after a missed progress event",
+       %{
+         conn: conn,
+         tmp_dir: root
+       } do
+    source = Path.join(root, "encore.mp3")
+    File.write!(source, "encore recording")
+
+    stub(Beatgrid.Audio.Mock, :read_metadata, fn _ ->
+      {:ok, %Metadata{title: "Encore", duration_ms: 12_000}}
+    end)
+
+    {:ok, form_view, _} = live(conn, ~p"/importados?origem=local")
+    {job, path} = confirm_local_batch(form_view, source)
+    {:ok, watcher, _} = live(conn, path)
+    assert has_element?(watcher, "#local-import-batch-status", "Na fila")
+    [item] = job.args["items"]
+    track = insert(:track, status: :present, content_sha256: item["sha256"])
+    job |> Ecto.Changeset.change(state: "completed") |> Beatgrid.Repo.update!()
+
+    send(watcher.pid, :refresh_downloads)
+    assert has_element?(watcher, "#local-import-batch-status", "Lote concluído")
+    assert has_element?(watcher, "#local-import-receipt a[href='/track/#{track.id}']")
+  end
+
+  test "a pruned local batch has an exit without invented results", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/importados?origem=local&lote=#{Ecto.UUID.generate()}")
+    assert has_element?(view, "#local-import-batch-status", "Lote não encontrado")
+    refute has_element?(view, "#local-import-receipt")
+    view |> element("#local-import-recent-link") |> render_click()
+    assert_patch(view, ~p"/importados?origem=local")
+    refute has_element?(view, "#local-import-batch-status")
+  end
+
+  defp confirm_local_batch(view, source) do
+    view |> form("#import-source", %{source: source}) |> render_submit()
+    render_async(view)
+    view |> form("#import-run") |> render_submit()
+    path = assert_patch(view)
+    batch = URI.parse(path).query |> URI.decode_query() |> Map.fetch!("lote")
+    job = Enum.find(all_enqueued(worker: ImportWorker), &(&1.args["batch_id"] == batch))
+    {job, path}
   end
 
   test "a running import-progress event shows a live progress bar", %{conn: conn} do
@@ -284,7 +416,7 @@ defmodule BeatgridWeb.ImportsLiveLocalTest do
     })
 
     html = render(view)
-    assert html =~ "1 faixa(s) importada(s)."
+    assert html =~ "1 faixa importada."
     refute html =~ "Importando"
   end
 
@@ -348,7 +480,7 @@ defmodule BeatgridWeb.ImportsLiveLocalTest do
       view |> form("#import-source", %{ai: "on", soundcharts: "on"}) |> render_change()
       render_click(with_target(view, "#local-import"), "browse_pick", %{"file" => file})
       html = render_async(view)
-      assert html =~ "1 nova(s), 0 duplicada(s)"
+      assert html =~ "1 nova, 0 duplicadas"
       assert html =~ "Savinho"
       assert html =~ "+ Soundcharts"
     end
@@ -367,7 +499,7 @@ defmodule BeatgridWeb.ImportsLiveLocalTest do
 
       render_click(with_target(view, "#local-import"), "browse_import_here", %{})
       html = render_async(view)
-      assert html =~ "2 nova(s), 0 duplicada(s)"
+      assert html =~ "2 novas, 0 duplicadas"
     end
 
     @tag :tmp_dir

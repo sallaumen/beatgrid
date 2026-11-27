@@ -34,6 +34,15 @@ defmodule Beatgrid.Jobs do
     |> Repo.all()
   end
 
+  @doc "The persisted job for a confirmed local import batch, while its history exists."
+  @spec local_import_in_batch(String.t()) :: Oban.Job.t() | nil
+  def local_import_in_batch(batch) do
+    Oban.Job.query(worker: Beatgrid.Workers.ImportWorker, args: %{batch_id: batch})
+    |> order_by([j], desc: j.id)
+    |> limit(1)
+    |> Repo.one()
+  end
+
   @doc "Attach a second review batch to an in-flight download without changing its state."
   @spec follow_download(Oban.Job.t(), String.t() | nil) :: {:ok, Oban.Job.t()}
   def follow_download(%Oban.Job{conflict?: true} = job, batch) when is_binary(batch) do

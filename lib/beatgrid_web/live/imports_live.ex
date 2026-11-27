@@ -30,6 +30,9 @@ defmodule BeatgridWeb.ImportsLive do
      |> assign(
        page_title: "Importações",
        online_route: ~p"/importados",
+       local_route: ~p"/importados?origem=local",
+       local_batch: nil,
+       local_job: nil,
        local_progress_event: nil,
        filters: %{},
        sort: :recent,
@@ -51,15 +54,18 @@ defmodule BeatgridWeb.ImportsLive do
   end
 
   @impl true
-  def handle_params(%{"origem" => "local"}, _uri, socket),
-    do: {:noreply, assign(socket, mode: :local)}
+  def handle_params(%{"origem" => "local"} = params, _uri, socket) do
+    batch = valid_batch(params["lote"])
+
+    route =
+      if batch, do: ~p"/importados?origem=local&lote=#{batch}", else: ~p"/importados?origem=local"
+
+    {:noreply,
+     socket |> assign(mode: :local, local_batch: batch, local_route: route) |> load_local_job()}
+  end
 
   def handle_params(params, _uri, socket) do
-    batch =
-      case Ecto.UUID.cast(params["lote"]) do
-        {:ok, id} -> id
-        :error -> nil
-      end
+    batch = valid_batch(params["lote"])
 
     online_route =
       case Map.take(params, ["lote", "recomendacao"]) do
@@ -70,6 +76,24 @@ defmodule BeatgridWeb.ImportsLive do
     {:noreply,
      socket |> assign(mode: :online, batch: batch, online_route: online_route) |> load_activity()}
   end
+
+  defp valid_batch(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, id} -> id
+      :error -> nil
+    end
+  end
+
+  defp load_local_job(socket) do
+    job = socket.assigns.local_batch && Jobs.local_import_in_batch(socket.assigns.local_batch)
+    assign(socket, local_job: job)
+  end
+
+  defp refresh_local_job(%{assigns: %{local_job: %{state: state}}} = socket)
+       when state not in ["completed", "discarded", "cancelled"],
+       do: load_local_job(socket)
+
+  defp refresh_local_job(socket), do: socket
 
   defp schedule_refresh, do: Process.send_after(self(), :refresh_downloads, 3_000)
 
@@ -121,7 +145,12 @@ defmodule BeatgridWeb.ImportsLive do
   @impl true
   def handle_info(:refresh_downloads, socket) do
     schedule_refresh()
-    {:noreply, if(socket.assigns.mode == :online, do: load_activity(socket), else: socket)}
+
+    {:noreply,
+     if(socket.assigns.mode == :online,
+       do: load_activity(socket),
+       else: refresh_local_job(socket)
+     )}
   end
 
   def handle_info({:import_progress, progress}, socket),
@@ -438,7 +467,7 @@ defmodule BeatgridWeb.ImportsLive do
             <.icon name="hero-link" class="mr-1.5 size-4" /> YouTube e Spotify
           </.link>
           <.link
-            patch={~p"/importados?origem=local"}
+            patch={@local_route}
             aria-current={@mode == :local && "page"}
             class={["inline-flex min-h-11 items-center sm:min-h-0", chip_class(@mode == :local)]}
           >
@@ -450,6 +479,8 @@ defmodule BeatgridWeb.ImportsLive do
           module={LocalImportComponent}
           id="local-import"
           active={@mode == :local}
+          batch={@local_batch}
+          job={@local_job}
           progress_event={@local_progress_event}
         />
         <.online_imports :if={@mode == :online} {assigns} />
