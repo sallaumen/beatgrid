@@ -510,6 +510,19 @@ test("rescuing a vinyl brake restores the DJ's pitch and key-lock setting perman
   assert.equal(a.preservesPitch, false)
 })
 
+test("rescuing a bass swap restores the outgoing low end after the bass has crossed", t => {
+  const {engine, a, b, hint, tick} = booth(t)
+  hint(null)
+  assert.equal(engine.fireManual("bass_swap").ok, true)
+  tick(4500)
+  assert.ok(engine.decks.a.bass.gain.value < 0)
+  assert.equal(engine.cancelTransition().ok, true)
+  tick(15_000)
+  assert.equal(engine.decks.a.bass.gain.value, 0)
+  assert.equal(a.paused, false)
+  assert.equal(b.paused, true)
+})
+
 test("a four-beat loop spans four source beats after pitching the track", t => {
   const {engine, a} = booth(t)
   engine.setRate("a", 1.2)

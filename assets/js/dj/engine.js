@@ -1805,6 +1805,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     const now = ctx.currentTime
     rescued.gain.gain.linearRampToValueAtTime(1, now + 0.25)
     rescued.dry.gain.linearRampToValueAtTime(1, now + 0.25)
+    rescued.bass.gain.linearRampToValueAtTime(0, now + 0.25)
     rescued.echoSend.gain.linearRampToValueAtTime(0, now + 0.25)
     rescued.hpf.frequency.linearRampToValueAtTime(10, now + 0.2)
     rescued.lpf.frequency.linearRampToValueAtTime(20_000, now + 0.2)
