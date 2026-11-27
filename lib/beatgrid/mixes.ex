@@ -77,14 +77,13 @@ defmodule Beatgrid.Mixes do
   @spec import_url(String.t()) ::
           {:ok, Mix.t()} | {:error, :unsupported_source | Ecto.Changeset.t()}
   def import_url(url) do
-    with {:ok, source} <- detect_source(url) do
-      Repo.transact(fn ->
-        with {:ok, mix} <- create_mix(%{source: source, source_url: url, status: :downloading}),
-             {:ok, _job} <- MixDownloadWorker.enqueue(mix) do
-          {:ok, mix}
-        end
-      end)
-    end
+    Repo.transact(fn ->
+      with {:ok, source} <- detect_source(url),
+           {:ok, mix} <- create_mix(%{source: source, source_url: url, status: :downloading}),
+           {:ok, _job} <- MixDownloadWorker.enqueue(mix) do
+        {:ok, mix}
+      end
+    end)
   end
 
   @spec fetch_source(String.t(), String.t()) ::
