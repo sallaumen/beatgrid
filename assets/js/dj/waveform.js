@@ -8,7 +8,8 @@
 // Keep the envelope and scratch PCM together. A cached envelope alone would
 // leave a revisited deck permanently unable to scratch until a page reload.
 const clips = new Map()
-const MAX_CLIPS = 4
+// Stereo rehearsal buffers and scratch PCM share the two platter slots.
+const MAX_CLIPS = 2
 const platterTracks = new Map()
 
 export function retainScratch(platter, trackId) {
@@ -39,6 +40,10 @@ export function loadPeaks(trackId, src, ctx) {
   return clip.ready
 }
 
+export function getDeckAudio(trackId) {
+  return clips.get(trackId)?.audio || null
+}
+
 export function getScratchPcm(trackId) {
   return clips.get(trackId)?.pcm || null
 }
@@ -48,6 +53,7 @@ async function decode(clip, src, ctx) {
   if (!res.ok) throw new Error(`audio fetch failed: ${res.status}`)
   const buf = await res.arrayBuffer()
   const audio = await ctx.decodeAudioData(buf)
+  clip.audio = audio
   const ch0 = audio.getChannelData(0)
   const ch1 = audio.numberOfChannels > 1 ? audio.getChannelData(1) : ch0
 

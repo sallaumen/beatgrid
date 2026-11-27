@@ -84,6 +84,28 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     end
   end
 
+  test "rehearsing opens a private comparison without binding a live transition", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/discotecagem")
+
+    assert has_element?(view, ~s(button[aria-controls="dj-rehearse-dialog"]), "Ensaiar a próxima")
+    assert has_element?(view, "#dj-rehearse-dialog canvas[data-wave=out]")
+    assert has_element?(view, "#dj-rehearse-dialog canvas[data-wave=in]")
+    assert has_element?(view, "#dj-rehearse-dialog [data-timing]")
+    assert has_element?(view, "#dj-rehearse-dialog input[value=cut]")
+    assert has_element?(view, "#dj-rehearse-dialog input[value=blend]")
+
+    assert has_element?(
+             view,
+             "#dj-rehearse-dialog button[data-listen][disabled]",
+             "Ouvir no fone"
+           )
+
+    refute has_element?(
+             view,
+             "#dj-rehearse-dialog [data-dj-fire], #dj-rehearse-dialog [phx-click]"
+           )
+  end
+
   test "the two waveform lanes expose independent media status before a load", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/discotecagem")
 
