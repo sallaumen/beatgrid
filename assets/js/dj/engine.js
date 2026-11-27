@@ -567,8 +567,12 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       if (deck.trackId == null) return
       // A fatally-errored element must not keep reading as "audible" — pause it
       // so the deck frees up (deckFreed) and recovery loads are not refused.
+      // Capture transport intent before pause() clears it. A media failure on
+      // a manually paused source must not command playback of the other deck.
+      const trackId = deck.trackId
+      const wasPlaying = state.activeDeck === deck.id && Boolean(deck.wantsPlayback || sessionDeck() === deck.id)
       deck.pause()
-      emit("deckError", {deck: deck.id, trackId: deck.trackId})
+      emit("deckError", {deck: deck.id, trackId, wasPlaying})
     })
   }
 

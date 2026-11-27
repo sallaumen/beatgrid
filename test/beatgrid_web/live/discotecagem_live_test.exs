@@ -554,6 +554,50 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert_push_event(view, "dj_hint", %{track: %{title: "Dois"}})
   end
 
+  test "playing reconnect preserves an actual manual preload and never sends the superseded plan first",
+       %{conn: conn} do
+    {set, [a, b, c]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}, {"Três", 106.0}])
+    manual = insert(:track, status: :present, tag_title: "Escolha do DJ", duration_ms: 90_000)
+    {:ok, _} = Sets.set_breather(set, b, true)
+
+    payload = %{
+      "decks" => %{"a" => a.id, "b" => manual.id},
+      "deck" => "a",
+      "playing_track_id" => a.id,
+      "set_id" => set.id,
+      "auto" => true,
+      "has_hint" => true,
+      "manual_hint" => %{
+        "deck" => "b",
+        "track_id" => manual.id,
+        "planned_track_id" => b.id,
+        "source_track_id" => a.id,
+        "set_id" => set.id
+      }
+    }
+
+    {:ok, view, _} = live(conn, ~p"/discotecagem?set=#{set.id}")
+    render_hook(view, "console_resync", payload)
+    manual_id = manual.id
+
+    assert_push_event(view, "dj_hint", %{
+      track: %{id: ^manual_id},
+      transition: %{"breather" => true, "to_ms" => nil}
+    })
+
+    refute_push_event(view, "dj_hint", %{})
+    assert Playback.now_playing() == %{track_id: a.id, set_id: set.id}
+    assert Playback.quiet_mode_active?()
+    refute_push_event(view, "dj_load", %{autoplay: true})
+
+    :ok = Sets.move(set, c, :up)
+    {:ok, remounted, _} = live(conn, ~p"/discotecagem?set=#{set.id}")
+    render_hook(remounted, "console_resync", payload)
+    cid = c.id
+    assert_push_event(remounted, "dj_hint", %{track: %{id: ^cid}})
+    refute_push_event(remounted, "dj_hint", %{})
+  end
+
   test "removing the only successor never arms the playing track as its own next track", %{
     conn: conn
   } do
@@ -922,6 +966,144 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert has_element?(view, eject)
     render_hook(view, "deck_ejected", %{"deck" => "b"})
     refute has_element?(view, eject)
+  end
+
+  test "resuming a paused deck preserves a manual preload for the same planned successor", %{
+    conn: conn
+  } do
+    {set, [a, b, c]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}, {"Três", 106.0}])
+    manual = insert(:track, status: :present, tag_title: "Escolha do DJ", duration_ms: 90_000)
+    view = open_console(conn, set)
+    render_click(view, "play_set", %{})
+    bid = b.id
+    manual_id = manual.id
+    assert_push_event(view, "dj_hint", %{track: %{id: ^bid}})
+    render_hook(view, "hint_armed", %{"deck" => "b", "track_id" => b.id})
+    render_hook(view, "console_idle", %{})
+
+    render_hook(view, "deck_loaded", %{
+      "deck" => "b",
+      "track_id" => manual.id,
+      "replaced_hint_id" => b.id
+    })
+
+    render_hook(view, "deck_started", %{"deck" => "a", "track_id" => a.id})
+    refute_push_event(view, "dj_hint", %{})
+    assert has_element?(view, "div:has(> div #dj-countdown) > p", "Escolha do DJ")
+    render_hook(view, "console_idle", %{})
+
+    # Updating transition intent for the same boundary must not undo the DJ's load.
+    {:ok, _} = Sets.set_breather(set, b, true)
+
+    assert_push_event(view, "dj_hint", %{
+      track: %{id: ^manual_id},
+      transition: %{"breather" => true, "to_ms" => nil}
+    })
+
+    render_hook(view, "hint_armed", %{"deck" => "b", "track_id" => manual.id})
+    render_hook(view, "deck_started", %{"deck" => "a", "track_id" => a.id})
+    refute_push_event(view, "dj_hint", %{})
+    assert has_element?(view, "div:has(> div #dj-countdown) > p", "Escolha do DJ")
+
+    # A changed successor wins over the manual override, even if the source is paused.
+    render_hook(view, "console_idle", %{})
+    :ok = Sets.move(set, c, :up)
+    cid = c.id
+    assert_push_event(view, "dj_hint", %{track: %{id: ^cid}})
+    render_hook(view, "hint_armed", %{"deck" => "b", "track_id" => c.id})
+    render_hook(view, "deck_started", %{"deck" => "a", "track_id" => a.id})
+    refute_push_event(view, "dj_hint", %{})
+    assert has_element?(view, "div:has(> div #dj-countdown) > p", "Três")
+  end
+
+  test "paused reconnect preserves an acknowledged manual override only for the unchanged boundary",
+       %{conn: conn} do
+    {set, [a, b, c]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}, {"Três", 106.0}])
+    manual = insert(:track, status: :present, tag_title: "Escolha do DJ", duration_ms: 90_000)
+    {:ok, _} = Sets.set_breather(set, b, true)
+
+    payload = %{
+      "decks" => %{"a" => a.id, "b" => manual.id},
+      "paused_deck" => "a",
+      "set_id" => set.id,
+      "auto" => true,
+      "has_hint" => true,
+      "manual_hint" => %{
+        "deck" => "b",
+        "track_id" => manual.id,
+        "planned_track_id" => b.id,
+        "source_track_id" => a.id,
+        "set_id" => set.id
+      }
+    }
+
+    {:ok, view, _} = live(conn, ~p"/discotecagem?set=#{set.id}")
+    render_hook(view, "console_resync", payload)
+    manual_id = manual.id
+
+    assert_push_event(view, "dj_hint", %{
+      track: %{id: ^manual_id},
+      transition: %{"breather" => true, "to_ms" => nil}
+    })
+
+    refute Playback.quiet_mode_active?()
+    refute_push_event(view, "dj_load", %{autoplay: true})
+
+    # If the order changed while disconnected, that same remembered override loses.
+    :ok = Sets.move(set, c, :up)
+    {:ok, remounted, _} = live(conn, ~p"/discotecagem?set=#{set.id}")
+    render_hook(remounted, "console_resync", payload)
+    cid = c.id
+    assert_push_event(remounted, "dj_hint", %{track: %{id: ^cid}})
+    refute_push_event(remounted, "dj_load", %{autoplay: true})
+  end
+
+  test "removing the only successor while the source is paused clears a manual override", %{
+    conn: conn
+  } do
+    {set, [a, b]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}])
+    manual = insert(:track, status: :present, tag_title: "Escolha do DJ")
+    view = open_console(conn, set)
+    render_click(view, "play_set", %{})
+    assert_push_event(view, "dj_hint", %{})
+    render_hook(view, "hint_armed", %{"deck" => "b", "track_id" => b.id})
+    render_hook(view, "console_idle", %{})
+
+    render_hook(view, "deck_loaded", %{
+      "deck" => "b",
+      "track_id" => manual.id,
+      "replaced_hint_id" => b.id
+    })
+
+    :ok = Sets.remove(set, b)
+    assert_push_event(view, "dj_hint_clear", %{})
+    render_hook(view, "deck_started", %{"deck" => "a", "track_id" => a.id})
+    refute_push_event(view, "dj_hint", %{})
+    assert render(view) =~ "Última faixa do set"
+  end
+
+  test "a media error on the paused source never starts the next deck", %{conn: conn} do
+    {set, [a, _b]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}])
+    view = open_console(conn, set)
+    render_click(view, "play_set", %{})
+    assert_push_event(view, "dj_load", %{autoplay: true})
+    assert_push_event(view, "dj_hint", %{})
+    render_hook(view, "console_idle", %{})
+    render_hook(view, "deck_error", %{"deck" => "a", "track_id" => a.id, "was_playing" => false})
+    refute_push_event(view, "dj_load", %{autoplay: true})
+    assert_push_event(view, "dj_hint_clear", %{})
+    refute Playback.quiet_mode_active?()
+  end
+
+  test "a live media error still advances if the idle notification arrived first", %{conn: conn} do
+    {set, [a, b]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}])
+    view = open_console(conn, set)
+    render_click(view, "play_set", %{})
+    assert_push_event(view, "dj_load", %{autoplay: true})
+    render_hook(view, "console_idle", %{})
+    render_hook(view, "deck_error", %{"deck" => "a", "track_id" => a.id, "was_playing" => true})
+    bid = b.id
+    assert_push_event(view, "dj_load", %{autoplay: true, deck: "b", track: %{id: ^bid}})
   end
 
   test "the next card follows a manual replacement on the armed deck", %{conn: conn} do
