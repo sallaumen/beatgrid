@@ -219,37 +219,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
   # ── protocolo do console (o cliente reporta, o servidor adota a realidade) ──
 
   def handle_event("deck_started", %{"deck" => deck, "track_id" => id}, socket) do
-    resuming? =
-      not socket.assigns.playing? and socket.assigns.active_deck == deck and
-        socket.assigns.pointer_id == id
-
-    socket =
-      socket
-      |> assign(active_deck: deck, playing?: true)
-      |> assign_deck_by_id(deck, id)
-      |> mark_played(id)
-
-    case in_set_entry(socket, id) do
-      nil ->
-        Playback.set_now_playing(%{track_id: id, set_id: nil})
-        Playback.activate_quiet_mode()
-        hint = resumed_removed_source_hint(socket, resuming?)
-
-        {:noreply,
-         socket
-         |> assign(pointer_id: id, predecessors: if(resuming?, do: socket.assigns.predecessors))
-         |> push_hint(hint)}
-
-      _entry ->
-        set = socket.assigns.set
-        Playback.set_now_playing(%{track_id: id, set_id: set.id})
-        Playback.activate_quiet_mode()
-
-        {:noreply,
-         socket
-         |> assign(pointer_id: id, predecessors: nil)
-         |> push_hint(Sets.entry_after(set.id, id))}
-    end
+    {socket, hint} = adopt_started_deck(socket, deck, id)
+    {:noreply, push_hint(socket, hint)}
   end
 
   def handle_event(
@@ -464,7 +435,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
     if track do
       hint = Sets.live_hint(socket.assigns.entries, track, nil)
       socket = assign(socket, active_deck: deck, pointer_id: track.id, playing?: false)
-      restore_paused_hint(socket, hint, manual)
+      restore_resynced_hint(socket, hint, manual, true)
     else
       socket
     end
@@ -623,13 +594,43 @@ defmodule BeatgridWeb.DiscotecagemLive do
   defp assign_deck(socket, "a", track), do: assign(socket, deck_a: track)
   defp assign_deck(socket, "b", track), do: assign(socket, deck_b: track)
 
-  defp restore_playing_session(socket, deck, id, params) do
-    {:noreply, socket} = handle_event("deck_started", %{"deck" => deck, "track_id" => id}, socket)
-    socket = restore_loaded_decks(socket, params["decks"])
+  defp adopt_started_deck(socket, deck, id) do
+    resuming? =
+      not socket.assigns.playing? and socket.assigns.active_deck == deck and
+        socket.assigns.pointer_id == id
 
-    if params["has_hint"] && is_nil(socket.assigns.hint),
-      do: clear_client_hint(socket),
-      else: socket
+    socket =
+      socket
+      |> assign(active_deck: deck, playing?: true)
+      |> assign_deck_by_id(deck, id)
+      |> mark_played(id)
+
+    case in_set_entry(socket, id) do
+      nil ->
+        Playback.set_now_playing(%{track_id: id, set_id: nil})
+        Playback.activate_quiet_mode()
+        hint = resumed_removed_source_hint(socket, resuming?)
+
+        {assign(socket,
+           pointer_id: id,
+           predecessors: if(resuming?, do: socket.assigns.predecessors)
+         ), hint}
+
+      _entry ->
+        set = socket.assigns.set
+        Playback.set_now_playing(%{track_id: id, set_id: set.id})
+        Playback.activate_quiet_mode()
+
+        {assign(socket, pointer_id: id, predecessors: nil), Sets.entry_after(set.id, id)}
+    end
+  end
+
+  defp restore_playing_session(socket, deck, id, params) do
+    {socket, hint} = adopt_started_deck(socket, deck, id)
+
+    socket
+    |> restore_loaded_decks(params["decks"])
+    |> restore_resynced_hint(hint, params["manual_hint"], params["has_hint"] == true)
   end
 
   defp restore_loaded_decks(socket, %{"a" => a, "b" => b}) do
@@ -743,16 +744,14 @@ defmodule BeatgridWeb.DiscotecagemLive do
   end
 
   defp preserve_manual_hint(
-         %{
-           track: %{id: actual} = track,
-           planned_track_id: planned,
-           source_track_id: source,
-           set_id: set
-         },
-         %{planned_track_id: planned, source_track_id: source, set_id: set} = hint
+         %{track: %{id: actual} = track, planned_track_id: planned} = current,
+         hint
        )
-       when actual != planned,
-       do: replace_hint_track(hint, track)
+       when actual != planned do
+    if hint_boundary(current) == hint_boundary(hint),
+      do: replace_hint_track(hint, track),
+      else: hint
+  end
 
   defp preserve_manual_hint(_current, planned), do: planned
 
@@ -763,9 +762,11 @@ defmodule BeatgridWeb.DiscotecagemLive do
         transition: hint.transition && Map.put(hint.transition, "to_ms", nil)
     }
 
-  defp restore_paused_hint(socket, nil, _manual), do: clear_client_hint(socket)
+  defp restore_resynced_hint(socket, nil, _manual, client_has_hint?) do
+    if client_has_hint?, do: clear_client_hint(socket), else: push_hint(socket, nil)
+  end
 
-  defp restore_paused_hint(socket, hint, manual) do
+  defp restore_resynced_hint(socket, hint, manual, _client_has_hint?) do
     planned = identify_hint(socket, hint)
     hint = restore_manual_hint(socket, planned, manual)
     push_effective_hint(socket, hint)
@@ -792,23 +793,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
   defp restore_manual_hint(_socket, hint, _manual), do: hint
 
+  defp hint_boundary(hint), do: Map.take(hint, [:planned_track_id, :source_track_id, :set_id])
+
   defp same_hint?(
-         %{
-           track: %{id: id},
-           transition: t,
-           planned_track_id: planned,
-           source_track_id: source,
-           set_id: set
-         },
-         %{
-           track: %{id: id},
-           transition: t,
-           planned_track_id: planned,
-           source_track_id: source,
-           set_id: set
-         }
+         %{track: %{id: id}, transition: transition} = current,
+         %{track: %{id: id}, transition: transition} = new
        ),
-       do: true
+       do: hint_boundary(current) == hint_boundary(new)
 
   defp same_hint?(_current, _new), do: false
 
@@ -2092,7 +2083,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             const paused = snap.activeDeck
             const pausedSource = !deck && this.lastPlayedId && snap[paused]?.trackId === this.lastPlayedId
             const armed = this.hint
-            const manualHint = pausedSource && armed?.planned_track_id &&
+            const manualHint = (deck || pausedSource) && armed?.planned_track_id &&
               armed.track.id !== armed.planned_track_id && snap[armed.deck]?.trackId === armed.track.id
               ? {deck: armed.deck, track_id: armed.track.id, planned_track_id: armed.planned_track_id,
                  source_track_id: armed.source_track_id, set_id: armed.set_id}

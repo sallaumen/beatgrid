@@ -391,6 +391,50 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert_push_event(view, "dj_hint", %{track: %{title: "Dois"}})
   end
 
+  test "playing reconnect preserves an actual manual preload and never sends the superseded plan first",
+       %{conn: conn} do
+    {set, [a, b, c]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}, {"Três", 106.0}])
+    manual = insert(:track, status: :present, tag_title: "Escolha do DJ", duration_ms: 90_000)
+    {:ok, _} = Sets.set_breather(set, b, true)
+
+    payload = %{
+      "decks" => %{"a" => a.id, "b" => manual.id},
+      "deck" => "a",
+      "playing_track_id" => a.id,
+      "set_id" => set.id,
+      "auto" => true,
+      "has_hint" => true,
+      "manual_hint" => %{
+        "deck" => "b",
+        "track_id" => manual.id,
+        "planned_track_id" => b.id,
+        "source_track_id" => a.id,
+        "set_id" => set.id
+      }
+    }
+
+    {:ok, view, _} = live(conn, ~p"/discotecagem?set=#{set.id}")
+    render_hook(view, "console_resync", payload)
+    manual_id = manual.id
+
+    assert_push_event(view, "dj_hint", %{
+      track: %{id: ^manual_id},
+      transition: %{"breather" => true, "to_ms" => nil}
+    })
+
+    refute_push_event(view, "dj_hint", %{})
+    assert Playback.now_playing() == %{track_id: a.id, set_id: set.id}
+    assert Playback.quiet_mode_active?()
+    refute_push_event(view, "dj_load", %{autoplay: true})
+
+    :ok = Sets.move(set, c, :up)
+    {:ok, remounted, _} = live(conn, ~p"/discotecagem?set=#{set.id}")
+    render_hook(remounted, "console_resync", payload)
+    cid = c.id
+    assert_push_event(remounted, "dj_hint", %{track: %{id: ^cid}})
+    refute_push_event(remounted, "dj_hint", %{})
+  end
+
   test "removing the only successor never arms the playing track as its own next track", %{
     conn: conn
   } do
