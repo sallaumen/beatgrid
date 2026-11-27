@@ -285,11 +285,7 @@ class Deck {
     this.mediaGain.gain.setValueAtTime(0, this.ctx.currentTime)
   }
 
-  playDecoded(buffer, offset, mix, splice) {
-    if (splice && this.entry) {
-      this.entry.recall(buffer, offset, mix, splice)
-      return
-    }
+  playDecoded(buffer, offset, mix) {
     if (this.dropCue !== null) {
       this.dropCue = null
       this._cued = false
@@ -297,14 +293,28 @@ class Deck {
       if (this.el.paused) this.el.play().catch(() => {}) // the recording owns the audible start
     }
     this.useMedia(false)
+    this.decodedTransport(buffer, offset, mix)
+  }
+
+  preparePassageAudio(buffer, offset, mix, outgoing = false, splice) {
+    if (outgoing && this.entry) return this.entry.prepareRecall(buffer, offset, mix, splice)
+    return this.decodedTransport(buffer, offset, mix, {outgoing, splice})
+  }
+
+  decodedTransport(buffer, offset, mix, stage) {
     let progressTimer
-    this.entry = startDecodedEntry(this.ctx, this.el, buffer, offset, this.hpf, this.mediaGain, ended => {
+    const entry = startDecodedEntry(this.ctx, this.el, buffer, offset, this.hpf, this.mediaGain, ended => {
       clearInterval(progressTimer)
       this.entry = null
       if (ended) this.recordEnded()
-    }, mix, () => this.wantsPlayback && this.loop.on && this.recordEnded(), splice)
+    }, mix, () => this.wantsPlayback && this.loop.on && this.recordEnded(), stage)
     // Muted media can stall without a timeupdate while the record reaches its AUTO point.
-    progressTimer = setInterval(this.recordProgress, 100)
+    const own = () => {
+      this.entry = entry
+      progressTimer = setInterval(this.recordProgress, 100)
+    }
+    if (stage) return {launch(when, head) { entry.launch(when, head); own() }, discard: entry.discard}
+    own()
   }
 
   get playbackRate() {
@@ -684,18 +694,19 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     return {...deck.controls, rate: deck.baseRate, vinyl: deck.vinylMode}
   }
 
-  function recallMix(deck, mix, smooth) {
+  function recallControls(deck, mix) {
     cancelBend(deck.id)
     deck.baseRate = mix.rate
     deck.vinylMode = mix.vinyl
-    deck.el.preservesPitch = !mix.vinyl
-    deck.el.playbackRate = mix.rate
+    if (deck.el.preservesPitch !== !mix.vinyl) deck.el.preservesPitch = !mix.vinyl
+    if (deck.el.playbackRate !== mix.rate) deck.el.playbackRate = mix.rate
     deck.controls = {...mix}
-    const now = ctx.currentTime
+  }
+
+  function scheduleDeckMix(deck, mix, smooth, now) {
     applyFilter(deck, mix.filter, now, smooth)
     applyTone(deck, mix.tone, now, smooth)
     setMixParam(deck.gain.gain, mix.level, now, smooth)
-    emit("mixApplied", {deck: deck.id, mix})
   }
 
   function startPassage(from, to, choice, complete) {
@@ -714,27 +725,37 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     to.play(plan.inStart * 1000, () => {
       const owned = to.playToken === playToken && !deckHeld(from.id) && !deckHeld(to.id) &&
         canRecallPassage(from, to, plan, kind)
-      if (!complete(owned, () => {
-        to.playDecoded(plan.incoming, plan.inStart, mix.into)
+      if (!owned || passage.current() !== choice || choice.phase !== "starting") return complete(false)
+      let incoming, outgoing, now, atMs, token
+      let landed = false
+      try {
+        incoming = to.preparePassageAudio(plan.incoming, plan.inStart, mix.into)
         const head = from.platterTime()
         const splice = recallSplice(choice.splices, plan.outgoing, head, mix.out.rate)
         if (splice || from.playbackRate !== mix.out.rate || from.vinylMode !== mix.out.vinyl) {
-          from.playDecoded(plan.outgoing, head, mix.out, splice)
+          outgoing = from.preparePassageAudio(plan.outgoing, head, mix.out, true, splice)
         }
-      })) return
-      const token = interruptTransition()
+        landed = complete(true, () => {
+          token = interruptTransition({startingPassage: true})
+          settleTransitionParams(to)
+          now = ctx.currentTime
+          const liveHead = from.platterTime()
+          atMs = Math.round(liveHead * 1000)
+          incoming.launch(now, plan.inStart)
+          outgoing?.launch(now, liveHead)
+        })
+      } catch { complete(false) } finally {
+        if (!landed) { incoming?.discard(); outgoing?.discard() }
+      }
+      if (!landed) return
       state.lastFireAt = performance.now()
       state.rescue = {deck: from.id, load: from.loadToken}
       state.faderVersion = faderVersion
-      rehearsal.stop()
-      clearLoop(to)
       to._cued = false
-      settleTransitionParams(to)
-      to.dry.gain.setValueAtTime(1, ctx.currentTime)
-      to.bass.gain.setValueAtTime(0, ctx.currentTime)
-      recallMix(from, mix.out, true)
-      recallMix(to, mix.into, false)
-      const now = ctx.currentTime
+      to.dry.gain.setValueAtTime(1, now)
+      to.bass.gain.setValueAtTime(0, now)
+      scheduleDeckMix(from, mix.out, true, now)
+      scheduleDeckMix(to, mix.into, false, now)
       const outGain = xfade[from.id].gain
       const outLevel = outGain.value
       outGain.cancelScheduledValues(now)
@@ -748,8 +769,16 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       if (roomReading?.choice === choice) roomReading.arrive(now)
       animateXfadePos(sideOf(to.id), fade)
       after(fade, () => finishOutgoing(from, token))
+      // Decoder rate setters and UI callbacks may run synchronously. The CUE,
+      // EQ and both faders must already be on the audio clock before these.
+      recallControls(from, mix.out)
+      recallControls(to, mix.into)
+      rehearsal.stop()
+      clearLoop(to)
       handoff(from, to, {fromTrackId: from.trackId, deck: to.id, type: kind,
-        mode: "manual", origin: "rehearsal", atMs: from.positionMs()})
+        mode: "manual", origin: "rehearsal", atMs})
+      emit("mixApplied", {deck: from.id, mix: mix.out})
+      emit("mixApplied", {deck: to.id, mix: mix.into})
     }, () => complete(false))
     const playToken = to.playToken
     return restore
@@ -1620,13 +1649,13 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     return gap && gap.deadline !== null ? gap : null
   }
 
-  function interruptTransition({keepPassage = false, resumeOutgoing = true} = {}) {
+  function interruptTransition({keepPassage = false, resumeOutgoing = true, startingPassage = false} = {}) {
     programMeter?.cancel()
     roomEnd = null
     state.cancelEntry?.(resumeOutgoing)
     if (roomReading?.arrived) cancelRoomReading()
     if (keepPassage) passage.mixChanged()
-    else passage.disarm()
+    else if (!startingPassage) passage.disarm()
     state.stopScratchDrop?.()
     for (const deck of Object.values(decks)) {
       deck.stopBrake?.()

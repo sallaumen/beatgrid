@@ -145,3 +145,23 @@ test("the jog owns the recalled tempo and a rescued track plays beyond the headp
   room.run(2)
   assert.equal(ends, 1)
 })
+
+for (const mix of [{rate: 1, vinyl: false}, {rate: .95, vinyl: true}, {rate: 1.052, vinyl: false}]) {
+  test(`a prepared ${mix.rate}× entry keeps its first stereo samples while another record takes time`, () => {
+    const room = recording(4), reference = recording(4), cue = .177
+    const prepared = startLiveRecord(room.ctx, room.ctx.createGain(), room.input, cue, mix,
+      () => {}, () => {}, 0, 0, null, true)
+    assert.equal(room.voices.size, 0)
+    const wait = room.run(.035)
+    assert.ok(wait.left.every(x => x === 0) && wait.right.every(x => x === 0))
+    room.ctx.currentTime = .035
+    prepared.launch(.035, cue)
+    const preview = createRecordSource(reference.ctx, reference.input, mix)
+    preview.start(0, cue)
+    const a = room.run(.56), b = reference.run(.56)
+    for (const channel of ["left", "right"]) {
+      for (let i = 0; i < a[channel].length; i++) assert.ok(Math.abs(a[channel][i] - b[channel][i]) < 1e-5)
+    }
+    prepared.stop()
+  })
+}
