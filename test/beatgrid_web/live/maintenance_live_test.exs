@@ -48,7 +48,12 @@ defmodule BeatgridWeb.MaintenanceLiveTest do
 
     {:ok, view, html} = live(conn, ~p"/manutencao")
     assert html =~ "Mapear faltantes (2)"
-    assert html =~ "0/2 com marcadores"
+
+    assert has_element?(
+             view,
+             "#maintenance-markers [role=progressbar][aria-valuenow='0'][aria-valuemax='2']"
+           )
+
     assert has_element?(view, "button[phx-click=remap_markers][data-confirm]")
 
     html = view |> element("button", "Mapear faltantes") |> render_click()
@@ -65,7 +70,11 @@ defmodule BeatgridWeb.MaintenanceLiveTest do
     {:ok, view, html} = live(conn, ~p"/manutencao")
     assert html =~ "Preparação de áudio"
     assert html =~ "Análise de áudio local"
-    assert html =~ "0/1 analisadas"
+
+    assert has_element?(
+             view,
+             "#maintenance-analysis [role=progressbar][aria-valuenow='0'][aria-valuemax='1']"
+           )
 
     html = view |> element("button[phx-click=analyze_library]") |> render_click()
     assert html =~ "enfileirada"
@@ -100,6 +109,7 @@ defmodule BeatgridWeb.MaintenanceLiveTest do
 
     {:ok, view, html} = live(conn, ~p"/manutencao")
     assert html =~ "Aplicar ganho (1)"
+    assert has_element?(view, "button[phx-click=apply_gain][data-confirm*='1']")
 
     html = view |> element("button[phx-click=apply_gain]") |> render_click()
 
@@ -142,6 +152,7 @@ defmodule BeatgridWeb.MaintenanceLiveTest do
 
     {:ok, view, html} = live(conn, ~p"/manutencao")
     assert html =~ "Desfazer último ajuste de ganho"
+    assert has_element?(view, "button[phx-click=restore_gain_backup][data-confirm]")
 
     html = view |> element("button[phx-click=restore_gain_backup]") |> render_click()
 
@@ -252,12 +263,21 @@ defmodule BeatgridWeb.MaintenanceLiveTest do
     track = insert(:track, status: :present)
 
     {:ok, view, _html} = live(conn, ~p"/manutencao")
-    assert render(view) =~ "0/1 analisadas"
+
+    assert has_element?(
+             view,
+             "#maintenance-analysis [role=progressbar][aria-valuenow='0'][aria-valuemax='1']"
+           )
 
     {:ok, _} = Tracks.update(track, %{analyzed_at: ~U[2026-01-01 00:00:00Z]})
     send(view.pid, {:analysis_tick})
 
-    assert render(view) =~ "1/1 analisadas"
+    assert has_element?(
+             view,
+             "#maintenance-analysis [role=progressbar][aria-valuenow='1'][aria-valuemax='1']"
+           )
+
+    assert has_element?(view, "#maintenance-analysis p", "Completo")
   end
 
   @tag :tmp_dir
