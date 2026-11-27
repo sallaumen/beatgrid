@@ -1304,6 +1304,73 @@ test("a browser without output selection cannot confirm a switch to the controll
   await assert.rejects(engine.setOutputDevice("numark"))
 })
 
+function restoreOutputStub(t, ctx) {
+  const originalState = ctx.state, originalSink = ctx.sinkId
+  t.after(() => {
+    ctx.state = originalState
+    ctx.sinkId = originalSink
+    delete ctx.setSinkId
+    delete ctx.resume
+  })
+}
+
+test("a driver refusal resumes the running room on its original sink without delaying another choice", async t => {
+  const {engine, a, b, advances} = booth(t)
+  const {ctx} = engine, driver = Promise.withResolvers(), retry = Promise.withResolvers()
+  restoreOutputStub(t, ctx)
+  ctx.state = "running"
+  ctx.sinkId = "room"
+  ctx.setSinkId = async () => { ctx.state = "suspended"; await driver.promise }
+  const resumes = []
+  ctx.resume = () => { resumes.push(ctx.sinkId); return retry.promise }
+  const move = engine.setOutputDevice("controller")
+  driver.reject(new Error("driver unavailable"))
+  await assert.rejects(move, /driver unavailable/)
+  assert.deepEqual(resumes, ["room"])
+  assert.equal(a.paused, false)
+  assert.equal(b.paused, true)
+  assert.deepEqual(advances, [])
+  retry.resolve()
+})
+
+test("a refused output does not resume a paused, still-running, replaced or destroyed context", async t => {
+  const {engine} = booth(t), {ctx} = engine
+  restoreOutputStub(t, ctx)
+  let resumes = 0
+  ctx.resume = async () => { resumes++ }
+  for (const cause of ["paused", "running", "replaced", "destroyed"]) {
+    ctx.state = cause === "paused" ? "suspended" : "running"
+    ctx.sinkId = "room"
+    ctx.setSinkId = async () => {
+      if (cause !== "running") ctx.state = "suspended"
+      if (cause === "replaced") ctx.sinkId = "other"
+      if (cause === "destroyed") engine.destroy()
+      throw new Error("denied")
+    }
+    await assert.rejects(engine.setOutputDevice("headphones"), /denied/)
+    assert.equal(resumes, 0, cause)
+  }
+})
+
+test("a failed resume reports the suspended room only while it is still the same output", async t => {
+  let warnings = 0
+  const {engine} = booth(t, {roomOutputSuspended: () => warnings++})
+  const {ctx} = engine
+  restoreOutputStub(t, ctx)
+  for (const replaced of [false, true]) {
+    const resume = Promise.withResolvers()
+    ctx.state = "running"
+    ctx.sinkId = "room"
+    ctx.setSinkId = async () => { ctx.state = "suspended"; throw new Error("driver unavailable") }
+    ctx.resume = () => resume.promise
+    await assert.rejects(engine.setOutputDevice("controller"), /driver unavailable/)
+    if (replaced) ctx.sinkId = "working-room"
+    resume.reject(new Error("hardware busy"))
+    await Promise.resolve()
+    assert.equal(warnings, 1)
+  }
+})
+
 test("unplugging and reconnecting the four-channel output rewires the PFL during playback", t => {
   const modes = []
   const {a, engine} = booth(t, {cueMode: ({mode}) => modes.push(mode)})
