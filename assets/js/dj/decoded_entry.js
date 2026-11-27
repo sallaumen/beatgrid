@@ -47,12 +47,23 @@ export function startDecodedEntry(ctx, media, buffer, offset, input, mediaGain, 
 
   function prepareRecall(recording, at, settings, saved) {
     const ready = play(at, settings, SEEK_RAMP_S, ctx.currentTime, saved, recording, true)
-    return {launch(when, head) {
-      ready.launch(when, head)
+    let restore
+    function commit() {
+      restore = null
       adopt(ready)
       buffer = recording
       mix = settings
-    }, discard: () => ready.stop()}
+    }
+    return {
+      launch(when, head) { ready.launch(when, head); commit() },
+      schedule(when, head) {
+        ready.launch(when, head)
+        // A gain ramp is revocable; a scheduled stop on the live source is not.
+        restore = source.fadeOut(when, SEEK_RAMP_S)
+      },
+      commit,
+      discard() { restore?.(); ready.stop() }
+    }
   }
 
   function seek(seconds, positionAfter) {
@@ -84,7 +95,7 @@ export function startDecodedEntry(ctx, media, buffer, offset, input, mediaGain, 
       return false
     }
   }
-  return {position: () => closed ? media.currentTime : source.position(), rate: () => source.rate(),
+  return {position: time => closed ? media.currentTime : source.position(time), rate: () => source.rate(),
     nudge, seek, prepareRecall, release,
     launch(when, head) { source.launch(when, head); takeMedia(when) }, discard: () => source.stop()}
 }

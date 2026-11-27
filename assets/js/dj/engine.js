@@ -684,7 +684,12 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     return kind !== "blend" || !plan?.blendCurve || canMeasureBlend(from, to, plan.mix)
   }
 
-  let preparedPassage = null
+  function hasSavedEq(deck, saved) {
+    const {level, tone, filter} = deck.controls
+    return level === saved.level && tone === saved.tone && filter === saved.filter
+  }
+
+  let preparedPassage = null, earlyReceiver = null
 
   function releasePrepared(choice) {
     if (preparedPassage?.choice !== choice) return
@@ -715,6 +720,17 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     from.audible() && !deckHeld(from.id) && !from.loop.on && !state.breatherGap &&
     to.trackId != null && !deckBusy(to.id) && !to.el.error && to.ready() &&
     canRecallPassage(from, to, plan, kind), startPassage, {
+      canSchedule(choice) {
+        if (preparedPassage?.choice !== choice || !preparedPassage.matches()) return false
+        const {pair, plan} = choice
+        const from = decks[pair.from], to = decks[pair.to]
+        if (!from.entry) return false
+        const exit = plan.exit ?? choice.exitMs / 1000
+        const when = ctx.currentTime + (exit - from.platterTime()) / from.playbackRate
+        if (Math.abs(from.entry.position(when) - exit) > 1 / ctx.sampleRate) return false
+        return !to.entry && to.el.paused && bassReady(from, to) &&
+          xfade[to.id].gain.value < .001 && hasSavedEq(from, plan.mix.out) && hasSavedEq(to, plan.mix.into)
+      },
       confirmed(choice) {
         const {plan, pair} = choice
         const from = decks[pair.from]
@@ -756,56 +772,45 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     setMixParam(deck.gain.gain, mix.level, now, smooth)
   }
 
-  function startPassage(from, to, choice, complete) {
+  function startPassage(from, to, choice, complete, early) {
     const {plan, kind} = choice
     const fade = rehearsalOverlap(plan, kind)
     const mix = plan.mix ?? {out: deckMix(from.id), into: deckMix(to.id)}
     const version = faderVersion
     const mute = xfade[to.id].gain
     const previous = mute.value
+    const outGain = xfade[from.id].gain
+    let now, token, atMs, prepared, scheduled = false
+    if (early) {
+      earlyReceiver = to
+      to.primeDrop(to.platterTime())
+    }
     mute.cancelScheduledValues(ctx.currentTime)
     mute.setValueAtTime(0, ctx.currentTime)
     const restore = () => {
-      if (to.playToken === playToken) to.pause()
+      if (early) earlyReceiver = null
+      if (scheduled) {
+        prepared?.outgoing?.discard()
+        outGain.cancelScheduledValues(now)
+        mute.cancelScheduledValues(now)
+        if (kind === "bass_swap") {
+          from.bass.gain.cancelScheduledValues(now)
+          to.bass.gain.cancelScheduledValues(now)
+        }
+      }
+      if (to.playToken === playToken && to.loadToken === choice.pair.toLoad) {
+        if (early) to.useMedia(false)
+        to.pause()
+      }
       if (version === faderVersion) mute.setValueAtTime(previous, ctx.currentTime)
     }
-    to.play(plan.inStart * 1000, () => {
-      const owned = to.playToken === playToken && !deckHeld(from.id) && !deckHeld(to.id) &&
-        canRecallPassage(from, to, plan, kind)
-      if (!owned || passage.current() !== choice || choice.phase !== "starting") return complete(false)
-      let prepared, now, atMs, token
-      let landed = false
-      try {
-        if (preparedPassage?.choice === choice && preparedPassage.matches()) {
-          prepared = preparedPassage
-          preparedPassage = null
-        } else {
-          releasePrepared(choice)
-          prepared = preparePair(choice, from, to, from.platterTime(), mix)
-        }
-        landed = complete(true, () => {
-          token = interruptTransition({startingPassage: true})
-          settleTransitionParams(to)
-          const head = from.platterTime()
-          const liveHead = Math.max(head, plan.exit ?? choice.exitMs / 1000)
-          now = ctx.currentTime + (liveHead - head) / from.playbackRate
-          atMs = Math.round(liveHead * 1000)
-          prepared.incoming.launch(now, plan.inStart)
-          prepared.outgoing?.launch(now, liveHead)
-        })
-      } catch { complete(false) } finally {
-        if (!landed) prepared?.discard()
+    function scheduleFaders() {
+      if (!early) {
+        to.dry.gain.setValueAtTime(1, now)
+        to.bass.gain.setValueAtTime(0, now)
+        scheduleDeckMix(from, mix.out, true, now)
+        scheduleDeckMix(to, mix.into, false, now)
       }
-      if (!landed) return
-      state.lastFireAt = performance.now()
-      state.rescue = {deck: from.id, load: from.loadToken}
-      state.faderVersion = faderVersion
-      to._cued = false
-      to.dry.gain.setValueAtTime(1, now)
-      to.bass.gain.setValueAtTime(0, now)
-      scheduleDeckMix(from, mix.out, true, now)
-      scheduleDeckMix(to, mix.into, false, now)
-      const outGain = xfade[from.id].gain
       const outLevel = outGain.value
       outGain.cancelScheduledValues(now)
       const curve = kind === "blend" && plan.blendCurve
@@ -815,9 +820,22 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       }
       scheduleBlend(outGain, curve, 0, now, fade, now, outLevel)
       scheduleBlend(mute, curve, 1, now, fade, now)
+    }
+    function publish() {
+      if (early) {
+        earlyReceiver = null
+        prepared.outgoing?.commit()
+        token = interruptTransition({startingPassage: true})
+        to.dropCue = null
+      }
+      state.lastFireAt = performance.now()
+      state.rescue = {deck: from.id, load: from.loadToken}
+      state.faderVersion = faderVersion
+      to._cued = false
       if (roomReading?.choice === choice) roomReading.arrive(now)
-      animateXfadePos(sideOf(to.id), fade)
-      after(fade, () => finishOutgoing(from, token))
+      const remaining = early ? Math.max(0, now + fade - ctx.currentTime) : fade
+      animateXfadePos(sideOf(to.id), Math.max(remaining, .001))
+      after(remaining, () => finishOutgoing(from, token))
       // Decoder rate setters and UI callbacks may run synchronously. The CUE,
       // EQ and both faders must already be on the audio clock before these.
       recallControls(from, mix.out)
@@ -828,6 +846,40 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         mode: "manual", origin: "rehearsal", atMs})
       emit("mixApplied", {deck: from.id, mix: mix.out})
       emit("mixApplied", {deck: to.id, mix: mix.into})
+    }
+    to.play(plan.inStart * 1000, () => {
+      const owned = to.playToken === playToken && !deckHeld(from.id) && !deckHeld(to.id) &&
+        canRecallPassage(from, to, plan, kind)
+      if (!owned || passage.current() !== choice || choice.phase !== "starting") return complete(false)
+      let landed = false
+      try {
+        if (preparedPassage?.choice === choice && preparedPassage.matches()) {
+          prepared = preparedPassage
+          preparedPassage = null
+        } else {
+          releasePrepared(choice)
+          prepared = preparePair(choice, from, to, from.platterTime(), mix)
+        }
+        landed = complete(true, () => {
+          if (!early) {
+            token = interruptTransition({startingPassage: true})
+            settleTransitionParams(to)
+          }
+          const head = from.platterTime()
+          const liveHead = Math.max(head, plan.exit ?? choice.exitMs / 1000)
+          now = ctx.currentTime + (liveHead - head) / from.playbackRate
+          atMs = Math.round(liveHead * 1000)
+          prepared.incoming.launch(now, plan.inStart)
+          if (early) prepared.outgoing?.schedule(now, liveHead)
+          else prepared.outgoing?.launch(now, liveHead)
+          scheduled = early
+          scheduleFaders()
+        }, early && {remaining: () => (now - ctx.currentTime) * 1000, publish})
+      } catch { complete(false) } finally {
+        if (!landed) prepared?.discard()
+      }
+      if (!landed) return
+      if (!early) publish()
     }, () => complete(false))
     const playToken = to.playToken
     return restore
@@ -856,6 +908,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       if (!deckBusy(deck.id)) emit("deckFreed", {deck: deck.id})
     })
     deck.recordEnded = () => {
+      if (deck === earlyReceiver) passage.arrive()
       if (!deck.wantsPlayback) return
       if (deck.loop.on) {
         const wrapped = wrapLoop(deck)
@@ -2325,6 +2378,13 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // server hears transitionCancelled to rewind the set pointer.
   function cancelTransition({keepFader = false} = {}) {
     if (!roomAvailable) return {ok: false, reason: "room_unavailable"}
+    if (earlyReceiver) {
+      passage.arrive()
+      if (earlyReceiver) {
+        passage.mixChanged()
+        return {ok: true}
+      }
+    }
     if (state.cancelEntry) {
       const outgoing = decks[state.rescue.deck]
       state.cancelEntry()
@@ -2421,6 +2481,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     loadDeck(deckId, track, {autoplay = false, atMs = 0} = {}) {
       if (autoplay && !roomAvailable) return false
       const deck = decks[deckId]
+      if (deck === earlyReceiver) passage.mixChanged()
       if (state.pendingEntry === deckId) state.cancelEntry?.()
       // Only a silent breather frees a deck that still owns a live set boundary.
       if (!autoplay && sessionDeck() === deckId && !activeBreatherGap()) return false
@@ -2459,9 +2520,10 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // fresh hint for the same boundary simply replaces the preload — this is
     // how a live set edit swaps the next track before the transition fires.
     armHint(hint) {
+      if (earlyReceiver) passage.arrive()
       const idle = state.activeDeck === "a" ? "b" : "a"
       const deck = decks[idle]
-      if (state.cancelEntry && deck.trackId === hint.track.id) {
+      if ((state.cancelEntry || deck === earlyReceiver) && deck.trackId === hint.track.id) {
         state.hint = {...hint, deck: idle}
         return idle // a repeated lookahead cannot revoke a start already requested
       }
@@ -2654,6 +2716,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     cancelTransition,
 
     playPause(deckId) {
+      if (earlyReceiver) passage.arrive()
       const deck = decks[deckId]
       if (jog[deckId].held) return // nunca dar play embaixo da mão do DJ
       this.resume()

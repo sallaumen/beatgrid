@@ -1,12 +1,24 @@
 // Reserve one loaded pair and follow the outgoing record's clock, including during stalls.
 const MAX_LATE_MS = 100
+const PCM_LEAD_MS = 64
 
 export function createPassage(decks, available, start, observer = {}) {
   let choice = null, timer = null, abortStart = null, roomAvailable = true
 
-  let startVersion = 0
+  let startVersion = 0, arrival = null
+
+  function arrive() {
+    if (!arrival || arrival.remaining() > 0) return
+    const publish = arrival.publish
+    arrival = null
+    clearTimeout(timer)
+    abortStart = null
+    choice = null
+    publish()
+  }
 
   function stopWaiting(saved = choice) {
+    arrival = null
     startVersion++
     if (saved) observer.abandoned?.(saved)
     clearTimeout(timer)
@@ -16,6 +28,7 @@ export function createPassage(decks, available, start, observer = {}) {
   }
 
   function disarm() {
+    arrive()
     const saved = choice
     choice = null
     stopWaiting(saved)
@@ -38,6 +51,13 @@ export function createPassage(decks, available, start, observer = {}) {
   }
 
   function check() {
+    const wait = arrival?.remaining()
+    if (wait > 0) {
+      clearTimeout(timer)
+      timer = setTimeout(check, Math.max(1, wait))
+      return
+    }
+    arrive()
     if (!choice) return
     const {pair, phase, exitMs} = choice
     const from = decks[pair.from], to = decks[pair.to]
@@ -47,17 +67,18 @@ export function createPassage(decks, available, start, observer = {}) {
     const remaining = exitMs - from.positionMs()
     if (remaining < (phase === "armed" ? 0 : -MAX_LATE_MS)) return fail("missed")
     if (phase === "armed") return
-    if (remaining > 0) {
-      timer = setTimeout(check, Math.max(10, remaining / from.playbackRate))
+    const leadMs = observer.canSchedule?.(choice) ? PCM_LEAD_MS : 0
+    if (remaining / from.playbackRate > leadMs) {
+      timer = setTimeout(check, Math.max(10, remaining / from.playbackRate - leadMs))
       return
     }
     if (from.seeking() || !available(from, to, choice.plan, choice.kind)) return fail()
     const saved = choice
     saved.phase = "starting"
     // A late decoder must never fade the room after the rehearsed beat has gone by.
-    timer = setTimeout(fail, MAX_LATE_MS)
+    timer = setTimeout(fail, MAX_LATE_MS + Math.max(0, remaining / from.playbackRate))
     const version = ++startVersion
-    abortStart = start(from, to, saved, (ok, startAudio) => {
+    abortStart = start(from, to, saved, (ok, startAudio, scheduled) => {
       if (version !== startVersion || choice !== saved || saved.phase !== "starting") return false
       if (!ok || !from.audible() || Math.abs(from.positionMs() - exitMs) > MAX_LATE_MS) {
         fail()
@@ -70,10 +91,15 @@ export function createPassage(decks, available, start, observer = {}) {
         return false
       }
       clearTimeout(timer)
-      abortStart = null
-      choice = null
+      if (scheduled) {
+        arrival = scheduled
+        timer = setTimeout(check, Math.max(0, scheduled.remaining()))
+      } else {
+        abortStart = null
+        choice = null
+      }
       return true
-    })
+    }, remaining > 0 && leadMs > 0)
   }
 
   function confirm() {
@@ -89,10 +115,12 @@ export function createPassage(decks, available, start, observer = {}) {
   }
 
   function seek(deck, positionMs) {
+    arrive()
     if (choice?.pair.from === deck.id && positionMs >= choice.exitMs) fail("missed")
   }
 
   function mixChanged(reason = "live") {
+    arrive()
     if (!choice || !["armed", "confirmed", "starting"].includes(choice.phase)) return
     if (reason === "draft" && choice.phase === "armed") return
     stopWaiting()
@@ -101,6 +129,7 @@ export function createPassage(decks, available, start, observer = {}) {
   }
 
   function setRoomAvailable(next) {
+    arrive()
     if (roomAvailable === next) return
     roomAvailable = next
     if (!choice) return
@@ -114,9 +143,10 @@ export function createPassage(decks, available, start, observer = {}) {
   }
 
   function sourceEnded() {
+    arrive()
     if (roomAvailable) disarm()
     else fail("missed")
   }
 
-  return {arm, confirm, disarm, check, seek, fail, mixChanged, setRoomAvailable, sourceEnded, current: () => choice}
+  return {arm, confirm, disarm, check, seek, fail, mixChanged, setRoomAvailable, sourceEnded, arrive, current: () => choice}
 }
