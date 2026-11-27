@@ -98,7 +98,14 @@ defmodule BeatgridWeb.ImportsLiveTest do
     assert html =~ "2 faixas"
     refute html =~ "Faixa Um"
 
-    html = render_click(view, "toggle_playlist", %{"key" => p})
+    assert has_element?(
+             view,
+             "button[phx-click=toggle_playlist][aria-expanded=false]",
+             "Meu Rolê"
+           )
+
+    html = view |> element("button[phx-click=toggle_playlist]", "Meu Rolê") |> render_click()
+    assert has_element?(view, "button[phx-click=toggle_playlist][aria-expanded=true]", "Meu Rolê")
     assert html =~ "Faixa Um"
     assert html =~ "Faixa Dois"
   end
@@ -242,6 +249,13 @@ defmodule BeatgridWeb.ImportsLiveTest do
     assert has_element?(view, "#confirm-downloads button[disabled]", "Baixar 0 faixas")
     refute has_element?(view, "#confirm-downloads input[checked]")
     refute_enqueued(worker: Beatgrid.Workers.DownloadWorker)
+
+    render_change(
+      form(view, "#link-preview", %{urls: "https://www.youtube.com/watch?v=ZvODpklNB2c"})
+    )
+
+    refute has_element?(view, "#confirm-downloads")
+    refute has_element?(view, "button[phx-click=find_version]")
   end
 
   test "hostile sort/filter payloads are ignored, never crash the view", %{conn: conn} do
