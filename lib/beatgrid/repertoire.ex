@@ -7,7 +7,7 @@ defmodule Beatgrid.Repertoire do
   """
   import Ecto.Query
 
-  alias Beatgrid.Library.Track
+  alias Beatgrid.Library.{Track, TrackQuery}
   alias Beatgrid.Repertoire.{Recommendation, RecommendationQuery}
   alias Beatgrid.Repo
 
@@ -54,21 +54,9 @@ defmodule Beatgrid.Repertoire do
     |> Repo.all()
   end
 
-  @doc "Resolved-track counts bucketed by BPM (default bucket 5)."
+  @doc "Present-track counts by effective BPM (default bucket width 5)."
   @spec bpm_histogram(pos_integer()) :: %{integer() => non_neg_integer()}
-  def bpm_histogram(bucket \\ 5) do
-    Track
-    |> join(:inner, [t], s in assoc(t, :soundcharts_song))
-    |> where([t, s], not is_nil(s.tempo_bpm))
-    |> select(
-      [t, s],
-      {selected_as(fragment("(floor(? / ?) * ?)::int", s.tempo_bpm, ^bucket, ^bucket), :bucket),
-       count(t.id)}
-    )
-    |> group_by([t, s], selected_as(:bucket))
-    |> Repo.all()
-    |> Map.new()
-  end
+  defdelegate bpm_histogram(bucket \\ 5), to: TrackQuery
 
   @doc "Resolved-track counts bucketed by release decade."
   @spec decade_distribution() :: %{integer() => non_neg_integer()}

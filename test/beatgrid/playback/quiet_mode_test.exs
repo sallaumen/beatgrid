@@ -76,6 +76,23 @@ defmodule Beatgrid.Playback.QuietModeTest do
     assert QuietMode.active?(__MODULE__.Server)
   end
 
+  test "closing another player only releases its own claim on background work" do
+    server = __MODULE__.Server
+    assert :ok = QuietMode.activate(server)
+    assert_receive {:pause, :all}
+    assert :ok = Task.async(fn -> QuietMode.deactivate(server) end) |> Task.await()
+    assert QuietMode.active?(server)
+
+    second = Task.async(fn -> QuietMode.activate(server) end)
+    assert Task.await(second) == :ok
+    refute_receive {:resume, :all}, 50
+    assert QuietMode.active?(server)
+
+    assert :ok = QuietMode.deactivate(server)
+    assert_receive {:resume, :all}
+    refute QuietMode.active?(server)
+  end
+
   defp forever(fun) do
     fun.()
     Process.sleep(:infinity)

@@ -5,6 +5,7 @@ defmodule Beatgrid.SetsConnectionsTest do
 
   alias Beatgrid.Repo
   alias Beatgrid.Sets
+  alias Beatgrid.Sets.RecSetQuery
 
   defp with_song(track), do: Repo.preload(track, :soundcharts_song)
 
@@ -533,6 +534,38 @@ defmodule Beatgrid.SetsConnectionsTest do
       assert Sets.entry_after(set.id, a.id).transition["from_ms"] == 180_000
     end
 
+    test "a reordered pair never fires at another outgoing track's learned time" do
+      {set, a, b} = connected_pair()
+      c = insert(:track, duration_ms: 200_000, status: :present)
+      {:ok, _} = Sets.append(set, c)
+      {:ok, 120_000} = Sets.learn_fire_point(set.id, b.id, a.id, 120_000)
+
+      :ok = Sets.move(set, c, :up)
+      entry = List.last(Sets.entries(set))
+      assert entry.track.id == b.id
+      refute Sets.pair_timing(c, entry).learned?
+
+      assert Sets.entry_after(set.id, c.id).transition["from_ms"] ==
+               Sets.derived_timing(c, b).from_ms
+    end
+
+    test "an edit preserves a legacy fire point only for the original pair" do
+      {set, a, b} = connected_pair()
+      {:ok, row} = RecSetQuery.fetch_row(set.id, b.id)
+
+      row
+      |> change(transition: Map.put(row.transition, "learned_from_ms", 120_000))
+      |> Repo.update!()
+
+      c = insert(:track, duration_ms: 200_000, status: :present)
+      {:ok, _} = Sets.append(set, c)
+
+      :ok = Sets.move(set, c, :up)
+      refute Sets.pair_timing(c, List.last(Sets.entries(set))).learned?
+      :ok = Sets.remove(set, c)
+      assert Sets.entry_after(set.id, a.id).transition["from_ms"] == 120_000
+    end
+
     test "front-half fires, wrong predecessors, and disabled pairs teach nothing" do
       {set, a, b} = connected_pair()
 
@@ -569,11 +602,35 @@ defmodule Beatgrid.SetsConnectionsTest do
       {set, a, b} = connected_pair()
 
       entry_b = Enum.find(Sets.entries(set), &(&1.track.id == b.id))
-      assert Sets.pair_timing(a, entry_b) == %{from_ms: 180_000, to_ms: 4_000, learned?: false}
+
+      assert Sets.pair_timing(a, entry_b) == %{
+               from_ms: 180_000,
+               to_ms: 4_000,
+               learned?: false,
+               source: :marker
+             }
 
       {:ok, _} = Sets.learn_fire_point(set.id, b.id, a.id, 120_000)
       entry_b = Enum.find(Sets.entries(set), &(&1.track.id == b.id))
-      assert Sets.pair_timing(a, entry_b) == %{from_ms: 120_000, to_ms: 4_000, learned?: true}
+
+      assert Sets.pair_timing(a, entry_b) == %{
+               from_ms: 120_000,
+               to_ms: 4_000,
+               learned?: true,
+               source: :learned
+             }
     end
+  end
+
+  test "editor and booth resolve sacred endings and breathers at the same time" do
+    {:ok, set} = Sets.create("Final")
+    a = insert(:track, duration_ms: 200_000, sacred_ending: true)
+    b = insert(:track)
+    for track <- [a, b], do: Sets.append(set, track)
+    {:ok, _} = Sets.connect(set, b, %{"type" => "fade"})
+    assert Sets.pair_timing(a, List.last(Sets.entries(set))).from_ms == 198_500
+    {:ok, _} = Sets.set_breather(set, b, true)
+    assert Sets.pair_timing(a, List.last(Sets.entries(set))).from_ms == 196_000
+    assert Sets.entry_after(set.id, a.id).transition["from_ms"] == 196_000
   end
 end

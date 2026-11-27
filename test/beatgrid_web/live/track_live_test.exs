@@ -342,6 +342,18 @@ defmodule BeatgridWeb.TrackLiveTest do
     # Prominent play button dispatches to the shared #player-audio.
     assert html =~ "beatgrid:play"
     assert html =~ "player-audio"
+    send(view.pid, {:now_playing, %{track_id: track.id}})
+
+    assert has_element?(
+             view,
+             "button[title='Tocar no player global'][phx-click*='toggle_if_current'][phx-click*='#{track.id}']"
+           )
+
+    assert has_element?(
+             view,
+             "button[title='Marcar a posição atual do player'][phx-click*='track_id'][phx-click*='#{track.id}']:not([disabled])"
+           )
+
     # Marker section shows the existing cue at 0:30.
     assert html =~ "Marcadores"
     assert html =~ "0:30"

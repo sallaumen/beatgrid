@@ -88,6 +88,18 @@ defmodule BeatgridWeb.PlayerLiveTest do
     refute html =~ "Sina"
   end
 
+  test "closing the older player preserves the same track in the newer tab", %{conn: conn} do
+    track = insert(:track)
+    {:ok, first, _} = live_isolated(conn, BeatgridWeb.PlayerLive)
+    {:ok, second, _} = live_isolated(conn, BeatgridWeb.PlayerLive)
+    for view <- [first, second], do: render_hook(view, "now_playing", %{"id" => track.id})
+
+    render_click(first, "close")
+    assert Playback.now_playing().track_id == track.id
+    render_click(second, "close")
+    assert Playback.now_playing().track_id == nil
+  end
+
   test "now_playing with a set stores the pointer and shows a chip linking to the set", %{
     conn: conn
   } do
@@ -135,6 +147,44 @@ defmodule BeatgridWeb.PlayerLiveTest do
     assert next_id == b.id
     assert render(view) =~ "Second"
     assert Playback.now_playing() == %{track_id: b.id, set_id: set.id}
+  end
+
+  test "a late end or pause from the previous selection cannot skip the new track", %{conn: conn} do
+    tracks = for title <- ["A", "B", "C"], do: insert(:track, tag_title: title)
+    [a, b, c] = tracks
+    {:ok, set} = Sets.create_filled("Pista", tracks)
+    {:ok, view, _} = live_isolated(conn, BeatgridWeb.PlayerLive)
+    render_hook(view, "now_playing", %{"id" => b.id, "set_id" => set.id})
+    render_hook(view, "playback_paused", %{"track_id" => a.id})
+    assert Playback.quiet_mode_active?()
+
+    render_hook(view, "track_ended", %{"track_id" => a.id, "set_id" => set.id, "play_token" => 1})
+
+    render_hook(view, "track_ended", %{
+      "track_id" => b.id,
+      "set_id" => Ecto.UUID.generate(),
+      "play_token" => 2
+    })
+
+    assert Playback.now_playing().track_id == b.id
+
+    render_hook(view, "track_ended", %{"track_id" => b.id, "set_id" => set.id, "play_token" => 3})
+    assert_push_event(view, "play_track", %{id: id, set_id: set_id, after_token: 3})
+    assert {id, set_id} == {c.id, set.id}
+    assert_push_event(view, "player_markers", %{track_id: ^id})
+
+    render_hook(view, "track_ended", %{"track_id" => c.id, "set_id" => set.id, "play_token" => 4})
+    assert_push_event(view, "player_set_finished", %{after_token: 4})
+    render_hook(view, "playback_playing", %{"track_id" => c.id, "set_id" => set.id})
+    refute Playback.quiet_mode_active?()
+  end
+
+  test "a stale set link plays a standalone track and keeps jobs running", %{conn: conn} do
+    track = insert(:track)
+    {:ok, view, _} = live_isolated(conn, BeatgridWeb.PlayerLive)
+    render_hook(view, "now_playing", %{"id" => track.id, "set_id" => Ecto.UUID.generate()})
+    assert Playback.now_playing() == %{track_id: track.id, set_id: nil}
+    refute Playback.quiet_mode_active?()
   end
 
   test "track_ended honors a set reorder made while playback is running", %{conn: conn} do
@@ -202,6 +252,20 @@ defmodule BeatgridWeb.PlayerLiveTest do
       render_hook(view, "now_playing", %{"id" => track.id})
 
       assert_push_event(view, "player_markers", %{markers: [%{"ms" => 5000, "label" => "intro"}]})
+    end
+
+    test "a late cue cannot write the previous position onto another track", %{conn: conn} do
+      previous = insert(:track)
+      current = insert(:track)
+      {:ok, view, _html} = live_isolated(conn, BeatgridWeb.PlayerLive)
+      render_hook(view, "now_playing", %{"id" => previous.id})
+      render_hook(view, "now_playing", %{"id" => current.id})
+
+      render_hook(view, "add_marker", %{"track_id" => previous.id, "ms" => 2500})
+      render_hook(view, "add_marker", %{"track_id" => current.id, "ms" => 7500})
+
+      assert [%{"ms" => 7500}] = Tracks.get(current.id).cue_points
+      assert Tracks.get(previous.id).cue_points == []
     end
 
     test "add_marker stores a cue at the live position on the now-playing track", %{conn: conn} do

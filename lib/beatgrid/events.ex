@@ -8,7 +8,7 @@ defmodule Beatgrid.Events do
 
   | Topic             | Owner (subscribe/broadcast)       | Messages                                            | Consumed by                    |
   | ----------------- | --------------------------------- | --------------------------------------------------- | ------------------------------ |
-  | `analysis`        | `Beatgrid.Analysis`               | `{:analysis_tick}`                                  | Manutenção                     |
+  | `analysis`        | `Beatgrid.Analysis`               | `{:analysis_tick}`                                  | Manutenção, Repertório         |
   | `loudness`        | `Beatgrid.Loudness`               | `{:loudness_tick}`                                  | Manutenção                     |
   | `markers_progress` | `Beatgrid.Markers`               | `{:markers_tick}`                                   | Manutenção                     |
   | `backup`          | `Beatgrid.Backup`                 | `{:backup_tick}`                                    | Manutenção                     |
@@ -22,7 +22,7 @@ defmodule Beatgrid.Events do
   | `recommendations` | `Beatgrid.Repertoire`             | `{:recommend_progress, recommend_progress()}`       | Repertório, Detalhe da faixa       |
   | `now_playing`     | `Beatgrid.Playback`               | `{:now_playing, now_playing()}`                     | Player + todas as telas        |
   | `markers`         | `Beatgrid.Playback` (`_markers`)  | `{:markers_changed, track_id}`                      | Player, Detalhe da faixa, Discotecagem |
-  | `sets:<id>`       | `Beatgrid.Sets` (`subscribe_set`) | `{:set_changed, set_id}`                            | Discotecagem (hint revalidation) |
+  | `sets:<id>`       | `Beatgrid.Sets` (`subscribe_set`) | `{:set_changed, set_id}`                            | Discotecagem (queue edits, hint revalidation, set deletion) |
   """
 
   @typedoc "Pointer to what is playing — never the track itself."

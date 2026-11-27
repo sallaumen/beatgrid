@@ -52,6 +52,35 @@ defmodule Beatgrid.Library.TrackQueryTest do
       assert [%{id: ^id}] = TrackQuery.library(%{search: t.id})
     end
 
+    test "a 16-byte artist name is searchable as text" do
+      artist = "Forro dos Santos"
+      track = insert(:track, tag_artist: artist, norm_artist: "forro dos santos")
+      assert [%{id: id}] = TrackQuery.library(%{search: artist})
+      assert id == track.id
+    end
+
+    test "a file without a title is searchable by its displayed filename" do
+      track = insert(:track, filename: "Ensaio de São Luís.wav", norm_title: "")
+      insert(:track, filename: "Ensaio de São Luís.mp3", tag_title: "Outro título")
+      insert(:track, filename: "Ensaio de São Luís.flac", status: :missing)
+
+      filters = %{search: " ensaio DE São "}
+      assert [%{id: id}] = TrackQuery.library(filters)
+      assert id == track.id
+      assert TrackQuery.library_ids(filters) == [id]
+      assert TrackQuery.count_library(filters) == 1
+    end
+
+    test "punctuation and non-Latin names match their literal text" do
+      track = insert(:track, tag_title: "東京 100%", norm_title: "100")
+      insert(:track, tag_title: "Outra 100", norm_title: "outra 100")
+
+      for term <- ["東京", "東京 100", "%"] do
+        assert [%{id: id}] = TrackQuery.library(%{search: term})
+        assert id == track.id
+      end
+    end
+
     test "no filters returns all present tracks" do
       insert(:track, status: :present)
       insert(:track, status: :present)
@@ -202,6 +231,25 @@ defmodule Beatgrid.Library.TrackQueryTest do
       assert page_1 == [a.id, b.id]
       assert page_2 == [c.id, d.id]
       assert page_3 == [e.id]
+    end
+
+    test "pages contain each tied track exactly once under default and BPM sorting" do
+      tracks =
+        insert_list(36, :track,
+          tags: ["versions"],
+          norm_artist: "mesmo artista",
+          norm_title: "mesma faixa",
+          bpm_manual: 125.0
+        )
+
+      for filters <- [%{tag: "versions"}, %{tag: "versions", sort: {:bpm, :desc}}] do
+        paged_ids =
+          for offset <- 0..35//7,
+              track <- TrackQuery.library(Map.merge(filters, %{limit: 7, offset: offset})),
+              do: track.id
+
+        assert Enum.sort(paged_ids) == Enum.sort(Enum.map(tracks, & &1.id))
+      end
     end
 
     test "count_library/1 counts all matching rows, ignoring limit/offset" do

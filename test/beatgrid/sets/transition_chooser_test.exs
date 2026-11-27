@@ -58,4 +58,18 @@ defmodule Beatgrid.Sets.TransitionChooserTest do
       assert is_binary(reason) and reason =~ "%"
     end
   end
+
+  test "unknown tempo or key never claims a verified beat or harmonic match" do
+    marker = %{"ms" => 1000}
+
+    assert {"fade", tempo_reason} =
+             TransitionChooser.choose(eff(nil, "8A"), eff(120, "8A"), marker, marker)
+
+    assert tempo_reason =~ "BPM"
+
+    assert {"crossfade", key_reason} =
+             TransitionChooser.choose(eff(120, nil), eff(120, "8A"), marker, marker)
+
+    refute key_reason =~ "tons compatíveis"
+  end
 end

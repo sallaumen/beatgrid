@@ -47,6 +47,9 @@ defmodule BeatgridWeb.DashboardLive do
   end
 
   @impl true
+  def handle_info({:analysis_tick}, socket),
+    do: {:noreply, assign(socket, :bpm, Dashboard.tempo_distribution())}
+
   def handle_info(
         {:recommend_progress, %{scope: "folder", key: folder, status: :running}},
         %{assigns: %{gaps_folder: folder}} = socket
@@ -84,6 +87,9 @@ defmodule BeatgridWeb.DashboardLive do
 
   defp max_count([]), do: 0
   defp max_count(list), do: list |> Enum.map(fn {_k, v} -> v end) |> Enum.max()
+
+  defp track_count(1), do: "1 faixa"
+  defp track_count(total), do: "#{total} faixas"
 
   defp decade_label(d), do: "#{d}s"
 
@@ -177,16 +183,20 @@ defmodule BeatgridWeb.DashboardLive do
           </.panel>
 
           <.panel title="Andamento (BPM)">
-            <div :if={@bpm != []} class="space-y-2">
-              <.bar_row
-                :for={{bucket, count} <- @bpm}
-                label={"#{bucket}–#{bucket + 4}"}
-                value={count}
-                max={max_count(@bpm)}
-                color="var(--color-primary)"
-                mono
-              />
-            </div>
+            <ul :if={@bpm != []} class="space-y-2" aria-label="Quantidade de faixas por andamento">
+              <li :for={{bucket, count} <- @bpm}>
+                <span class="sr-only">De {bucket} a menos de {bucket + 5} BPM, {track_count(count)}</span>
+                <div aria-hidden="true">
+                  <.bar_row
+                    label={"#{bucket}–#{bucket + 4}"}
+                    value={count}
+                    max={max_count(@bpm)}
+                    color="var(--color-primary)"
+                    mono
+                  />
+                </div>
+              </li>
+            </ul>
             <.empty :if={@bpm == []} />
           </.panel>
 

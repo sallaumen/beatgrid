@@ -385,4 +385,49 @@ defmodule Beatgrid.Sets.PlannerTest do
       50 -> count
     end
   end
+
+  test "extending the set carries the gold quota across its existing tail", %{set: set} do
+    {:ok, _} = Sets.append(set, track(tag_artist: "Opening"))
+    gold = track(tag_artist: "Next", gold_status: :confirmed)
+
+    {:ok, _} =
+      plan(set, %{
+        "mode" => "tracks",
+        "track_count" => "2",
+        "fill_mode" => "append",
+        "gold_every" => "2"
+      })
+
+    assert Enum.at(Sets.tracks(set), 1).id == gold.id
+  end
+
+  test "duration planning measures the available reference tracks", %{set: set} do
+    for i <- 1..20, do: track(tag_title: "Curta #{i}", duration_ms: 60_000)
+    {:ok, ref_set} = Sets.create("Longas")
+
+    for i <- 1..6 do
+      {:ok, _} = Sets.append(ref_set, track(tag_title: "Longa #{i}", duration_ms: 600_000))
+    end
+
+    {:ok, _} =
+      plan(set, %{
+        "mode" => "duration",
+        "duration_minutes" => "20",
+        "reference_set_id" => ref_set.id
+      })
+
+    assert length(Sets.tracks(set)) == 2
+  end
+
+  test "an obsolete reference cannot broaden a replacement plan or clear the set", %{set: set} do
+    original = track(tag_title: "Manter")
+    {:ok, _} = Sets.append(set, original)
+
+    assert {:error, %{code: :no_candidates}} =
+             Sets.plan(set, %{"reference_set_id" => "referência antiga"})
+
+    assert [kept] = Sets.tracks(set)
+    assert kept.id == original.id
+    assert original.id in Sets.cross_set_track_ids(["desconhecido", set.id])
+  end
 end

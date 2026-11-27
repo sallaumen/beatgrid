@@ -32,6 +32,9 @@ defmodule Beatgrid.Sets.TransitionChooser do
     delta = bpm_delta(a.bpm, b.bpm)
 
     cond do
+      is_nil(delta) ->
+        {"fade", "BPM desconhecido — fade entre as faixas."}
+
       delta > 0.13 ->
         {"brake", "Salto forte de BPM (#{pct(delta)}) — o freio de vinil marca a virada."}
 
@@ -59,7 +62,9 @@ defmodule Beatgrid.Sets.TransitionChooser do
       is_number(d_energy) and d_energy < -0.12 ->
         {"fade", "Baixando a energia — fade suave entre as faixas."}
 
-      # Compatível OU desconhecido (0.5 neutro): o mix casado é seguro.
+      is_nil(a.camelot) or is_nil(b.camelot) ->
+        {"crossfade", "Mix casado pelo BPM. Tom desconhecido em uma das faixas."}
+
       harm >= 0.5 ->
         {"crossfade", "BPMs próximos e tons compatíveis — mix casado no overlap."}
 
@@ -71,7 +76,7 @@ defmodule Beatgrid.Sets.TransitionChooser do
 
   # Variação relativa de BPM com sinal: >0 acelera, <0 desacelera.
   defp bpm_delta(a, b) when is_number(a) and is_number(b) and a > 0 and b > 0, do: (b - a) / a
-  defp bpm_delta(_a, _b), do: 0.0
+  defp bpm_delta(_a, _b), do: nil
 
   # Só compara energia quando AMBAS têm o valor real do Soundcharts (mesma escala
   # 0–1, clampeado contra imports fora do intervalo); nil = pular.

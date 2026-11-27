@@ -36,6 +36,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
   @impl true
   def mount(params, _session, socket) do
+    if connected?(socket), do: Playback.subscribe_markers()
+
     {:ok,
      socket
      |> assign(
@@ -51,6 +53,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
        playing?: false,
        auto?: true,
        pointer_id: nil,
+       predecessors: nil,
        # Faixas que já foram ao ar nesta sessão do set (deck_started/transição).
        # Efêmero e por-set: zera ao trocar de set. Marca a Fila e a Biblioteca.
        played: MapSet.new(),
@@ -69,15 +72,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
   # ── seleção e partida ────────────────────────────────────────────────────────
 
   @impl true
-  def handle_event("select_set", %{"set_id" => ""}, socket) do
-    # Sem set, a dica antiga não pode continuar armada — a reprodução segue,
-    # mas a sequência para na faixa atual.
-    {:noreply,
-     socket
-     |> assign(set: nil, entries: [], played: MapSet.new(), preflight: nil)
-     |> push_event("dj_set", %{id: nil})
-     |> push_hint(nil)}
-  end
+  def handle_event("select_set", %{"set_id" => ""}, socket),
+    do: {:noreply, clear_selected_set(socket)}
 
   def handle_event("select_set", %{"set_id" => id}, socket) do
     case Sets.get(id) do
@@ -89,7 +85,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
           socket
           |> subscribe_once(set.id)
           # Trocar de set zera o rastro de "já tocada" — as regras recomeçam.
-          |> assign(set: set, entries: Sets.entries(set), played: MapSet.new(), preflight: nil)
+          |> assign(
+            set: set,
+            entries: Sets.entries(set),
+            predecessors: nil,
+            played: MapSet.new(),
+            preflight: nil
+          )
           |> push_event("dj_set", %{id: set.id})
 
         # Trocar de set no meio da música: a dica armada do set antigo é
@@ -119,6 +121,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
            active_deck: "a",
            playing?: true,
            pointer_id: first.track.id,
+           predecessors: nil,
            # dj_stop wipes the client's armed hint — a restart must re-push the
            # same hint, so the dedupe cannot compare against the stale assign
            hint: nil
@@ -129,6 +132,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
            deck: "a",
            track: track_payload(first.track),
            autoplay: true,
+           set_id: set.id,
            at_ms: 0
          })
          |> push_hint(Sets.entry_after(set.id, first.track.id))}
@@ -150,9 +154,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
       track = get_track(id) ->
         {:noreply,
-         socket
-         |> assign_deck(deck, track)
-         |> push_event("dj_load", %{
+         push_event(socket, "dj_load", %{
            deck: deck,
            track: track_payload(track),
            autoplay: false,
@@ -169,11 +171,38 @@ defmodule BeatgridWeb.DiscotecagemLive do
     if socket.assigns.playing? and socket.assigns.active_deck == deck do
       {:noreply, put_flash(socket, :error, "Deck #{String.upcase(deck)} está no ar.")}
     else
-      {:noreply,
-       socket
-       |> assign_deck(deck, nil)
-       |> push_event("dj_eject", %{deck: deck})}
+      {:noreply, push_event(socket, "dj_eject", %{deck: deck})}
     end
+  end
+
+  # The browser owns both platters. Publish the result only after the
+  # engine has checked for a live deck, a held cue or a scratch in progress.
+  def handle_event("deck_loaded", %{"deck" => deck, "track_id" => id} = params, socket)
+      when deck in ["a", "b"] do
+    case get_track(id) do
+      nil ->
+        {:noreply, socket}
+
+      track ->
+        socket = assign_deck(socket, deck, track)
+        previous = params["replaced_hint_id"]
+
+        case socket.assigns.hint do
+          %{track: %{id: ^previous}} = hint ->
+            transition = hint.transition && Map.put(hint.transition, "to_ms", nil)
+
+            {:noreply,
+             assign(socket, hint: %{hint | track: track, transition: transition}, hint_deck: deck)}
+
+          _ ->
+            {:noreply, socket}
+        end
+    end
+  end
+
+  def handle_event("deck_ejected", %{"deck" => deck}, socket) when deck in ["a", "b"] do
+    socket = assign_deck(socket, deck, nil)
+    {:noreply, if(socket.assigns.hint_deck == deck, do: push_hint(socket, nil), else: socket)}
   end
 
   # ── fila ↔ biblioteca (o botão do browse alterna; girar navega as linhas) ──
@@ -203,7 +232,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
   end
 
   def handle_event("stop_all", _params, socket) do
-    Playback.clear_now_playing()
+    Playback.release_now_playing()
     Playback.deactivate_quiet_mode()
 
     {:noreply,
@@ -224,7 +253,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
     case in_set_entry(socket, id) do
       nil ->
         Playback.set_now_playing(%{track_id: id, set_id: nil})
-        {:noreply, socket}
+        Playback.activate_quiet_mode()
+        {:noreply, socket |> assign(pointer_id: id, predecessors: nil) |> push_hint(nil)}
 
       _entry ->
         set = socket.assigns.set
@@ -233,7 +263,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
         {:noreply,
          socket
-         |> assign(pointer_id: id)
+         |> assign(pointer_id: id, predecessors: nil)
          |> push_hint(Sets.entry_after(set.id, id))}
     end
   end
@@ -255,7 +285,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
     case in_set_entry(socket, to_id) do
       nil ->
         Playback.set_now_playing(%{track_id: to_id, set_id: nil})
-        {:noreply, push_hint(socket, nil)}
+        {:noreply, socket |> assign(pointer_id: to_id, predecessors: nil) |> push_hint(nil)}
 
       _entry ->
         set = socket.assigns.set
@@ -264,7 +294,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
         {:noreply,
          socket
-         |> assign(pointer_id: to_id)
+         |> assign(pointer_id: to_id, predecessors: nil)
          |> push_hint(Sets.entry_after(set.id, to_id))}
     end
   end
@@ -289,7 +319,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
     case in_set_entry(socket, id) do
       nil ->
         Playback.set_now_playing(%{track_id: id, set_id: nil})
-        {:noreply, push_hint(socket, nil)}
+        {:noreply, socket |> assign(pointer_id: id, predecessors: nil) |> push_hint(nil)}
 
       _entry ->
         set = socket.assigns.set
@@ -297,7 +327,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
         {:noreply,
          socket
-         |> assign(pointer_id: id)
+         |> assign(pointer_id: id, predecessors: nil)
          |> push_hint(Sets.entry_after(set.id, id))}
     end
   end
@@ -316,7 +346,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
   # Erro de mídia: a faixa é PULADA, nunca derruba o som (regra nunca-mais).
   def handle_event("deck_error", %{"deck" => deck, "track_id" => id}, socket) do
     set = socket.assigns.set
-    next = set && Sets.entry_after(set.id, id)
+    next = set && Sets.entry_after(set.id, id, active_track(socket))
     socket = put_flash(socket, :error, "Erro ao tocar uma faixa — pulada.")
 
     cond do
@@ -328,6 +358,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
            deck: other_deck(deck),
            track: track_payload(next.track),
            autoplay: true,
+           set_id: set.id,
            at_ms: transition_to_ms(next.transition)
          })}
 
@@ -353,6 +384,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
     socket =
       socket
       |> adopt_resync_set(params["set_id"])
+      |> restore_loaded_decks(params["decks"])
       |> assign(auto?: params["auto"] == true)
 
     case params do
@@ -373,19 +405,19 @@ defmodule BeatgridWeb.DiscotecagemLive do
   # ANTES da transição disparar — a raiz do bug da festa, agora coberta.
   @impl true
   def handle_info({:set_changed, set_id}, %{assigns: %{set: %{id: set_id} = set}} = socket) do
-    old_entries = socket.assigns.entries
     entries = Sets.entries(set)
-    socket = assign(socket, entries: entries)
 
-    if socket.assigns.playing? && socket.assigns.pointer_id do
-      hint =
-        Sets.entry_after(set_id, socket.assigns.pointer_id) ||
-          removed_pointer_hint(old_entries, entries, socket.assigns.pointer_id, set_id)
-
-      {:noreply, push_hint(socket, hint)}
+    if entries == [] and is_nil(Sets.get(set_id)) do
+      {:noreply, socket |> assign(sets: Sets.list()) |> clear_selected_set()}
     else
-      {:noreply, socket}
+      {:noreply, refresh_queue(socket, entries)}
     end
+  end
+
+  # The browser also holds unacknowledged loads and deferred hints. Send the
+  # marker delta by track ID so it reaches those as well as either platter.
+  def handle_info({:markers_changed, id}, socket) do
+    {:noreply, push_markers(socket, Tracks.get(id))}
   end
 
   def handle_info(_msg, socket), do: {:noreply, socket}
@@ -395,13 +427,47 @@ defmodule BeatgridWeb.DiscotecagemLive do
   # o player global pode estar tocando — não tocamos no ponteiro dele.
   @impl true
   def terminate(_reason, %{assigns: %{playing?: true}}) do
-    Playback.clear_now_playing()
+    Playback.release_now_playing()
     Playback.deactivate_quiet_mode()
   end
 
   def terminate(_reason, _socket), do: :ok
 
   # ── helpers ──────────────────────────────────────────────────────────────────
+
+  defp clear_selected_set(socket) do
+    %{set: set, playing?: playing?, pointer_id: track_id} = socket.assigns
+
+    if playing? and not is_nil(set) do
+      Playback.detach_now_playing_set(set.id, track_id)
+    end
+
+    socket
+    |> assign(set: nil, entries: [], predecessors: nil, played: MapSet.new(), preflight: nil)
+    |> push_event("dj_set", %{id: nil})
+    |> push_hint(nil)
+  end
+
+  defp refresh_queue(socket, entries) do
+    old_entries = socket.assigns.entries
+    report = socket.assigns.preflight && Sets.preflight(entries)
+    socket = assign(socket, entries: entries, preflight: report)
+
+    outgoing = active_track(socket)
+
+    if outgoing && socket.assigns.playing? && outgoing.id == socket.assigns.pointer_id do
+      predecessors =
+        case Enum.split_while(old_entries, &(&1.track.id != outgoing.id)) do
+          {_, []} -> socket.assigns.predecessors
+          {before, _} -> Enum.map(Enum.reverse(before), & &1.track.id)
+        end
+
+      hint = Sets.live_hint(entries, outgoing, predecessors)
+      socket |> assign(predecessors: predecessors) |> push_hint(hint)
+    else
+      socket
+    end
+  end
 
   # A Biblioteca fica sempre visível — carrega assim que estiver vazia (mount,
   # troca de lista ativa), não só quando a aba estava aberta.
@@ -440,24 +506,6 @@ defmodule BeatgridWeb.DiscotecagemLive do
   end
 
   defp adopt_resync_set(socket, _set_id), do: socket
-
-  # A faixa no ar foi REMOVIDA do set no meio da música: a sucessora herda a
-  # posição dela — a dica cai para a entrada seguinte ao vizinho anterior que
-  # ainda pertence ao set, em vez de matar a sequência.
-  defp removed_pointer_hint(old_entries, entries, pointer_id, set_id) do
-    member? = fn id -> Enum.any?(entries, &(&1.track.id == id)) end
-
-    with idx when is_integer(idx) <- Enum.find_index(old_entries, &(&1.track.id == pointer_id)),
-         prev_id when is_binary(prev_id) <-
-           old_entries
-           |> Enum.take(idx)
-           |> Enum.reverse()
-           |> Enum.find_value(fn e -> if member?.(e.track.id), do: e.track.id end) do
-      Sets.entry_after(set_id, prev_id)
-    else
-      _ -> nil
-    end
-  end
 
   defp subscribe_once(socket, set_id) do
     if MapSet.member?(socket.assigns.subscribed, set_id) do
@@ -502,6 +550,20 @@ defmodule BeatgridWeb.DiscotecagemLive do
   defp assign_deck(socket, "a", track), do: assign(socket, deck_a: track)
   defp assign_deck(socket, "b", track), do: assign(socket, deck_b: track)
 
+  defp restore_loaded_decks(socket, %{"a" => a, "b" => b}) do
+    a = get_track(a)
+    b = get_track(b)
+    socket = socket |> assign_deck("a", a) |> assign_deck("b", b) |> push_markers(a)
+    if a == b, do: socket, else: push_markers(socket, b)
+  end
+
+  defp restore_loaded_decks(socket, _decks), do: socket
+
+  defp push_markers(socket, nil), do: socket
+
+  defp push_markers(socket, track),
+    do: push_event(socket, "dj_markers", %{track_id: track.id, markers: track.cue_points || []})
+
   defp assign_deck_by_id(socket, deck, id) do
     current = if deck == "a", do: socket.assigns.deck_a, else: socket.assigns.deck_b
 
@@ -511,6 +573,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
       true -> socket
     end
   end
+
+  defp active_track(%{assigns: %{active_deck: "a", deck_a: track}}), do: track
+  defp active_track(%{assigns: %{active_deck: "b", deck_b: track}}), do: track
+  defp active_track(_socket), do: nil
 
   defp other_deck("a"), do: "b"
   defp other_deck("b"), do: "a"
@@ -572,22 +638,6 @@ defmodule BeatgridWeb.DiscotecagemLive do
     do: true
 
   defp same_hint?(_current, _new), do: false
-
-  defp t_label(nil), do: "SEQ"
-  defp t_label("cut"), do: "CORTE"
-  defp t_label("fade"), do: "FADE"
-  defp t_label("crossfade"), do: "XFADE"
-  defp t_label("echo"), do: "ECO"
-  defp t_label("filter"), do: "FILTRO"
-  defp t_label("bass_swap"), do: "GRAVE"
-  defp t_label("brake"), do: "FREIO"
-  defp t_label("lowpass"), do: "AFUNDA"
-  defp t_label("scratch_cut"), do: "RASGO"
-  defp t_label("chirp"), do: "CHIRP"
-  defp t_label("transform"), do: "TRANSF"
-  defp t_label("scribble"), do: "RISCA"
-  defp t_label("spinback"), do: "REBOBINA"
-  defp t_label(_type), do: "SEQ"
 
   # The manual-fire palette: {engine key, button label, one-line description, accent}.
   defp transition_buttons(:classicas) do
@@ -727,14 +777,18 @@ defmodule BeatgridWeb.DiscotecagemLive do
           aria-label="Conferência do set"
           class={[
             "mt-3 rounded-xl border p-3",
-            (@preflight.issues == [] && "border-green/30 bg-green/5") || "border-amber/30 bg-amber/5"
+            @preflight.total == 0 && "border-white/8 bg-surface",
+            @preflight.total > 0 && @preflight.issues == [] && "border-green/30 bg-green/5",
+            @preflight.issues != [] && "border-amber/30 bg-amber/5"
           ]}
         >
           <div class="flex items-center justify-between">
             <p class="text-body-sm font-semibold">
-              {if @preflight.issues == [],
-                do: "#{@preflight.total} faixas conferidas. Tudo pronto.",
-                else: "#{length(@preflight.issues)} de #{@preflight.total} faixas com pendência"}
+              {cond do
+                @preflight.total == 0 -> "O set está vazio."
+                @preflight.issues == [] -> "#{@preflight.total} faixas conferidas. Tudo pronto."
+                true -> "#{length(@preflight.issues)} de #{@preflight.total} faixas com pendência"
+              end}
             </p>
             <button
               type="button"
@@ -1212,14 +1266,17 @@ defmodule BeatgridWeb.DiscotecagemLive do
       <script :type={Phoenix.LiveView.ColocatedHook} name=".DjConsole">
         import {createEngine} from "@/js/dj/engine.js"
         import {paintDeckStatus} from "@/js/dj/deck_status.js"
+        import {hotCues} from "@/js/dj/hot_cues.js"
         import {loadPeaks, drawWave} from "@/js/dj/waveform.js"
 
         const ACCENTS = {a: "#8b7bf0", b: "#2d9cff"}
         const WAVE_WINDOW_S = 16
+        const waveWindow = (deck) => WAVE_WINDOW_S * deck.el.playbackRate
         const FIRE_ERRORS = {
           no_audible: "nada no ar — dê play primeiro",
           empty_target: "o outro deck está vazio",
           target_loading: "o outro deck ainda está carregando",
+          deck_held: "solte o CUE ou o jog antes da transição",
           target_error: "a faixa do outro deck falhou — carregue outra",
           too_fast: "calma — uma transição acabou de disparar",
         }
@@ -1259,7 +1316,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
             this.mediaReadouts = {a: byId("dj-media-status-a"), b: byId("dj-media-status-b")}
             this.hint = null
             this.pendingHint = null
-            this.cursor = -1
+            this.cueAudio = byId("dj-cue-audio")
+            this.cueRouteVersion = 0
+            this.cursorTrackId = null
+            this.railTab = this.el.dataset.railTab
             // Foco de seção da controladora: pads MANUAL escolhem ONDE o browse
             // navega e o cue level ajusta. "lista" = comportamento clássico;
             // "efeitos" carrega o DECK focado (a/b) que o browse alterna.
@@ -1285,8 +1345,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 const deck = this.engine.decks[d]
                 if (deck.trackId == null) return
                 const rect = e.currentTarget.getBoundingClientRect()
-                const dtS = ((e.clientX - rect.left) / rect.width - 0.5) * WAVE_WINDOW_S
-                this.engine.cueTo(d, Math.max((deck.el.currentTime + dtS) * 1000, 0))
+                const dtS = ((e.clientX - rect.left) / rect.width - 0.5) * waveWindow(deck)
+                this.engine.cueTo(d, (deck.platterTime() + dtS) * 1000)
               })
             }
 
@@ -1331,10 +1391,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 xfadePos: ({pos}) => {
                   const v = Math.round(pos * 100)
                   const x = byId("dj-xfader")
-                  if (x && document.activeElement !== x) x.value = v
+                  if (x && Number(x.value) !== v) x.value = v
                   // The scratch panel mirrors the same crossfader (patterns chop it).
                   const sx = byId("dj-scratch-xfader")
-                  if (sx && document.activeElement !== sx) sx.value = v
+                  if (sx && Number(sx.value) !== v) sx.value = v
                 },
                 scratchEnded: ({deck}) => {
                   // The engine tore the scratch down (load/transition took over)
@@ -1357,9 +1417,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 deckFreed: () => {
                   if (this.pendingHint) this.armHint(this.pendingHint)
                   if (this.pendingLoad) this.retryPendingLoad()
-                  if (!this.engine.decks.a.audible() && !this.engine.decks.b.audible()) {
+                  if (!this.engine.sessionDeck()) {
                     this.pushEvent("console_idle", {})
                   }
+                },
+                loopTooLong: ({deck, beats}) => {
+                  const length = beats === 1 ? "1 tempo" : `${beats} tempos`
+                  this.notice(`O loop de ${length} passa do fim da faixa no deck ${deck.toUpperCase()}.`)
                 },
                 loopState: ({deck, on, startMs, endMs, beats}) => {
                   for (const b of [1, 2, 4, 8]) {
@@ -1428,12 +1492,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
                     if (quad) {
                       cueSel.classList.add("hidden")
                       if (cueLab) cueLab.classList.add("hidden")
-                      const cueAudio = byId("dj-cue-audio")
-                      if (cueAudio && !cueAudio.paused) {
-                        cueAudio.pause()
-                        cueAudio.srcObject = null
-                        this.log("fone avulso desligado — o cue agora vai pelos canais 3/4")
-                      }
+                      this.disconnectHeadphones()
+                      cueSel.value = ""
                     } else if (cueSel.options.length) {
                       cueSel.classList.remove("hidden")
                       if (cueLab) cueLab.classList.remove("hidden")
@@ -1486,16 +1546,35 @@ defmodule BeatgridWeb.DiscotecagemLive do
             window.__djEngine = this.engine
 
             this.handleEvent("dj_load", (payload) => {
+              if (payload.autoplay && payload.set_id !== this.setId) return
               if (!this.applyLoad(payload)) {
                 // Deck ainda audível (ex.: soltando a rampa de uma transição
                 // quando o entrante deu erro): a carga fica na fila e entra
                 // assim que o deck liberar — nunca "recusada" com silêncio.
-                this.pendingLoad = payload
-                this.log(`deck ${payload.deck.toUpperCase()} ainda no ar — carga na fila`)
+                if (payload.autoplay) {
+                  this.pendingLoad = payload
+                  this.log(`deck ${payload.deck.toUpperCase()} ainda no ar — carga na fila`)
+                } else {
+                  this.notice(`Deck ${payload.deck.toUpperCase()} ocupado. Pause a faixa ou solte o controle antes de carregar.`)
+                }
               }
             })
             this.handleEvent("dj_set", ({id}) => {
               this.setId = id
+              if (this.pendingLoad?.autoplay && this.pendingLoad.set_id !== id) {
+                this.pendingLoad = null
+              }
+            })
+            this.handleEvent("dj_markers", ({track_id, markers}) => {
+              for (const request of [this.pendingLoad, this.pendingHint, this.hint]) {
+                if (request?.track.id === track_id) request.track.markers = markers
+              }
+              for (const d of ["a", "b"]) {
+                const track = this.tracks[d]
+                if (track?.id !== track_id) continue
+                track.markers = markers
+                this.renderMarkers(d, track)
+              }
             })
             this.handleEvent("dj_eject", ({deck}) => {
               if (!this.engine.eject(deck)) {
@@ -1506,6 +1585,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               this.waves[deck] = null
               if (this.pendingLoad && this.pendingLoad.deck === deck) this.pendingLoad = null
               this.clearDeckStatics(deck)
+              this.pushEvent("deck_ejected", {deck})
               this.log(`deck ${deck.toUpperCase()} ejetado`)
             })
             this.handleEvent("dj_hint", (hint) => this.armHint(hint))
@@ -1534,11 +1614,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
             for (const d of ["a", "b"]) {
               byId(`dj-play-${d}`).addEventListener("click", () => this.engine.playPause(d))
               byId(`dj-pfl-${d}`).addEventListener("click", () => this.engine.togglePfl(d))
-              byId(`dj-cue-${d}`).addEventListener("click", () => this.cue(d))
-              byId(`dj-sync-${d}`).addEventListener("click", () => {
-                if (this.engine.sync(d)) this.log(`SYNC no deck ${d.toUpperCase()}`)
-                else this.log("SYNC indisponível (falta BPM em um dos decks)")
-              })
+              this.wireCue(d)
+              byId(`dj-sync-${d}`).addEventListener("click", () => this.applySync(d))
               byId(`dj-strip-${d}`).addEventListener("click", (e) => {
                 const track = this.tracks[d]
                 if (!track || !track.duration_ms) return
@@ -1631,6 +1708,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             // na controladora de 4 canais o fone passa a sair na 3/4); o "fone
             // avulso" toca o stream do cue em outro dispositivo (só em estéreo).
             const fillDevices = (sel, devs, placeholder) => {
+              const selected = sel.value
               sel.innerHTML = ""
               const none = document.createElement("option")
               none.value = ""
@@ -1642,6 +1720,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 o.textContent = d.label || `Saída ${sel.children.length}`
                 sel.appendChild(o)
               }
+              if (devs.some(d => d.deviceId === selected)) sel.value = selected
+              else if (selected && sel.id === "dj-cue-device") this.disconnectHeadphones()
             }
             byId("dj-cue-pick").addEventListener("click", async () => {
               if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
@@ -1698,22 +1778,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 this.log("não consegui mover a mesa para essa saída")
               }
             })
-            byId("dj-cue-device").addEventListener("change", async (e) => {
-              if (!e.target.value) return
-              if (this.cueModeNow === "quad") {
-                this.log("já em 4 canais — o fone sai pelos canais 3/4 da controladora")
-                return
-              }
-              try {
-                const cueAudio = byId("dj-cue-audio")
-                cueAudio.srcObject = this.engine.cueStream()
-                await cueAudio.setSinkId(e.target.value)
-                await cueAudio.play()
-                this.log("fone ativo na saída escolhida")
-              } catch (_err) {
-                this.log("não consegui ativar o fone nessa saída")
-              }
-            })
+            byId("dj-cue-device").addEventListener("change", (e) => this.routeHeadphones(e.target))
 
             this.onMidi = (e) => this.applyMidi(e.detail)
             window.addEventListener("dj:midi", this.onMidi)
@@ -1817,9 +1882,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
             // O servidor remontou zerado: manda a verdade do cliente — set,
             // AUTO e o que segue tocando.
             const snap = this.engine.snapshot()
-            const deck = snap.a.playing ? "a" : snap.b.playing ? "b" : null
+            const deck = this.engine.sessionDeck()
             this.pushEvent("console_resync", {
               deck,
+              decks: {a: snap.a.trackId, b: snap.b.trackId},
               playing_track_id: deck ? snap[deck].trackId : null,
               auto: snap.auto,
               set_id: this.setId || null,
@@ -1828,6 +1894,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
           destroyed() {
             cancelAnimationFrame(this.raf)
+            this.disconnectHeadphones()
             window.removeEventListener("resize", this.sizeWaves)
             window.removeEventListener("dj:midi", this.onMidi)
             window.removeEventListener("dj:pfl-sync", this.onPflSync)
@@ -1854,9 +1921,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
           actPostpone(ms) {
             // No silêncio do respiro, W estende o agradecimento da pista.
-            if (this.engine.snapshot().breather) {
-              const rem = this.engine.postponeFire(ms)
-              if (rem != null) this.toast(`🤝 respiro esticado — próxima em ${Math.ceil(rem / 1000)}s`)
+            const state = this.engine.snapshot()
+            if (state.breather || state.breatherTail) {
+              const seconds = Math.ceil(this.engine.postponeFire(ms) / 1000)
+              this.toast(state.breatherTail
+                ? `🤝 respiro de ${seconds}s ao fim da faixa`
+                : `🤝 respiro esticado — próxima em ${seconds}s`)
               return
             }
             const fp = this.engine.postponeFire(ms)
@@ -1918,7 +1988,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               return
             }
             this.pendingHint = null
-            this.hint = hint
+            this.hint = {...hint, deck}
             this.tracks[deck] = hint.track
             this.renderDeckStatics(deck, hint.track)
             this.loadWave(deck, hint.track)
@@ -1929,7 +1999,20 @@ defmodule BeatgridWeb.DiscotecagemLive do
           // Executa uma carga vinda do servidor; false = deck ainda audível.
           applyLoad({deck, track, autoplay, at_ms}) {
             if (!this.engine.loadDeck(deck, track, {autoplay, atMs: at_ms || 0})) return false
-            this.pendingLoad = null
+            if (this.pendingLoad?.deck === deck) this.pendingLoad = null
+            if (!autoplay) {
+              let replaced = null
+              const idle = this.engine.snapshot().activeDeck === "a" ? "b" : "a"
+              const hint = this.pendingHint && deck === idle ? this.pendingHint : this.hint
+              if (hint && deck === idle && (hint === this.pendingHint || hint.deck === deck)) {
+                replaced = hint.track.id
+                const transition = hint.transition && {...hint.transition, to_ms: null}
+                this.hint = {...hint, deck, track, transition}
+                if (this.pendingHint) this.engine.armHint(this.hint)
+                this.pendingHint = null
+              }
+              this.pushEvent("deck_loaded", {deck, track_id: track.id, replaced_hint_id: replaced})
+            }
             this.tracks[deck] = track
             this.renderDeckStatics(deck, track)
             this.loadWave(deck, track)
@@ -1938,7 +2021,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
           },
 
           retryPendingLoad() {
-            if (this.pendingLoad) this.applyLoad(this.pendingLoad)
+            const pending = this.pendingLoad
+            if (!pending) return
+            if (pending.autoplay && pending.set_id !== this.setId) {
+              this.pendingLoad = null
+              return
+            }
+            this.applyLoad(pending)
           },
 
           clearDeckStatics(d) {
@@ -1990,7 +2079,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               const deck = this.engine.decks[d]
               const track = this.tracks[d]
               const markers = (track && track.markers) || []
-              const intro = markers.find((m) => m.type === "intro" || m.type === "cue")
+              const intro = markers.find(m => m.type === "intro") || markers.find(m => m.type !== "outro")
               const wave = this.waves[d]
               const failed = wave && wave.failed
               // Follow the scratch read-head so the wave scrolls WITH the scratch
@@ -1998,11 +2087,11 @@ defmodule BeatgridWeb.DiscotecagemLive do
               const scratchS = this.engine.scratchPosSec(d)
               drawWave(canvas, {
                 entry: failed ? null : wave,
-                posS: scratchS != null ? scratchS : deck.el.currentTime || 0,
+                posS: scratchS ?? deck.platterTime(),
                 playing: deck.audible() || scratchS != null,
                 accent: ACCENTS[d],
-                windowS: WAVE_WINDOW_S,
-                bpm: track && track.bpm ? track.bpm * deck.el.playbackRate : null,
+                windowS: waveWindow(deck),
+                bpm: deck.bpm,
                 gridPhaseMs: intro ? intro.ms : 0,
                 markers,
                 loop: this.engine.loopState(d),
@@ -2046,6 +2135,16 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
           renderDeckStatics(d, track) {
             this.setVinyl(d, track)
+            this.renderMarkers(d, track)
+            const bpmEl = byId(`dj-jogbpm-${d}`)
+            if (bpmEl) bpmEl.textContent = track.bpm ? `${Math.round(track.bpm)}` : ""
+            const pitch = byId(`dj-pitch-${d}`)
+            if (pitch) pitch.value = 50
+            const plab = byId(`dj-pitchlab-${d}`)
+            if (plab) plab.textContent = "0.0%"
+          },
+
+          renderMarkers(d, track) {
             const marks = byId(`dj-marks-${d}`)
             const dur = track.duration_ms || 0
             const COLORS = {cue: "#ffb020", intro: "#5ad1a0", outro: "#ff5d6c"}
@@ -2060,7 +2159,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 marks.appendChild(tick)
               })
             }
-            const pads = (track.markers || []).slice().sort((x, y) => x.ms - y.ms).slice(0, 4)
+            const pads = hotCues(track.markers)
             for (let n = 1; n <= 4; n++) {
               const pad = byId(`dj-pad-${d}-${n}`)
               const lab = byId(`dj-padlab-${d}-${n}`)
@@ -2080,20 +2179,69 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 lab.textContent = "—"
               }
             }
-            const bpmEl = byId(`dj-jogbpm-${d}`)
-            if (bpmEl) bpmEl.textContent = track.bpm ? `${Math.round(track.bpm)}` : ""
-            const pitch = byId(`dj-pitch-${d}`)
-            if (pitch) pitch.value = 50
-            const plab = byId(`dj-pitchlab-${d}`)
-            if (plab) plab.textContent = "0.0%"
           },
 
-          cue(d) {
-            const track = this.tracks[d]
-            const first = ((track && track.markers) || [])
-              .filter((m) => m.type === "cue" || m.type === "intro")
-              .sort((a, b) => a.ms - b.ms)[0]
-            this.engine.cueTo(d, first ? first.ms : 0)
+          disconnectHeadphones() {
+            this.cueRouteVersion++
+            this.cueAudio.pause()
+            this.cueAudio.srcObject = null
+          },
+
+          routeHeadphones(select) {
+            this.disconnectHeadphones()
+            const device = select.value
+            if (!device || this.cueModeNow === "quad") return
+            const version = this.cueRouteVersion
+            // Drivers may finish a sink switch after a second selection. Switch
+            // in order, with the cue bus muted until the latest sink is ready.
+            this.cueRouting = (this.cueRouting || Promise.resolve()).then(async () => {
+              if (version !== this.cueRouteVersion) return
+              await this.cueAudio.setSinkId(device)
+              if (version !== this.cueRouteVersion) return
+              this.cueAudio.srcObject = this.engine.cueStream()
+              await this.cueAudio.play()
+              if (version === this.cueRouteVersion) this.log("fone ativo na saída escolhida")
+            }).catch(() => {
+              if (version !== this.cueRouteVersion) return
+              this.disconnectHeadphones()
+              select.value = ""
+              this.log("não consegui ativar o fone nessa saída")
+            })
+          },
+
+          wireCue(deck) {
+            const button = byId(`dj-cue-${deck}`)
+            let down = false
+            const press = () => {
+              if (!down) this.engine.cueButton(deck, true)
+              down = true
+            }
+            const release = () => {
+              if (down) this.engine.cueButton(deck, false)
+              down = false
+            }
+            button.addEventListener("pointerdown", (e) => {
+              if (e.button !== 0) return
+              button.setPointerCapture(e.pointerId)
+              press()
+            })
+            button.addEventListener("pointerup", release)
+            button.addEventListener("pointercancel", release)
+            button.addEventListener("lostpointercapture", release)
+            button.addEventListener("keydown", (e) => {
+              if (e.key !== " " && e.key !== "Enter") return
+              e.preventDefault()
+              if (!e.repeat) press()
+            })
+            button.addEventListener("keyup", (e) => {
+              if (e.key !== " " && e.key !== "Enter") return
+              e.preventDefault()
+              release()
+            })
+            button.addEventListener("blur", release)
+            button.addEventListener("click", (e) => {
+              if (e.detail === 0) { press(); release() }
+            })
           },
 
           applyPitch(d, v) {
@@ -2102,6 +2250,20 @@ defmodule BeatgridWeb.DiscotecagemLive do
             this.engine.setRate(d, rate)
             const lab = byId(`dj-pitchlab-${d}`)
             if (lab) lab.textContent = `${((rate - 1) * 100).toFixed(1)}%`
+          },
+
+          applySync(d) {
+            const deck = this.engine.decks[d]
+            const other = this.engine.decks[d === "a" ? "b" : "a"]
+            const matched = this.engine.sync(d)
+            if (!(deck.bpm > 0 && other.bpm > 0)) {
+              this.notice("O SYNC precisa de uma faixa com BPM em cada deck.")
+              return
+            }
+            const tempo = (deck.bpm * deck.baseRate).toFixed(1)
+            const target = (other.bpm * other.baseRate).toFixed(1)
+            if (matched) this.log(`SYNC no deck ${d.toUpperCase()} · ${tempo} BPM`)
+            else this.notice(`Deck ${d.toUpperCase()} em ${tempo} BPM. O alvo de ${target} BPM está fora do alcance de ±8% do SYNC.`)
           },
 
           setMeter(id, level) {
@@ -2117,7 +2279,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
               : (track && track.duration_ms) || 0
             const scratchPosition = this.engine.scratchPosSec(d)
             paintDeckStatus(this.mediaReadouts[d], deck, scratchPosition)
-            const pos = deck.positionMs()
+            const posS = scratchPosition ?? deck.platterTime()
+            const pos = posS * 1000
             const elapsed = byId(`dj-el-${d}`)
             const rem = byId(`dj-rem-${d}`)
             if (elapsed) elapsed.textContent = fmt(pos)
@@ -2136,7 +2299,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               const other = this.tracks[o]
               target.textContent =
                 other && other.bpm
-                  ? `alvo ${(other.bpm * this.engine.decks[o].el.playbackRate).toFixed(1)}`
+                  ? `alvo ${(other.bpm * this.engine.decks[o].baseRate).toFixed(1)}`
                   : ""
             }
             const ring = byId(`dj-jogring-${d}`)
@@ -2150,7 +2313,6 @@ defmodule BeatgridWeb.DiscotecagemLive do
             // turns back and forth WITH the scratch, as one thing). ~1.8 s/rev.
             const vinyl = byId(`dj-vinyl-${d}`)
             if (vinyl && !this.reducedMotion.matches) {
-              const posS = scratchPosition ?? (deck.el.currentTime || 0)
               const deg = ((posS / 1.8) * 360) % 360
               vinyl.style.transform = `translate(-50%,-50%) rotate(${deg}deg)`
             }
@@ -2161,9 +2323,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
             const pitchLab = byId(`dj-pitchlab-${d}`)
             if (pitchLab) pitchLab.textContent = `${((deck.baseRate - 1) * 100).toFixed(1)}%`
             const pitchEl = byId(`dj-pitch-${d}`)
-            if (pitchEl && document.activeElement !== pitchEl) {
-              pitchEl.value = Math.round(((deck.baseRate - 0.8) / 0.4) * 100)
-            }
+            const position = ((deck.baseRate - 0.8) / 0.4) * 100
+            if (pitchEl && Math.abs(pitchEl.valueAsNumber - position) > 0.125) pitchEl.value = position
           },
 
           // UI mirror of the manual-fire palette: which direction a click would
@@ -2202,12 +2363,17 @@ defmodule BeatgridWeb.DiscotecagemLive do
             const snap = this.engine.snapshot()
             // O silêncio do agradecimento vem ANTES de tudo: não há hint nem
             // deck tocando aqui — e é exatamente isso que a tela deve dizer.
+            if (snap.waitingForNext || (snap.breather?.remainingMs === 0 && !snap.hintReady)) {
+              return {text: "Carregando a próxima faixa…", color: "#ffb020"}
+            }
+            if (snap.breatherTail) return {text: "🤝 final da faixa · respiro a seguir", color: "#ffb020"}
             if (snap.breather) {
               const s = Math.ceil(snap.breather.remainingMs / 1000)
               return {text: `🤝 pista agradece — próxima em ${s}s`, color: "#ffb020"}
             }
             const active = snap.activeDeck
             if (!hint || !active || !snap[active].playing) return {text: "—", color: ""}
+            if (!snap.auto) return {text: "manual", color: ""}
             // Entrada SEQ: não há blend planejado — a faixa toca até o fim e
             // corta. Dizer QUANDO, em vez de um "—" mudo.
             if (!hint.transition) {
@@ -2217,8 +2383,6 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 color: left <= 10_000 ? "#ffb020" : "",
               }
             }
-            // Com AUTO desligado ninguém vai disparar sozinho — não prometa.
-            if (!snap.auto) return {text: "manual", color: ""}
             // O deck da próxima ainda não está pronto: o AUTO não vai disparar
             // o blend — avisar em vez de prometer um countdown que não vale.
             if (!snap.hintReady) return {text: "⚠ carregando o outro deck…", color: "#ffb020"}
@@ -2279,17 +2443,14 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 if (a.pressed) this.engine.playPause(a.deck)
                 break
               case "cue":
-                if (a.pressed) this.cue(a.deck)
+                this.engine.cueButton(a.deck, a.pressed)
                 break
               case "sync":
-                if (a.pressed && this.engine.sync(a.deck)) this.log(`SYNC deck ${a.deck.toUpperCase()} (MIDI)`)
+                if (a.pressed) this.applySync(a.deck)
                 break
-              case "pitch": {
+              case "pitch":
                 this.applyPitch(a.deck, a.value)
-                const el = byId(`dj-pitch-${a.deck}`)
-                if (el) el.value = Math.round(a.value * 100)
                 break
-              }
               case "level": {
                 // Volume saiu dos knobs de level (fica no talo; a mixagem é no
                 // crossfader). No foco Efeitos eles viram FX do deck focado:
@@ -2454,9 +2615,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
             // (An angle around the center goes erratic when you drag left-right
             // THROUGH the middle — the natural scratch gesture — which turned the
             // velocity to noise. Horizontal is smooth and intuitive for a mouse.)
-            // 0.05 ≈ jog-units per pixel (× jogScratchSamples in the engine) — the
-            // mouse sensitivity; higher = more audio per drag.
-            const PX = 0.05
+            // Keep the mouse throw at roughly 2.7 ms of music per pixel.
+            const PX = 0.36
             let dragging = false
             let lastX = 0
             const onMove = (e) => {
@@ -2546,55 +2706,54 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
           moveCursor(delta) {
             const rows = this.entryRows()
-            if (!rows.length) return
-            this.cursor = Math.min(Math.max(this.cursor + Math.sign(delta), 0), rows.length - 1)
+            if (!rows.length || !delta) return
+            const index = rows.findIndex(row => row.dataset.trackId === this.cursorTrackId)
+            const next = Math.min(Math.max(index + delta, 0), rows.length - 1)
+            const row = rows[next]
+            this.cursorTrackId = row.dataset.trackId
             this.applyCursorOutline(rows)
-            rows[this.cursor].scrollIntoView({block: "nearest"})
+            row.scrollIntoView({block: "nearest"})
           },
 
-          // Fila e Biblioteca ficam SEMPRE visíveis lado a lado; o browse anda só
-          // pela lista ativa (data-rail-tab no console) para o cursor não pular de
-          // uma lista para a outra.
           entryRows() {
-            const tab = this.el.dataset.railTab
-            const scope = byId(tab === "biblioteca" ? "dj-lib-list" : "dj-queue-list")
+            const scope = byId(this.railTab === "biblioteca" ? "dj-lib-list" : "dj-queue-list")
             return scope ? Array.from(scope.querySelectorAll("[data-dj-entry]")) : []
           },
 
           applyCursorOutline(rows) {
-            rows = rows || this.entryRows()
-            rows.forEach((r, i) => {
-              r.style.outline = i === this.cursor ? "1px solid #ffb020" : ""
-            })
+            for (const row of rows) {
+              row.style.outline = row.dataset.trackId === this.cursorTrackId ? "1px solid #ffb020" : ""
+            }
           },
 
-          // Zera o contorno do cursor nas DUAS listas — applyCursorOutline só
-          // enxerga a lista ativa, então trocar de lista deixaria a antiga marcada.
-          clearCursorOutlineAll() {
-            for (const r of document.querySelectorAll("[data-dj-entry]")) r.style.outline = ""
+          clearCursor() {
+            this.cursorTrackId = null
+            for (const row of document.querySelectorAll("[data-dj-entry]")) row.style.outline = ""
           },
 
-          // As linhas são re-renderizadas pelo servidor — o contorno do cursor MIDI
-          // é reaplicado a cada patch para não sumir. Trocar a lista ativa (fila ↔
-          // biblioteca) zera o cursor E limpa a marca da lista que deixou de ser a
-          // ativa (as duas ficam visíveis lado a lado agora).
+          selectRail(tab) {
+            if (tab !== this.railTab) this.clearCursor()
+            this.railTab = tab
+            this.requestedRail = tab
+            this.pushEvent("rail_tab", {tab})
+          },
+
           updated() {
             const tab = this.el.dataset.railTab
-            if (tab !== this._railTab) {
-              this._railTab = tab
-              this.cursor = -1
-              this.clearCursorOutlineAll()
-              return
+            if (this.requestedRail === tab) this.requestedRail = null
+            if (!this.requestedRail && tab !== this.railTab) {
+              this.railTab = tab
+              this.clearCursor()
             }
-            if (this.cursor >= 0) this.applyCursorOutline()
+            const rows = this.entryRows()
+            if (!rows.some(row => row.dataset.trackId === this.cursorTrackId)) this.cursorTrackId = null
+            this.applyCursorOutline(rows)
           },
 
           loadCursor(deck) {
-            const rows = this.entryRows()
-            if (this.cursor >= rows.length) this.cursor = rows.length - 1
-            const row = rows[this.cursor]
+            const row = this.entryRows().find(r => r.dataset.trackId === this.cursorTrackId)
             if (row) this.pushEvent("load_deck", {deck, track_id: row.dataset.trackId})
-            else this.log("gire o browse para escolher uma faixa antes do LOAD")
+            else this.notice("Gire o browse para escolher uma faixa antes do LOAD.")
           },
 
           // ── foco de seção (controladora sem trackpad) ──────────────────────
@@ -2615,11 +2774,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
             // Saindo da lista para efeitos/transições não há rail_tab nem patch do
             // servidor para limpar o cursor — apaga a marca das linhas na mão.
             if (name !== "lista") {
-              this.cursor = -1
-              this.clearCursorOutlineAll()
+              this.clearCursor()
             }
             this.focus = {section: name, index: 0, deck: this.focus.deck || "a"}
-            if (railTab) this.pushEvent("rail_tab", {tab: railTab})
+            if (railTab) this.selectRail(railTab)
             // Efeitos agora moram nos decks (knobs sempre visíveis); só as
             // transições ainda ficam num <details> que pode estar fechado.
             if (name === "transicoes") {
@@ -2705,7 +2863,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           // Apertar o knob do browse = "ação" do foco.
           focusAction() {
             if (this.focus.section === "lista") {
-              this.pushEvent("toggle_rail_tab", {})
+              this.selectRail(this.railTab === "fila" ? "biblioteca" : "fila")
               return
             }
             if (this.focus.section === "transicoes") {
@@ -2739,27 +2897,15 @@ defmodule BeatgridWeb.DiscotecagemLive do
       </script>
 
       <script :type={Phoenix.LiveView.ColocatedHook} name=".DjMidi">
-        import {decode, describe} from "@/js/dj/midi_map.js"
+        import {decode, describe, isControllerPort} from "@/js/dj/midi_map.js"
 
         export default {
           mounted() {
             this._ccAt = {}
+            this.inputs = new Map()
+            this.closed = false
 
-            // O console avisa quando o PFL muda — acendemos o LED do botão de
-            // fone SÓ na controladora (nota em outros aparelhos MIDI tocaria
-            // um som de verdade neles).
-            this.controllerOuts = () => {
-              if (!this.access) return []
-              return Array.from(this.access.outputs.values()).filter((o) =>
-                /dj2go|numark/i.test(o.name || "")
-              )
-            }
-            this.onPflLed = (e) => {
-              for (const out of this.controllerOuts()) {
-                out.send([0x90, 0x1b, e.detail.a ? 127 : 0])
-                out.send([0x91, 0x1b, e.detail.b ? 127 : 0])
-              }
-            }
+            this.onPflLed = (e) => this.setLeds(e.detail)
             window.addEventListener("dj:pfl-led", this.onPflLed)
 
             if (!navigator.requestMIDIAccess) {
@@ -2771,49 +2917,80 @@ defmodule BeatgridWeb.DiscotecagemLive do
             navigator
               .requestMIDIAccess()
               .then((access) => {
+                if (this.closed) return
                 this.access = access
                 this._refresh = () => this.attachAll()
                 access.addEventListener("statechange", this._refresh)
                 this.attachAll()
               })
               .catch(() => {
+                if (this.closed) return
                 this.pushEvent("midi_status", {connected: false, name: null})
                 this.monitor("acesso MIDI negado pelo navegador")
               })
           },
 
           destroyed() {
+            this.closed = true
             window.removeEventListener("dj:pfl-led", this.onPflLed)
             if (!this.access) return
-            // Apaga os LEDs de fone — o engine morre junto com a página.
-            for (const out of this.controllerOuts()) {
-              out.send([0x90, 0x1b, 0])
-              out.send([0x91, 0x1b, 0])
-            }
             this.access.removeEventListener("statechange", this._refresh)
-            for (const input of this.access.inputs.values()) {
-              input.onmidimessage = null
-              input._djAttached = false
+            for (const input of this.inputs.keys()) this.detach(input)
+            this.setLeds({a: false, b: false})
+          },
+
+          setLeds(pfl) {
+            if (!this.access) return
+            for (const port of this.access.outputs.values()) {
+              if (port.state !== "connected" || !isControllerPort(port)) continue
+              port.send([0x90, 0x1b, pfl.a ? 127 : 0])
+              port.send([0x91, 0x1b, pfl.b ? 127 : 0])
+            }
+          },
+
+          reconnected() {
+            if (this.access) {
+              this.active = undefined
+              this.attachAll()
+            }
+          },
+
+          detach(input) {
+            const {listener, held} = this.inputs.get(input)
+            input.removeEventListener("midimessage", listener)
+            this.inputs.delete(input)
+            for (const action of held.values()) {
+              window.dispatchEvent(new CustomEvent("dj:midi", {detail: {...action, pressed: false}}))
             }
           },
 
           attachAll() {
-            const inputs = Array.from(this.access.inputs.values())
-            for (const input of inputs) {
-              if (input._djAttached) continue
-              input._djAttached = true
-              input.onmidimessage = (msg) => this.handle(Array.from(msg.data))
+            const inputs = Array.from(this.access.inputs.values()).filter(
+              port => port.state === "connected" && isControllerPort(port)
+            )
+            for (const input of this.inputs.keys()) {
+              if (!inputs.includes(input)) this.detach(input)
             }
-            const active = inputs.find((i) => i.state === "connected")
-            this.pushEvent("midi_status", {connected: !!active, name: active ? active.name : null})
+            for (const input of inputs) {
+              if (this.inputs.has(input)) continue
+              const held = new Map()
+              const listener = (msg) => this.handle(Array.from(msg.data), held)
+              this.inputs.set(input, {listener, held})
+              input.addEventListener("midimessage", listener)
+            }
+            const active = inputs[0] || null
+            if (this.active !== active) {
+              this.active = active
+              this.pushEvent("midi_status", {connected: !!active, name: active?.name || null})
+              if (active) this.monitor(`conectada: ${active.name}`, "#5ad1a0")
+            }
             if (active) {
-              this.monitor(`conectada: ${active.name}`, "#5ad1a0")
               // Sincroniza os LEDs de fone com o estado real do console.
               window.dispatchEvent(new CustomEvent("dj:pfl-sync"))
             }
           },
 
-          handle(data) {
+          handle(data, held) {
             if (data.length < 3) return
             const action = decode(data)
             if (!action) {
@@ -2821,6 +2998,11 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 this.monitor(`? ${data.map((b) => b.toString(16).padStart(2, "0")).join(" ")}`)
               )
               return
+            }
+            if (action.type === "cue" || action.type === "jog_touch") {
+              const key = action.type + action.deck
+              if (action.pressed) held.set(key, action)
+              else held.delete(key)
             }
             window.dispatchEvent(new CustomEvent("dj:midi", {detail: action}))
             if (action.value != null || action.delta != null) {
@@ -3004,7 +3186,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               <button
                 id={"dj-cue-#{@d}"}
                 type="button"
-                title="Voltar ao cue"
+                title="Com a faixa pausada, marque o cue. Segure para ouvir e solte para voltar. Aperte Play enquanto segura para continuar tocando."
                 class="h-8 w-12 rounded-lg border border-white/10 bg-input text-[9px] font-bold uppercase tracking-wider text-ink-muted transition-colors hover:border-amber/50 hover:text-amber"
               >
                 Cue
@@ -3021,7 +3203,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               <button
                 id={"dj-sync-#{@d}"}
                 type="button"
-                title="Igualar o tempo ao outro deck"
+                title="Igualar o BPM ao outro deck (até ±8%). Use a borda do jog para encaixar as batidas."
                 class="h-8 w-12 rounded-lg border border-white/10 bg-input text-[9px] font-bold uppercase tracking-wider text-ink-muted transition-colors hover:border-green/50 hover:text-green"
               >
                 Sync
@@ -3125,6 +3307,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 type="range"
                 min="0"
                 max="100"
+                step="0.25"
                 value="50"
                 aria-label={"Pitch do deck #{String.upcase(@d)}"}
                 class="h-24 w-5 cursor-pointer appearance-none bg-transparent"
@@ -3247,7 +3430,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
         <div class="flex items-center justify-between gap-2">
           <span class="text-[9px] font-bold uppercase tracking-[0.16em] text-amber">
             Próxima · {if @hint.transition && @hint.transition["breather"],
-              do: "🤝 "}{t_label(@hint.transition && @hint.transition["type"])}{if @hint_deck,
+              do: "🤝 "}{transition_label(@hint.transition && @hint.transition["type"])}{if @hint_deck,
               do: " · deck #{String.upcase(@hint_deck)}"}
           </span>
           <span id="dj-countdown-wrap" phx-update="ignore" class="font-mono text-[10px] text-amber">
@@ -3384,7 +3567,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             ]}
             title={e.transition["reason"] || "Transição de entrada desta faixa"}
           >
-            {if Sets.breather?(e), do: "🤝 "}{t_label(e.transition["type"])}
+            {if Sets.breather?(e), do: "🤝 "}{transition_label(e.transition["type"])}
           </span>
           <.load_buttons track_id={e.track.id} />
         </li>
