@@ -399,7 +399,7 @@ test("a breather echo leaves headroom when every delayed repeat lands in phase",
   assert.ok(coherentPeak <= 1 + 1e-6, String(coherentPeak))
 })
 
-test("a breather echo closes the old delay before counting the full silence", t => {
+test("a breather echo closes the old delay before counting the full silence", async t => {
   const {engine, a, b, hint, breath, tick, advances} = booth(t)
   hint(breath)
   a.at(56)
@@ -413,6 +413,7 @@ test("a breather echo closes the old delay before counting the full silence", t 
   assert.equal(b.plays, 0)
   tick(1)
   assert.equal(b.plays, 1)
+  await Promise.resolve()
   assert.deepEqual(advances.map(x => x.toTrackId), ["two"])
 })
 
@@ -466,7 +467,115 @@ test("clearing a silent echo gap restores the deck fader unless the DJ already t
   assert.equal(routedLevel.value, manual)
 })
 
-test("a missed AUTO window still waits the full breather after ended", t => {
+for (const fromId of ["a", "b"]) {
+  test(`a refused breather entry from ${fromId} waits for an explicit retry at the new cue`, async t => {
+    const refused = []
+    const {a, b, engine, hint, breath, advances, ends, tick} = booth(t, {entryRefused: e => refused.push(e.deck)})
+    const toId = fromId === "a" ? "b" : "a", from = fromId === "a" ? a : b, to = fromId === "a" ? b : a
+    if (fromId === "b") {
+      engine.stopAll()
+      engine.loadDeck("b", {id: "out", src: "out"}, {autoplay: true})
+    }
+    const requests = []
+    t.mock.method(to, "play", () => {
+      const gate = Promise.withResolvers()
+      to.paused = false
+      requests.push(gate)
+      return gate.promise
+    })
+    hint(breath)
+    from.end()
+    tick(2499)
+    assert.equal(requests.length, 0)
+    tick(1)
+    assert.equal(requests.length, 1)
+    assert.equal(engine.sessionDeck(), fromId)
+    engine.fireHint()
+    to.ready()
+    assert.equal(requests.length, 1)
+    requests[0].reject(Error("output unavailable"))
+    await Promise.resolve()
+    assert.deepEqual(refused, [toId])
+    assert.equal(engine.snapshot().breather.remainingMs, 0)
+    to.ready()
+    hint(breath)
+    from.end()
+    tick(10_000)
+    assert.equal(requests.length, 1)
+    assert.equal(from.paused, true)
+    assert.equal(to.paused, true)
+    assert.deepEqual(ends, [])
+    assert.deepEqual(advances, [])
+    engine.cueTo(toId, 4750)
+    engine.fireHint()
+    assert.equal(requests.length, 2)
+    assert.equal(to.currentTime, 4.75)
+    requests[1].resolve()
+    await Promise.resolve()
+    assert.deepEqual(advances.map(e => e.toTrackId), ["two"])
+    assert.equal(engine.sessionDeck(), toId)
+    assert.equal(engine.snapshot().breather, null)
+  })
+}
+
+for (const action of ["cue", "replace", "extend", "clear", "stop", "fader", "cancel"]) {
+  test(`a pending breather entry yields to ${action} and ignores its late play`, async t => {
+    const {a, b, engine, hint, breath, advances, ends, tick} = booth(t)
+    const first = Promise.withResolvers()
+    const play = t.mock.method(b, "play", () => { b.paused = false; return Promise.resolve() })
+    play.mock.mockImplementationOnce(() => { b.paused = false; return first.promise })
+    hint(breath)
+    a.end()
+    tick(2500)
+    assert.equal(play.mock.callCount(), 1)
+    if (action === "cue") {
+      engine.cueTo("b", 4200)
+      b.ready()
+    }
+    if (action === "replace") hint({...breath, to_ms: 4200}, "replacement")
+    if (action === "extend") assert.equal(engine.postponeFire(1200), 1200)
+    if (action === "fader") engine.setCrossfader(0.35)
+    if (action === "cancel") assert.equal(engine.cancelTransition().ok, true)
+    if (action === "clear") engine.clearHint()
+    if (action === "stop") engine.stopAll()
+    first.resolve()
+    await Promise.resolve()
+    if (action === "fader" || action === "cancel") {
+      assert.equal(a.paused, true)
+      assert.equal(b.paused, true)
+      assert.equal(engine.sessionDeck(), "a")
+      assert.equal(engine.snapshot().breather.remainingMs, 0)
+      assert.deepEqual(advances, [])
+      if (action === "fader") assert.equal(engine.snapshot().xfadePos, 0.35)
+      return
+    }
+    if (action === "clear" || action === "stop") {
+      b.ready()
+      tick(5000)
+      assert.equal(play.mock.callCount(), 1)
+      assert.deepEqual(advances, [])
+      assert.deepEqual(ends.map(e => e.trackId), action === "clear" ? ["one"] : [])
+      assert.equal(engine.snapshot().breather, null)
+      return
+    }
+    if (action !== "replace") {
+      assert.deepEqual(advances, [])
+      assert.equal(b.paused, true)
+      if (action === "cue") engine.fireHint()
+      else {
+        tick(1199)
+        assert.equal(play.mock.callCount(), 1)
+        tick(1)
+      }
+    }
+    await Promise.resolve()
+    assert.equal(play.mock.callCount(), 2)
+    assert.deepEqual(advances.map(e => e.toTrackId), [action === "replace" ? "replacement" : "two"])
+    assert.equal(b.currentTime, action === "extend" ? 0.5 : 4.2)
+  })
+}
+
+test("a missed AUTO window still waits the full breather after ended", async t => {
   const {a, b, hint, breath, advances, tick} = booth(t)
   hint(breath)
   a.end()
@@ -476,10 +585,11 @@ test("a missed AUTO window still waits the full breather after ended", t => {
   tick(1)
   assert.equal(b.plays, 1)
   assert.equal(b.currentTime, 0.5)
+  await Promise.resolve()
   assert.equal(advances.length, 1)
 })
 
-test("AUTO uses the media's real end and waits through a stalled final phrase", t => {
+test("AUTO uses the media's real end and waits through a stalled final phrase", async t => {
   const {a, b, hint, breath, advances, engine, tick} = booth(t)
   hint({...breath, from_ms: 36_000})
   assert.equal(engine.firePointMs(), 56_000)
@@ -497,10 +607,11 @@ test("AUTO uses the media's real end and waits through a stalled final phrase", 
   assert.equal(engine.fireHint().ok, true)
   tick(5000)
   assert.equal(b.plays, 1)
+  await Promise.resolve()
   assert.equal(advances.length, 1)
 })
 
-test("a set edit during the gap plays the current successor once", t => {
+test("a set edit during the gap plays the current successor once", async t => {
   const {a, b, hint, breath, advances, tick} = booth(t)
   hint(breath)
   a.at(56)
@@ -508,6 +619,7 @@ test("a set edit during the gap plays the current successor once", t => {
   tick(8)
   hint({...breath, to_ms: 1500}, "replacement")
   tick(2500)
+  await Promise.resolve()
   assert.deepEqual(advances.map(e => e.toTrackId), ["replacement"])
   assert.equal(b.currentTime, 1.5)
 })
@@ -562,7 +674,7 @@ test("starting a set routes the first deck to the audience after the fader was l
   assert.equal(engine.snapshot().xfadePos, 0)
 })
 
-test("manual early breather fades the phrase, keeps the set live, then releases once", t => {
+test("manual early breather fades the phrase, keeps the set live, then releases once", async t => {
   const {a, b, hint, breath, engine, advances, tick} = booth(t)
   engine.setAuto(false)
   hint(breath)
@@ -575,6 +687,7 @@ test("manual early breather fades the phrase, keeps the set live, then releases 
   assert.equal(b.paused, true)
   assert.equal(engine.sessionDeck(), "a")
   tick(2500)
+  await Promise.resolve()
   assert.equal(engine.sessionDeck(), "b")
   assert.equal(b.plays, 1)
   assert.deepEqual(advances.map(e => e.origin), ["hint"])
@@ -1267,7 +1380,7 @@ test("the tail of a scratch drop preserves the next record's prepared loop", asy
   assert.equal(engine.loopState("a").on, true)
 })
 
-test("a breather releases the planned track without resetting a reload during the gap", t => {
+test("a breather releases the planned track without resetting a reload during the gap", async t => {
   const {engine, a, b, hint, breath, advances, tick} = booth(t)
   hint(breath)
   a.at(56)
@@ -1277,6 +1390,7 @@ test("a breather releases the planned track without resetting a reload during th
   engine.beatLoop("a", 4)
   tick(2500)
   assert.equal(b.plays, 1)
+  await Promise.resolve()
   assert.deepEqual(advances.map(event => event.toTrackId), ["two"])
   assert.equal(engine.loopState("a").on, true)
 })

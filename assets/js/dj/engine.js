@@ -1066,6 +1066,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   function receiveEntry(from, to, toMs, started) {
+    const inGap = Boolean(activeBreatherGap())
     const ready = cue => {
       state.cancelEntry = null
       state.pendingEntry = null
@@ -1079,10 +1080,12 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     const cancel = () => {
       state.cancelEntry = null
       state.pendingEntry = null
-      state.rescue = null
-      state.firedForTrack = null
-      state.waitingForNext = from.ended() && state.autoOn && state.hint != null
-      from._seekGuard = true
+      if (!inGap) {
+        state.rescue = null
+        state.firedForTrack = null
+        state.waitingForNext = from.ended() && state.autoOn && state.hint != null
+        from._seekGuard = true
+      }
       if (to.playToken === playToken) to.pause()
     }
     state.cancelEntry = cancel
@@ -1097,7 +1100,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       if (state.cancelEntry !== cancel) return
       cancel()
       emit("entryRefused", {deck: to.id})
-      if (from.ended()) {
+      if (!inGap && from.ended()) {
         state.waitingForNext = false
         state.hint = null
         boundaryOnce(from.trackId, () => emit("trackEnded", {trackId: from.trackId}))
@@ -1463,6 +1466,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       deadline: null,
       timer: null,
       mutedSide: null,
+      attemptedLoad: null,
       beginGap() {
         if (token !== state.transitionToken || gap.deadline !== null) return
         clearTimeout(gap.timer)
@@ -1481,19 +1485,23 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         gap.deadline = performance.now() + wait
         gap.timer = setTimeout(gap.start, wait)
       },
-      start() {
-        if (token !== state.transitionToken || state.breatherGap !== gap) return
+      start(retry = false) {
+        if (token !== state.transitionToken || state.breatherGap !== gap || state.cancelEntry) return
         gap.deadline = performance.now()
-        if (!hintFireable(state.hint)) return // canplay retries the current hint
-        const toMs = state.hint.transition?.to_ms ?? 0
         clearTimeout(gap.timer)
-        state.breatherGap = null
-        if (ownsOutgoing(from, token)) resetChain(from)
-        riseIncoming(to, 0.4)
-        startIncoming(to, toMs)
-        setXfadeTo(sideOf(to.id), 0.3)
-        handoff(from, to, event)
-        emit("deckFreed", {deck: from.id})
+        if (!hintFireable(state.hint) || (!retry && gap.attemptedLoad === to.loadToken)) return
+        // canplay can repeat after a refusal. Only another load or an explicit
+        // retry may release the same silence, even if the old record ended.
+        gap.attemptedLoad = to.loadToken
+        state.pendingEntry = to.id
+        receiveEntry(from, to, state.hint.transition?.to_ms ?? 0, cue => {
+          state.breatherGap = null
+          if (ownsOutgoing(from, token)) resetChain(from)
+          riseIncoming(to, 0.4, cue === null)
+          setXfadeTo(sideOf(to.id), 0.3)
+          handoff(from, to, event)
+          emit("deckFreed", {deck: from.id})
+        })
       },
     }
     state.breatherGap = gap
@@ -2142,6 +2150,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     if (state.cancelEntry) {
       const outgoing = decks[state.rescue.deck]
       state.cancelEntry()
+      if (activeBreatherGap()) return {ok: true} // the old phrase ended on purpose
       state.waitingForNext = false
       if (outgoing.ended()) outgoing.play()
       return {ok: true} // the server still has the outgoing record
@@ -2246,7 +2255,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         state.firedForTrack = null
         state.postponeMs = 0
         emit("deckStarted", {deck: deckId, trackId: track.id})
-      } else if (state.waitingForNext) {
+      } else {
         retryReadyHint(deck)
       }
       return true
@@ -2280,13 +2289,13 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         deck._pendingSeekMs = atMs
       }
       state.hint = {...hint, deck: idle}
-      if (state.waitingForNext) retryReadyHint(deck)
+      retryReadyHint(deck)
       return idle
     },
 
     clearHint() {
       state.hint = null
-      if (state.cancelEntry) {
+      if (state.cancelEntry && !state.breatherGap) {
         const from = decks[state.activeDeck]
         state.cancelEntry()
         if (from.ended()) handleEnded(from)
@@ -2377,7 +2386,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
           return gap.durationMs
         }
         clearTimeout(gap.timer)
-        gap.deadline += ms
+        state.cancelEntry?.()
+        gap.attemptedLoad = null
+        gap.deadline = Math.max(gap.deadline, performance.now()) + ms
         gap.timer = setTimeout(gap.start, Math.max(gap.deadline - performance.now(), 0))
         return Math.max(gap.deadline - performance.now(), 0)
       }
@@ -2394,7 +2405,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       const gap = activeBreatherGap()
       if (gap) {
         clearTimeout(gap.timer)
-        gap.start()
+        gap.start(true)
         return {ok: true, type: "respiro"}
       }
       const hint = state.hint
