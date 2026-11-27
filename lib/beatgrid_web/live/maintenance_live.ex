@@ -52,8 +52,8 @@ defmodule BeatgridWeb.MaintenanceLive do
   def render(assigns) do
     ~H"""
     <.app_shell flash={@flash} active={:manutencao} socket={@socket}>
-      <header class="border-b border-white/6 bg-rail px-3 py-3 sm:px-6">
-        <div class="mx-auto flex max-w-[1100px] flex-wrap items-center justify-between gap-3">
+      <header class="border-b border-white/6 bg-rail">
+        <div class="mx-auto flex max-w-[1100px] flex-wrap items-center justify-between gap-3 px-3 py-3 sm:px-6">
           <div>
             <h1 class="text-title font-semibold">Manutenção</h1>
             <p class="text-body-sm text-ink-muted">Ações em toda a biblioteca</p>

@@ -177,8 +177,8 @@ defmodule BeatgridWeb.JobsLive do
   def render(assigns) do
     ~H"""
     <.app_shell flash={@flash} active={:jobs} socket={@socket}>
-      <header class="border-b border-white/6 bg-rail px-3 py-3 sm:px-6">
-        <div class="mx-auto max-w-[1600px]">
+      <header class="border-b border-white/6 bg-rail">
+        <div class="mx-auto max-w-[1600px] px-3 py-3 sm:px-6">
           <h1 class="text-title font-semibold">Fila de tarefas</h1>
           <p class="text-body-sm text-ink-muted">
             Acompanhe tarefas em segundo plano e tente novamente as que falharam.
@@ -243,7 +243,7 @@ defmodule BeatgridWeb.JobsLive do
             <select
               id="worker-filter"
               name="worker"
-              class="w-full rounded-md border border-white/10 bg-input px-3 py-1.5 text-body"
+              class="h-8 w-full rounded-md border border-white/10 bg-input px-3 py-1.5 text-body"
             >
               <option value="">Todos os tipos</option>
               <option
@@ -310,7 +310,7 @@ defmodule BeatgridWeb.JobsLive do
           class="mt-2 divide-y divide-white/8 border-y border-white/8"
         >
           <li :for={j <- @jobs} id={"job-#{j.id}"} class="space-y-2 py-2.5">
-            <div class="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(9rem,auto)] lg:grid-cols-[minmax(0,1fr)_14rem_12rem] lg:items-start lg:gap-4">
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(9rem,auto)] lg:grid-cols-[minmax(0,1fr)_14rem_12rem] lg:items-start lg:gap-4 xl:grid-cols-[minmax(0,1fr)_14rem_17rem]">
               <div class="min-w-0">
                 <div class="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
                   <p class="min-w-0 break-words text-body-lg font-semibold text-ink">
@@ -383,10 +383,9 @@ defmodule BeatgridWeb.JobsLive do
               <p class="break-all font-mono text-body-sm text-ink-muted">{full_url(j)}</p>
               <p
                 :for={line <- all_errors(j)}
-                class="break-all whitespace-pre-wrap font-mono text-body-sm text-coral"
-              >
-                {line}
-              </p>
+                phx-no-format
+                class="break-words whitespace-pre-wrap font-mono text-body-sm text-coral"
+              >{line}</p>
             </div>
           </li>
         </ul>

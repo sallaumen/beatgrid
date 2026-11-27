@@ -100,8 +100,8 @@ defmodule BeatgridWeb.AjustesLive do
   def render(assigns) do
     ~H"""
     <.app_shell flash={@flash} active={:ajustes} socket={@socket}>
-      <header class="border-b border-white/6 bg-rail px-3 py-3 sm:px-6">
-        <div class="mx-auto flex max-w-[1100px] flex-wrap items-center justify-between gap-3">
+      <header class="border-b border-white/6 bg-rail">
+        <div class="mx-auto flex max-w-[1100px] flex-wrap items-center justify-between gap-3 px-3 py-3 sm:px-6">
           <div>
             <h1 class="text-title font-semibold">Ajustes</h1>
             <p class="text-body-sm text-ink-muted">As alterações entram em vigor ao salvar.</p>
@@ -195,7 +195,7 @@ defmodule BeatgridWeb.AjustesLive do
                   </p>
                   <div
                     :if={@toast && elem(@toast, 1) == to_string(e.key)}
-                    class="flex items-start gap-2"
+                    class="flex items-center gap-2"
                   >
                     <p
                       role={if elem(@toast, 0) == :error, do: "alert", else: "status"}
@@ -210,7 +210,7 @@ defmodule BeatgridWeb.AjustesLive do
                       type="button"
                       phx-click="dismiss_toast"
                       aria-label="Fechar aviso"
-                      class="shrink-0 text-ink-muted hover:text-ink"
+                      class="flex size-8 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-white/5 hover:text-ink"
                     ><.icon name="hero-x-mark-mini" class="size-4" /></button>
                   </div>
                   <.link
