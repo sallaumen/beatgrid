@@ -173,6 +173,8 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
            )
 
     assert has_element?(view, "[data-reservation] [data-disarm]", "Desarmar")
+    assert has_element?(view, "[data-reservation] [role=timer][aria-live=off][hidden]")
+    assert has_element?(view, "#dj-passage-arrival[role=status]")
 
     refute has_element?(
              view,
