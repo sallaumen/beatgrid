@@ -1769,7 +1769,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
       <script :type={Phoenix.LiveView.ColocatedHook} name=".DjConsole">
         import {createEngine} from "@/js/dj/engine.js"
-        import {separateOutputs, unlockOutputNames} from "@/js/dj/outputs.js"
+        import {headphoneOutput, separateOutputs, unlockOutputNames} from "@/js/dj/outputs.js"
         import {paintDeckStatus, paintLoopRegion} from "@/js/dj/deck_status.js"
         import {tripVersionPath, tripTransportLabel, tripTransitionLabel} from "@/js/dj/trip_identity.js"
         import {hotCues} from "@/js/dj/hot_cues.js"
@@ -2792,10 +2792,22 @@ defmodule BeatgridWeb.DiscotecagemLive do
           },
 
           routeHeadphones(select) {
+            const main = this.engine.ctx.sinkId
+            const device = headphoneOutput(main, select.value, this.audioOutputs)
+            if (select.value && !device) {
+              const current = this.cueAudio.sinkId
+              if (this.cueAudio.srcObject && separateOutputs(main, current, this.audioOutputs)) {
+                select.value = current
+              } else {
+                this.disconnectHeadphones()
+                select.value = ""
+              }
+              this.notice("Escolha o fone pelo nome, em uma saída separada da pista.")
+              return
+            }
             this.disconnectHeadphones()
-            const device = select.value
             if (!device || this.movingOutput || this.cueModeNow === "quad") return
-            if (!this.checkHeadphoneOutput(this.engine.ctx.sinkId)) return
+            select.value = device
             const version = this.cueRouteVersion
             // Drivers may finish a sink switch after a second selection. Switch
             // in order, with the cue bus muted until the latest sink is ready.
