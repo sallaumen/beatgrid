@@ -5,6 +5,7 @@ defmodule BeatgridWeb.RecSetLiveTest do
   import Phoenix.LiveViewTest
   import Beatgrid.Factory
 
+  alias Beatgrid.Library.Tracks
   alias Beatgrid.Sets
 
   setup :isolate_library_root
@@ -53,6 +54,148 @@ defmodule BeatgridWeb.RecSetLiveTest do
     refute html =~ "sai ~fim"
   end
 
+  test "a proposed recording waits for the chosen set, then appends at the end and opens the same set in the booth",
+       %{conn: conn} do
+    original = track_with("8A", 112.0, tag_title: "Asa Branca", rel_path: "Forró/original.mp3")
+    proposed = track_with("8A", 114.0, tag_title: "Asa Branca", rel_path: "Forró/ao-vivo.mp3")
+    {:ok, first} = Sets.create_filled("Primeiro baile", [original])
+    {:ok, second} = Sets.create_filled("Segundo baile", [original])
+
+    {:ok, view, html} = live(conn, ~p"/set?track_id=#{proposed.id}")
+    assert has_element?(view, "#set-proposed-track", "Forró/ao-vivo.mp3")
+
+    assert has_element?(
+             view,
+             "#set-proposed-track a[href='/track/#{proposed.id}']",
+             "Voltar à ficha"
+           )
+
+    assert length(Regex.scan(~r/phx-click="new_set"/, html)) == 1
+    assert has_element?(view, "aside button[phx-click=new_set]", "Novo set")
+    assert has_element?(view, "#compact-set-id option[selected]", "Escolha um set")
+    refute has_element?(view, "#set-add-proposed-track")
+    refute has_element?(view, "#set-name")
+    assert Enum.map(Sets.tracks(second), & &1.id) == [original.id]
+
+    view |> element("aside a[href='/set/#{second.id}?track_id=#{proposed.id}']") |> render_click()
+    assert_patch(view, ~p"/set/#{second.id}?track_id=#{proposed.id}")
+    assert has_element?(view, "#set-proposed-track", "Segundo baile")
+
+    assert has_element?(
+             view,
+             "#set-proposed-track a[href='/track/#{proposed.id}?set_id=#{second.id}']",
+             "Voltar à ficha"
+           )
+
+    assert has_element?(
+             view,
+             "#set-add-proposed-track[phx-click=append][phx-value-track='#{proposed.id}']"
+           )
+
+    assert Enum.map(Sets.tracks(second), & &1.id) == [original.id]
+
+    view |> element("#set-add-proposed-track") |> render_click()
+    assert_patch(view, ~p"/set/#{second.id}")
+    refute has_element?(view, "#set-proposed-track")
+    assert Enum.map(Sets.tracks(second), & &1.id) == [original.id, proposed.id]
+    assert Enum.map(Sets.tracks(first), & &1.id) == [original.id]
+    assert has_element?(view, "a[href='/track/#{proposed.id}?set_id=#{second.id}']", "Asa Branca")
+
+    view
+    |> element("button[phx-click=move][phx-value-track='#{proposed.id}'][phx-value-dir=top]")
+    |> render_click()
+
+    assert Enum.map(Sets.tracks(second), & &1.id) == [proposed.id, original.id]
+    assert has_element?(view, "a[href='/discotecagem?set=#{second.id}']", "Abrir na discotecagem")
+  end
+
+  test "new set remains reachable through the collapsed set picker", %{conn: conn} do
+    track = track_with("8A", 112.0, tag_title: "Proposta")
+    {:ok, view, _html} = live(conn, ~p"/set?track_id=#{track.id}")
+    view |> element("button[aria-label='Recolher lista de sets']") |> render_click()
+    refute has_element?(view, "button[phx-click=new_set]")
+    view |> element("button[aria-label='Mostrar lista de sets']") |> render_click()
+    assert has_element?(view, "aside button[phx-click=new_set]", "Novo set")
+    assert has_element?(view, "#set-proposed-track", "Proposta")
+  end
+
+  test "creating a new set keeps the proposed recording until explicit insertion", %{conn: conn} do
+    track = track_with("8A", 112.0, tag_title: "Proposta")
+    {:ok, view, _html} = live(conn, ~p"/set?track_id=#{track.id}")
+    assert has_element?(view, "#set-proposed-track", "Proposta")
+    assert Sets.list() == []
+
+    new_set(view)
+    [created] = Sets.list()
+    assert_patch(view, ~p"/set/#{created.id}?track_id=#{track.id}")
+    assert Sets.tracks(created) == []
+    assert has_element?(view, "#set-add-proposed-track")
+
+    {:ok, reopened, _html} = live(conn, ~p"/set/#{created.id}?track_id=#{track.id}")
+    reopened |> element("#set-add-proposed-track") |> render_click()
+    assert_patch(reopened, ~p"/set/#{created.id}")
+    assert Enum.map(Sets.tracks(created), & &1.id) == [track.id]
+  end
+
+  test "an existing member is identified and the proposed recording follows another selected set",
+       %{conn: conn} do
+    track = track_with("8A", 112.0, tag_title: "Já aqui")
+    {:ok, member_set} = Sets.create_filled("Com ela", [track])
+    {:ok, other_set} = Sets.create("Sem ela")
+
+    {:ok, view, _html} = live(conn, ~p"/set/#{member_set.id}?track_id=#{track.id}")
+    assert has_element?(view, "#set-proposed-track", "A faixa já está neste set")
+    refute has_element?(view, "#set-add-proposed-track")
+    assert length(Sets.tracks(member_set)) == 1
+
+    view |> form("#compact-set-picker", set_id: other_set.id) |> render_change()
+    assert_patch(view, ~p"/set/#{other_set.id}?track_id=#{track.id}")
+    assert has_element?(view, "#set-add-proposed-track")
+    assert Sets.tracks(other_set) == []
+  end
+
+  test "a deleted destination returns to the chooser with the exact proposed recording", %{
+    conn: conn
+  } do
+    track = track_with("8A", 112.0, tag_title: "Proposta")
+    {:ok, deleted} = Sets.create("Set removido")
+    {:ok, remaining} = Sets.create("Outro baile")
+    {:ok, view, _html} = live(conn, ~p"/set/#{deleted.id}?track_id=#{track.id}")
+
+    {:ok, _} = Sets.delete(deleted)
+    view |> element("#set-add-proposed-track") |> render_click()
+    assert_patch(view, ~p"/set?track_id=#{track.id}")
+    assert has_element?(view, "#set-proposed-track", "Proposta")
+    refute has_element?(view, "#set-add-proposed-track")
+    assert has_element?(view, "aside a[href='/set/#{remaining.id}?track_id=#{track.id}']")
+    assert Sets.tracks(remaining) == []
+  end
+
+  test "invalid or unavailable proposed recordings never enter a set", %{conn: conn} do
+    missing = track_with("8A", 112.0, integrity_status: :missing_file)
+    {:ok, set} = Sets.create("Baile")
+
+    for id <- ["invalid", Ecto.UUID.generate(), missing.id] do
+      {:ok, view, _html} = live(conn, ~p"/set/#{set.id}?track_id=#{id}")
+      refute has_element?(view, "#set-add-proposed-track")
+      assert has_element?(view, "#flash-error", "Faixa indisponível")
+    end
+
+    assert Sets.tracks(set) == []
+  end
+
+  test "the proposed recording is revalidated when the user adds it", %{conn: conn} do
+    track = track_with("8A", 112.0, tag_title: "Sumiu")
+    {:ok, set} = Sets.create("Baile")
+    {:ok, view, _html} = live(conn, ~p"/set/#{set.id}?track_id=#{track.id}")
+    {:ok, _} = Tracks.update(track, %{integrity_status: :missing_file})
+
+    view |> element("#set-add-proposed-track") |> render_click()
+    assert_patch(view, ~p"/set/#{set.id}")
+    assert has_element?(view, "#flash-error", "Faixa indisponível")
+    assert Sets.tracks(set) == []
+  end
+
   @tag :tmp_dir
   test "build a set from search, append, play affordance, then export to M3U", %{
     conn: conn,
@@ -72,14 +215,17 @@ defmodule BeatgridWeb.RecSetLiveTest do
     new_set(view)
     append_from_search(view, "Seed", seed)
 
-    # search box is STILL present after the set has tracks (the old bug: it vanished)
+    # search box stays visible and its detail link retains the set context.
     assert has_element?(view, "#track-search")
+    [set] = Sets.list()
+    assert has_element?(view, "#search-results a[href='/track/#{seed.id}?set_id=#{set.id}']")
     # play buttons target the global player, not a local one
     assert render(view) =~ ~s(id="player-audio")
     refute render(view) =~ ~s(id="set-player")
 
     # the harmonic candidate must show up in the candidates panel
     open_panel(view, "candidates")
+    assert has_element?(view, "a[href='/track/#{nextt.id}?set_id=#{set.id}']", "Nexto")
 
     html =
       view |> element("button[phx-click=append][phx-value-track='#{nextt.id}']") |> render_click()
@@ -649,7 +795,7 @@ defmodule BeatgridWeb.RecSetLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/set/#{set.id}")
 
-    assert has_element?(view, "a[href='/track/#{seed.id}']", "LinkedSeed")
+    assert has_element?(view, "a[href='/track/#{seed.id}?set_id=#{set.id}']", "LinkedSeed")
   end
 
   @tag :tmp_dir
