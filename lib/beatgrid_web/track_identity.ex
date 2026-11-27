@@ -15,7 +15,9 @@ defmodule BeatgridWeb.TrackIdentity do
     end)
   end
 
-  defp display_key(track) do
+  @doc "Normalized displayed title and artist; also used by the client-owned travel overlay."
+  @spec display_key(map()) :: {String.t(), String.t()}
+  def display_key(track) do
     {Normalize.normalize(track.tag_title || track.filename),
      Normalize.normalize(track.tag_artist)}
   end
