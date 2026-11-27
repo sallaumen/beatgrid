@@ -603,6 +603,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
       src: ~p"/audio/#{track.id}",
       title: track.tag_title || track.filename,
       artist: track.tag_artist,
+      rel_path: track.rel_path,
+      identity_key: Tuple.to_list(TrackIdentity.display_key(track)),
       bpm: Library.effective(track).bpm,
       duration_ms: track.duration_ms,
       markers: track.cue_points || [],
@@ -870,17 +872,67 @@ defmodule BeatgridWeb.DiscotecagemLive do
             id="dj-trip"
             aria-label="Modo viagem"
             phx-update="ignore"
-            class="fixed inset-0 m-0 hidden h-dvh max-h-none w-screen max-w-none flex-col items-center justify-center gap-4 overflow-y-auto border-0 bg-base p-4 text-ink open:flex sm:gap-6 sm:p-8"
+            class="fixed inset-0 m-0 hidden h-dvh max-h-none w-screen max-w-none flex-col items-center justify-start gap-4 overflow-y-auto border-0 bg-base p-4 text-ink open:flex sm:justify-center sm:gap-6 sm:p-8"
           >
-            <div class="text-center">
+            <div class="w-full min-w-0 max-w-4xl text-center">
               <p class="text-caption uppercase tracking-[0.2em] text-ink-faint">tocando agora</p>
-              <p id="trip-title" class="mt-2 max-w-4xl text-5xl font-bold leading-tight">—</p>
-              <p id="trip-artist" class="mt-1 text-2xl text-ink-muted"></p>
+              <div
+                id="trip-now-live"
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+                aria-label="Faixa atual"
+              >
+                <p
+                  id="trip-title"
+                  class="mt-2 break-words text-3xl font-bold leading-tight [overflow-wrap:anywhere] sm:text-5xl"
+                >
+                  —
+                </p>
+                <p
+                  id="trip-artist"
+                  class="mt-1 break-words text-xl text-ink-muted [overflow-wrap:anywhere] sm:text-2xl"
+                >
+                </p>
+                <p
+                  id="trip-version"
+                  class="mt-1 break-words font-mono text-body-lg text-ink-secondary [overflow-wrap:anywhere] empty:hidden sm:text-lg"
+                >
+                </p>
+              </div>
               <p id="trip-pos" class="mt-2 font-mono text-lg tabular-nums text-ink-faint"></p>
             </div>
-            <div class="text-center">
+            <div class="w-full min-w-0 max-w-3xl text-center">
               <p class="text-caption uppercase tracking-[0.2em] text-ink-faint">próxima</p>
-              <p id="trip-next" class="mt-1 max-w-3xl truncate text-xl text-ink-secondary">—</p>
+              <div
+                id="trip-next-live"
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+                aria-label="Próxima faixa"
+              >
+                <p
+                  id="trip-next"
+                  class="mt-1 break-words text-xl font-semibold text-ink-secondary [overflow-wrap:anywhere] sm:text-2xl"
+                >
+                  —
+                </p>
+                <p
+                  id="trip-next-artist"
+                  class="mt-1 break-words text-body-lg text-ink-muted [overflow-wrap:anywhere] sm:text-lg"
+                >
+                </p>
+                <p
+                  id="trip-next-version"
+                  class="mt-1 break-words font-mono text-body-lg text-ink-secondary [overflow-wrap:anywhere] empty:hidden sm:text-lg"
+                >
+                </p>
+                <p
+                  id="trip-next-transition"
+                  class="mt-1 text-body-sm text-ink-muted empty:hidden sm:text-base"
+                >
+                </p>
+              </div>
               <p id="trip-countdown" class="mt-1 font-mono text-3xl tabular-nums text-amber">—</p>
             </div>
             <div class="flex w-full max-w-3xl flex-col gap-3 sm:flex-row">
@@ -1323,6 +1375,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
         import {createEngine} from "@/js/dj/engine.js"
         import {separateOutputs, unlockOutputNames} from "@/js/dj/outputs.js"
         import {paintDeckStatus} from "@/js/dj/deck_status.js"
+        import {tripVersionPath} from "@/js/dj/trip_identity.js"
         import {hotCues} from "@/js/dj/hot_cues.js"
         import {loadPeaks, drawWave} from "@/js/dj/waveform.js"
 
@@ -2507,19 +2560,23 @@ defmodule BeatgridWeb.DiscotecagemLive do
             const snap = this.engine.snapshot()
             const active = snap.activeDeck
             const track = active && this.tracks[active]
+            const next = this.hint && this.hint.track
+            const candidates = [this.tracks.a, this.tracks.b, next]
             this.setTripText("trip-title", track ? track.title : "—")
             this.setTripText("trip-artist", (track && track.artist) || "")
+            this.setTripText("trip-version", tripVersionPath(track, candidates))
             this.setTripText(
               "trip-pos",
               active && snap[active].durMs
                 ? `${fmt(snap[active].posMs)} / ${fmt(snap[active].durMs)}`
                 : ""
             )
-            const next = this.hint && this.hint.track
-            const label = next
-              ? `${next.title}${this.hint.transition ? " · " + (this.hint.transition["type"] || "").toUpperCase() : " · direto (fim seco)"}`
-              : "última da fila"
-            this.setTripText("trip-next", label)
+            this.setTripText("trip-next", next ? next.title : "Sem próxima armada")
+            this.setTripText("trip-next-artist", (next && next.artist) || "")
+            this.setTripText("trip-next-version", tripVersionPath(next, candidates))
+            const transition = next && this.hint.transition
+            const type = transition ? (transition["type"] || "").toUpperCase() : "Direto (fim seco)"
+            this.setTripText("trip-next-transition", next ? `${transition?.breather ? "Respiro · " : ""}${type}` : "")
             const auto = byId("trip-auto")
             if (auto) {
               const text = snap.auto ? "AUTO: ligado" : "AUTO: desligado"

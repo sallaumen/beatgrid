@@ -307,6 +307,16 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
 
     view = open_console(conn, set)
     render_click(view, "play_set", %{})
+
+    assert_push_event(view, "dj_load", %{
+      track: %{rel_path: path_a, identity_key: ["sina", "djavan"]}
+    })
+
+    assert_push_event(view, "dj_hint", %{
+      track: %{rel_path: path_b, identity_key: ["sina", "djavan"]}
+    })
+
+    assert {path_a, path_b} == {a.rel_path, b.rel_path}
     render_hook(view, "hint_armed", %{"deck" => "b", "track_id" => b.id})
 
     for {deck, track} <- [{"a", a}, {"b", b}] do
@@ -333,6 +343,11 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     end
 
     assert has_element?(view, "#dj-next-card [data-version-path]", b.rel_path)
+    assert has_element?(view, "#trip-now-live[role=status][aria-live=polite] #trip-version")
+    assert has_element?(view, "#trip-next-live[role=status][aria-live=polite] #trip-next-artist")
+    assert has_element?(view, "#trip-next-live #trip-next-version")
+    refute has_element?(view, "#trip-now-live #trip-pos")
+    refute has_element?(view, "#trip-next-live #trip-countdown")
     assert has_element?(view, "#dj-next-card", "Fila #2")
     assert has_element?(view, "#dj-queue-list a[target='_blank']", "Sina")
     assert has_element?(view, "a[href='/set/#{set.id}'][target='_blank']", "Editar set")
