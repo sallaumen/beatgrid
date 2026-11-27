@@ -15,6 +15,19 @@ defmodule BeatgridWeb.JobsLiveTest do
     |> Beatgrid.Repo.update!()
   end
 
+  test "local imports and recordings lead back to their own workspace", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/jobs?worker=ImportWorker")
+
+    assert has_element?(
+             view,
+             "#jobs-context-link[href='/importados?origem=local']",
+             "Arquivos locais"
+           )
+
+    render_patch(view, ~p"/jobs?worker=MixDownloadWorker")
+    assert has_element?(view, "#jobs-context-link[href='/sets-online']", "Sets gravados")
+  end
+
   test "choosing the task type keeps the current status in the URL", %{conn: conn} do
     {:ok, view, _} = live(conn, ~p"/jobs?state=failed")
     assert has_element?(view, "main h1", "Fila de tarefas")

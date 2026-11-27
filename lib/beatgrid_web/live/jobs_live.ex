@@ -23,7 +23,7 @@ defmodule BeatgridWeb.JobsLive do
     {:ok, assign(socket, page_title: "Fila de tarefas", expanded: MapSet.new())}
   end
 
-  # URL-driven filters (`?state=failed&worker=DownloadWorker`) so Maintenance can
+  # URL-driven filters (`?state=failed&worker=DownloadWorker`) so callers can
   # deep-link straight to "the downloads that gave up" and the view survives
   # refresh/back. "active" covers unfinished work; "failed" covers discarded + cancelled.
   @impl true
@@ -124,8 +124,14 @@ defmodule BeatgridWeb.JobsLive do
   defp group_phases("failed"), do: @failed_states
   defp group_phases(_), do: []
 
-  defp worker_destination(worker) when worker in ~w(DownloadWorker ExpandWorker ImportWorker),
+  defp worker_destination(worker) when worker in ~w(DownloadWorker ExpandWorker),
     do: {~p"/importados", "Importações"}
+
+  defp worker_destination("ImportWorker"), do: {~p"/importados?origem=local", "Arquivos locais"}
+
+  defp worker_destination(worker)
+       when worker in ~w(MixDownloadWorker MixAnalyzeWorker MixDjAudioWorker MixDjVisionWorker MixRecognizeWorker MixCutWorker),
+       do: {~p"/sets-online", "Sets gravados"}
 
   defp worker_destination(worker)
        when worker in ~w(AnalyzeWorker MarkerAnalyzeWorker LoudnessWorker GainApplyWorker DbBackupWorker EnrichWorker),
