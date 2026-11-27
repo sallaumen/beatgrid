@@ -365,6 +365,84 @@ test("media errors report whether the source was playing before the pause", t =>
   assert.equal(reports.at(-1).wasPlaying, true)
 })
 
+test("a breather echo leaves headroom when every delayed repeat lands in phase", t => {
+  const {engine, a, hint, breath} = booth(t)
+  hint(breath)
+  a.at(56)
+  const {dry, echoSend, feedback} = engine.decks.a
+  const coherentPeak = dry.gain.value + echoSend.gain.value / (1 - feedback.gain.value)
+  assert.ok(echoSend.gain.value > 0)
+  assert.ok(feedback.gain.value > 0)
+  assert.ok(coherentPeak <= 1 + 1e-6, String(coherentPeak))
+})
+
+test("a breather echo closes the old delay before counting the full silence", t => {
+  const {engine, a, b, hint, breath, tick, advances} = booth(t)
+  hint(breath)
+  a.at(56)
+  const previousDelay = engine.decks.a.delay
+  a.end()
+  assert.equal(engine.decks.a.echoSend.gain.value, 0)
+  assert.notEqual(engine.decks.a.delay, previousDelay)
+  tick(8)
+  assert.equal(engine.snapshot().breather.remainingMs, 2500)
+  tick(2499)
+  assert.equal(b.plays, 0)
+  tick(1)
+  assert.equal(b.plays, 1)
+  assert.deepEqual(advances.map(x => x.toTrackId), ["two"])
+})
+
+test("an already ringing deck also clears its echoes when the AUTO window was missed", t => {
+  const {engine, a, b, hint, breath, tick} = booth(t)
+  engine.setEchoSend("a", 0.6)
+  const old = engine.decks.a.delay
+  hint(breath)
+  a.end()
+  assert.notEqual(engine.decks.a.delay, old)
+  tick(2507)
+  assert.equal(b.plays, 0)
+  tick(1)
+  assert.equal(b.plays, 1)
+})
+
+test("a clean dry breather keeps its original duration and delay", t => {
+  const {engine, a, b, hint, breath, tick} = booth(t)
+  hint({...breath, type: "cut"})
+  const old = engine.decks.a.delay
+  a.at(56)
+  a.end()
+  assert.equal(engine.decks.a.delay, old)
+  tick(2500)
+  assert.equal(b.plays, 1)
+})
+
+test("clearing a silent echo gap restores the deck fader unless the DJ already took it over", t => {
+  const routes = new Map()
+  t.mock.method(AudioNodeStub.prototype, "connect", function(target) {
+    if (!routes.has(this)) routes.set(this, target)
+  })
+  const {a, engine, hint, breath} = booth(t)
+  const routedLevel = routes.get(engine.decks.a.gain).gain
+  hint(breath)
+  a.at(56)
+  a.end()
+  assert.equal(routedLevel.value, 0)
+  engine.clearHint()
+  assert.equal(routedLevel.value, 1)
+
+  engine.playPause("a")
+  a.at(40)
+  hint(breath)
+  a.at(56)
+  a.end()
+  assert.equal(routedLevel.value, 0)
+  engine.setCrossfader(0.35)
+  const manual = routedLevel.value
+  engine.clearHint()
+  assert.equal(routedLevel.value, manual)
+})
+
 test("a missed AUTO window still waits the full breather after ended", t => {
   const {a, b, hint, breath, advances, tick} = booth(t)
   hint(breath)
@@ -388,6 +466,7 @@ test("AUTO uses the media's real end and waits through a stalled final phrase", 
   assert.equal(b.plays, 0)
   assert.equal(advances.length, 0)
   a.end()
+  tick(8) // release the final echo before the configured silence
   assert.equal(engine.snapshot().breather.remainingMs, 2500)
   assert.equal(engine.postponeFire(1000), 3500)
   tick(2600)
@@ -403,6 +482,7 @@ test("a set edit during the gap plays the current successor once", t => {
   hint(breath)
   a.at(56)
   a.end()
+  tick(8)
   hint({...breath, to_ms: 1500}, "replacement")
   tick(2500)
   assert.deepEqual(advances.map(e => e.toTrackId), ["replacement"])
@@ -467,6 +547,7 @@ test("manual early breather fades the phrase, keeps the set live, then releases 
   assert.equal(engine.fireHint().ok, true)
   tick(4000)
   tick(350)
+  tick(8)
   assert.equal(a.paused, true)
   assert.equal(b.paused, true)
   assert.equal(engine.sessionDeck(), "a")
@@ -532,6 +613,7 @@ test("postponing during the final phrase extends the upcoming gap", t => {
   a.at(56)
   assert.equal(engine.postponeFire(1000), 3500)
   a.end()
+  tick(8)
   tick(3499)
   assert.equal(b.plays, 0)
   tick(1)
@@ -947,6 +1029,7 @@ test("a manual transition releases the outgoing loop and keeps the incoming loop
   assert.equal(engine.loopState("a").on, false)
   assert.equal(engine.loopState("b").on, true)
   a.end()
+  tick(8)
   tick(2499)
   assert.equal(b.plays, 0)
   tick(1)
@@ -1160,6 +1243,7 @@ test("a breather releases the planned track without resetting a reload during th
   hint(breath)
   a.at(56)
   a.end()
+  tick(8)
   assert.equal(engine.loadDeck("a", {id: "three", src: "three", bpm: 120}), true)
   engine.beatLoop("a", 4)
   tick(2500)

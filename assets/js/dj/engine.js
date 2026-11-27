@@ -81,6 +81,9 @@ const RAMP = Object.freeze({
   // An early-fired breather rides the echo over the CURRENT phrase this long
   // before dissolving into the gap (mirrors the server's 4s fire lead).
   breatherMaxTailS: 4,
+  breatherEchoMix: 0.30,
+  breatherEchoFeedback: 0.42,
+  echoReleaseMs: 8,
   dropEchoSend: 0.3, // chop kinds ring into the deck's delay — subtler than a full echo-out
   dropTailFadeS: 0.35, // echoTail kinds: the last chop's tail bleeds under the incoming
 })
@@ -147,7 +150,6 @@ class Deck {
     this.loop = {on: false, startMs: null, endMs: null, beats: null}
     this.dry = ctx.createGain()
     this.echoSend = ctx.createGain()
-    this.delay = ctx.createDelay(2.0)
     this.feedback = ctx.createGain()
     this.channel = ctx.createGain() // post-fader channel bus (metered)
     this.analyser = ctx.createAnalyser()
@@ -164,13 +166,43 @@ class Deck {
     this.mediaGain.connect(this.hpf)
     this.toneTreble.connect(this.dry)
     this.toneTreble.connect(this.echoSend)
-    this.echoSend.connect(this.delay)
-    this.delay.connect(this.feedback)
-    this.feedback.connect(this.delay) // the echo tail
+    this.connectDelay(0)
     this.dry.connect(this.channel)
-    this.delay.connect(this.channel)
     this.channel.connect(this.analyser)
     this.channel.connect(this.gain) // fader AFTER the cue/meter tap (pre-fader listen)
+  }
+
+  connectDelay(seconds) {
+    this.delay = this.ctx.createDelay(2)
+    this.delay.delayTime.value = seconds
+    this.echoSend.connect(this.delay)
+    this.delay.connect(this.feedback)
+    this.feedback.connect(this.delay)
+    this.delay.connect(this.channel)
+  }
+
+  releaseBreatherEcho() {
+    const old = this.delay, now = this.ctx.currentTime
+    this.settleGain(this.echoSend)
+    this.echoSend.gain.setValueAtTime(0, now)
+    this.echoSend.disconnect(old)
+    this.feedback.disconnect(old)
+    old.disconnect()
+    // Only the old delay's buffered sound fades out. A new load or a quick
+    // rescue has its own empty delay, even if it happens during these 8 ms.
+    const release = this.ctx.createGain()
+    old.connect(release)
+    release.connect(this.channel)
+    release.gain.setValueAtTime(1, now)
+    release.gain.linearRampToValueAtTime(0, now + RAMP.echoReleaseMs / 1000)
+    this.connectDelay(old.delayTime.value)
+    this.settleGain(this.feedback)
+    this.feedback.gain.setValueAtTime(RAMP.echoFeedback, now)
+    this.echoTailUntil = now + RAMP.echoReleaseMs / 1000
+    setTimeout(() => {
+      old.disconnect()
+      release.disconnect()
+    }, RAMP.echoReleaseMs)
   }
 
   // Loading is REFUSED while audible — the incoming track belongs on the idle deck.
@@ -1397,14 +1429,18 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     const style = transition["type"] || "echo"
     const now = ctx.currentTime
 
-    if (style === "echo") {
-      // Eco na voz do fim, sincronizado na semínima da faixa que sai; o
-      // feedback sobe um pouco para a cauda atravessar o começo do silêncio.
+    const echoPhrase = style === "echo" && !from.ended()
+    if (echoPhrase) {
+      // Even perfectly in-phase repeats sum to wet / (1 - feedback).
+      // Reserve that share of the dry signal before the pre-fader and room buses.
+      const mix = RAMP.breatherEchoMix, feedback = RAMP.breatherEchoFeedback
       from.delay.delayTime.setTargetAtTime(Math.min(60 / (from.bpm || 120), 1.2), now, 0.03)
+      from.settleGain(from.feedback)
+      from.feedback.gain.setValueAtTime(feedback, now)
+      from.settleGain(from.dry)
+      from.dry.gain.linearRampToValueAtTime(1 - mix, now + 0.5)
       from.settleGain(from.echoSend)
-      from.echoSend.gain.linearRampToValueAtTime(RAMP.echoWetLevel, now + 0.5)
-      from.settleParam(from.feedback.gain)
-      from.feedback.gain.linearRampToValueAtTime(0.72, now + 0.8)
+      from.echoSend.gain.linearRampToValueAtTime(mix * (1 - feedback), now + 0.5)
     } else if (style === "fade") {
       const restS = Math.max((from.el.duration || 0) - from.positionMs() / 1000, 0.5)
       from.gain.gain.linearRampToValueAtTime(0, now + restS)
@@ -1418,11 +1454,24 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       durationMs: Math.max(transition.gap_ms ?? 5000, 0),
       deadline: null,
       timer: null,
+      mutedSide: null,
       beginGap() {
         if (token !== state.transitionToken || gap.deadline !== null) return
         clearTimeout(gap.timer)
-        gap.deadline = performance.now() + gap.durationMs
-        gap.timer = setTimeout(gap.start, gap.durationMs)
+        const ringing = echoPhrase || from.echoSend.gain.value >= 0.0001 || from.echoTailUntil > ctx.currentTime
+        const release = ringing && ownsOutgoing(from, token)
+        if (release) {
+          from.releaseBreatherEcho()
+          if (state.faderVersion === faderVersion) {
+            gap.mutedSide = from.id
+            const out = xfade[from.id].gain
+            from.settleParam(out)
+            out.linearRampToValueAtTime(0, ctx.currentTime + RAMP.echoReleaseMs / 1000)
+          }
+        }
+        const wait = gap.durationMs + (release && gap.durationMs > 0 ? RAMP.echoReleaseMs : 0)
+        gap.deadline = performance.now() + wait
+        gap.timer = setTimeout(gap.start, wait)
       },
       start() {
         if (token !== state.transitionToken || state.breatherGap !== gap) return
@@ -1471,7 +1520,13 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       deck.stopBrake?.()
       deck.stopEcho?.()
     }
-    if (state.breatherGap) clearTimeout(state.breatherGap.timer)
+    const gap = state.breatherGap
+    if (gap) {
+      clearTimeout(gap.timer)
+      if (gap.mutedSide && state.faderVersion === faderVersion) {
+        takeOver(xfade[gap.mutedSide].gain, xfadeGains(xfade.pos)[gap.mutedSide], RAMP.manualFaderTau)
+      }
+    }
     state.breatherGap = null
     state.waitingForNext = false
     state.rescue = null
