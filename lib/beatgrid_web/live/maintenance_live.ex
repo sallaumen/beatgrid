@@ -157,6 +157,12 @@ defmodule BeatgridWeb.MaintenanceLive do
               faixa(s) elegível(is).
               O ganho altera os arquivos de áudio; uma cópia dos originais é guardada antes da alteração.
             </p>
+            <.link
+              navigate={~p"/ajustes?origem=volume" <> "#ajuste-value-target_lufs"}
+              class="inline-flex items-center gap-1 text-body-sm text-primary hover:underline"
+            >
+              Alterar alvo de loudness <.icon name="hero-arrow-right-mini" class="size-4" />
+            </.link>
             <p :if={@gain_note} role="status" class="text-body-sm text-ink-muted">
               {@gain_note}
             </p>
@@ -259,6 +265,13 @@ defmodule BeatgridWeb.MaintenanceLive do
               As últimas <span class="font-mono tabular-nums">{@backup_keep}</span>
               cópias ficam em <code class="font-mono">_Backups/DB</code>.
             </p>
+            <.link
+              navigate={~p"/ajustes?origem=backup" <> "#ajuste-value-backup_keep"}
+              class="inline-flex items-center gap-1 text-body-sm text-primary hover:underline"
+            >
+              Alterar quantidade de cópias mantidas
+              <.icon name="hero-arrow-right-mini" class="size-4" />
+            </.link>
             <details :if={@backup} class="max-w-full text-body-sm text-ink-muted">
               <summary class="cursor-pointer text-primary">Comando para restaurar o backup</summary>
               <p class="mt-2 text-body-sm text-amber">
