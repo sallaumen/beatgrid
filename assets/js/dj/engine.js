@@ -1691,14 +1691,31 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     }
   }
 
-  function applyRate(deck) {
-    const rate = Math.max(deck.baseRate * (1 + jog[deck.id].bend), 0.0625)
-    if (deck.el.playbackRate !== rate) deck.useMedia()
+  function applyRate(deck, nudge = false) {
+    const hand = jog[deck.id]
+    const rate = Math.max(deck.baseRate * (1 + hand.bend), 0.0625)
+    if (!nudge || !hand.bend) hand.rateSample = null
+    if (deck.el.playbackRate === rate) return
+
+    // Some native decoders restart on each new rate. The first nudge is
+    // immediate. Coalesce subsequent turns only while that decoder falls
+    // behind; a healthy media clock can follow every movement of the hand.
+    const last = hand.rateSample
+    if (last?.token === deck.playToken && deck.el.currentTime >= last.position) {
+      const elapsed = ctx.currentTime - last.clock
+      const played = deck.el.currentTime - last.position
+      if (elapsed <= 0 || played < elapsed * last.rate * 0.9) return
+    }
+    deck.useMedia()
     deck.el.playbackRate = rate
+    if (nudge && hand.bend) {
+      hand.rateSample = {clock: ctx.currentTime, position: deck.el.currentTime, rate, token: deck.playToken}
+    }
   }
 
   function cancelBend(deckId) {
     const j = jog[deckId]
+    j.rateSample = null
     j.bend = 0
     if (j.decay) {
       clearInterval(j.decay)
@@ -1812,7 +1829,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     const bend = Math.min(Math.max(j.bend + delta * RAMP.bendStep, -RAMP.bendMax), RAMP.bendMax)
     if (bend !== j.bend) passage.mixChanged()
     j.bend = bend
-    applyRate(deck)
+    applyRate(deck, true)
     if (!j.decay) {
       j.decay = setInterval(() => {
         j.bend *= RAMP.bendDecay
@@ -1821,7 +1838,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
           clearInterval(j.decay)
           j.decay = null
         }
-        applyRate(deck)
+        applyRate(deck, true)
       }, 60)
     }
   }

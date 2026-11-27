@@ -1674,3 +1674,55 @@ test("SYNC keeps the rehearsed recording when the effective tempo already matche
   assert.equal(b.currentTime, 3.5)
   assert.equal(b.playbackRate, 1.05)
 })
+
+test("jog bending lets a native decoder resume before changing its rate again", t => {
+  const {engine, a, tick} = booth(t)
+  engine.setAuto(false)
+  a.at(8)
+  engine.jogTurn("a", 4)
+  const initial = a.playbackRate
+  assert.ok(initial > 1)
+  // A slow media backend starts reconfiguring on every new value, even if it
+  // has yet to deliver the audio from the first turn.
+  for (let i = 0; i < 8; i++) {
+    engine.ctx.currentTime += .025
+    engine.jogTurn("a", 3)
+    assert.equal(a.playbackRate, initial)
+  }
+  a.at(8.24)
+  engine.ctx.currentTime += .025
+  engine.jogTurn("a", 3)
+  assert.ok(a.playbackRate > initial)
+  tick(4000)
+  assert.equal(a.playbackRate, 1)
+})
+
+test("a decoder that keeps pace follows every change of jog direction", t => {
+  const {engine, a} = booth(t)
+  engine.setAuto(false)
+  a.at(8)
+  for (const direction of [1, 1, -1, -1, 1, -1]) {
+    const previous = a.playbackRate
+    engine.ctx.currentTime += .025
+    a.at(a.currentTime + .025 * previous)
+    engine.jogTurn("a", direction)
+    assert.equal(Math.sign(a.playbackRate - previous), direction)
+  }
+})
+
+test("STOP and a new load cannot inherit a throttled jog or its last native rate", t => {
+  const {engine, a, tick} = booth(t)
+  a.at(5)
+  engine.jogTurn("a", 6)
+  engine.ctx.currentTime += .04
+  engine.jogTurn("a", 6)
+  engine.stopAll()
+  tick(4000)
+  engine.loadDeck("a", {id: "replacement", src: "replacement"}, {autoplay: true})
+  assert.equal(a.playbackRate, 1)
+  engine.jogTurn("a", -2)
+  assert.ok(a.playbackRate < 1)
+  engine.jogTouch("a", true)
+  engine.jogTouch("a", false)
+  assert.equal(a.playbackRate, 1)
+})
