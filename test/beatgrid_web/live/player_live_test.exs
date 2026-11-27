@@ -49,6 +49,18 @@ defmodule BeatgridWeb.PlayerLiveTest do
     :ok
   end
 
+  test "the player exposes its controls and the state of the marker list", %{conn: conn} do
+    track = insert(:track, tag_title: "Baião")
+    {:ok, view, _html} = live_isolated(conn, BeatgridWeb.PlayerLive)
+    render_hook(view, "now_playing", %{"id" => track.id})
+
+    assert has_element?(view, "#player-bar[aria-label='Reprodutor']")
+    assert has_element?(view, "button[aria-controls='player-markers'][aria-expanded=false]")
+    view |> element("button[aria-controls='player-markers']") |> render_click()
+    assert has_element?(view, "#player-markers")
+    assert has_element?(view, "button[aria-controls='player-markers'][aria-expanded=true]")
+  end
+
   test "renders the audio element and starts hidden", %{conn: conn} do
     {:ok, _view, html} = live_isolated(conn, BeatgridWeb.PlayerLive)
     assert html =~ ~s(id="player-audio")

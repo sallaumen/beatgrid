@@ -110,6 +110,12 @@ html, body { color-scheme: dark; background: var(--bg-base); color: var(--text-p
    on specificity and keep it. */
 :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
+@media (max-width: 63.999rem) {
+  body:has(#player-bar:not(.hidden)) #workspace-content {
+    padding-bottom: calc(7rem + env(safe-area-inset-bottom));
+  }
+}
+
 /* Library table columns, shared by the header row and every track row. The title
    is the one thing you actually read, so it never collapses: it keeps a floor
    (minmax) and, below 1400px, the two most expendable columns leave instead —
