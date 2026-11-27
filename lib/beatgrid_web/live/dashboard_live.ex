@@ -47,6 +47,9 @@ defmodule BeatgridWeb.DashboardLive do
   end
 
   @impl true
+  def handle_info({:analysis_tick}, socket),
+    do: {:noreply, assign(socket, bpm: Dashboard.tempo_distribution())}
+
   def handle_info(
         {:recommend_progress, %{scope: "folder", key: folder, status: :running}},
         %{assigns: %{gaps_folder: folder}} = socket
@@ -176,17 +179,21 @@ defmodule BeatgridWeb.DashboardLive do
             <.empty :if={@artists == []} />
           </.panel>
 
-          <.panel title="Andamento (BPM)">
-            <div :if={@bpm != []} class="space-y-2">
-              <.bar_row
+          <.panel id="dashboard-tempo" title="Andamento (BPM)">
+            <ol :if={@bpm != []} class="space-y-2">
+              <li
                 :for={{bucket, count} <- @bpm}
-                label={"#{bucket}–#{bucket + 4}"}
-                value={count}
-                max={max_count(@bpm)}
-                color="var(--color-primary)"
-                mono
-              />
-            </div>
+                aria-label={"De #{bucket} a menos de #{bucket + 5} BPM, #{count} #{if count == 1, do: "faixa", else: "faixas"}"}
+              >
+                <.bar_row
+                  label={"#{bucket}–<#{bucket + 5}"}
+                  value={count}
+                  max={max_count(@bpm)}
+                  color="var(--color-primary)"
+                  mono
+                />
+              </li>
+            </ol>
             <.empty :if={@bpm == []} />
           </.panel>
 

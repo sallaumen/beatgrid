@@ -59,6 +59,10 @@ const MASTER_NOTES = {
   0x03: "load_b",
 }
 
+export function isControllerPort(port) {
+  return /\bdj[\s_-]*2[\s_-]*go[\s_-]*2(?:[\s_-]*touch)?\b/i.test(port.name || "")
+}
+
 export function decode([status, data1, data2]) {
   const kind = status >> 4
   const channel = status & 0x0f
@@ -76,9 +80,13 @@ function decodeCC(channel, cc, value) {
     // Fader de pitch da DJ2GO2 manda 0 no topo / 127 embaixo — invertemos aqui
     // para o valor semântico ser 0 = mais lento (−) e 1 = mais rápido (+), casando
     // o sentido físico (empurrar pra cima acelera) com a tela.
-    if (cc === 0x09) return {type: "pitch", deck, value: 1 - value / 127}
+    if (cc === 0x09) {
+      // The two middle MIDI steps straddle the physical detent.
+      const position = value < 64 ? 1 - value / 126 : (127 - value) / 126
+      return {type: "pitch", deck, value: position}
+    }
     if (cc === 0x16) return {type: "level", deck, value: value / 127}
-    if (cc === 0x06) return {type: "jog_turn", deck, delta: value < 64 ? value : value - 128}
+    if (cc === 0x06) return {type: "jog_turn", deck, delta: value > 64 ? value - 128 : value}
     return null
   }
 

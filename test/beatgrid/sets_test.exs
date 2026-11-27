@@ -382,6 +382,22 @@ defmodule Beatgrid.SetsTest do
   end
 
   @tag :tmp_dir
+  test "exporting from a stale editor uses the current name and preserves the last export after deletion",
+       %{tmp_dir: root} do
+    {:ok, set} = Sets.create("Rascunho")
+    {:ok, _} = Sets.append(set, track_with("8A", 118.0, tag_title: "Baião"))
+    {:ok, renamed} = Sets.rename(set, "Baile")
+    assert {:ok, path} = Sets.export_m3u(set)
+    assert path == Path.join([root, "_Sets", "Baile.m3u"])
+    content = File.read!(path)
+    assert content =~ "Baião"
+
+    {:ok, _} = Sets.delete(renamed)
+    assert {:error, %Beatgrid.Error{code: :set_not_found}} = Sets.export_m3u(renamed)
+    assert File.read!(path) == content
+  end
+
+  @tag :tmp_dir
   test "export_m3u writes an .m3u with EXTINF + absolute paths under _Sets", %{tmp_dir: root} do
     {:ok, set} = Sets.create("My Set")
 

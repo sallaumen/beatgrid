@@ -20,6 +20,33 @@ defmodule BeatgridWeb.UITest do
     end
   end
 
+  test "highlighted covers and set rows address their own audio, even across tabs" do
+    for {component, attrs} <- [
+          {&BeatgridWeb.UI.cover_play/1, [play_src: "/audio/local", preview: true]},
+          {&BeatgridWeb.UI.play_button/1, [src: "/audio/local", preview: false, set_id: "baile"]}
+        ] do
+      html = render_component(component, [track_id: "local", playing?: true] ++ attrs)
+
+      [command] =
+        html
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.query("button")
+        |> LazyHTML.attribute("phx-click")
+
+      assert [
+               [
+                 "dispatch",
+                 %{"event" => "beatgrid:play", "to" => "#player-audio", "detail" => detail}
+               ]
+             ] =
+               Jason.decode!(command)
+
+      assert %{"id" => "local", "src" => "/audio/local", "toggle_if_current" => true} = detail
+      assert detail["preview"] == attrs[:preview]
+      assert detail["set_id"] == attrs[:set_id]
+    end
+  end
+
   describe "cover_src/1 art trust" do
     test "shows art only when trusted and confidence isn't low" do
       song = %{image_url: "https://img/x.jpg"}

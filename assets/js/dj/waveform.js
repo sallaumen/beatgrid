@@ -5,34 +5,45 @@
 // small array: the playhead is FIXED at the canvas center and the wave scrolls
 // under it — turn the platter and you see exactly where the needle is going.
 
-const peaksCache = new Map() // trackId → Promise<{peaks, bps, durationS}>
-const MAX_CACHE = 12
+// Keep the envelope and scratch PCM together. A cached envelope alone would
+// leave a revisited deck permanently unable to scratch until a page reload.
+const clips = new Map()
+const MAX_CLIPS = 4
+const platterTracks = new Map()
 
-// Full mono PCM kept for scratching (AudioWorklet reads it sample-by-sample).
-// Heavy (~50 MB/track), so a tight cap: only the decks + a couple recent tracks.
-const monoCache = new Map() // trackId → Float32Array (ctx-rate mono samples)
-const MAX_MONO = 4
+export function retainScratch(platter, trackId) {
+  if (trackId == null) platterTracks.delete(platter)
+  else platterTracks.set(platter, trackId)
+}
 
-// The cache holds PROMISES: loading the same track on both decks (treino de
-// beatmatching) reuses one fetch+decode; failures evict so a retry can work.
 export function loadPeaks(trackId, src, ctx) {
-  if (peaksCache.has(trackId)) return peaksCache.get(trackId)
-  const promise = decode(trackId, src, ctx)
-  peaksCache.set(trackId, promise)
-  promise.catch(() => peaksCache.delete(trackId))
-  if (peaksCache.size > MAX_CACHE) {
-    peaksCache.delete(peaksCache.keys().next().value)
+  let clip = clips.get(trackId)
+  if (clip) {
+    clips.delete(trackId)
+  } else {
+    clip = {pcm: null}
+    clip.ready = decode(clip, src, ctx).catch(error => {
+      if (clips.get(trackId) === clip) clips.delete(trackId)
+      throw error
+    })
   }
-  return promise
+  clips.set(trackId, clip)
+  if (clips.size > MAX_CLIPS) {
+    const mounted = new Set(platterTracks.values())
+    for (const id of clips.keys()) {
+      if (mounted.has(id)) continue
+      clips.delete(id)
+      break
+    }
+  }
+  return clip.ready
 }
 
-// Mono PCM for the scratch engine, cached by the same decode as the waveform.
-// Returns null until the track has been decoded (loadPeaks resolved).
 export function getScratchPcm(trackId) {
-  return monoCache.get(trackId) || null
+  return clips.get(trackId)?.pcm || null
 }
 
-async function decode(trackId, src, ctx) {
+async function decode(clip, src, ctx) {
   const res = await fetch(src)
   if (!res.ok) throw new Error(`audio fetch failed: ${res.status}`)
   const buf = await res.arrayBuffer()
@@ -43,18 +54,16 @@ async function decode(trackId, src, ctx) {
   // Mono downmix at ctx rate — the scratch worklet reads this back and forth.
   const mono = new Float32Array(ch0.length)
   for (let i = 0; i < ch0.length; i++) mono[i] = (ch0[i] + ch1[i]) * 0.5
-  monoCache.set(trackId, mono)
-  if (monoCache.size > MAX_MONO) monoCache.delete(monoCache.keys().next().value)
+  clip.pcm = mono
 
   const bps = 50
   const total = Math.ceil(audio.duration * bps)
   const peaks = new Float32Array(total)
-  const samplesPerBucket = Math.floor(audio.sampleRate / bps)
   for (let i = 0; i < total; i++) {
     let max = 0
-    const start = i * samplesPerBucket
-    const end = Math.min(start + samplesPerBucket, ch0.length)
-    for (let j = start; j < end; j += 4) {
+    const start = Math.ceil(i * audio.sampleRate / bps)
+    const end = Math.min(Math.ceil((i + 1) * audio.sampleRate / bps), ch0.length)
+    for (let j = start; j < end; j++) {
       const a = Math.abs(ch0[j])
       if (a > max) max = a
       const b = Math.abs(ch1[j])

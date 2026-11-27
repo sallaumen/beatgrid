@@ -7,9 +7,12 @@ defmodule Beatgrid.Dashboard.ReadModel do
   alias Beatgrid.{Analysis, Backup, Jobs, Loudness, Markers, Repertoire, YouTube}
   alias Beatgrid.Library.GenreFolders
 
-  @doc "Subscribes the caller to recommendation progress."
+  @doc "Subscribes the repertoire overview to tempo and recommendation updates."
   @spec subscribe() :: :ok
-  def subscribe, do: Repertoire.subscribe()
+  def subscribe do
+    Analysis.subscribe()
+    Repertoire.subscribe()
+  end
 
   @doc "Subscribes the caller to library maintenance progress."
   @spec subscribe_maintenance() :: :ok
@@ -34,13 +37,17 @@ defmodule Beatgrid.Dashboard.ReadModel do
       overview: Repertoire.overview(),
       genres: Repertoire.genre_distribution() |> Enum.sort_by(fn {_key, count} -> -count end),
       artists: Repertoire.top_artists(10),
-      bpm: Repertoire.bpm_histogram(5) |> Enum.sort_by(fn {bucket, _count} -> bucket end),
+      bpm: tempo_distribution(),
       decades:
         Repertoire.decade_distribution() |> Enum.sort_by(fn {decade, _count} -> decade end),
       folders: folders
     }
     |> Map.merge(gaps(gaps_folder))
   end
+
+  @doc "Returns the repertoire's effective tempo distribution in ascending order."
+  @spec tempo_distribution() :: [{integer(), non_neg_integer()}]
+  def tempo_distribution, do: Repertoire.bpm_histogram() |> Enum.sort()
 
   @doc "Returns the library maintenance snapshot."
   @spec maintenance_snapshot() :: map()

@@ -4,7 +4,7 @@ defmodule BeatgridWeb.RecSetLive do
 
   import BeatgridWeb.UI
 
-  alias Beatgrid.Library.{GenreFolders, Marker, TrackQuery, Tracks}
+  alias Beatgrid.Library.{GenreFolders, TrackQuery, Tracks}
   alias Beatgrid.Mixing
   alias Beatgrid.Mixing.StyleAffinity
   alias Beatgrid.Playback
@@ -112,25 +112,21 @@ defmodule BeatgridWeb.RecSetLive do
     entries
     |> Enum.chunk_every(2, 1, :discard)
     |> Map.new(fn [prev, this] ->
-      timing = Sets.pair_timing(prev.track, this)
-      {this.track.id, Map.put(timing, :has_outro?, Marker.outro(prev.track) != nil)}
+      {this.track.id, Sets.pair_timing(prev.track, this)}
     end)
   end
 
   defp pair_summary(%{from_ms: from, to_ms: to} = timing) do
     exit_label =
-      cond do
-        timing.learned? -> "sai #{format_ms(from)} 📌"
-        timing.has_outro? -> "sai #{format_ms(from)}"
-        true -> "sai ~fim"
+      case timing do
+        %{source: :fallback} -> "sai ~fim"
+        %{source: :learned} -> "sai #{format_ms(from)} 📌"
+        %{from_ms: nil} -> "sai no fim"
+        _ -> "sai #{format_ms(from)}"
       end
 
     "#{exit_label} · entra #{format_ms(to)}"
   end
-
-  # A pair with no outro normally exits blind (~fim) — unless the DJ already
-  # taught it a real exit point.
-  defp pair_warns?(timing), do: not (timing.has_outro? or timing.learned?)
 
   defp reload(socket) do
     case Sets.get(socket.assigns.set.id) do
@@ -158,28 +154,20 @@ defmodule BeatgridWeb.RecSetLive do
   # Candidates always reflect the live mixing console: the per-dimension weights,
   # the hard filters, and the active section's energy target. Changing any console
   # control (or the section selector) re-runs this. Automático (nil section) =
-  # harmony + style only. The empty-set opening pool has no previous track, so the
-  # console's harmony/BPM filters don't apply there — only the limit + energy do.
+  # harmony + style only. The first slot defaults to opening energy.
   defp assign_candidates(socket) do
-    %{set: set, entries: entries, filters: f, weights: w, candidate_limit: limit} = socket.assigns
-    ti = section_target(socket.assigns[:active_section])
-
-    candidates =
-      cond do
-        is_nil(set) ->
-          []
-
-        entries == [] ->
-          Sets.suggest_opening(set, limit: limit, target_intensity: ti)
-
-        true ->
-          Sets.next_candidates(set, console_opts(w, f, limit, ti))
-      end
+    set = socket.assigns.set
+    candidates = if set, do: Sets.next_candidates(set, console_opts(socket.assigns)), else: []
 
     assign(socket, candidates: candidates)
   end
 
-  defp console_opts(weights, filters, limit, ti) do
+  defp console_opts(%{
+         weights: weights,
+         filters: filters,
+         candidate_limit: limit,
+         active_section: role
+       }) do
     [
       weights: weights,
       harmonic_only: filters.harmonic_only,
@@ -188,7 +176,7 @@ defmodule BeatgridWeb.RecSetLive do
       min_rating: filters.min_rating,
       exclude_styles: filters.exclude_styles,
       limit: limit,
-      target_intensity: ti
+      target_intensity: section_target(role)
     ]
   end
 
@@ -220,7 +208,7 @@ defmodule BeatgridWeb.RecSetLive do
         %{assigns: %{set: %{id: id}}} = socket
       )
       when is_binary(name) do
-    {:noreply, with_current_set(socket, &rename_set(socket, &1, name))}
+    {:noreply, rename_set(socket, socket.assigns.set, name)}
   end
 
   def handle_event("rename", _params, socket), do: {:noreply, socket}
@@ -230,39 +218,50 @@ defmodule BeatgridWeb.RecSetLive do
         %{"set_id" => id, "style" => style},
         %{assigns: %{set: %{id: id}}} = socket
       ) do
-    {:noreply,
-     with_current_set(socket, fn current ->
-       {:ok, set} = Sets.set_target_style(current, blank_to_nil(style))
-       load_set(socket, set)
-     end)}
+    case Sets.set_target_style(socket.assigns.set, blank_to_nil(style)) do
+      {:ok, set} ->
+        {:noreply, load_set(socket, set)}
+
+      {:error, %Beatgrid.Error{code: :set_not_found}} ->
+        {:noreply, missing_set(socket)}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Não foi possível salvar o estilo.")}
+    end
   end
 
   def handle_event("set_target_style", _params, socket), do: {:noreply, socket}
 
   def handle_event("duplicate_set", %{"id" => id}, %{assigns: %{set: %{id: id}}} = socket) do
-    {:noreply,
-     with_current_set(socket, fn current ->
-       case Sets.duplicate(current) do
-         {:ok, copy} ->
-           socket
-           |> refresh_sets()
-           |> put_flash(:info, "Cópia criada: “#{copy.name}”. Você está editando a cópia.")
-           |> push_patch(to: set_path(copy))
+    case Sets.duplicate(socket.assigns.set) do
+      {:ok, copy} ->
+        {:noreply,
+         socket
+         |> refresh_sets()
+         |> put_flash(:info, "Cópia criada: “#{copy.name}”. Você está editando a cópia.")
+         |> push_patch(to: set_path(copy))}
 
-         {:error, _reason} ->
-           put_flash(socket, :error, "Não foi possível duplicar o set.")
-       end
-     end)}
+      {:error, %Beatgrid.Error{code: :set_not_found}} ->
+        {:noreply, missing_set(socket)}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Não foi possível duplicar o set.")}
+    end
   end
 
   def handle_event("duplicate_set", _params, socket), do: {:noreply, socket}
 
   def handle_event("delete_set", %{"id" => id}, %{assigns: %{set: %{id: id}}} = socket) do
-    {:noreply,
-     with_current_set(socket, fn current ->
-       {:ok, _} = Sets.delete(current)
-       select_remaining_set(socket)
-     end)}
+    case Sets.delete(socket.assigns.set) do
+      {:ok, _} ->
+        {:noreply, select_remaining_set(socket)}
+
+      {:error, %Beatgrid.Error{code: :set_not_found}} ->
+        {:noreply, missing_set(socket)}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Não foi possível excluir o set.")}
+    end
   end
 
   def handle_event("delete_set", _params, socket), do: {:noreply, socket}
@@ -272,8 +271,11 @@ defmodule BeatgridWeb.RecSetLive do
   def handle_event("append", %{"track" => track_id}, socket) do
     {:noreply,
      with_track(socket, track_id, fn track ->
-       {:ok, _} = Sets.append(socket.assigns.set, track)
-       reload(socket)
+       case Sets.append(socket.assigns.set, track) do
+         {:ok, _} -> reload(socket)
+         {:error, %Beatgrid.Error{code: :set_not_found}} -> missing_set(socket)
+         {:error, _changeset} -> stale_reference(socket)
+       end
      end)}
   end
 
@@ -328,25 +330,24 @@ defmodule BeatgridWeb.RecSetLive do
     entry = Enum.find(socket.assigns.entries, &(&1.track.id == id))
 
     if entry && entry.transition do
-      # A fresh decision, not a patch of the old map — the previous suggestion's
-      # reason would otherwise keep explaining a type it no longer describes.
-      {:noreply,
-       connected(socket, Sets.connect(socket.assigns.set, entry.track, %{"type" => type}))}
+      attrs = entry.transition |> Map.take(["breather"]) |> Map.put("type", type)
+      {:noreply, connected(socket, Sets.connect(socket.assigns.set, entry.track, attrs))}
     else
       {:noreply, reload(socket)}
     end
   end
 
   def handle_event("toggle_breather", %{"track" => id}, socket) do
-    {:noreply,
-     with_track(socket, id, fn track ->
-       entry = Enum.find(Sets.entries(socket.assigns.set), &(&1.track.id == track.id))
-       wanted = not Sets.breather?(entry)
-       # An override that just repeats the cadence is noise — store nil and the
-       # boundary follows /ajustes again.
-       state = if wanted == cadence_breather?(entry), do: nil, else: wanted
-       connected(socket, Sets.set_breather(socket.assigns.set, track, state))
-     end)}
+    case Enum.find(Sets.entries(socket.assigns.set), &(&1.track.id == id)) do
+      nil ->
+        {:noreply, stale_reference(socket)}
+
+      entry ->
+        wanted = not Sets.breather?(entry)
+        # Drop a redundant override so the boundary follows the cadence again.
+        state = if wanted == cadence_breather?(entry), do: nil, else: wanted
+        {:noreply, connected(socket, Sets.set_breather(socket.assigns.set, entry.track, state))}
+    end
   end
 
   def handle_event("connect_all", _params, socket) do
@@ -368,10 +369,11 @@ defmodule BeatgridWeb.RecSetLive do
 
   def handle_event("fill", %{"role" => role, "count" => count}, socket) do
     n = to_count(count)
+    opts = console_opts(%{socket.assigns | active_section: blank_to_nil(role)})
 
     case blank_to_nil(role) do
-      nil -> Sets.auto_fill(socket.assigns.set, count: n)
-      r -> Sets.fill_section(socket.assigns.set, r, n)
+      nil -> Sets.auto_fill(socket.assigns.set, Keyword.put(opts, :count, n))
+      r -> Sets.fill_section(socket.assigns.set, r, n, opts)
     end
 
     {:noreply, reload(socket)}
@@ -478,13 +480,17 @@ defmodule BeatgridWeb.RecSetLive do
   # --- export ---
 
   def handle_event("export", _params, socket) do
-    toast =
-      case Sets.export_m3u(socket.assigns.set) do
-        {:ok, path} -> {:ok, Path.relative_to(path, Beatgrid.Library.library_root())}
-        _ -> {:error, nil}
-      end
+    case Sets.export_m3u(socket.assigns.set) do
+      {:ok, path} ->
+        rel = Path.relative_to(path, Beatgrid.Library.library_root())
+        {:noreply, assign(socket, toast: {:ok, rel})}
 
-    {:noreply, assign(socket, toast: toast)}
+      {:error, %Beatgrid.Error{code: :set_not_found}} ->
+        {:noreply, missing_set(socket)}
+
+      {:error, _reason} ->
+        {:noreply, assign(socket, toast: {:error, nil})}
+    end
   end
 
   def handle_event("dismiss_toast", _params, socket), do: {:noreply, assign(socket, toast: nil)}
@@ -533,31 +539,23 @@ defmodule BeatgridWeb.RecSetLive do
     put_flash(socket, :error, "#{label}: #{failure_reason(failure)} — o set ficou como estava.")
   end
 
-  defp with_current_set(socket, fun) do
-    case Sets.get(socket.assigns.set.id) do
-      nil -> missing_set(socket)
-      set -> fun.(set)
-    end
-  rescue
-    Ecto.StaleEntryError -> missing_set(socket)
-  end
-
   defp rename_set(socket, set, name) do
-    cond do
-      String.trim(name) == "" ->
-        assign(socket, name_input: name, name_error: "Informe um nome para o set.")
+    case Sets.rename(set, name) do
+      {:ok, updated} ->
+        assign(socket, set: updated, sets: Sets.list(), name_input: nil, name_error: nil)
 
-      length(String.codepoints(name)) > 255 ->
-        assign(socket, name_input: name, name_error: "Use até 255 caracteres no nome do set.")
+      {:error, %Beatgrid.Error{code: :set_not_found}} ->
+        missing_set(socket)
 
-      true ->
-        case Sets.rename(set, name) do
-          {:ok, updated} ->
-            assign(socket, set: updated, sets: Sets.list(), name_input: nil, name_error: nil)
+      {:error, changeset} ->
+        {_message, validation} = Keyword.fetch!(changeset.errors, :name)
 
-          {:error, _changeset} ->
-            assign(socket, name_input: name, name_error: "Não foi possível salvar o nome do set.")
-        end
+        error =
+          if validation[:count],
+            do: "Use até #{validation[:count]} caracteres no nome do set.",
+            else: "Informe um nome para o set."
+
+        assign(socket, name_input: name, name_error: error)
     end
   end
 
@@ -574,6 +572,9 @@ defmodule BeatgridWeb.RecSetLive do
 
   defp set_path(nil), do: ~p"/set"
   defp set_path(set), do: ~p"/set/#{set.id}"
+
+  defp failure_reason({:ok, {:error, %Beatgrid.Error{code: :no_candidates}}}),
+    do: "Nenhuma faixa atende aos critérios"
 
   defp failure_reason({:ok, {:error, reason}}), do: inspect(reason)
 
@@ -691,15 +692,6 @@ defmodule BeatgridWeb.RecSetLive do
     end
   end
 
-  defp transition_abbrev("cut"), do: "corte"
-  defp transition_abbrev("fade"), do: "fade"
-  defp transition_abbrev("echo"), do: "eco"
-  defp transition_abbrev("filter"), do: "filtro"
-  defp transition_abbrev("bass_swap"), do: "grave"
-  defp transition_abbrev("brake"), do: "freio"
-  defp transition_abbrev("lowpass"), do: "afunda"
-  defp transition_abbrev(_crossfade), do: "xfade"
-
   defp transition_title("cut"), do: "Corte seco no marcador"
   defp transition_title("fade"), do: "Fade (sai A / entra B, sem casar BPM)"
   defp transition_title("echo"), do: "Echo-out (cauda de delay em A enquanto B entra)"
@@ -713,7 +705,12 @@ defmodule BeatgridWeb.RecSetLive do
   defp transition_title("lowpass"),
     do: "Afunda (low-pass leva A para debaixo d'água enquanto B sobe)"
 
-  defp transition_title(_crossfade), do: "Crossfade beat-aware (casa BPM no overlap)"
+  defp transition_title("crossfade"), do: "Crossfade beat-aware (casa BPM no overlap)"
+  defp transition_title("scratch_cut"), do: "Rasgo no tempo antes de entrar a próxima faixa"
+  defp transition_title("spinback"), do: "Rebobina o prato antes do drop"
+  defp transition_title("chirp"), do: "Chirp nas viradas com cauda de eco"
+  defp transition_title("transform"), do: "Transforma o scratch com cortes em colcheias e eco"
+  defp transition_title("scribble"), do: "Riscada que cresce até o drop"
 
   defp candidate_header(true, _section), do: "Sugestões de abertura"
   defp candidate_header(false, nil), do: "Próxima faixa ideal · Automático"
@@ -988,7 +985,7 @@ defmodule BeatgridWeb.RecSetLive do
                   </button>
                   <div
                     :if={transition_on?(e)}
-                    class="flex overflow-hidden rounded border border-primary/30"
+                    class="flex max-w-full flex-wrap rounded border border-primary/30"
                   >
                     <button
                       :for={t <- Sets.transition_types()}
@@ -996,6 +993,7 @@ defmodule BeatgridWeb.RecSetLive do
                       phx-click="set_transition_type"
                       phx-value-track={e.track.id}
                       phx-value-type={t}
+                      aria-pressed={to_string(e.transition["type"] == t)}
                       class={[
                         "px-1.5 py-px text-[9px] font-semibold uppercase",
                         (e.transition["type"] == t && "bg-primary/30 text-primary") ||
@@ -1003,16 +1001,17 @@ defmodule BeatgridWeb.RecSetLive do
                       ]}
                       title={transition_title(t)}
                     >
-                      {transition_abbrev(t)}
+                      {String.downcase(transition_label(t))}
                     </button>
                   </div>
                   <span
                     :if={transition_on?(e) && @pair_timings[e.track.id]}
                     class={[
                       "whitespace-nowrap font-mono text-[9px]",
-                      (pair_warns?(@pair_timings[e.track.id]) && "text-amber") || "text-ink-faint"
+                      (@pair_timings[e.track.id].source == :fallback && "text-amber") ||
+                        "text-ink-faint"
                     ]}
-                    title="Pontos derivados dos marcadores ATUAIS da faixa que sai e da que entra — é aqui que o console dispara e onde a próxima começa. '~fim' = sem marcador de saída, corte na janela final."
+                    title="Saída da faixa atual e entrada da próxima. ~fim indica uma saída estimada."
                   >
                     {pair_summary(@pair_timings[e.track.id])}
                   </span>
@@ -1052,7 +1051,7 @@ defmodule BeatgridWeb.RecSetLive do
                     playing?={e.track.id == @playing_track_id}
                   />
                   <.cover src={cover_src(e.track)} artist={e.track.tag_artist} size={34} />
-                  <div class="min-w-0 flex-1">
+                  <div class="min-w-0 flex-[1_1_8rem]">
                     <div class="flex min-w-0 items-center gap-1.5">
                       <.link
                         navigate={~p"/track/#{e.track.id}"}

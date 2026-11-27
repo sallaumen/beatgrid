@@ -52,6 +52,19 @@ defmodule Beatgrid.RepertoireTest do
       assert Repertoire.bpm_histogram(10) == %{120 => 2, 140 => 1}
     end
 
+    test "the BPM histogram counts one effective tempo per present track" do
+      song = insert(:soundcharts_song, tempo_bpm: 120.0)
+      insert(:track, bpm_manual: 100.0, soundcharts_song_id: song.id, bpm_detected: 90.0)
+      insert(:track, soundcharts_song_id: song.id, bpm_detected: 90.0)
+      insert(:track, bpm_detected: 112.5)
+      insert(:track, bpm_manual: 114.9)
+      insert(:track)
+      insert(:track, bpm_detected: 0.0)
+      insert(:track, status: :missing, soundcharts_song_id: song.id)
+
+      assert Repertoire.bpm_histogram() == %{100 => 1, 110 => 2, 120 => 1}
+    end
+
     test "decade_distribution/0 buckets by release decade" do
       insert(:track, soundcharts_song: build(:soundcharts_song, release_date: ~D[1987-03-01]))
       insert(:track, soundcharts_song: build(:soundcharts_song, release_date: ~D[2010-06-01]))

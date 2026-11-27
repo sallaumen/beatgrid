@@ -35,6 +35,19 @@ defmodule Beatgrid.Library.Marker do
   def normalize_source("auto"), do: "auto"
   def normalize_source(_s), do: "manual"
 
+  @doc "Converts a player position to nonnegative milliseconds."
+  @spec parse_position(term()) :: {:ok, non_neg_integer()} | :error
+  def parse_position(ms) when is_number(ms) and ms >= 0, do: {:ok, trunc(ms)}
+
+  def parse_position(ms) when is_binary(ms) do
+    case Integer.parse(ms) do
+      {n, ""} when n >= 0 -> {:ok, n}
+      _ -> :error
+    end
+  end
+
+  def parse_position(_ms), do: :error
+
   @doc "Earliest `intro` marker of a track (nil if none) — the entry/mix-in point."
   def intro(track), do: pick(track, "intro", :min)
 
@@ -42,7 +55,10 @@ defmodule Beatgrid.Library.Marker do
   def outro(track), do: pick(track, "outro", :max)
 
   defp pick(track, t, dir) do
-    case Enum.filter(track.cue_points || [], &(type(&1) == t)) do
+    case Enum.filter(
+           track.cue_points || [],
+           &(type(&1) == t and is_integer(&1["ms"]) and &1["ms"] >= 0)
+         ) do
       [] -> nil
       cues when dir == :min -> Enum.min_by(cues, & &1["ms"])
       cues -> Enum.max_by(cues, & &1["ms"])

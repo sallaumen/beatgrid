@@ -15,6 +15,9 @@ defmodule Beatgrid.Dashboard do
   @spec snapshot(String.t() | nil) :: map()
   defdelegate snapshot(selected_folder \\ nil), to: ReadModel
 
+  @spec tempo_distribution() :: [{integer(), non_neg_integer()}]
+  defdelegate tempo_distribution, to: ReadModel
+
   @spec maintenance_snapshot() :: map()
   defdelegate maintenance_snapshot, to: ReadModel
 

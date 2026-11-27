@@ -3,6 +3,7 @@ defmodule Beatgrid.Sets.RecSetQuery do
 
   import Ecto.Query
 
+  alias Beatgrid.Library.Track
   alias Beatgrid.Repo
   alias Beatgrid.Sets.{RecSet, SetTrack}
 
@@ -46,6 +47,42 @@ defmodule Beatgrid.Sets.RecSetQuery do
     |> Enum.map(& &1.track)
   end
 
+  @doc "The opener, with the same song preload as the whole queue."
+  @spec first_track(Ecto.UUID.t()) :: Beatgrid.Library.Track.t() | nil
+  def first_track(set_id), do: Repo.one(ordered_candidate(set_id))
+
+  @doc "The first member following the current track, including across gaps in stored positions."
+  @spec next_track(Ecto.UUID.t(), Ecto.UUID.t()) :: Beatgrid.Library.Track.t() | nil
+  def next_track(set_id, track_id) do
+    case Ecto.UUID.cast(track_id) do
+      :error ->
+        nil
+
+      {:ok, uuid} ->
+        ordered_candidate(set_id)
+        |> join(:inner, [seat: st], current in SetTrack,
+          on:
+            current.rec_set_id == st.rec_set_id and current.track_id == ^uuid and
+              current.position < st.position
+        )
+        |> Repo.one()
+    end
+  end
+
+  defp ordered_candidate(set_id) do
+    from(track in Track,
+      join: st in SetTrack,
+      as: :seat,
+      on: st.track_id == track.id,
+      left_join: song in assoc(track, :soundcharts_song),
+      where: st.rec_set_id == ^set_id,
+      order_by: st.position,
+      limit: 1,
+      select: track,
+      preload: [soundcharts_song: song]
+    )
+  end
+
   @doc "The set's entries (track + section role + incoming transition) in position order."
   @spec ordered_entries(Ecto.UUID.t()) :: [
           %{
@@ -61,9 +98,10 @@ defmodule Beatgrid.Sets.RecSetQuery do
     |> order_by([st], asc: st.position)
     |> preload(track: :soundcharts_song)
     |> Repo.all()
-    |> Enum.map(
-      &%{track: &1.track, role: &1.role, position: &1.position, transition: &1.transition}
-    )
+    |> Enum.with_index(1)
+    |> Enum.map(fn {row, ordinal} ->
+      %{track: row.track, role: row.role, position: ordinal, transition: row.transition}
+    end)
   end
 
   @doc "Set-track rows in position order (for reindexing)."
@@ -80,8 +118,10 @@ defmodule Beatgrid.Sets.RecSetQuery do
   def track_ids_in([]), do: []
 
   def track_ids_in(set_ids) do
+    ids = for id <- set_ids, {:ok, uuid} <- [Ecto.UUID.cast(id)], do: uuid
+
     SetTrack
-    |> where([st], st.rec_set_id in ^set_ids)
+    |> where([st], st.rec_set_id in ^ids)
     |> distinct([st], st.track_id)
     |> select([st], st.track_id)
     |> Repo.all()

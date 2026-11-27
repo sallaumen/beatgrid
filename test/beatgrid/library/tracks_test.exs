@@ -296,4 +296,33 @@ defmodule Beatgrid.Library.TracksTest do
       assert_raise FunctionClauseError, fn -> Tracks.rate_many([track.id], -1) end
     end
   end
+
+  test "marker edits and redetection preserve changes made from another copy of the track" do
+    {:ok, original} = Tracks.upsert_by_path(attrs())
+    {:ok, _} = Tracks.add_marker(original, 1200, "Entrada")
+    {:ok, _} = Tracks.add_marker(original, 8200, "Refrão")
+    {:ok, _} = Tracks.rename_marker(original, 1200, "Voz")
+    {:ok, updated} = Tracks.replace_auto_markers(original, [%{"ms" => 9000, "source" => "auto"}])
+
+    assert Enum.map(updated.cue_points, &{&1["ms"], &1["label"]}) == [
+             {1200, "Voz"},
+             {8200, "Refrão"},
+             {9000, nil}
+           ]
+
+    {:ok, _} = Tracks.remove_marker(original, 8200)
+    assert Enum.map(Tracks.get(original.id).cue_points, & &1["ms"]) == [1200, 9000]
+  end
+
+  test "redetection keeps an automatic cue explicitly renamed by the DJ only once" do
+    {:ok, track} = Tracks.upsert_by_path(attrs())
+    intro = %{"type" => "intro", "ms" => 3000, "source" => "auto"}
+    {:ok, detected} = Tracks.replace_auto_markers(track, [intro])
+    {:ok, _} = Tracks.rename_marker(detected, 3000, "Minha entrada")
+    {:ok, again} = Tracks.replace_auto_markers(track, [intro])
+    assert [%{"ms" => 3000, "label" => "Minha entrada", "type" => "intro"}] = again.cue_points
+    {:ok, _} = Tracks.set_marker_type(again, 3000, "outro")
+    {:ok, revised} = Tracks.replace_auto_markers(track, [])
+    assert [%{"type" => "outro", "source" => "manual"}] = revised.cue_points
+  end
 end

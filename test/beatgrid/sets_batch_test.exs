@@ -69,6 +69,30 @@ defmodule Beatgrid.SetsBatchTest do
     end
   end
 
+  test "extending connects only new boundaries and preserves manual and disconnected pairs" do
+    [a, b, c, d] = for n <- 1..4, do: rankable_track(n)
+    set = filled_set([a, b, c])
+    {:ok, _} = Sets.connect(set, b, %{"type" => "fade", "breather" => false})
+    before = Sets.entries(set)
+
+    assert {:ok, _} = Sets.plan(set, %{"fill_mode" => "append", "track_count" => "2"})
+    {original, [added]} = Enum.split(Sets.entries(set), 3)
+    assert Enum.map(original, & &1.transition) == Enum.map(before, & &1.transition)
+    assert added.track.id == d.id
+    assert added.transition["enabled"]
+  end
+
+  test "a small candidate pool gets a complete energy arc even when more tracks were requested" do
+    for n <- 1..4, do: rankable_track(n)
+    {:ok, set} = Sets.create("Curto")
+
+    assert {:ok, _} = Sets.plan(set, %{"mode" => "tracks", "track_count" => "80"})
+    entries = Sets.entries(set)
+    assert length(entries) == 4
+    assert hd(entries).role == "abertura"
+    assert List.last(entries).role == "queda"
+  end
+
   describe "create_filled/2" do
     test "creates the set with the tracks in order and every pair connected" do
       tracks = for n <- 1..3, do: rankable_track(n)
@@ -95,6 +119,22 @@ defmodule Beatgrid.SetsBatchTest do
   end
 
   describe "stale membership" do
+    test "send to bottom uses the actual order even after library deletions leave holes" do
+      [a, b, c, d, e] = for n <- 1..5, do: rankable_track(n)
+      set = filled_set([a, b, c, d, e])
+      {:ok, _} = Tracks.delete(b)
+      {:ok, _} = Tracks.delete(c)
+
+      assert :ok = Sets.move(set, a, :bottom)
+
+      assert Enum.map(Sets.entries(set), &{&1.track.id, &1.position}) ==
+               [{d.id, 1}, {e.id, 2}, {a.id, 3}]
+
+      assert :ok = Sets.remove(set, a)
+      assert :ok = Sets.move(set, a, :top)
+      assert Enum.map(Sets.tracks(set), & &1.id) == [d.id, e.id]
+    end
+
     test "connect/3 on a track outside the set returns an error instead of raising" do
       [a, b] = for n <- 1..2, do: rankable_track(n)
       set = filled_set([a])
