@@ -3,6 +3,7 @@ defmodule BeatgridWeb.RecSetNavigationTest do
 
   import Phoenix.LiveViewTest
 
+  alias Beatgrid.Repo
   alias Beatgrid.Sets
 
   test "the compact picker opens the chosen set at its own URL", %{conn: conn} do
@@ -104,7 +105,7 @@ defmodule BeatgridWeb.RecSetNavigationTest do
     {:ok, remaining} = Sets.create("Próximo baile")
     {:ok, deleted} = Sets.create("Encerrado")
     {:ok, view, _html} = live(conn, ~p"/set/#{deleted.id}")
-    assert {:ok, _} = Sets.delete(deleted)
+    Repo.delete!(deleted)
 
     view |> form("#set-name", %{name: "Nome atrasado"}) |> render_submit()
     assert_patch(view, ~p"/set/#{remaining.id}")
