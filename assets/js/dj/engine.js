@@ -575,7 +575,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     else if (state.waitingForNext) handleEnded(decks[state.activeDeck])
   }
 
-  function handleEnded(deck) {
+  function handleEnded(deck, trackId = deck.trackId) {
     state.postponeMs = 0
     const hint = state.hint
     const other = decks[otherId(deck.id)]
@@ -597,7 +597,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       state.firedForTrack = null
       emit("deckStarted", {deck: other.id, trackId: other.trackId})
     } else {
-      boundaryOnce(deck.trackId, () => emit("trackEnded", {trackId: deck.trackId}))
+      boundaryOnce(trackId, () => emit("trackEnded", {trackId}))
     }
   }
 
@@ -1205,6 +1205,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // Keep the outgoing track as the set pointer through its tail and the gap.
     // A set edit may replace the receiving track while the room is silent.
     const gap = {
+      fromTrackId: event.fromTrackId,
       durationMs: Math.max(transition.gap_ms ?? 5000, 0),
       deadline: null,
       timer: null,
@@ -1864,6 +1865,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
     loadDeck(deckId, track, {autoplay = false, atMs = 0} = {}) {
       const deck = decks[deckId]
+      // Only a silent breather frees a deck that still owns a live set boundary.
+      if (!autoplay && sessionDeck() === deckId && !activeBreatherGap()) return false
       if (deckBusy(deckId) || !deck.load(track, atMs)) return false
       // A fresh load is a fresh instrument — loop off (chips/região avisados),
       // FX neutros, tempo natural. Vale para preload manual também.
@@ -1923,12 +1926,16 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       state.hint = null
       if (state.breatherGap || state.waitingForNext) {
         const from = decks[state.activeDeck]
-        const final = !from.audible()
+        const gap = state.breatherGap
+        const originalLoaded = !gap || ownsOutgoing(from, state.transitionToken)
+        const final = !originalLoaded || !from.audible()
         interruptTransition()
-        settleTransitionParams(from)
-        neutralizeIncoming(from, "cut")
+        if (originalLoaded) {
+          settleTransitionParams(from)
+          neutralizeIncoming(from, "cut")
+        }
         state.firedForTrack = null
-        if (final) handleEnded(from)
+        if (final) handleEnded(from, gap?.fromTrackId ?? from.trackId)
       }
     },
 
@@ -2308,7 +2315,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         breatherTail: Boolean(state.breatherGap && state.breatherGap.deadline === null),
         breather: (() => {
           const gap = activeBreatherGap()
-          return gap ? {remainingMs: Math.max(gap.deadline - performance.now(), 0)} : null
+          return gap ? {fromTrackId: gap.fromTrackId, remainingMs: Math.max(gap.deadline - performance.now(), 0)} : null
         })(),
         a: deckSnap(decks.a),
         b: deckSnap(decks.b),

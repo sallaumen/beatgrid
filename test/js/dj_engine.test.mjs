@@ -982,3 +982,23 @@ for (const type of ["crossfade", "fade", "filter", "lowpass", "echo", "bass_swap
     assert.equal(engine.sessionDeck(), "b")
   })
 }
+
+test("a manual LOAD distinguishes a silent gap from a session waiting for its next record", t => {
+  const {engine, a, b, hint, breath, ends} = booth(t)
+  const third = {id: "three", src: "three", bpm: 120}
+  hint(null)
+  b.readyState = 1
+  a.end()
+  assert.equal(engine.loadDeck("a", third), false)
+  engine.stopAll()
+  assert.equal(engine.loadDeck("a", {id: "one", src: "one"}, {autoplay: true}), true)
+  hint(breath)
+  b.ready()
+  assert.equal(engine.loadDeck("a", third), false)
+  a.end()
+  assert.equal(engine.loadDeck("a", third), true)
+  assert.equal(engine.snapshot().breather.fromTrackId, "one")
+  engine.clearHint()
+  assert.deepEqual(ends, [{trackId: "one"}])
+  assert.equal(engine.snapshot().a.trackId, "three")
+})
