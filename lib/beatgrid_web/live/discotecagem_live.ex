@@ -2968,8 +2968,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
               const deg = ((posS / 1.8) * 360) % 360
               vinyl.style.transform = `translate(-50%,-50%) rotate(${deg}deg)`
             }
-            const icon = byId(`dj-playicon-${d}`)
-            if (icon) icon.textContent = deck.audible() ? "⏸" : "▶"
+            const play = byId(`dj-play-${d}`)
+            const playing = deck.audible()
+            if (play.ariaPressed !== String(playing)) {
+              play.ariaPressed = String(playing)
+              byId(`dj-playicon-${d}`).textContent = playing ? "⏸" : "▶"
+            }
             // O pitch na tela segue o baseRate real — SYNC (botão, MIDI ou o
             // auto-sync do xfade/grave) nunca mais deixa o fader mentindo.
             const pitchLab = byId(`dj-pitchlab-${d}`)
@@ -3925,10 +3929,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 id={"dj-play-#{@d}"}
                 type="button"
                 title="Tocar / pausar"
+                aria-label={"Reprodução do deck #{String.upcase(@d)}"}
+                aria-pressed="false"
                 class="flex h-9 w-14 items-center justify-center rounded-lg border text-[13px] font-semibold transition-colors"
                 style={"border-color:#{@accent}55;background:#{@accent}1a;color:#{@accent}"}
               >
-                <span id={"dj-playicon-#{@d}"}>▶</span>
+                <span id={"dj-playicon-#{@d}"} aria-hidden="true" class="pointer-events-none">▶</span>
               </button>
               <button
                 id={"dj-sync-#{@d}"}
