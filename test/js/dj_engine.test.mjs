@@ -2083,6 +2083,31 @@ test("live edits withdraw the confirmation without losing either saved deck mix"
   assert.equal(engine.deckMix("b").tone, -1)
 })
 
+test("chaining a different vinyl pitch preserves the audible record's submillisecond position", async t => {
+  const rig = booth(t), {a, engine, tick, advances} = rig
+  preparePassage(rig, "cut")
+  const first = engine.passage()
+  assert.ok(engine.confirmPassage().ok)
+  a.at(48)
+  await Promise.resolve()
+  tick(10)
+  const from = engine.decks.b, to = engine.decks.a
+  assert.ok(from.entry)
+  const pair = {from: "b", to: "a", fromLoad: from.loadToken, toLoad: to.loadToken}
+  const out = {...engine.deckMix("b"), rate: 1.06, vinyl: true}
+  const plan = {...first.plan, exit: 3, mix: {out, into: engine.deckMix("a")}}
+  assert.ok(engine.armPassage(pair, plan, "blend").ok)
+  assert.ok(engine.confirmPassage().ok)
+  engine.ctx.currentTime += .500375
+  const heard = from.platterTime()
+  assert.equal(heard, 3.000375)
+  tick(501)
+  await Promise.resolve()
+  assert.equal(advances.length, 2)
+  assert.equal(from.playbackRate, 1.06)
+  assert.equal(from.platterTime(), heard)
+})
+
 
 test("reopening a confirmed version only withdraws its authorization when the draft is edited", t => {
   const rig = booth(t)

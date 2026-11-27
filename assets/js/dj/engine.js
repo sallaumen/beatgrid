@@ -712,7 +712,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       if (!complete(owned, () => {
         to.playDecoded(plan.incoming, plan.inStart, mix.into)
         if (from.playbackRate !== mix.out.rate || from.vinylMode !== mix.out.vinyl) {
-          from.playDecoded(plan.outgoing, from.positionMs() / 1000, mix.out)
+          from.playDecoded(plan.outgoing, from.platterTime(), mix.out)
         }
       })) return
       const token = interruptTransition()
