@@ -1990,3 +1990,49 @@ test("STOP and a new load cannot inherit a throttled jog or its last native rate
   engine.jogTouch("a", false)
   assert.equal(a.playbackRate, 1)
 })
+
+for (const from of ["a", "b"]) {
+  test("nudging a rehearsed record from " + from + " keeps its audible playhead until a real seek or stop", async t => {
+    const rig = booth(t)
+    const {engine} = rig
+    const to = from === "a" ? "b" : "a"
+    engine.stopAll()
+    engine.setAuto(false)
+    engine.loadDeck(from, {id: "out", src: "out"}, {autoplay: true})
+    engine.loadDeck(to, {id: "into", src: "into"})
+    const sr = engine.ctx.sampleRate
+    engine.ctx.createBuffer = (channels, length) => {
+      const data = Array.from({length: channels}, () => new Float32Array(length))
+      return {numberOfChannels: channels, sampleRate: sr, length, duration: length / sr, getChannelData: n => data[n]}
+    }
+    const audio = engine.ctx.createBuffer(2, 60 * sr)
+    const pair = {from, to, fromLoad: engine.decks[from].loadToken, toLoad: engine.decks[to].loadToken}
+    const plan = {outgoing: audio, incoming: audio, outStart: 1, lead: 1, inStart: 3, blend: 1}
+    assert.ok(engine.armPassage(pair, plan, "cut").ok)
+    assert.ok(engine.confirmPassage().ok)
+    rig[from].at(2)
+    await Promise.resolve()
+    const deck = engine.decks[to], recording = deck.entry
+    assert.ok(recording)
+    const before = deck.positionMs()
+    engine.jogTurn(to, 8)
+    assert.equal(deck.entry, recording)
+    assert.equal(deck.mediaGain.gain.value, 0)
+    assert.equal(deck.positionMs(), before)
+    engine.ctx.currentTime += .1
+    assert.ok(deck.positionMs() > before + 100)
+    assert.ok(deck.playbackRate > 1)
+    assert.equal(rig[to].playbackRate, 1, "the native backup keeps running at its steady tempo")
+    const held = deck.positionMs()
+    engine.jogTurn(to, -12)
+    assert.equal(deck.positionMs(), held)
+    assert.equal(rig[to].currentTime, 3)
+    engine.cueTo(to, 8200)
+    assert.equal(deck.entry, null)
+    assert.equal(rig[to].currentTime, 8.2)
+    engine.stopAll()
+    rig.tick(3000)
+    assert.equal(rig[to].paused, true)
+    assert.equal(rig[to].playbackRate, 1)
+  })
+}

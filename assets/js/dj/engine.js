@@ -287,6 +287,10 @@ class Deck {
     progressTimer = setInterval(this.recordProgress, 100)
   }
 
+  get playbackRate() {
+    return this.entry?.rate() ?? this.el.playbackRate
+  }
+
   useMedia(sync = true) {
     this.entry?.release(sync)
     this.entry = null
@@ -330,8 +334,10 @@ class Deck {
   syncTo(targetBpm) {
     if (!this.bpm || !targetBpm) return false
     const rate = targetBpm / this.bpm
-    this.baseRate = syncedRate(this.baseRate, this.bpm, targetBpm)
-    if (this.el.playbackRate !== this.baseRate) this.useMedia()
+    const previous = this.baseRate
+    this.baseRate = syncedRate(previous, this.bpm, targetBpm)
+    if (this.entry && previous === this.baseRate) this.entry.nudge(this.baseRate)
+    else this.useMedia()
     this.el.preservesPitch = !this.vinylMode
     this.el.playbackRate = this.baseRate
     return Math.abs(this.baseRate - rate) < 1e-9
@@ -600,7 +606,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // when its live path is already neutral and at or below the saved level.
     return punch.gain.value <= 1.001 && punchComp.threshold.value >= -0.01 && master.gain.value <= 1.001 &&
       dryForBlend(from) && dryForBlend(to) && xfade[from.id].gain.value >= 0.999 &&
-      from.el.playbackRate === 1 && from.controls.tone === 0 && from.controls.filter === 0 &&
+      from.playbackRate === 1 && from.controls.tone === 0 && from.controls.filter === 0 &&
       Math.abs(from.hpf.frequency.value - 10) < 0.1 && Math.abs(from.lpf.frequency.value - 20_000) < 1 &&
       Math.abs(from.toneBass.gain.value) < 0.01 && Math.abs(from.toneTreble.gain.value) < 0.01 &&
       from.gain.gain.value <= (mix?.out.level ?? 1) + 0.001
@@ -660,7 +666,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         (kind !== "blend" || !plan.blendCurve || canMeasureBlend(from, to, plan.mix))
       if (!complete(owned, () => {
         to.playDecoded(plan.incoming, plan.inStart, mix.into)
-        if (from.el.playbackRate !== mix.out.rate || from.vinylMode !== mix.out.vinyl) {
+        if (from.playbackRate !== mix.out.rate || from.vinylMode !== mix.out.vinyl) {
           from.playDecoded(plan.outgoing, from.positionMs() / 1000, mix.out)
         }
       })) return
@@ -1127,7 +1133,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   //   5. the tail rings out as the feedback eases back down.
   function echo(from, to, toMs, token) {
     const now = ctx.currentTime
-    const bpm = from.bpm ? from.bpm * from.el.playbackRate : null
+    const bpm = from.bpm ? from.bpm * from.playbackRate : null
     const beatS = bpm ? 60 / bpm : 0.5
     const delayS = Math.min(beatS, 1.2) // quarter note
     const tailS = dur(bpm ? beatS * RAMP.echoTailBeats : RAMP.echoFallbackTailS)
@@ -1351,7 +1357,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       Math.max(Math.round(spec.beats * state.transitionScale * state.fireScale), 1),
       16
     )
-    const runS = (beats * beatMs(from)) / (1000 * from.el.playbackRate)
+    const runS = (beats * beatMs(from)) / (1000 * from.playbackRate)
     const run = {center, beats, runS, backSamples: Math.min(2 * runS * sr, center)}
     const t0 = performance.now()
 
@@ -1765,7 +1771,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     const hand = jog[deck.id]
     const rate = Math.max(deck.baseRate * (1 + hand.bend), 0.0625)
     if (!nudge || !hand.bend) hand.rateSample = null
-    if (deck.el.playbackRate === rate) return
+    if (nudge && deck.entry?.nudge(rate)) return
+    if (deck.playbackRate === rate) return
 
     // Some native decoders restart on each new rate. The first nudge is
     // immediate. Coalesce subsequent turns only while that decoder falls

@@ -6,7 +6,7 @@ function booth(positionMs = 8000) {
   const ctx = {currentTime: 10}, input = {}, results = []
   let capture, deliver, cancels = 0
   const choice = {kind: "blend", exitMs: 18000, plan: {lead: 3, blend: 2, mix: {out: {rate: 1.05}}}}
-  const deck = {bpm: 110, positionMs: () => positionMs, el: {playbackRate: 1.25}}
+  const deck = {bpm: 110, positionMs: () => positionMs, playbackRate: 1.25}
   const read = observeRoomPassage(ctx, input, choice, deck, value => results.push(value), (clock, bus, window, report) => {
     assert.equal(clock, ctx)
     assert.equal(bus, input)
@@ -84,7 +84,7 @@ test("a stall or missing frames cannot turn a partial capture into a room readin
 
 test("drafting after confirmation releases the room tap and keeps the armed plan", async () => {
   const {createPassage} = await import("../../assets/js/dj/passage.js")
-  const a = {loadToken: 1, positionMs: () => 0, el: {playbackRate: 1}}, b = {loadToken: 2}
+  const a = {loadToken: 1, positionMs: () => 0, playbackRate: 1}, b = {loadToken: 2}
   const observed = []
   const p = createPassage({a, b}, () => true, () => assert.fail("too early"), {
     confirmed: take => observed.push(["confirmed", take]),

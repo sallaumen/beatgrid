@@ -114,11 +114,11 @@ export function measurePassage(ctx, input, window, report) {
 export function observeRoomPassage(ctx, input, choice, deck, report, measure = measurePassage) {
   const {plan, kind} = choice
   const now = ctx.currentTime
-  const change = now + Math.max(0, choice.exitMs - deck.positionMs()) / (1000 * deck.el.playbackRate)
+  const change = now + Math.max(0, choice.exitMs - deck.positionMs()) / (1000 * deck.playbackRate)
   const overlap = rehearsalOverlap(plan, kind)
   // Allow startup buffering on the media clock, then keep only what actually played.
   const guard = 1
-  const window = {kind, change, overlap, bpm: deck.bpm * (plan.mix?.out.rate ?? deck.el.playbackRate),
+  const window = {kind, change, overlap, bpm: deck.bpm * (plan.mix?.out.rate ?? deck.playbackRate),
     start: Math.max(now, change - plan.lead - guard), end: change + overlap + 2 + guard}
   let arrived = null, completed = false, stopped = false, capture
 
