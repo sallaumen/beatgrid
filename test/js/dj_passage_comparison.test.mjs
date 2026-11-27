@@ -7,8 +7,8 @@ const pair = {from: "a", to: "b", fromLoad: 2, toLoad: 7}
 const plan = {exit: 32, inStart: 4, lead: 3, duration: 7, blend: 2, mix: {out: neutralMix, into: neutralMix}}
 const result = score => ({score, summary: "Leitura", metrics: []})
 
-function setup() {
-  const events = [], labels = ["cut", "blend"].map(kind => ({dataset: {scoreFor: kind}}))
+function setup(kinds = ["cut", "blend"]) {
+  const events = [], labels = kinds.map(kind => ({dataset: {scoreFor: kind}}))
   const details = {
     clear() { events.push(["clear"]) },
     listening() { events.push(["listening"]) },
@@ -131,4 +131,18 @@ test("arming takes only the completed reading of the selected version", () => {
   view.bind(pair, {...plan, inStart: 7}, 120)
   view.begin("cut").finish(result(30))
   assert.equal(armed.score, 95)
+})
+
+test("the third kind keeps its own reading across headphone comparisons and drops it after a cue change", () => {
+  const {view, labels, select} = setup(["cut", "blend", "bass_swap"])
+  for (const [kind, score] of [["cut", 85], ["bass_swap", null], ["blend", 64]]) {
+    select(kind)
+    view.begin(kind).finish(result(score))
+  }
+  assert.deepEqual(labels.map(label => label.textContent), ["85/100", "64/100", "Sem nota"])
+  select("bass_swap")
+  assert.deepEqual(view.reading(), result(null))
+  view.bind(pair, {...plan, inStart: 11}, 120)
+  assert.equal(view.reading(), null)
+  assert.ok(labels.every(label => label.hidden))
 })

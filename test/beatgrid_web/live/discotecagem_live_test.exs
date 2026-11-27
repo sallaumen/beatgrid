@@ -171,7 +171,13 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert has_element?(view, "#dj-rehearse-dialog input[value=cut]")
     assert has_element?(view, "#dj-rehearse-dialog input[value=blend]")
 
-    for kind <- ["cut", "blend"] do
+    assert has_element?(view, "#dj-rehearse-dialog input[value=bass_swap][disabled]")
+    assert has_element?(view, "#dj-rehearse-dialog [data-bass-plot][hidden] canvas[role=img]")
+    assert has_element?(view, "#dj-rehearse-dialog label[for=dj-compare-with]", "Comparar com")
+    assert has_element?(view, "#dj-rehearse-dialog select[data-pan] option", "Só esquerda")
+
+    for kind <- ["cut", "blend", "bass_swap"] do
+      assert has_element?(view, "#dj-compare-with option[value=#{kind}]")
       assert has_element?(view, "#dj-rehearse-dialog label [data-score-for=#{kind}][hidden]")
     end
 

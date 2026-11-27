@@ -1,4 +1,4 @@
-import {recordTime, rehearsalGains, rehearsalOverlap} from "./rehearsal.js"
+import {recordTime, rehearsalBassDb, rehearsalBassWindow, rehearsalGains, rehearsalOverlap} from "./rehearsal.js"
 
 const sides = ["out", "into"]
 const colors = ["#ffb020", "#5ad1a0"]
@@ -87,6 +87,38 @@ export function drawRehearsalWaves(lanes, gainCanvas, waves, plan, kind, pixelRa
     drawRegion(view, start, end)
     if (index < lanes.length) drawWave(view, waves[index], plan, kind, index, peak)
     drawEdges(view, start, end)
+    if (kind === "bass_swap" && plan.fullBlend) drawBassMarker(view, plan)
     if (index === lanes.length) drawGains(view, plan, kind, overlap)
+  }
+}
+
+function drawBassMarker(view, plan) {
+  const x = Math.floor(view.width * rehearsalBassWindow(plan).swap / plan.duration)
+  view.context.fillStyle = "#e6e9f2"
+  view.context.fillRect(x, 0, 1, view.height)
+}
+
+export function drawRehearsalBass(canvas, plan, pixelRatio) {
+  const view = surface(canvas, pixelRatio)
+  const {width, height, context} = view
+  const {start, swap, end} = rehearsalBassWindow(plan)
+  const [left, right] = bounds(view, plan, plan.blend)
+  drawRegion(view, left, right)
+  drawBassMarker(view, plan)
+  const depth = -rehearsalBassDb("into", 0)
+  for (const [index, side] of sides.entries()) {
+    context.strokeStyle = colors[index]
+    context.lineWidth = 2
+    context.setLineDash(index === 0 ? [] : [5, 3])
+    context.beginPath()
+    // The shelf ramps linearly in dB between its scheduled breakpoints.
+    for (const [i, time] of [plan.lead, start, swap, end, plan.lead + plan.blend].entries()) {
+      const x = width * time / plan.duration
+      const db = rehearsalBassDb(side, (time - plan.lead) / plan.blend)
+      const y = 2 - db / depth * (height - 4)
+      if (i === 0) context.moveTo(x, y)
+      else context.lineTo(x, y)
+    }
+    context.stroke()
   }
 }

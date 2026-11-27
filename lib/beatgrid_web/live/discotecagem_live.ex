@@ -879,6 +879,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
   end
 
   defp rehearsal_panel(assigns) do
+    assigns =
+      assign(assigns, :kinds, [
+        {"cut", "Corte na entrada", "Corte"},
+        {"blend", "Mistura de quatro tempos", "Mistura"},
+        {"bass_swap", "Troca de graves", "Troca de graves"}
+      ])
+
     ~H"""
     <div id="dj-rehearsal" phx-update="ignore" class="px-3 pb-2">
       <span id="dj-passage-arrival" role="status" class="sr-only"></span>
@@ -943,23 +950,31 @@ defmodule BeatgridWeb.DiscotecagemLive do
             <.icon name="hero-x-mark" class="size-4" />
           </button>
         </div>
-        <fieldset class="my-3 grid gap-x-4 text-body sm:grid-cols-2">
+        <fieldset class="my-3 grid gap-x-4 text-body sm:grid-cols-3">
           <legend class="sr-only">Transição do ensaio</legend>
           <label
-            :for={
-              {kind, name} <- [{"cut", "Corte na entrada"}, {"blend", "Mistura de quatro tempos"}]
-            }
-            class="flex min-h-9 cursor-pointer items-center gap-2 border-b border-white/10"
+            :for={{kind, name, _short} <- @kinds}
+            class="flex min-h-9 cursor-pointer items-center gap-2 border-b border-white/10 py-1 has-disabled:cursor-default has-disabled:text-ink-muted sm:grid sm:grid-cols-[auto_1fr] sm:gap-x-2 sm:gap-y-0"
           >
-            <input type="radio" name="dj-rehearse-kind" value={kind} checked={kind == "cut"} />
+            <input
+              type="radio"
+              name="dj-rehearse-kind"
+              value={kind}
+              checked={kind == "cut"}
+              disabled={kind == "bass_swap"}
+              aria-describedby={kind == "bass_swap" && "dj-bass-availability"}
+            />
             <span>{name}</span>
             <span
               data-score-for={kind}
               hidden
-              class="ml-auto shrink-0 font-mono text-body-sm tabular-nums text-ink-secondary"
+              class="ml-auto shrink-0 font-mono text-body-sm tabular-nums text-ink-secondary sm:col-start-2 sm:ml-0"
             ></span>
           </label>
         </fieldset>
+        <p id="dj-bass-availability" data-bass-limit hidden class="mb-2 text-body-sm text-ink-muted">
+          A troca de graves precisa de quatro tempos inteiros.
+        </p>
         <div class="relative overflow-hidden rounded-md border border-white/10 bg-base">
           <div class="px-2 pt-1 text-body text-amber">
             Sai <span data-out class="text-ink"></span>
@@ -996,6 +1011,16 @@ defmodule BeatgridWeb.DiscotecagemLive do
             aria-describedby="dj-rehearsal-timing"
             class="block h-8 w-full"
           ></canvas>
+          <div data-bass-plot hidden class="border-t border-white/8">
+            <div class="px-2 pt-1 text-body-sm text-ink-muted">Graves · 200 Hz</div>
+            <canvas
+              data-bass
+              role="img"
+              aria-label="Troca de graves entre os decks"
+              aria-describedby="dj-rehearsal-timing"
+              class="block h-8 w-full"
+            ></canvas>
+          </div>
           <span data-cursor hidden class="pointer-events-none absolute inset-y-0 w-px bg-primary"></span>
         </div>
         <p id="dj-rehearsal-timing" data-timing class="mt-1 font-mono text-body-sm text-ink-muted">
@@ -1008,20 +1033,39 @@ defmodule BeatgridWeb.DiscotecagemLive do
             disabled
             class="min-h-9 rounded-md border border-primary/40 bg-primary/15 px-3 text-body font-semibold text-ink hover:border-primary disabled:opacity-40"
           >Ouvir no fone</button>
+          <label class="flex items-center gap-2 text-body">
+            Fone
+            <select data-pan class="h-9 rounded-md border border-white/10 bg-input px-2 text-body">
+              <option value="0">Estéreo</option>
+              <option value="-1">Só esquerda</option>
+              <option value="1">Só direita</option>
+            </select>
+          </label>
+        </div>
+        <div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <label for="dj-compare-with" class="text-body text-ink-secondary">Comparar com</label>
+          <select
+            id="dj-compare-with"
+            data-compare-with
+            class="h-9 rounded-md border border-white/10 bg-input px-2 text-body"
+          >
+            <option
+              :for={{kind, name, short} <- @kinds}
+              value={kind}
+              data-short={short}
+              selected={kind == "blend"}
+              disabled={kind != "blend"}
+              hidden={kind != "blend"}
+            >
+              {name}
+            </option>
+          </select>
           <button
             type="button"
             data-listen-both
             disabled
             class="min-h-9 rounded-md border border-white/10 px-3 text-body font-semibold text-ink-secondary hover:border-primary/50 hover:text-ink disabled:opacity-40"
           >Ouvir as duas</button>
-          <label class="flex items-center gap-2 text-body">
-            Fone
-            <select class="h-9 rounded-md border border-white/10 bg-input px-2 text-body">
-              <option value="0">Estéreo</option>
-              <option value="-1">Só esquerda</option>
-              <option value="1">Só direita</option>
-            </select>
-          </label>
         </div>
         <section data-cue-assist hidden aria-label="Encaixe da entrada no fone" class="mt-3">
           <div class="flex flex-wrap items-center gap-x-3">
@@ -1932,7 +1976,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                     origin, at_ms: atMs,
                   })
                   const tag = origin === "rehearsal" ? " (ensaio)" : mode === "manual" ? " (manual)" : ""
-                  const name = origin === "rehearsal" ? (type === "cut" ? "Corte" : "Mistura") : type.toUpperCase()
+                  const name = origin === "rehearsal" ? this.rehearsal.name(type, true) : type.toUpperCase()
                   this.log(`transição ${name}${tag} → deck ${deck.toUpperCase()}`)
                   if (origin === "rehearsal") {
                     const arrival = `${name} na pista · deck ${deck.toUpperCase()}`

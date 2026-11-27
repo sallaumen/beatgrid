@@ -6,8 +6,9 @@ import {scorePassage} from "./passage_score.js"
 import {mountPassageScore} from "./passage_score_view.js"
 import {getDeckAudio} from "./waveform.js"
 import {pulseSync, syncedRate} from "./deck_mix.js"
-import {planRehearsal, rehearsalOverlap} from "./rehearsal.js"
-import {drawRehearsalWaves} from "./rehearsal_waves.js"
+import {updateComparisonChoice} from "./rehearsal_choices.js"
+import {planRehearsal, rehearsalBassWindow, rehearsalOverlap} from "./rehearsal.js"
+import {drawRehearsalBass, drawRehearsalWaves} from "./rehearsal_waves.js"
 
 function text(el, value) {
   if (el.textContent !== value) el.textContent = value
@@ -21,7 +22,15 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
   const seconds = n => n.toLocaleString("pt-BR", {maximumFractionDigits: 2}) + " s"
   const timing = dialog.querySelector("[data-timing]")
   const cursor = dialog.querySelector("[data-cursor]")
-  const pan = dialog.querySelector("select")
+  const pan = dialog.querySelector("[data-pan]")
+  const second = dialog.querySelector("[data-compare-with]")
+  const bassChoice = dialog.querySelector('input[value="bass_swap"]')
+  const bassLimit = dialog.querySelector("[data-bass-limit]")
+  const bassPlot = dialog.querySelector("[data-bass-plot]")
+  const bass = dialog.querySelector("[data-bass]")
+  const names = new Map([...second.options].map(option => [option.value, option]))
+  const name = (kind, short = false) => short ? names.get(kind).dataset.short : names.get(kind).text
+  const bassRecallHint = "Leve o crossfader até o deck que sai e espere o eco ou a troca de graves terminar."
   const lanes = [...dialog.querySelectorAll("canvas[data-wave]")]
   const gains = dialog.querySelector("[data-gains]")
   const arm = dialog.querySelector("[data-arm]")
@@ -52,15 +61,25 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
   }
 
   function draw() {
+    const transition = heardKind()
+    bassPlot.hidden = !(plan?.fullBlend && transition === "bass_swap")
     if (!plan) {
       for (const lane of [...lanes, gains]) lane.width = lane.width
       gains.setAttribute("aria-label", "Volume dos decks")
       return
     }
-    const transition = heardKind(), overlap = rehearsalOverlap(plan, transition)
-    const interval = transition === "cut"
+    const overlap = rehearsalOverlap(plan, transition)
+    let interval = transition === "cut"
       ? "Corte em " + seconds(plan.lead) + " · " + Math.round(overlap * 1000) + " ms"
       : "Mistura de " + seconds(plan.lead) + " a " + seconds(plan.lead + overlap)
+    if (!bassPlot.hidden) {
+      const {start, swap, end} = rehearsalBassWindow(plan)
+      const from = pair.from.toUpperCase(), to = pair.to.toUpperCase()
+      interval += " · Grave " + from + " → " + to + " em " + seconds(swap) + " (3º tempo)"
+      bass.setAttribute("aria-label", "O grave do deck " + to + " abre de " + seconds(start) + " a " +
+        seconds(swap) + ". O grave do deck " + from + " recua até " + seconds(end) + ".")
+      drawRehearsalBass(bass, plan, window.devicePixelRatio || 1)
+    }
     text(timing, interval)
     const percent = value => Math.round(100 * value) + "%"
     const {out, into} = plan.mix
@@ -161,7 +180,8 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
     mix = next
     plan = withEntry(plan.inStart, plan.originalEntry)
     try {
-      transport.edit(plan, kind(), Number(pan.value))
+      if (kind() === "bass_swap" && !plan?.fullBlend) stop()
+      else transport.edit(plan, kind(), Number(pan.value))
     } catch {
       stop()
       failure = "Não foi possível ouvir este ajuste. Tente novamente."
@@ -182,12 +202,11 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
       reservation.hidden = !choice
       if (choice) {
         const {plan, kind, exitMs, pair, phase} = choice
-        const name = kind === "cut" ? "Corte" : "Mistura de quatro tempos"
         const state = {armed: "Armada", confirmed: "Confirmada", starting: "Preparando a entrada",
           missed: "O ponto ensaiado já passou", failed: "A entrada não ficou pronta"}
         const review = {live: "A cabine mudou. Confirme para usar os ajustes salvos", draft: "Versão salva · aguarda nova confirmação"}
         const label = phase === "armed" && choice.review ? review[choice.review] : state[phase]
-        text(passageState, label + " · " + name + " · " + pair.from.toUpperCase() + " em " +
+        text(passageState, label + " · " + name(kind, kind === "cut") + " · " + pair.from.toUpperCase() + " em " +
           seconds(exitMs / 1000) + " → " + pair.to.toUpperCase() + " em " + seconds(plan.inStart))
         confirm.hidden = confirm.disabled = phase !== "armed"
       }
@@ -250,24 +269,31 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
       strip.querySelector("[data-pulse-sync]").disabled = !plan || !phones || pending
     }
     assist.update({plan, pair, kind: kind(), outBpm: a.bpm, intoBpm: b.bpm, deckCue, phones})
+    const fullBlend = !!plan?.fullBlend
+    const shortBass = kind() === "bass_swap" && !fullBlend
+    bassChoice.disabled = !fullBlend
+    bassLimit.hidden = !plan || fullBlend
+    updateComparisonChoice(second, kind(), fullBlend)
+    second.disabled = !plan || !!sequence
     const elapsed = transport.elapsed()
     let message = failure
     if (!out || !into) message = "Carregue uma faixa em cada deck para ensaiar."
     else if (a.el.error || b.el.error || waves[from]?.failed || waves[to]?.failed) message = "Não foi possível ler o áudio de um dos decks."
     else if (!ready) message = "Preparando as ondas das duas faixas…"
     else if (!plan) message = "Reposicione o deck de entrada antes do fim da faixa."
+    else if (shortBass) message = "Escolha corte ou mistura, ou reposicione a entrada para caberem quatro tempos."
     else if (!phones) message = "Escolha uma saída separada em Fone (cue) para ouvir."
     if (message && (elapsed !== null || pending || sequence)) stop()
     const playing = transport.elapsed() !== null
-    const comparisonStatus = sequence && `${sequence.index + 1} de 2 no fone · ${sequence.kind === "cut" ? "Corte na entrada" : "Mistura de quatro tempos"}.`
+    const comparisonStatus = sequence && `${sequence.index + 1} de 2 no fone · ${name(sequence.kind)}.`
     const listening = comparisonStatus || (playing ? "Tocando só no fone." : pending ? "Abrindo o fone…" : "Pronto para ouvir no fone.")
     const review = choice?.review === "draft" ? " A versão anterior está salva e aguarda confirmação." : ""
     text(status, message || [listening + review, mixNote].filter(Boolean).join(" "))
-    const unavailable = !plan || !phones || !!a.el.error || !!b.el.error
+    const unavailable = !plan || shortBass || !phones || !!a.el.error || !!b.el.error
     listen.disabled = unavailable || pending || !!sequence
     both.disabled = unavailable || (!sequence && (pending || playing))
     text(both, sequence ? "Parar comparação" : "Ouvir as duas")
-    arm.disabled = !!sequence || !plan || !a.audible() || b.audible() || !b.ready() || !!b.el.error ||
+    arm.disabled = !!sequence || shortBass || !plan || !a.audible() || b.audible() || !b.ready() || !!b.el.error ||
       a.positionMs() > Math.round(plan.exit * 1000) || choice?.phase === "starting"
     if (plan && a.audible() && a.positionMs() > plan.exit * 1000 && !playing && !sequence) {
       text(status, "O ponto ensaiado já passou nesta faixa.")
@@ -287,9 +313,13 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
       update()
       return
     }
-    const name = kind() === "cut" ? "Corte" : "Mistura"
+    if (kind() === "bass_swap" && !engine.canRecallBass(pair)) {
+      failure = bassRecallHint
+      update()
+      return
+    }
     const title = id => tracks[id]?.title || "Deck " + id.toUpperCase()
-    const reference = {pair: name + " · " + title(pair.from) + " → " + title(pair.to), hearing: comparison.reading()}
+    const reference = {pair: name(kind(), true) + " · " + title(pair.from) + " → " + title(pair.to), hearing: comparison.reading()}
     if (engine.armPassage(pair, plan, kind(), reference).ok) {
       dialog.close()
       update()
@@ -302,7 +332,8 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
   confirm.onclick = () => {
     if (!engine.confirmPassage().ok && engine.passage()?.phase === "armed") {
       const saved = engine.passage()
-      text(passageState, saved.kind === "blend" && saved.plan.blendCurve && !engine.canMeasureBlend(saved.pair, saved.plan.mix)
+      if (saved.kind === "bass_swap" && !engine.canRecallBass(saved.pair)) text(passageState, bassRecallHint)
+      else text(passageState, saved.kind === "blend" && saved.plan.blendCurve && !engine.canMeasureBlend(saved.pair, saved.plan.mix)
         ? "A cabine mudou. No ensaio, copie os ajustes atuais e ouça a mistura novamente."
         : "Solte os controles dos decks antes de confirmar a passagem.")
     }
@@ -325,7 +356,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
   dialog.querySelector("[data-close]").onclick = () => dialog.close()
   dialog.onclose = () => { blendReview.lock(); stop(); assist.reset(); pair = plan = null }
   dialog.onchange = e => {
-    if (e.target.matches("[data-mix]")) return
+    if (e.target.matches("[data-mix]") || e.target === second) return
     stop(); failure = ""; draw(); update()
   }
   for (const strip of strips) {
@@ -382,7 +413,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
     keepDraft()
     const id = ++request
     const first = kind()
-    const kinds = compare ? [first, first === "cut" ? "blend" : "cut"] : [first]
+    const kinds = compare ? [first, second.value] : [first]
     pending = true
     try {
       if (compare) sequence = {kind: first, index: 0}
@@ -419,5 +450,5 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
   both.onclick = () => play(true)
   const resize = new ResizeObserver(() => { if (dialog.open) draw() })
   resize.observe(lanes[0])
-  return {update, stop, destroy() { blendReview.lock(); stop(); assist.reset(); score.destroy(); resize.disconnect(); if (dialog.open) dialog.close() }}
+  return {update, stop, name, destroy() { blendReview.lock(); stop(); assist.reset(); score.destroy(); resize.disconnect(); if (dialog.open) dialog.close() }}
 }
