@@ -1,3 +1,4 @@
+import {mountCueAssist} from "./cue_assist.js"
 import {measurePassage, preparePassageMeter} from "./passage_meter.js"
 import {mountPassageComparison} from "./passage_comparison.js"
 import {scorePassage} from "./passage_score.js"
@@ -50,9 +51,10 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
   const score = mountPassageScore(dialog.querySelector("#dj-rehearsal-score"))
   const strips = [...dialog.querySelectorAll("[data-side]")]
   let lastChoice, lastPhase, lastEdit, mix, mixNote = ""
-  let pair, plan, failure, pending = false, request = 0
+  let pair, plan, lastDeckCue, failure, pending = false, request = 0
   const kind = () => dialog.querySelector('input[name="dj-rehearse-kind"]:checked').value
   const comparison = mountPassageComparison(score, [...dialog.querySelectorAll("[data-score-for]")], kind)
+  const assist = mountCueAssist(dialog.querySelector("[data-cue-assist]"), {audition: tryEntry, refresh: update})
 
   function stop() {
     request++
@@ -93,12 +95,29 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
     }
   }
 
+  function withEntry(entry, originalEntry) {
+    const next = planRehearsal(plan.outgoing, plan.incoming, plan.exit, entry, engine.decks[pair.from].bpm, mix)
+    return next && originalEntry != null ? {...next, originalEntry} : next
+  }
+
+  function tryEntry(entry, originalEntry) {
+    if (!plan) return
+    const next = withEntry(entry, originalEntry)
+    if (!next) return
+    stop()
+    plan = next
+    failure = ""
+    draw()
+    update()
+    if (hasPhones()) play()
+  }
+
   function editMix(next) {
     if (!plan) return
     engine.editPassageMix()
     mixNote = ""
     mix = next
-    plan = planRehearsal(plan.outgoing, plan.incoming, plan.exit, plan.inStart, engine.decks[pair.from].bpm, mix)
+    plan = withEntry(plan.inStart, plan.originalEntry)
     try {
       transport.edit(plan, kind(), Number(pan.value))
     } catch {
@@ -134,11 +153,14 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
     const to = from === "a" ? "b" : "a"
     const a = engine.decks[from], b = engine.decks[to]
     const out = tracks[from], into = tracks[to]
+    const saved = choice?.pair.from === from && choice.pair.fromLoad === a.loadToken &&
+      choice.pair.toLoad === b.loadToken ? choice : null
     if (pair?.from !== from || pair.fromLoad !== a.loadToken || pair.toLoad !== b.loadToken) {
       stop()
+      assist.reset()
+      lastDeckCue = null
       pair = {from, to, fromLoad: a.loadToken, toLoad: b.loadToken}
       plan = null
-      const saved = choice?.pair.from === from ? choice : null
       mix = saved?.plan.mix ?? boothMix()
       if (saved) {
         dialog.querySelector(`input[value="${saved.kind}"]`).checked = true
@@ -160,13 +182,22 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
         const point = armed ? engine.firePointMs() : null
         const outro = out.markers?.find(m => m.type === "outro")?.ms
         const exit = point ?? outro
-        plan = choice?.pair.from === from ? choice.plan : planRehearsal(outgoing, incoming, exit == null ? null : exit / 1000, b.platterTime(), a.bpm, mix)
+        plan = saved?.plan ?? planRehearsal(outgoing, incoming, exit == null ? null : exit / 1000, b.platterTime(), a.bpm, mix)
         if (plan) draw()
       }
     }
+    // The saved version owns its cue. A fresh draft follows an explicit move on the idle deck.
+    const deckCue = b.platterTime()
+    if (!saved && plan && !b.audible() && lastDeckCue != null && Math.abs(deckCue - lastDeckCue) > 0.001) {
+      stop()
+      plan = withEntry(deckCue, null)
+      draw()
+    }
+    lastDeckCue = deckCue
     comparison.bind(pair, plan, a.bpm)
     for (const strip of strips) strip.disabled = !plan
     const phones = hasPhones()
+    assist.update({plan, pair, kind: kind(), outBpm: a.bpm, intoBpm: b.bpm, deckCue, phones})
     const elapsed = transport.elapsed()
     let message = failure
     if (!out || !into) message = "Carregue uma faixa em cada deck para ensaiar."
@@ -224,7 +255,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
     update()
   }
   dialog.querySelector("[data-close]").onclick = () => dialog.close()
-  dialog.onclose = () => { stop(); pair = plan = null }
+  dialog.onclose = () => { stop(); assist.reset(); pair = plan = null }
   dialog.onchange = e => {
     if (e.target.matches("[data-mix]")) return
     stop(); failure = ""; draw(); update()
@@ -251,7 +282,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
     }
   }
   dialog.querySelector("[data-copy-mix]").onclick = () => { if (plan) editMix(boothMix()) }
-  listen.onclick = async () => {
+  async function play() {
     if (transport.elapsed() !== null) { stop(); update(); return }
     failure = ""
     update()
@@ -279,7 +310,8 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
       update()
     }
   }
+  listen.onclick = play
   const resize = new ResizeObserver(() => { if (dialog.open) draw() })
   resize.observe(lanes[0])
-  return {update, stop, destroy() { stop(); score.destroy(); resize.disconnect(); if (dialog.open) dialog.close() }}
+  return {update, stop, destroy() { stop(); assist.reset(); score.destroy(); resize.disconnect(); if (dialog.open) dialog.close() }}
 }
