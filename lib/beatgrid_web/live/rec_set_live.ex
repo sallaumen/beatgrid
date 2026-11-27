@@ -1918,24 +1918,27 @@ defmodule BeatgridWeb.RecSetLive do
 
   defp criteria_modal(assigns) do
     ~H"""
-    <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div class="absolute inset-0 bg-black/60" phx-click="hide_criteria"></div>
+    <div
+      id="set-criteria-overlay"
+      data-dismiss={JS.push("hide_criteria") |> JS.focus(to: "#open-set-criteria")}
+      phx-window-keydown={JS.exec("data-dismiss")}
+      phx-key="Escape"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4"
+    >
+      <div class="absolute inset-0 bg-black/60" phx-click={JS.exec("data-dismiss", to: "#set-criteria-overlay")}></div>
       <.focus_wrap
         id="set-criteria"
         role="dialog"
         aria-modal="true"
         aria-labelledby="set-criteria-title"
-        phx-window-keydown="hide_criteria"
-        phx-key="Escape"
         phx-mounted={JS.focus(to: "#close-set-criteria")}
-        phx-remove={JS.focus(to: "#open-set-criteria")}
         class="relative max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-white/10 bg-surface p-5"
       >
         <div class="mb-4 flex items-center justify-between">
           <h2 id="set-criteria-title" class="text-heading font-semibold">Critérios de montagem</h2>
           <button
             id="close-set-criteria"
-            phx-click="hide_criteria"
+            phx-click={JS.exec("data-dismiss", to: "#set-criteria-overlay")}
             aria-label="Fechar critérios"
             class="inline-grid size-8 place-items-center rounded-md text-ink-muted hover:text-ink"
           ><span class="hero-x-mark size-4" aria-hidden="true"></span></button>
