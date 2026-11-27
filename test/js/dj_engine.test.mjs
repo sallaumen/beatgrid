@@ -949,3 +949,15 @@ test("a rescued echo cannot turn off the next echo early", t => {
   tick(2000)
   assert.deepEqual(lights, [true, false, true, false])
 })
+
+test("an early bass swap rescue leaves the incoming deck ready to play with flat bass", t => {
+  const {engine, b, hint} = booth(t)
+  hint(null)
+  assert.equal(engine.fireManual("bass_swap").ok, true)
+  // The stub applies future ramps immediately. Web Audio still reads -24 dB before the swap.
+  engine.decks.b.bass.gain.value = -24
+  assert.equal(engine.cancelTransition().ok, true)
+  engine.playPause("b")
+  assert.equal(b.paused, false)
+  assert.equal(engine.decks.b.bass.gain.value, 0)
+})
