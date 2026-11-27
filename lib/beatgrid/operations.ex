@@ -118,8 +118,19 @@ defmodule Beatgrid.Operations do
   # original path (`op.from`) and flipping the track back to `:present`.
   defp undo_one(%Operation{kind: :quarantine} = op) do
     case Tracks.get(op.track_id) do
-      nil -> mark_failed(op, :track_not_found)
-      track -> do_undo(op, track, &Library.restore_from_quarantine(&1, op.from))
+      nil ->
+        mark_failed(op, :track_not_found)
+
+      %{status: :quarantined} = track ->
+        if current_quarantine?(op, track),
+          do: do_undo(op, track, &Library.restore_from_quarantine(&1, op.from)),
+          else: mark_failed(op, :quarantine_changed)
+
+      %{status: :present, rel_path: path} when path == op.from ->
+        mark_undone(op)
+
+      _ ->
+        mark_failed(op, :track_not_quarantined)
     end
   end
 
@@ -133,6 +144,25 @@ defmodule Beatgrid.Operations do
     end
   end
 
+  defp current_quarantine?(op, track) do
+    latest =
+      list_by(
+        track_id: track.id,
+        kind: :quarantine,
+        order_by: [desc: :inserted_at, desc: :id],
+        limit: 1
+      )
+      |> List.first()
+
+    # Older Dedup rows stored only the fixed quarantine directory; keep those
+    # recoverable only as the latest operation with an actual quarantine path.
+    destination_matches? =
+      track.rel_path == op.to or
+        (op.to == "_Quarantine" and Path.dirname(track.rel_path) == "_Quarantine")
+
+    latest && latest.id == op.id && latest.status == :applied && destination_matches?
+  end
+
   defp do_undo(op, nil, _undo), do: mark_failed(op, :suggestion_not_found)
 
   defp do_undo(op, suggestion, undo) do
@@ -143,8 +173,15 @@ defmodule Beatgrid.Operations do
   end
 
   defp mark_undone(op) do
-    {:ok, _} = op |> Operation.changeset(%{status: :undone}) |> Repo.update()
+    {:ok, _} = op |> Operation.changeset(%{status: :undone, error: nil}) |> Repo.update()
     :undone
+  end
+
+  # A failed restoration has not reverted a quarantine. Keep it applied with
+  # the failure recorded so the same batch (or Rescue) can retry the exact path.
+  defp mark_failed(%Operation{kind: :quarantine} = op, error) do
+    {:ok, _} = op |> Operation.changeset(%{error: inspect(error)}) |> Repo.update()
+    :failed
   end
 
   defp mark_failed(op, error) do

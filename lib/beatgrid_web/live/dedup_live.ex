@@ -26,13 +26,19 @@ defmodule BeatgridWeb.DedupLive do
      |> load()}
   end
 
-  # Reload the pending groups and reset every pick to that group's keeper.
+  # Keep a review choice while the same pending group still contains that member.
   defp load(socket) do
     groups = Dedup.list_pending()
-    assign(socket, groups: groups, picks: default_picks(groups))
-  end
+    previous = socket.assigns[:picks] || %{}
 
-  defp default_picks(groups), do: Map.new(groups, fn g -> {g.id, keeper_of(g)} end)
+    picks =
+      Map.new(groups, fn group ->
+        selected = previous[group.id]
+        {group.id, if(eligible_keeper?(group, selected), do: selected, else: keeper_of(group))}
+      end)
+
+    assign(socket, groups: groups, picks: picks)
+  end
 
   # --- manual scan ---
 
@@ -45,47 +51,64 @@ defmodule BeatgridWeb.DedupLive do
   # --- per-group keeper choice (ephemeral; no DB write) ---
 
   def handle_event("pick_keeper", %{"group" => gid, "track" => tid}, socket) do
-    {:noreply, update(socket, :picks, &Map.put(&1, gid, tid))}
+    case Enum.find(socket.assigns.groups, &(&1.id == gid)) do
+      nil ->
+        {:noreply, socket}
+
+      group ->
+        if eligible_keeper?(group, tid),
+          do: {:noreply, update(socket, :picks, &Map.put(&1, gid, tid))},
+          else: {:noreply, socket}
+    end
   end
 
   # --- resolve / ignore ---
 
-  def handle_event("resolve", %{"group" => gid}, socket) do
-    keeper_id = socket.assigns.picks[gid] || keeper_for(socket, gid)
+  def handle_event("resolve", %{"group" => gid, "track" => keeper_id}, socket) do
+    # The confirmation must correspond to the rendered keeper, not to a newer
+    # server-side radio choice the browser has not rendered yet.
+    with true <- socket.assigns.picks[gid] == keeper_id,
+         %{status: :pending} = group <- Dedup.get_group(gid),
+         true <- eligible_keeper?(group, keeper_id),
+         true <- current_preview?(socket, group) do
+      socket =
+        case Dedup.resolve_group(gid, keeper_id) do
+          {:ok, %{quarantined: n, failed: failures, batch_id: batch_id}} ->
+            socket |> assign(undo: {:resolution, gid, batch_id, n, failures}) |> load()
 
-    socket =
-      case Dedup.resolve_group(gid, keeper_id) do
-        {:ok, %{quarantined: n, batch_id: batch_id}} ->
-          socket |> assign(undo: {gid, batch_id, n}) |> load()
+          {:error, :keeper_unavailable} ->
+            socket |> load() |> assign(undo: {:keeper_unavailable, gid})
 
-        {:error, _reason} ->
-          assign(socket, undo: {:error, gid})
-      end
+          {:error, _reason} ->
+            assign(socket, undo: {:error, gid})
+        end
 
-    {:noreply, socket}
+      {:noreply, socket}
+    else
+      _ -> {:noreply, socket |> load() |> assign(undo: {:stale, gid})}
+    end
   end
 
   def handle_event("ignore", %{"group" => gid}, socket) do
-    Dedup.ignore_group(gid)
-    {:noreply, socket |> assign(undo: nil) |> load()}
+    with true <- Map.has_key?(socket.assigns.picks, gid),
+         %{status: :pending} <- Dedup.get_group(gid),
+         {:ok, _} <- Dedup.ignore_group(gid) do
+      {:noreply, socket |> assign(undo: nil) |> load()}
+    else
+      _ -> {:noreply, socket |> load() |> assign(undo: {:stale, gid})}
+    end
   end
 
   # --- undo: restore the quarantined files + re-open the group ---
 
   def handle_event("undo", _params, socket) do
-    case socket.assigns.undo do
-      {gid, batch_id, _n} ->
-        Operations.undo_batch(batch_id)
+    case undo_batch_info(socket.assigns.undo) do
+      {gid, batch_id} ->
+        result = Operations.undo_batch(batch_id)
+        {:noreply, finish_undo(socket, gid, batch_id, result)}
 
-        case Dedup.get_group(gid) do
-          nil -> :ok
-          group -> Dedup.set_group_status(group, :pending)
-        end
-
-        {:noreply, socket |> assign(undo: nil) |> load()}
-
-      _ ->
-        {:noreply, assign(socket, undo: nil)}
+      nil ->
+        {:noreply, socket}
     end
   end
 
@@ -104,27 +127,56 @@ defmodule BeatgridWeb.DedupLive do
 
   def handle_info({:dedup_progress, _payload}, socket), do: {:noreply, socket}
 
+  defp finish_undo(socket, gid, _batch_id, {:ok, %{failed: 0}}) do
+    case Dedup.get_group(gid) do
+      nil -> :ok
+      group -> Dedup.set_group_status(group, :pending)
+    end
+
+    socket |> assign(undo: nil) |> load()
+  end
+
+  defp finish_undo(socket, gid, batch_id, {:ok, %{undone: n, failed: failed}}),
+    do: socket |> assign(undo: {:undo_partial, gid, batch_id, n, failed}) |> load()
+
+  defp undo_batch_info({:resolution, gid, batch_id, n, failures}) when n > 0 or failures == [],
+    do: {gid, batch_id}
+
+  defp undo_batch_info({:undo_partial, gid, batch_id, _n, _failed}), do: {gid, batch_id}
+  defp undo_batch_info(_), do: nil
+
   # --- helpers ---
 
-  defp keeper_for(socket, gid) do
-    case Enum.find(socket.assigns.groups, &(&1.id == gid)) do
-      nil -> nil
-      group -> keeper_of(group)
+  defp eligible_keeper?(%{members: members}, tid),
+    do: Enum.any?(members, &(&1.track_id == tid and &1.track.status == :present))
+
+  # The confirmation describes this exact member set, paths and version IDs.
+  # Changes that alter any outcome require another look at the updated group.
+  defp current_preview?(socket, group) do
+    case Enum.find(socket.assigns.groups, &(&1.id == group.id)) do
+      nil -> false
+      displayed -> preview_snapshot(displayed) == preview_snapshot(group)
     end
   end
 
-  # The currently-flagged keeper for a group: its keeper_track_id, falling back to
-  # the keeper member, then the first member.
-  defp keeper_of(%{keeper_track_id: id}) when not is_nil(id), do: id
+  defp preview_snapshot(group) do
+    Map.new(group.members, fn member ->
+      {member.track_id, {member.track.rel_path, member.track.status, Dedup.member_isrc(member)}}
+    end)
+  end
+
+  defp keeper_of(%{keeper_track_id: id} = group) when not is_nil(id) do
+    if eligible_keeper?(group, id), do: id, else: keeper_of(%{members: group.members})
+  end
 
   defp keeper_of(%{members: members}) do
-    case Enum.find(members, & &1.is_keeper) || List.first(members) do
+    present = Enum.filter(members, &(&1.track.status == :present))
+
+    case Enum.find(present, & &1.is_keeper) || List.first(present) do
       nil -> nil
       member -> member.track_id
     end
   end
-
-  defp keeper_of(_group), do: nil
 
   # How many will actually be quarantined: non-keepers MINUS the ones spared as a
   # different recording (different ISRC), which we keep on purpose.
@@ -132,7 +184,8 @@ defmodule BeatgridWeb.DedupLive do
     keeper_isrc = group.members |> Enum.find(&(&1.track_id == keeper_id)) |> Dedup.member_isrc()
 
     Enum.count(group.members, fn m ->
-      m.track_id != keeper_id and not Dedup.different_recording?(m, keeper_isrc)
+      m.track_id != keeper_id and m.track.status != :quarantined and
+        not Dedup.different_recording?(m, keeper_isrc)
     end)
   end
 
@@ -140,6 +193,11 @@ defmodule BeatgridWeb.DedupLive do
   defp match_label(:fuzzy_meta), do: "parecida"
   defp match_label(:near_meta), do: "quase igual"
   defp match_label(_other), do: "duplicada"
+
+  defp match_description(:exact_hash), do: "Mesmo hash de arquivo."
+  defp match_description(:fuzzy_meta), do: "Artista e título normalizados coincidem."
+  defp match_description(:near_meta), do: "Artista e título-base iguais, durações próximas."
+  defp match_description(_), do: "Compare as gravações antes de decidir."
 
   # Exact-hash matches are certain (amber); fuzzy meta-matches are softer
   # (violet); near matches (base title + duration) are the softest (teal).
@@ -180,8 +238,8 @@ defmodule BeatgridWeb.DedupLive do
 
   # Keep each measurement on the same grid across members so different copies
   # can be compared without searching a varying string of dot-separated values.
-  defp quality_fields(track) do
-    [
+  defp quality_fields(track, member, show_isrc?) do
+    fields = [
       {"Bitrate", bitrate_part(track.bitrate_kbps)},
       {"Duração", duration_part(track.duration_ms)},
       {"Formato", format_part(track.format)},
@@ -189,6 +247,8 @@ defmodule BeatgridWeb.DedupLive do
       {"Metadados", resolved_part(track)},
       {"Nota", track.rating}
     ]
+
+    if show_isrc?, do: fields ++ [{"ISRC", Dedup.member_isrc(member)}], else: fields
   end
 
   defp bitrate_part(kbps) when is_integer(kbps) and kbps > 0, do: "#{kbps} kbps"
@@ -291,15 +351,21 @@ defmodule BeatgridWeb.DedupLive do
     assigns =
       assign(assigns,
         keeper_id: keeper_id,
+        keeper_path: keeper && keeper.track.rel_path,
+        show_isrc?: Enum.any?(assigns.group.members, &(not is_nil(Dedup.member_isrc(&1)))),
         keeper_isrc: Dedup.member_isrc(keeper),
         members: assigns.group.members,
         group_label: group_label(assigns.group.members),
-        kept_count: length(assigns.group.members) - quarantine_count,
+        previously_quarantined:
+          Enum.count(assigns.group.members, &(&1.track.status == :quarantined)),
+        kept_count:
+          Enum.count(assigns.group.members, &(&1.track.status != :quarantined)) - quarantine_count,
         quarantine_count: quarantine_count
       )
 
     ~H"""
     <article
+      id={"dedup-group-#{@group.id}"}
       aria-labelledby={"group-#{@group.id}"}
       class="overflow-hidden rounded-xl border border-white/8 bg-surface"
     >
@@ -321,7 +387,9 @@ defmodule BeatgridWeb.DedupLive do
             {length(@members)} {copy_label(length(@members))}
           </span>
         </div>
-        <p class="mt-1 break-all font-mono text-caption text-ink-muted">{@group.signature}</p>
+        <p title={@group.signature} class="mt-1 text-body-sm text-ink-muted">
+          {match_description(@group.match_type)}
+        </p>
       </header>
 
       <div
@@ -334,6 +402,8 @@ defmodule BeatgridWeb.DedupLive do
           group_id={@group.id}
           member={member}
           chosen={member.track_id == @keeper_id}
+          recommended?={member.track_id == keeper_of(@group)}
+          show_isrc?={@show_isrc?}
           different?={
             member.track_id != @keeper_id and Dedup.different_recording?(member, @keeper_isrc)
           }
@@ -341,25 +411,33 @@ defmodule BeatgridWeb.DedupLive do
       </div>
 
       <footer class="flex flex-wrap items-center justify-end gap-2 border-t border-white/6 px-4 py-3">
-        <p class="mr-auto text-body text-ink-secondary">
+        <p :if={!@keeper_id} class="mr-auto text-body text-coral">
+          Nenhuma cópia disponível para manter. Confira os arquivos antes de procurar duplicatas novamente.
+        </p>
+        <p :if={@keeper_id} class="mr-auto text-body text-ink-secondary">
           <span class="font-mono text-green">{@kept_count}</span>
           {if @kept_count == 1, do: "cópia será mantida", else: "cópias serão mantidas"}
           <span class="mx-1.5 text-ink-muted">·</span>
           <span class="font-mono text-amber">{@quarantine_count}</span>
           {copy_label(@quarantine_count)} para a quarentena
+          <span :if={@previously_quarantined > 0}> · {@previously_quarantined} já na quarentena</span>
         </p>
         <button
+          :if={@keeper_id && @quarantine_count > 0}
           phx-click="ignore"
           phx-value-group={@group.id}
-          aria-label={"Manter todas as cópias — #{@group_label}"}
+          aria-label={"#{if @previously_quarantined > 0, do: "Manter as restantes", else: "Manter todas as cópias"} — #{@group_label}"}
           class="rounded-md border border-white/10 bg-input px-3 py-2 text-body text-ink-secondary hover:text-ink"
         >
-          Manter todas as cópias
+          {if @previously_quarantined > 0, do: "Manter as restantes", else: "Manter todas as cópias"}
         </button>
         <button
+          :if={@keeper_id}
           phx-click="resolve"
           phx-value-group={@group.id}
-          aria-label={"#{resolve_label(@quarantine_count)} — #{@group_label}"}
+          phx-value-track={@keeper_id}
+          data-confirm={confirm_resolution(@keeper_path, @quarantine_count)}
+          aria-label={"#{resolve_label(@quarantine_count)} — #{@keeper_path}"}
           class="rounded-md bg-green px-3 py-2 text-body font-semibold text-[#0b0c10] hover:bg-green/90"
         >
           {resolve_label(@quarantine_count)}
@@ -373,6 +451,8 @@ defmodule BeatgridWeb.DedupLive do
   attr :member, :map, required: true
   attr :chosen, :boolean, required: true
   attr :different?, :boolean, default: false
+  attr :recommended?, :boolean, default: false
+  attr :show_isrc?, :boolean, default: false
 
   defp member_row(assigns) do
     {artist, title} = artist_title(assigns.member.track)
@@ -402,13 +482,17 @@ defmodule BeatgridWeb.DedupLive do
           {@title}
         </.link>
         <p class="break-words text-body text-ink-secondary">{@artist}</p>
+        <p :if={@recommended?} class="mt-1 text-body-sm font-medium text-primary">Recomendada</p>
         <p class="mt-1 break-words font-mono text-body-sm text-ink-muted [overflow-wrap:anywhere]">
           {@member.track.rel_path}
         </p>
       </div>
 
       <dl class="col-span-2 grid min-w-0 grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3 lg:col-span-1">
-        <div :for={{label, value} <- quality_fields(@member.track)} class="min-w-0">
+        <div
+          :for={{label, value} <- quality_fields(@member.track, @member, @show_isrc?)}
+          class="min-w-0"
+        >
           <dt class="text-caption text-ink-muted">{label}</dt>
           <dd class="break-words font-mono text-body font-medium text-ink-secondary">
             {value || "—"}
@@ -420,44 +504,61 @@ defmodule BeatgridWeb.DedupLive do
         <label class={[
           "flex min-h-10 cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-body font-medium",
           @chosen && "border-green/40 bg-green/10 text-green",
-          !@chosen && "border-white/10 bg-input text-ink-secondary hover:text-ink"
+          !@chosen && "border-white/10 bg-input text-ink-secondary hover:text-ink",
+          @member.track.status != :present && "cursor-not-allowed opacity-60"
         ]}>
           <input
             type="radio"
+            id={"keeper-#{@member.track_id}"}
             name={"keeper-#{@group_id}"}
             phx-click="pick_keeper"
             phx-value-group={@group_id}
             phx-value-track={@member.track_id}
             checked={@chosen}
+            disabled={@member.track.status != :present}
             aria-label={"Escolher cópia para manter: #{@member.track.rel_path}"}
             class="size-4 shrink-0 accent-green"
           />
-          {if @chosen, do: "Cópia selecionada", else: "Escolher cópia"}
+          {cond do
+            @chosen -> "Cópia selecionada"
+            @member.track.status != :present -> "Indisponível para manter"
+            true -> "Escolher cópia"
+          end}
         </label>
         <p class={[
           "mt-1.5 text-body-sm font-medium",
           @chosen && "text-green",
-          !@chosen && @different? && "text-ink-secondary",
-          !@chosen && !@different? && "text-amber"
+          !@chosen && (@different? or @member.track.status != :present) && "text-ink-secondary",
+          !@chosen && !@different? && @member.track.status == :present && "text-amber"
         ]}>
-          {copy_outcome(@chosen, @different?)}
+          {copy_outcome(@member.track.status, @chosen, @different?)}
         </p>
       </div>
     </div>
     """
   end
 
-  defp copy_outcome(true, _different?), do: "Fica na biblioteca"
-  defp copy_outcome(false, true), do: "Manter · ISRC diferente"
-  defp copy_outcome(false, false), do: "Vai para a quarentena"
+  defp copy_outcome(:quarantined, _chosen, _different?), do: "Já na quarentena"
+  defp copy_outcome(:missing, _chosen, _different?), do: "Arquivo não encontrado"
+  defp copy_outcome(:present, true, _different?), do: "Fica na biblioteca"
+  defp copy_outcome(:present, false, true), do: "Manter · ISRC diferente"
+  defp copy_outcome(:present, false, false), do: "Vai para a quarentena"
 
   defp copy_label(1), do: "cópia"
   defp copy_label(_), do: "cópias"
 
-  defp resolve_label(0), do: "Confirmar seleção"
+  defp resolve_label(0), do: "Encerrar grupo sem mover arquivos"
 
   defp resolve_label(count),
     do: "Manter selecionada e mover #{count} #{copy_label(count)} para a quarentena"
+
+  defp confirm_resolution(_path, 0), do: nil
+
+  defp confirm_resolution(path, count) do
+    "Manter “#{path}” e mover #{count} #{copy_label(count)} para a quarentena? " <>
+      "A cópia mantida assume os lugares das cópias movidas nos sets. " <>
+      "Você pode recuperar os arquivos em Recuperação de arquivos."
+  end
 
   attr :undo, :any, required: true
 
@@ -467,20 +568,34 @@ defmodule BeatgridWeb.DedupLive do
       role="status"
       class={[
         "flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3",
-        if(match?({:error, _}, @undo),
+        if(undo_problem?(@undo),
           do: "border-coral/30 bg-coral/10",
           else: "border-green/30 bg-green/10"
         )
       ]}
     >
-      <p class="text-body-sm text-ink">{undo_message(@undo)}</p>
+      <div class="min-w-0 flex-1">
+        <p class="text-body-sm text-ink">{undo_message(@undo)}</p>
+        <ul :if={undo_failures(@undo) != []} class="mt-1 space-y-1 text-body-sm text-ink-secondary">
+          <li :for={failure <- undo_failures(@undo)} class="break-words">
+            {failure.path} — {failure_label(failure.reason)}
+          </li>
+        </ul>
+        <.link
+          :if={undo_problem?(@undo)}
+          navigate={~p"/resgate" <> "#quarentena"}
+          class="mt-1 inline-block text-body-sm text-primary hover:underline"
+        >Recuperação de arquivos</.link>
+      </div>
       <div class="flex items-center gap-3">
         <button
-          :if={match?({_gid, _batch, _n}, @undo)}
+          :if={undo_batch_info(@undo)}
           phx-click="undo"
           class="rounded-md border border-green/40 bg-green/15 px-2.5 py-1 text-body-sm font-semibold text-green hover:bg-green/25"
         >
-          Desfazer
+          {if match?({:undo_partial, _, _, _, _}, @undo),
+            do: "Tentar desfazer novamente",
+            else: "Desfazer"}
         </button>
         <button
           phx-click="dismiss_undo"
@@ -492,14 +607,46 @@ defmodule BeatgridWeb.DedupLive do
     """
   end
 
+  defp undo_problem?({:resolution, _, _, _, failures}), do: failures != []
+  defp undo_problem?({:undo_partial, _, _, _, _}), do: true
+  defp undo_problem?({kind, _}) when kind in [:stale, :error, :keeper_unavailable], do: true
+  defp undo_problem?(_), do: false
+
+  defp undo_failures({:resolution, _, _, _, failures}), do: failures
+  defp undo_failures(_), do: []
+
+  defp undo_message({:stale, _gid}),
+    do: "A seleção mudou. Confira as cópias e confirme novamente."
+
+  defp undo_message({:keeper_unavailable, _gid}),
+    do:
+      "A cópia escolhida está indisponível. Escolha outra ou recupere o arquivo antes de tentar novamente."
+
   defp undo_message({:error, _gid}), do: "Falha ao resolver o grupo. Nada foi movido."
-  defp undo_message({_gid, _batch, 0}), do: "Grupo resolvido — nada para quarentenar."
 
-  defp undo_message({_gid, _batch, 1}),
-    do: "1 cópia movida para _Quarantine. A faixa mantida ficou no lugar."
+  defp undo_message({:resolution, _, _, 0, []}), do: "Grupo resolvido — nenhum arquivo movido."
 
-  defp undo_message({_gid, _batch, n}),
-    do: "#{n} cópias movidas para _Quarantine. A faixa mantida ficou no lugar."
+  defp undo_message({:resolution, _, _, n, []}), do: "#{moved_message(n)}. Grupo resolvido."
+
+  defp undo_message({:resolution, _, _, n, failures}) do
+    "#{moved_message(n)} · #{failure_count(length(failures))}. O grupo permanece pendente."
+  end
+
+  defp undo_message({:undo_partial, _, _, n, failed}),
+    do:
+      "#{n} #{if n == 1, do: "restaurada", else: "restauradas"} · #{failure_count(failed)}. Tente recuperar as cópias pendentes novamente."
+
+  defp moved_message(1), do: "1 cópia movida para a quarentena"
+  defp moved_message(n), do: "#{n} cópias movidas para a quarentena"
+  defp failure_count(1), do: "1 falha"
+  defp failure_count(n), do: "#{n} falhas"
+
+  defp failure_label(reason) when reason in [:source_missing, :enoent, :track_not_found],
+    do: "arquivo não encontrado"
+
+  defp failure_label(reason) when reason in [:eacces, :eperm], do: "sem permissão para mover"
+  defp failure_label(:enospc), do: "sem espaço em disco"
+  defp failure_label(_), do: "não foi possível mover o arquivo"
 
   defp group_count(groups) do
     case length(groups) do

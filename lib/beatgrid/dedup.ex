@@ -50,28 +50,54 @@ defmodule Beatgrid.Dedup do
     do: Phoenix.PubSub.broadcast(Beatgrid.PubSub, @topic, {:dedup_progress, payload})
 
   @doc """
-  Resolves a group by keeping `keeper_track_id` and quarantining every other
-  member's track (a reversible move into `_Quarantine`, never a delete). Sets the
-  keeper flags, records one undoable `:quarantine` operation per quarantined track
-  under a shared `batch_id`, and marks the group `:resolved`. Returns
-  `{:ok, %{quarantined: n, batch_id: id}}`, or `{:error, :keeper_not_in_group}`.
+  Attempts to resolve a pending group by keeping `keeper_track_id` and
+  quarantining eligible remaining tracks. Each successful move records an
+  undoable operation in this attempt's batch. Any failed move leaves the group
+  pending; retry skips already-quarantined members. The returned failures name
+  the actual member and reason so partial success is not mistaken for completion.
   """
   @spec resolve_group(Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {:ok, %{quarantined: non_neg_integer(), batch_id: Ecto.UUID.t()}}
+          {:ok, %{quarantined: non_neg_integer(), failed: [map()], batch_id: Ecto.UUID.t()}}
           | {:error, term()}
   def resolve_group(group_id, keeper_track_id) do
-    with %DuplicateGroup{} = group <- DedupQuery.get(group_id) || {:error, :group_not_found},
-         {:ok, keeper} <- fetch_member(group, keeper_track_id) do
+    with_group_lock(group_id, fn -> resolve_pending_group(group_id, keeper_track_id) end)
+  end
+
+  # Beatgrid is single-node. Serialize decisions before reading the group,
+  # without wrapping the separate reversible disk moves in one DB transaction.
+  defp with_group_lock(group_id, fun) do
+    case :global.trans({{__MODULE__, group_id}, self()}, fun, [node()]) do
+      :aborted -> {:error, :group_busy}
+      result -> result
+    end
+  end
+
+  defp resolve_pending_group(group_id, keeper_track_id) do
+    with {:ok, group} <- fetch_pending_group(group_id),
+         {:ok, keeper} <- fetch_member(group, keeper_track_id),
+         :ok <- check_keeper(keeper) do
       batch_id = Uniq.UUID.uuid7()
       keeper_isrc = member_isrc(keeper)
 
-      quarantined =
+      results =
         group.members
         |> Enum.reject(&spared?(&1, keeper_track_id, keeper_isrc))
-        |> Enum.count(&quarantine_member(&1, batch_id, keeper_track_id))
+        |> Enum.sort_by(& &1.track.rel_path)
+        |> Enum.map(&quarantine_member(&1, batch_id, keeper_track_id))
 
-      finalize_resolution(group, keeper_track_id)
-      {:ok, %{quarantined: quarantined, batch_id: batch_id}}
+      failed = for {:error, failure} <- results, do: failure
+      quarantined = Enum.count(results, &(&1 == :quarantined))
+      status = if failed == [], do: :resolved, else: :pending
+      finalize_resolution(group, keeper_track_id, status)
+      {:ok, %{quarantined: quarantined, failed: failed, batch_id: batch_id}}
+    end
+  end
+
+  defp fetch_pending_group(group_id) do
+    case DedupQuery.get(group_id) do
+      nil -> {:error, :group_not_found}
+      %DuplicateGroup{status: :pending} = group -> {:ok, group}
+      _ -> {:error, :group_not_pending}
     end
   end
 
@@ -81,6 +107,14 @@ defmodule Beatgrid.Dedup do
       member -> {:ok, member}
     end
   end
+
+  defp check_keeper(%{track: %{status: :present, rel_path: path}}) do
+    if File.regular?(Path.join(Library.library_root(), path)),
+      do: :ok,
+      else: {:error, :keeper_unavailable}
+  end
+
+  defp check_keeper(_), do: {:error, :keeper_unavailable}
 
   # Spared from quarantine: the keeper itself, a DIFFERENT recording (a
   # conflicting ISRC is a distinct version kept on purpose), and members already
@@ -93,11 +127,11 @@ defmodule Beatgrid.Dedup do
 
   # Bookkeeping last, atomically: a crash mid-quarantine leaves the group
   # pending, and re-resolving converges (already-quarantined members are spared).
-  defp finalize_resolution(group, keeper_track_id) do
+  defp finalize_resolution(group, keeper_track_id, status) do
     {:ok, _} =
       Repo.transact(fn ->
         set_keeper(group, group.members, keeper_track_id)
-        set_group_status(group, :resolved)
+        set_group_status(group, status)
       end)
 
     :ok
@@ -134,7 +168,11 @@ defmodule Beatgrid.Dedup do
   @doc "Marks a group `:resolved` without touching any file (the user dismissed it)."
   @spec ignore_group(Ecto.UUID.t()) ::
           {:ok, DuplicateGroup.t()} | {:error, Ecto.Changeset.t()}
-  def ignore_group(group_id), do: group_id |> DedupQuery.get() |> set_group_status(:resolved)
+  def ignore_group(group_id) do
+    with_group_lock(group_id, fn ->
+      with {:ok, group} <- fetch_pending_group(group_id), do: set_group_status(group, :resolved)
+    end)
+  end
 
   # Point the group at the chosen keeper and flip each member's is_keeper flag.
   defp set_keeper(group, members, keeper_track_id) do
@@ -148,31 +186,41 @@ defmodule Beatgrid.Dedup do
     end)
   end
 
-  # Quarantine one member's track (reversible move) and log a :quarantine op with
-  # the ORIGINAL rel_path captured BEFORE the move, so the undo can restore it.
-  # A vanished track (deleted since the group was built) just doesn't count.
+  # Record only actual moves. The original and actual destination paths identify
+  # the exact file for recovery even when multiple copies have the same name.
   defp quarantine_member(member, batch_id, keeper_track_id) do
-    with %Track{} = track <- Tracks.get(member.track_id),
-         orig = track.rel_path,
-         {:ok, _moved} <- Library.quarantine(track) do
-      Operations.record(%{
-        track_id: track.id,
-        kind: :quarantine,
-        from: orig,
-        to: "_Quarantine",
-        batch_id: batch_id,
-        suggestion_id: nil
-      })
+    case Tracks.get(member.track_id) do
+      nil ->
+        quarantine_failure(member, :track_not_found)
 
-      # The copy leaving the library must not stay referenced by any set —
-      # the keeper adopts its seats (the silent party-breaker fix).
-      Sets.adopt_memberships(track.id, keeper_track_id)
+      %Track{status: :quarantined} ->
+        :already_quarantined
 
-      true
-    else
-      _ -> false
+      %Track{} = track ->
+        case Library.quarantine(track) do
+          {:ok, moved} ->
+            {:ok, _} =
+              Operations.record(%{
+                track_id: track.id,
+                kind: :quarantine,
+                from: track.rel_path,
+                to: moved.rel_path,
+                batch_id: batch_id,
+                suggestion_id: nil
+              })
+
+            # The selected copy adopts the successful move's set memberships.
+            Sets.adopt_memberships(track.id, keeper_track_id)
+            :quarantined
+
+          {:error, reason} ->
+            quarantine_failure(member, reason)
+        end
     end
   end
+
+  defp quarantine_failure(member, reason),
+    do: {:error, %{track_id: member.track_id, path: member.track.rel_path, reason: reason}}
 
   @spec detect() ::
           {:ok, %{exact: non_neg_integer(), fuzzy: non_neg_integer(), near: non_neg_integer()}}
