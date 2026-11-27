@@ -1270,7 +1270,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
       <script :type={Phoenix.LiveView.ColocatedHook} name=".DjConsole">
         import {createEngine} from "@/js/dj/engine.js"
-        import {separateOutputs} from "@/js/dj/outputs.js"
+        import {separateOutputs, unlockOutputNames} from "@/js/dj/outputs.js"
         import {paintDeckStatus} from "@/js/dj/deck_status.js"
         import {hotCues} from "@/js/dj/hot_cues.js"
         import {loadPeaks, drawWave} from "@/js/dj/waveform.js"
@@ -1776,17 +1776,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 this.log("este navegador não expõe as saídas de áudio")
                 return
               }
-              try {
-                // Corrida com timeout: o prompt de permissão pode ficar aberto
-                // para sempre — seguimos em frente e listamos o que der.
-                const tmp = await Promise.race([
-                  navigator.mediaDevices.getUserMedia({audio: true}),
-                  new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 3000)),
-                ])
-                tmp.getTracks().forEach((t) => t.stop())
-              } catch (_e) {
-                // sem a permissão os dispositivos podem vir sem id/nome
-              }
+              await unlockOutputNames(navigator.mediaDevices)
               if (!signal.aborted) await refreshDevices(true)
             })
             const devicesChanged = event => {
