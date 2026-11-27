@@ -43,6 +43,52 @@ defmodule BeatgridWeb.TrackLiveTest do
     assert Tracks.get(track.id).personal_note == "abertura"
   end
 
+  test "preparation and reference links reach every section, with editing before volume", %{
+    conn: conn
+  } do
+    track = insert(:track, status: :present, analyzed_at: ~U[2026-01-01 00:00:00Z])
+    {:ok, view, html} = live(conn, ~p"/track/#{track.id}")
+
+    sections = [
+      {"track-edit", "Editar faixa"},
+      {"track-curation", "Nota e tags"},
+      {"track-markers", "Marcadores"},
+      {"track-loudness", "Volume"},
+      {"track-analysis", "Análise"},
+      {"track-origin", "Origem"},
+      {"track-versions", "Versões"},
+      {"track-next", "Próxima faixa"},
+      {"track-matches", "Parecidas (IA)"}
+    ]
+
+    offsets =
+      for {id, label} <- sections do
+        assert has_element?(view, "nav[aria-label='Seções da ficha'] a[href='##{id}']", label)
+        assert has_element?(view, "section##{id}")
+        {offset, _length} = :binary.match(html, ~s(id="#{id}"))
+        offset
+      end
+
+    assert offsets == Enum.sort(offsets)
+
+    view |> element("#track-edit button[aria-label='Editar Título']") |> render_click()
+
+    view
+    |> form("#track-edit form[phx-submit=save_field]", %{value: "Nome corrigido"})
+    |> render_submit()
+
+    assert has_element?(view, "h1", "Nome corrigido")
+
+    view |> element("#track-curation button[phx-value-n='8']") |> render_click()
+    view |> form("#track-curation #track-add-tag", %{tag: "abertura"}) |> render_submit()
+    view |> form("#track-curation #track-note", %{note: "Usar na abertura"}) |> render_change()
+    updated = Tracks.get(track.id)
+    assert updated.rating == 8
+    assert "abertura" in updated.tags
+    assert updated.personal_note == "Usar na abertura"
+    assert has_element?(view, "#track-add-marker[disabled]")
+  end
+
   test "offers recovery for the current missing file", %{conn: conn} do
     track = insert(:track, status: :present, integrity_status: :missing_file)
     {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
@@ -109,7 +155,8 @@ defmodule BeatgridWeb.TrackLiveTest do
     assert html =~ "-3.8 dBTP"
     assert html =~ "Ganho aplicado"
     assert html =~ "-4.2 dB"
-    assert html =~ "Backup original completo disponível"
+    assert html =~ "Sem backup original registrado"
+    assert html =~ "Ganho recomendado"
   end
 
   test "the ficha titles identify the editing and marker sections and explain the disabled marker control",
@@ -149,7 +196,7 @@ defmodule BeatgridWeb.TrackLiveTest do
     assert html =~ "Editar faixa"
 
     view
-    |> element(~s|button[phx-value-field=title][aria-label="Editar Título"]|, "Editar")
+    |> element(~s|button[phx-value-field=title][aria-label="Editar Título"]|)
     |> render_click()
 
     view |> form("form[phx-submit=save_field]", %{value: "Novo Nome"}) |> render_submit()
@@ -306,6 +353,7 @@ defmodule BeatgridWeb.TrackLiveTest do
     assert html =~ "-9.8 LUFS"
     assert html =~ "Arquivo atual"
     assert html =~ "-14.1 LUFS"
+    assert html =~ "Backup original registrado"
     assert has_element?(view, "button", "Tocar original")
     assert has_element?(view, "button", "Restaurar backup original")
     assert html =~ ~p"/audio/#{track.id}/original"
@@ -518,7 +566,7 @@ defmodule BeatgridWeb.TrackLiveTest do
     Analysis.broadcast_tick()
 
     html = render(view)
-    assert html =~ "Re-analisar"
+    assert html =~ "Reanalisar áudio local"
     refute html =~ "Analisando…"
     assert html =~ "128"
   end
