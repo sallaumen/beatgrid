@@ -29,6 +29,31 @@ export function rehearsalGains(plan, kind, time) {
   return blendGains(kind === "blend" && plan.blendCurve, p)
 }
 
+// Both 200 Hz shelves are neutral on beat three. Open the new bass over half
+// a beat before the handoff and remove the old bass over the following half.
+const BASS_OPEN = 3 / 8, BASS_SWAP = 1 / 2, BASS_CLOSE = 5 / 8
+const BASS_DEPTH_DB = 8
+
+export function rehearsalBassWindow(plan) {
+  const at = position => plan.lead + position * plan.blend
+  return {start: at(BASS_OPEN), swap: at(BASS_SWAP), end: at(BASS_CLOSE)}
+}
+
+export function rehearsalBassDb(side, progress) {
+  const cut = side === "out" ? (progress - BASS_SWAP) / (BASS_CLOSE - BASS_SWAP) :
+    (BASS_SWAP - progress) / (BASS_SWAP - BASS_OPEN)
+  return cut <= 0 ? 0 : -BASS_DEPTH_DB * Math.min(1, cut)
+}
+
+export function scheduleRehearsalBass(param, side, change, fade, at) {
+  param.cancelScheduledValues(at)
+  param.setValueAtTime(rehearsalBassDb(side, (at - change) / fade), at)
+  for (const p of [BASS_OPEN, BASS_SWAP, BASS_CLOSE]) {
+    const time = change + p * fade
+    if (time > at) param.linearRampToValueAtTime(rehearsalBassDb(side, p), time)
+  }
+}
+
 export function recordTime(plan, side, time) {
   return side === "out" ? plan.outStart + time * plan.mix.out.rate :
     plan.inStart + (time - plan.lead) * plan.mix.into.rate
@@ -66,7 +91,7 @@ export function createRehearsal(ctx, phones, pfl) {
   }
 
   function play(plan, kind, pan, skip = 0, observe, keepPhones = false) {
-    if (skip >= plan.duration) { stop(); return Promise.resolve(false) }
+    if (skip >= plan.duration || (kind === "bass_swap" && !plan.fullBlend)) { stop(); return Promise.resolve(false) }
     stop(false, true)
     const now = ctx.currentTime
     const start = now - Math.max(0, skip)
@@ -101,6 +126,7 @@ export function createRehearsal(ctx, phones, pfl) {
         const mix = plan.mix[side]
         const source = createRecordSource(ctx, buffer, mix)
         const eq = createEq(ctx), channel = ctx.createGain(), fader = ctx.createGain()
+        if (kind === "bass_swap") scheduleRehearsalBass(eq.bass.gain, side, change, fade, at)
         source.connect(eq.hpf)
         eq.toneTreble.connect(channel)
         channel.connect(fader)

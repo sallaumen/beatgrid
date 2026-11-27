@@ -100,7 +100,7 @@ function strongSubdivision(peaks, grid, reference) {
   return quantile(a, 0.5) >= 1.5 * quantile(b, 0.5) && quantile(a, 0.25) > quantile(b, 0.75) ? strong : null
 }
 
-function pulseMetric(before, after, middle, start, end, dt, kind, bpm) {
+function pulseMetric(before, after, middle, start, end, dt, kind, bpm, descriptive) {
   const out = attacks(before, start - before.length, dt), into = attacks(after, end, dt)
   const a = beatGrid(out, bpm), b = beatGrid(into, bpm)
   if (!a || !b) return unknown("pulse", "Batidas sem referência firme")
@@ -114,9 +114,9 @@ function pulseMetric(before, after, middle, start, end, dt, kind, bpm) {
   const gap = (beatAt(a) - beatAt(b)) / step
   const phase = Math.abs(gap - Math.round(gap))
 
-  if (kind === "blend" && drift > 0.065) return metric("pulse", "poor", "Andamentos se afastaram")
+  if (kind !== "cut" && drift > 0.065) return metric("pulse", "poor", "Andamentos se afastaram")
   if (phase > 0.21) return metric("pulse", "poor", "Ataques fora da fase")
-  if (kind === "blend" && middle.length * dt >= a.period * 2.8) {
+  if (!descriptive && kind !== "cut" && middle.length * dt >= a.period * 2.8) {
     const cross = attacks(middle, start, dt)
     let count = 0, hits = 0
     for (let t = beatAt(a); t < end * dt - 0.08; t += a.period) {
@@ -177,7 +177,7 @@ function levelMetric(before, middle, after, dt, kind, descriptive) {
   }
   if (ends.state !== "good") return ends
   const width = Math.max(1, Math.round(0.45 / dt))
-  if (kind === "blend" && [middle, before, after].every(part => part.length >= width)) {
+  if (kind !== "cut" && [middle, before, after].every(part => part.length >= width)) {
     const context = [...levelWindows(before, width), ...levelWindows(after, width)]
     const levels = levelWindows(middle, width)
     const dip = db(quantile(levels, 0.05) / Math.max(quantile(context, 0.1), floor))
@@ -201,7 +201,7 @@ function headroomMetric(frames) {
 }
 
 export function scorePassage({frames, frameSeconds: dt, changeAt, overlap, kind, bpm, descriptive = false} = {}) {
-  const supported = descriptive ? ["fade", "echo", "filter", "lowpass", "bass_swap"] : ["cut", "blend"]
+  const supported = descriptive ? ["fade", "echo", "filter", "lowpass", "bass_swap"] : ["cut", "blend", "bass_swap"]
   const incomplete = () => ({score: null, descriptive, metrics: Object.keys(names).map(id => unknown(id)), summary: "É preciso ouvir os dois lados da troca."})
   if (!Array.isArray(frames) || !(Number.isFinite(dt) && dt > 0) || !Number.isFinite(changeAt) ||
       !Number.isFinite(overlap) || overlap < 0 || !supported.includes(kind)) return incomplete()
@@ -215,7 +215,7 @@ export function scorePassage({frames, frameSeconds: dt, changeAt, overlap, kind,
     if (!f || !Number.isFinite(f.rms) || f.rms < 0 || !Number.isFinite(f.peak) || f.peak < 0 ||
         (f.onset != null && (!Number.isFinite(f.onset) || f.onset < 0))) return incomplete()
   }
-  const pulse = pulseMetric(before, after, middle, start, end, dt, kind, bpm)
+  const pulse = pulseMetric(before, after, middle, start, end, dt, kind, bpm, descriptive)
   const level = levelMetric(before, middle, after, dt, kind, descriptive)
   const headroom = headroomMetric([...before.slice(-Math.ceil(0.25 / dt)), ...middle, ...after.slice(0, Math.ceil(0.75 / dt))])
   const metrics = [pulse, level, headroom]
