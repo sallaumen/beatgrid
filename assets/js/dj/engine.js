@@ -489,7 +489,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     postponeMs: 0,
     // Breather in progress. A null deadline means its outgoing phrase is still playing.
     breatherGap: null,
-    stopTransitionEffect: null,
+    stopScratchDrop: null,
     // User "comprimento" knob: scales every transition's timings around the
     // reference length (REF_LEN_S = the default crossfade). 1.0 = as designed.
     transitionScale: 1,
@@ -927,11 +927,11 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
     const turnOff = () => {
       clearTimeout(lightTimer)
-      state.stopTransitionEffect = null
+      from.stopEcho = null
       emit("echoState", {deck: from.id, on: false})
     }
     const lightTimer = after(total + dur(0.7), turnOff)
-    state.stopTransitionEffect = turnOff
+    from.stopEcho = turnOff
     emit("echoState", {deck: from.id, on: true, delayMs: Math.round(delayS * 1000)})
   }
 
@@ -1127,7 +1127,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
     const stop = () => {
       clearInterval(iv)
-      state.stopTransitionEffect = null
+      state.stopScratchDrop = null
       if (s.active) {
         s.active = false
         if (s.node) s.node.port.postMessage({type: "stop"})
@@ -1159,7 +1159,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         // the room gets dead air with a stuck crossfader. Never touch `from`
         // here — its new owner drives it now.
         clearInterval(iv)
-        state.stopTransitionEffect = null
+        state.stopScratchDrop = null
         riseIncoming(to, 0.03)
         startIncoming(to, toMs)
         setXfadeTo(sideOf(to.id), 0.06)
@@ -1178,7 +1178,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       }
       if (p >= 1) drop()
     }, 16)
-    state.stopTransitionEffect = stop
+    state.stopScratchDrop = stop
   }
 
   // Respiro do salão: a música que sai toca até o FIM DE VERDADE — o eco
@@ -1253,9 +1253,11 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   function interruptTransition() {
-    state.stopTransitionEffect?.()
-    decks.a.stopBrake?.()
-    decks.b.stopBrake?.()
+    state.stopScratchDrop?.()
+    for (const deck of Object.values(decks)) {
+      deck.stopBrake?.()
+      deck.stopEcho?.()
+    }
     if (state.breatherGap) clearTimeout(state.breatherGap.timer)
     state.breatherGap = null
     state.waitingForNext = false
@@ -1289,6 +1291,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     deck.feedback.gain.setValueAtTime(RAMP.echoFeedback, now)
     clearLoop(deck)
     deck.vinylMode = false
+    deck.stopEcho?.()
     deck.stopBrake?.()
     cancelBend(deck.id)
     deck.resetRate()
