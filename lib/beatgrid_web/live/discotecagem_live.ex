@@ -1909,6 +1909,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 },
                 roomScore: ({data, reference}) => this.roomScore.show(data ? scorePassage(data) :
                   {score: null, metrics: [], summary: "O trecho da pista não foi medido por inteiro."}, {reference}),
+                dropUnavailable: () => this.notice("O efeito não ficou pronto. A faixa entrou em corte."),
                 entryRefused: ({deck}) => this.notice(`O deck ${deck.toUpperCase()} não começou a tocar. Tente a passagem de novo.`),
                 transitionCancelled: ({trackId, deck}) => {
                   this.lastPlayedId = trackId

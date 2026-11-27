@@ -84,18 +84,20 @@ function booth(t, callbacks = {}) {
   return {a, b, engine, hint, breath, advances, ends, tick: ms => t.mock.timers.tick(ms)}
 }
 
-async function scratchBooth(t, id, channels = 1) {
+async function scratchBooth(t, ids, channels = 1, callbacks = {}) {
   const commands = []
   globalThis.AudioWorkletNode = class extends AudioNodeStub {
     port = {postMessage: message => commands.push(message)}
   }
   t.after(() => { delete globalThis.AudioWorkletNode })
-  const rig = booth(t)
+  const rig = booth(t, callbacks)
   t.mock.method(globalThis, "fetch", async () => new Response(new ArrayBuffer(0)))
   const samples = new Float32Array(8 * 8000)
-  await loadPeaks(id, id, {decodeAudioData: async () => ({
-    sampleRate: 8000, duration: 8, numberOfChannels: channels, getChannelData: () => samples
-  })})
+  for (const id of [ids].flat()) {
+    await loadPeaks(id, id, {decodeAudioData: async () => ({
+      sampleRate: 8000, duration: 8, numberOfChannels: channels, getChannelData: () => samples
+    })})
+  }
   return {...rig, commands}
 }
 
@@ -1303,18 +1305,19 @@ test("releasing the scratch pad starts the waiting AUTO track at its prepared en
   assert.deepEqual(advances.map(event => event.toTrackId), ["scratch-entry"])
 })
 
-test("a delayed vinyl drop reserves its receiving record until the handoff lands", t => {
-  const {engine, a, b, hint, advances, tick} = booth(t)
+test("a delayed vinyl drop reserves its receiving record until the handoff lands", async t => {
+  const {engine, a, b, hint, advances, tick} = await scratchBooth(t, "vinyl-record")
   a.at(30)
-  hint({type: "brake", from_ms: 48_000, to_ms: 2400})
+  hint({type: "brake", from_ms: 48_000, to_ms: 2400}, "vinyl-record")
   assert.equal(engine.fireHint().ok, true)
-  assert.equal(b.plays, 0)
-  assert.equal(engine.loadDeck("b", {id: "wrong", src: "wrong"}), false)
+  await Promise.resolve()
+  assert.equal(b.plays, 1)
   assert.equal(engine.eject("b"), false)
-  assert.equal(engine.sessionDeck(), "b")
+  assert.equal(engine.sessionDeck(), "a")
   engine.cueButton("b", true)
   engine.jogTouch("b", true)
-  assert.equal(b.plays, 0)
+  assert.equal(b.plays, 1)
+  assert.deepEqual(advances, [])
   tick(3000)
   assert.equal(b.currentTime, 2.4)
   assert.equal(b.plays, 1)
@@ -1323,27 +1326,213 @@ test("a delayed vinyl drop reserves its receiving record until the handoff lands
   assert.equal(engine.eject("b"), true)
 })
 
-test("stopping a vinyl drop releases the reserved deck without a delayed restart", t => {
-  const {engine, b, hint, tick} = booth(t)
-  hint({type: "brake", from_ms: 48_000})
+test("stopping a vinyl drop releases the reserved deck without a delayed restart", async t => {
+  const {engine, b, hint, tick} = await scratchBooth(t, "stopped-vinyl")
+  hint({type: "brake", from_ms: 48_000}, "stopped-vinyl")
   engine.fireHint()
+  await Promise.resolve()
   engine.stopAll()
   assert.equal(engine.loadDeck("b", {id: "new", src: "new"}), true)
   tick(3000)
-  assert.equal(b.plays, 0)
+  assert.equal(b.plays, 1)
+  assert.equal(b.paused, true)
+})
+
+async function preparedDrop(t, type, fromId = "a", accepted = false) {
+  const out = "drop-out-" + t.name, into = "drop-in-" + t.name
+  const refused = [], start = []
+  const rig = await scratchBooth(t, [out, into], 2, {entryRefused: e => refused.push(e.deck)})
+  const {engine, hint, a, b} = rig
+  engine.stopAll()
+  engine.loadDeck(fromId, {id: out, src: out, bpm: 120}, {autoplay: true})
+  const toId = fromId === "a" ? "b" : "a", from = fromId === "a" ? a : b, to = fromId === "a" ? b : a
+  from.at(3)
+  hint({type, from_ms: 48_000, to_ms: 1500}, into)
+  engine.cueTo(toId, 2750)
+  const gate = Promise.withResolvers()
+  t.mock.method(to, "play", () => { to.paused = false; return gate.promise })
+  const create = engine.ctx.createBufferSource.bind(engine.ctx)
+  t.mock.method(engine.ctx, "createBufferSource", () => {
+    const node = create()
+    node.start = (_when, offset) => start.push(offset)
+    return node
+  })
+  assert.equal(engine.fireManual(type).ok, true)
+  if (accepted) {
+    gate.resolve()
+    await Promise.resolve()
+  }
+  return {...rig, from, to, fromId, toId, gate, start, refused}
+}
+
+for (const [fromId, type] of [["a", "brake"], ["b", "scratch_cut"], ["a", "spinback"],
+                               ["b", "chirp"], ["a", "transform"], ["b", "scribble"]]) {
+  test(`${type} primes privately and lands once on the selected cue from ${fromId}`, async t => {
+    const {engine, toId, from, to, start, advances, gate, tick} = await preparedDrop(t, type, fromId)
+    const deck = engine.decks[toId]
+    assert.equal(deck.mediaGain.gain.value, 0)
+    assert.equal(engine.sessionDeck(), fromId)
+    assert.deepEqual(advances, [])
+    tick(400)
+    assert.equal(from.paused, false)
+    assert.equal(from.playbackRate, 1)
+    gate.resolve()
+    await Promise.resolve()
+    to.currentTime = 3.65 // the muted native clock has run on past the cue
+    assert.equal(engine.snapshot()[toId].playing, false)
+    assert.equal(engine.snapshot()[toId].posMs, 2750)
+    assert.equal(engine.sessionDeck(), fromId)
+    assert.equal(engine.fireManual("cut").ok, false)
+    assert.deepEqual(start, [])
+    tick(3000)
+    assert.deepEqual(start, [2.75])
+    assert.deepEqual(advances.map(e => [e.deck, e.type]), [[toId, type]])
+    assert.equal(engine.sessionDeck(), toId)
+  })
+}
+
+for (const accepted of [false, true]) {
+  for (const action of ["cue", "stop", "fader", "replace"]) {
+    test(`revoking a ${accepted ? "running" : "waiting"} scratch by ${action} cannot drop later`, async t => {
+      const {engine, from, to, toId, advances, start, gate, tick, hint} = await preparedDrop(t, "scratch_cut", "a", accepted)
+      if (accepted) tick(150)
+      if (action === "cue") engine.cueTo(toId, 4500)
+      if (action === "stop") engine.stopAll()
+      if (action === "fader") engine.setCrossfader(0.27)
+      if (action === "replace") hint(null, "replacement-drop")
+      gate.resolve()
+      await Promise.resolve()
+      tick(4000)
+      assert.equal(to.paused, true)
+      assert.equal(engine.decks[toId].mediaGain.gain.value, 1)
+      assert.deepEqual(advances, [])
+      if (accepted && action !== "stop") {
+        assert.equal(start.length, 1)
+        assert.notEqual(start[0], 2.75) // the outgoing scratch, never the receiving cue
+      } else {
+        assert.deepEqual(start, [])
+      }
+      assert.equal(from.paused, action === "stop")
+      if (action === "cue") assert.equal(to.currentTime, 4.5)
+      if (action === "fader") assert.equal(engine.snapshot().xfadePos, 0.27)
+      if (action === "replace") assert.equal(engine.snapshot()[toId].trackId, "replacement-drop")
+    })
+  }
+}
+
+for (const [fromId, type] of [["a", "brake"], ["b", "scratch_cut"]]) {
+  test(`a rejected ${type} preflight stays on ${fromId} and gives headphones back`, async t => {
+    const {engine, from, to, toId, gate, advances, start, refused, tick} = await preparedDrop(t, type, fromId)
+    gate.reject(Error("not playing"))
+    await Promise.resolve()
+    tick(5000)
+    assert.deepEqual(refused, [toId])
+    assert.deepEqual(advances, [])
+    assert.deepEqual(start, [])
+    assert.equal(from.paused, false)
+    assert.equal(to.paused, true)
+    assert.equal(to.currentTime, 2.75)
+    assert.equal(engine.decks[toId].mediaGain.gain.value, 1)
+    assert.equal(engine.sessionDeck(), fromId)
+  })
+}
+
+test("rescuing a scratch immediately returns actual outgoing samples even if native play stalls", async t => {
+  const {engine, from, toId, start, tick} = await preparedDrop(t, "scratch_cut", "b", true)
+  tick(160)
+  const stalled = Promise.withResolvers()
+  t.mock.method(from, "play", () => { from.paused = false; return stalled.promise })
+  engine.cueTo(toId, 4500)
+  assert.equal(engine.sessionDeck(), "b")
+  assert.ok(engine.decks.b.entry)
+  assert.ok(start[0] >= 2.75 && start[0] < 3.25)
+  assert.equal(engine.decks[toId].dropCue, null)
+  engine.cueTo("b", 3000)
+  engine.beatLoop("b", 2)
+  engine.cueTo("b", 3250)
+  assert.equal(engine.loopState("b").on, true)
+  engine.ctx.currentTime += 1.08
+  tick(20)
+  assert.ok(Math.abs(engine.decks.b.positionMs() - 3330) <= 32)
+  assert.equal(engine.decks.b.mediaGain.gain.value, 0)
+  engine.cueTo("b", 6000)
+  assert.equal(engine.loopState("b").on, false)
+  assert.equal(engine.decks.b.positionMs(), 6000)
+  assert.equal(engine.decks[toId].platterTime(), 4.5) // remains the operator's newly selected cue
+  stalled.resolve()
+})
+
+test("a refused private input keeps the loop that is carrying the dance floor", async t => {
+  const {engine, a, b, hint} = await scratchBooth(t, "looped-vinyl-in")
+  engine.setAuto(false)
+  a.at(3)
+  engine.beatLoop("a", 4)
+  hint(null, "looped-vinyl-in")
+  t.mock.method(b, "play", () => Promise.reject(Error("unavailable")))
+  engine.fireManual("brake")
+  await Promise.resolve()
+  assert.equal(engine.loopState("a").on, true)
+  assert.equal(a.paused, false)
+})
+
+test("a scratch with both decks already playing neither rewinds nor silences the receiver", async t => {
+  const {engine, a, b, hint, advances, tick} = await scratchBooth(t, "one")
+  a.at(3)
+  hint(null, "already-playing-no-buffer")
+  engine.playPause("b")
+  b.at(4.25)
+  engine.setCrossfader(0.15)
+  assert.equal(engine.fireManual("scratch_cut").ok, true)
+  assert.equal(b.plays, 1)
+  assert.equal(engine.decks.b.mediaGain.gain.value, 1)
+  b.at(5.1)
+  tick(1200)
+  assert.equal(b.plays, 1)
+  assert.equal(b.currentTime, 5.1)
+  assert.equal(b.paused, false)
+  assert.deepEqual(advances.map(e => e.type), ["scratch_cut"])
+})
+
+test("ending while the private input opens lands a single cut at the prepared cue", async t => {
+  const {from, to, gate, advances, start, engine, toId} = await preparedDrop(t, "brake")
+  from.end()
+  assert.deepEqual(advances, [])
+  gate.resolve()
+  await Promise.resolve()
+  assert.deepEqual(advances.map(e => e.type), ["cut"])
+  assert.deepEqual(start, [2.75])
+  assert.equal(to.currentTime, 2.75)
+  assert.equal(engine.sessionDeck(), toId)
+})
+
+test("missing receiving audio uses an acknowledged cut without decoding on the playback path", async t => {
+  const fallback = []
+  const {a, b, hint, engine, advances} = booth(t, {dropUnavailable: () => fallback.push(advances.at(-1)?.type)})
+  hint({type: "brake"}, "evicted-receiver")
+  const gate = Promise.withResolvers()
+  t.mock.method(b, "play", () => { b.paused = false; return gate.promise })
+  t.mock.method(globalThis, "fetch", () => { throw Error("unexpected fetch on the playback path") })
+  assert.equal(engine.fireManual("brake").ok, true)
+  assert.equal(a.paused, false)
+  assert.deepEqual(advances, [])
+  gate.resolve()
+  await Promise.resolve()
+  assert.deepEqual(advances.map(e => e.type), ["cut"])
+  assert.deepEqual(fallback, ["cut"])
 })
 
 test("the incoming record also stays reserved throughout a scratch drop", async t => {
-  const {engine, a, b, hint, tick} = await scratchBooth(t, "one")
+  const {engine, a, b, hint, tick} = await scratchBooth(t, ["one", "scratch-ready-the"])
   a.at(3)
-  hint(null, "next")
+  hint(null, "scratch-ready-the")
   assert.equal(engine.fireManual("scratch_cut").ok, true)
-  assert.equal(b.plays, 0)
+  await Promise.resolve()
+  assert.equal(b.plays, 1)
   assert.equal(engine.eject("b"), false)
-  assert.equal(engine.sessionDeck(), "b")
+  assert.equal(engine.sessionDeck(), "a")
   tick(1100)
   assert.equal(b.plays, 1)
-  assert.equal(engine.snapshot().b.trackId, "next")
+  assert.equal(engine.snapshot().b.trackId, "scratch-ready-the")
 })
 
 for (const type of ["fade", "crossfade", "echo", "filter", "lowpass", "bass_swap", "brake"]) {
@@ -1368,10 +1557,11 @@ for (const type of ["fade", "crossfade", "echo", "filter", "lowpass", "bass_swap
 }
 
 test("the tail of a scratch drop preserves the next record's prepared loop", async t => {
-  const {engine, a, b, hint, tick} = await scratchBooth(t, "one")
+  const {engine, a, b, hint, tick} = await scratchBooth(t, ["one", "scratch-ready-the"])
   a.at(3)
-  hint(null)
+  hint(null, "scratch-ready-the")
   assert.equal(engine.fireManual("scratch_cut").ok, true)
+  await Promise.resolve()
   tick(1100)
   assert.equal(b.plays, 1)
   assert.equal(hint(null, "three"), "a")
@@ -1396,10 +1586,11 @@ test("a breather releases the planned track without resetting a reload during th
 })
 
 test("rescuing a scratch drop immediately returns the record to the jog", async t => {
-  const {engine, a, b, hint, tick} = await scratchBooth(t, "one")
+  const {engine, a, b, hint, tick} = await scratchBooth(t, ["one", "scratch-ready-rescuing"])
   a.at(3)
-  hint(null)
+  hint(null, "scratch-ready-rescuing")
   assert.equal(engine.fireManual("scratch_cut").ok, true)
+  await Promise.resolve()
   assert.equal(engine.cancelTransition().ok, true)
   engine.jogTouch("a", true)
   engine.jogTurn("a", 59)
@@ -1409,13 +1600,15 @@ test("rescuing a scratch drop immediately returns the record to the jog", async 
   engine.jogTouch("a", false)
   assert.equal(a.paused, false)
   assert.ok(Math.abs(a.currentTime - 3.45) < 0.001)
-  assert.equal(b.plays, 0)
+  assert.equal(b.plays, 1)
+  assert.equal(b.paused, true)
 })
 
 test("stopping a scratch drop cannot silence a new scratch pad on its next tick", async t => {
-  const {engine, b, hint, tick, commands} = await scratchBooth(t, "one")
-  hint(null)
+  const {engine, b, hint, tick, commands} = await scratchBooth(t, ["one", "scratch-ready-stopping"])
+  hint(null, "scratch-ready-stopping")
   assert.equal(engine.fireManual("scratch_cut").ok, true)
+  await Promise.resolve()
   engine.stopAll()
   assert.equal(engine.startAutoScratch("a", "baby").ok, true)
   const firstCommand = commands.length
@@ -1424,7 +1617,8 @@ test("stopping a scratch drop cannot silence a new scratch pad on its next tick"
   assert.notEqual(engine.scratchPosSec("a"), null)
   engine.stopAutoScratch("a")
   assert.equal(engine.scratchPosSec("a"), null)
-  assert.equal(b.plays, 0)
+  assert.equal(b.plays, 1)
+  assert.equal(b.paused, true)
 })
 
 test("stopping an echo turns off its indicator once", async t => {
