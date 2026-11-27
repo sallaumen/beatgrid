@@ -35,8 +35,9 @@ config :phoenix_live_view,
 config :phoenix,
   sort_verified_routes_query_params: true
 
-# Oban: don't run jobs automatically in tests — drive them with perform_job/2.
-config :beatgrid, Oban, testing: :manual
+# Drive jobs explicitly with perform_job/2. Queue control is local to the test
+# node; its monitored playback owners can exit after the SQL sandbox closes.
+config :beatgrid, Oban, testing: :manual, notifier: Oban.Notifiers.Isolated
 
 # Integration ports → Mox mocks (see test/support/mocks.ex).
 config :beatgrid, Beatgrid.Audio, adapter: Beatgrid.Audio.Mock
