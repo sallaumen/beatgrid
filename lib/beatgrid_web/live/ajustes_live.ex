@@ -25,6 +25,27 @@ defmodule BeatgridWeb.AjustesLive do
     {:ok, socket |> assign(page_title: "Ajustes", toast: nil) |> load()}
   end
 
+  @impl true
+  def handle_params(params, _uri, socket) do
+    {:noreply, assign(socket, return_to: maintenance_origin(params["origem"]))}
+  end
+
+  defp maintenance_origin("volume"),
+    do: %{
+      key: :target_lufs,
+      path: ~p"/manutencao" <> "#maintenance-gain",
+      label: "Voltar à aplicação de ganho"
+    }
+
+  defp maintenance_origin("backup"),
+    do: %{
+      key: :backup_keep,
+      path: ~p"/manutencao" <> "#maintenance-backup",
+      label: "Voltar ao backup da curadoria"
+    }
+
+  defp maintenance_origin(_), do: nil
+
   defp load(socket) do
     entries =
       for entry <- Registry.all() do
@@ -86,6 +107,7 @@ defmodule BeatgridWeb.AjustesLive do
             <p class="text-body-sm text-ink-muted">As alterações entram em vigor ao salvar.</p>
           </div>
           <.link
+            :if={is_nil(@return_to)}
             id="ajustes-maintenance"
             navigate={~p"/manutencao"}
             class="inline-flex items-center gap-2 rounded-md border border-white/10 bg-input px-3 py-2 text-body-sm font-semibold text-ink-secondary hover:text-ink"
@@ -139,7 +161,7 @@ defmodule BeatgridWeb.AjustesLive do
                         step={if e.type == :integer, do: "1", else: "any"}
                         min={e.min}
                         max={e.max}
-                        class="w-28 rounded-md border border-white/10 bg-input px-3 py-2 font-mono text-body tabular-nums focus:border-primary/50"
+                        class="w-28 scroll-mt-20 rounded-md border border-white/10 bg-input px-3 py-2 font-mono text-body tabular-nums focus:border-primary/50"
                       />
                       <span :if={e.unit} class="text-body-sm text-ink-muted">{e.unit}</span>
                     </div>
@@ -185,6 +207,14 @@ defmodule BeatgridWeb.AjustesLive do
                       class="text-ink-muted hover:text-ink"
                     ><.icon name="hero-x-mark-mini" class="size-4" /></button>
                   </div>
+                  <.link
+                    :if={@return_to && @return_to.key == e.key}
+                    id={"ajuste-return-#{e.key}"}
+                    navigate={@return_to.path}
+                    class="inline-flex items-center gap-1 text-body-sm text-primary hover:underline"
+                  >
+                    <.icon name="hero-arrow-left-mini" class="size-4" /> {@return_to.label}
+                  </.link>
                 </div>
               </section>
             </div>
