@@ -38,7 +38,7 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
   end
 
   test "renders the console: decks, mixer, and the set picker", %{conn: conn} do
-    {:ok, _view, html} = live(conn, ~p"/discotecagem")
+    {:ok, view, html} = live(conn, ~p"/discotecagem")
 
     assert html =~ "Discotecagem"
     assert html =~ "Deck A"
@@ -48,8 +48,13 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert html =~ "Escolher set…"
 
     # headphone cue: per-deck PFL buttons + the routable phones output block
-    assert html =~ "dj-pfl-a"
-    assert html =~ "dj-pfl-b"
+    for deck <- ["a", "b"] do
+      assert has_element?(
+               view,
+               ~s(#dj-pfl-#{deck}[aria-label="Pré-escuta do deck #{String.upcase(deck)}"][aria-pressed="false"])
+             )
+    end
+
     assert html =~ "Fone (cue)"
     assert html =~ "dj-cue-device"
   end

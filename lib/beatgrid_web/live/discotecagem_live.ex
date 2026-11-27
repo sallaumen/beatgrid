@@ -1205,8 +1205,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
         details > summary:hover {
           background: rgba(255, 255, 255, 0.03);
         }
-        #dj-pfl-a[data-on="true"],
-        #dj-pfl-b[data-on="true"] {
+        #dj-pfl-a[aria-pressed="true"],
+        #dj-pfl-b[aria-pressed="true"] {
           border-color: #ffb020;
           color: #ffb020;
           background: rgba(255, 176, 32, 0.12);
@@ -1473,10 +1473,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
                   if (level) level.value = 100
                 },
                 pflState: ({a, b}) => {
-                  const btnA = byId("dj-pfl-a")
-                  const btnB = byId("dj-pfl-b")
-                  if (btnA) btnA.dataset.on = a ? "true" : "false"
-                  if (btnB) btnB.dataset.on = b ? "true" : "false"
+                  byId("dj-pfl-a")?.setAttribute("aria-pressed", String(a))
+                  byId("dj-pfl-b")?.setAttribute("aria-pressed", String(b))
                   window.dispatchEvent(new CustomEvent("dj:pfl-led", {detail: {a, b}}))
                   this.log(`fone: deck A ${a ? "ligado" : "desligado"} · deck B ${b ? "ligado" : "desligado"}`)
                 },
@@ -3259,7 +3257,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
               <button
                 id={"dj-pfl-#{@d}"}
                 type="button"
-                data-on="false"
+                aria-label={"Pré-escuta do deck #{String.upcase(@d)}"}
+                aria-pressed="false"
                 title="Escutar este deck no fone (pré-fader) — botão de fone na controladora"
                 class="h-8 w-9 rounded-lg border border-white/10 bg-input text-[12px] text-ink-muted transition-colors hover:border-amber/50 hover:text-amber"
               >
