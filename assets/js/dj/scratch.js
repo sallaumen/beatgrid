@@ -29,6 +29,8 @@ class ScratchProcessor extends AudioWorkletProcessor {
     this.v = 0        // heard velocity, samples/output-sample (negative = reverse)
     this.v1 = 0       // first pole of the velocity smoother
     this.targetV = 0  // mean hand velocity over the last command interval
+    this.previousPos = 0
+    this.previousInterval = 0
     this.lastPos = 0
     this.lastT = 0    // sender clock (ms) of the last scrub
     this.sinceCmd = 1e9
@@ -41,7 +43,6 @@ class ScratchProcessor extends AudioWorkletProcessor {
     this.K = 1 - Math.exp((-2 * Math.PI * 22) / sampleRate) // smoother corner, per pole
     this.K2 = 1 - Math.exp((-2 * Math.PI * 11) / sampleRate) // bleed-reference smoother
     this.HOLD = Math.round(0.06 * sampleRate) // command silence -> the hand is holding still
-    this.MINDT = 0.004 * sampleRate // floor the interval: coalesced bursts can't spike
     this.VMAX = 32 // a hard backspin flick; the anti-alias pole covers the sound up there
     // Keep the 48 kHz platter response and bass cutoff when the output device changes rate.
     const rateRatio = 48000 / sampleRate
@@ -58,8 +59,14 @@ class ScratchProcessor extends AudioWorkletProcessor {
           // Cap the interval at the HOLD window: after a long still-hand pause
           // the elapsed time says nothing about how fast the NEW stroke is.
           const dtMs = Math.min(d.t - this.lastT, 60)
-          const dt = Math.max((dtMs / 1000) * sampleRate, this.MINDT)
-          const v = (d.position - this.lastPos) / dt
+          // Two consecutive short intervals give a measurable sweep; averaging
+          // them also handles 2/3 ms rounding. Keep the burst guard for
+          // duplicate timestamps and sub-millisecond dispatch jitter.
+          const fastPair = dtMs >= 1 && dtMs < 4 && this.previousInterval >= 1 && this.previousInterval < 4
+          const interval = fastPair ? dtMs + this.previousInterval : Math.max(dtMs, 4)
+          const distance = d.position - (fastPair ? this.previousPos : this.lastPos)
+          const v = distance / ((interval / 1000) * sampleRate)
+          this.previousInterval = dtMs
           this.targetV = Math.max(-this.VMAX, Math.min(this.VMAX, v))
         } else {
           this.x = d.position
@@ -67,8 +74,10 @@ class ScratchProcessor extends AudioWorkletProcessor {
           this.v = 0
           this.v1 = 0
           this.targetV = 0
+          this.previousInterval = 0
           this.active = true
         }
+        this.previousPos = this.lastPos
         this.lastPos = d.position
         this.lastT = d.t
         this.sinceCmd = 0
