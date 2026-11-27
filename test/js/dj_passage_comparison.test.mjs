@@ -109,3 +109,10 @@ test("an unavailable capture stays distinct from an unheard or inconclusive take
   view.bind({...pair, fromLoad: 8}, plan, 120)
   assert.ok(labels.every(n => n.hidden))
 })
+
+test("measurements of a linear blend never label a compensated rendition of the same cue", () => {
+  const {view, labels} = setup()
+  view.begin("blend").finish(result(60))
+  view.bind(pair, {...plan, blendCurve: {correlation: 0, outPeak: .22, inPeak: .24}}, 120)
+  assert.ok(labels.every(label => label.hidden))
+})
