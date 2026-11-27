@@ -3,6 +3,7 @@ defmodule BeatgridWeb.DashboardLiveTest do
 
   import Phoenix.LiveViewTest
   import Beatgrid.Factory
+  alias Beatgrid.Analysis
   alias Beatgrid.Library.Tracks
   alias Beatgrid.Repertoire
   alias Beatgrid.Workers.{ExpandWorker, RecommendWorker}
@@ -51,18 +52,33 @@ defmodule BeatgridWeb.DashboardLiveTest do
     assert html =~ "1970s"
   end
 
-  test "the tempo chart includes a library analyzed offline", %{conn: conn} do
-    for bpm <- [112.0, 115.0, 118.0], do: insert(:track, bpm_detected: bpm)
-
+  test "offline tempo appears on mount and refreshes while repertoire is open", %{conn: conn} do
+    for bpm <- [114.8, 115.0, 118.0], do: insert(:track, bpm_detected: bpm)
+    track = insert(:track)
     {:ok, view, _html} = live(conn, ~p"/painel")
 
-    assert has_element?(view, "#dashboard-insights li", "De 110 a menos de 115 BPM, 1 faixa")
-    assert has_element?(view, "#dashboard-insights li", "De 115 a menos de 120 BPM, 2 faixas")
+    assert has_element?(
+             view,
+             "#dashboard-tempo li[aria-label='De 110 a menos de 115 BPM, 1 faixa']"
+           )
 
-    track = insert(:track)
+    assert has_element?(
+             view,
+             "#dashboard-tempo li[aria-label='De 115 a menos de 120 BPM, 2 faixas']"
+           )
+
+    refute has_element?(
+             view,
+             "#dashboard-tempo li[aria-label='De 120 a menos de 125 BPM, 1 faixa']"
+           )
+
     {:ok, _track} = Tracks.update(track, %{bpm_detected: 121.0})
-    Beatgrid.Analysis.broadcast_tick()
-    assert has_element?(view, "#dashboard-insights li", "De 120 a menos de 125 BPM, 1 faixa")
+    Analysis.broadcast_tick()
+
+    assert has_element?(
+             view,
+             "#dashboard-tempo li[aria-label='De 120 a menos de 125 BPM, 1 faixa']"
+           )
   end
 
   test "renders persisted repertoire gaps for the selected folder on mount", %{conn: conn} do

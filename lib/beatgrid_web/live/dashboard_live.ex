@@ -48,7 +48,7 @@ defmodule BeatgridWeb.DashboardLive do
 
   @impl true
   def handle_info({:analysis_tick}, socket),
-    do: {:noreply, assign(socket, :bpm, Dashboard.tempo_distribution())}
+    do: {:noreply, assign(socket, bpm: Dashboard.tempo_distribution())}
 
   def handle_info(
         {:recommend_progress, %{scope: "folder", key: folder, status: :running}},
@@ -87,9 +87,6 @@ defmodule BeatgridWeb.DashboardLive do
 
   defp max_count([]), do: 0
   defp max_count(list), do: list |> Enum.map(fn {_k, v} -> v end) |> Enum.max()
-
-  defp track_count(1), do: "1 faixa"
-  defp track_count(total), do: "#{total} faixas"
 
   defp decade_label(d), do: "#{d}s"
 
@@ -182,21 +179,21 @@ defmodule BeatgridWeb.DashboardLive do
             <.empty :if={@artists == []} />
           </.panel>
 
-          <.panel title="Andamento (BPM)">
-            <ul :if={@bpm != []} class="space-y-2" aria-label="Quantidade de faixas por andamento">
-              <li :for={{bucket, count} <- @bpm}>
-                <span class="sr-only">De {bucket} a menos de {bucket + 5} BPM, {track_count(count)}</span>
-                <div aria-hidden="true">
-                  <.bar_row
-                    label={"#{bucket}–#{bucket + 4}"}
-                    value={count}
-                    max={max_count(@bpm)}
-                    color="var(--color-primary)"
-                    mono
-                  />
-                </div>
+          <.panel id="dashboard-tempo" title="Andamento (BPM)">
+            <ol :if={@bpm != []} class="space-y-2">
+              <li
+                :for={{bucket, count} <- @bpm}
+                aria-label={"De #{bucket} a menos de #{bucket + 5} BPM, #{count} #{if count == 1, do: "faixa", else: "faixas"}"}
+              >
+                <.bar_row
+                  label={"#{bucket}–<#{bucket + 5}"}
+                  value={count}
+                  max={max_count(@bpm)}
+                  color="var(--color-primary)"
+                  mono
+                />
               </li>
-            </ul>
+            </ol>
             <.empty :if={@bpm == []} />
           </.panel>
 

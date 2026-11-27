@@ -185,7 +185,7 @@ defmodule BeatgridWeb.RecSetLiveTest do
              )
 
     assert is_nil(finished.assigns.set)
-    assert MapSet.size(finished.assigns.planning_sets) == 0
+    assert Enum.empty?(finished.assigns.planning_sets)
   end
 
   @tag :tmp_dir
@@ -566,7 +566,7 @@ defmodule BeatgridWeb.RecSetLiveTest do
     {:ok, first} = Sets.create("Primeiro")
     {:ok, second} = Sets.create("Segundo")
     {:ok, view, _} = live(conn, ~p"/set/#{first.id}")
-    view |> element("a[href='/set/#{second.id}']", second.name) |> render_click()
+    view |> element("aside a[href='/set/#{second.id}']") |> render_click()
     assert_patch(view, ~p"/set/#{second.id}")
 
     view |> element("button[phx-click=duplicate_set]") |> render_click()

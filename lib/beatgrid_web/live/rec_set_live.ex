@@ -208,7 +208,7 @@ defmodule BeatgridWeb.RecSetLive do
         %{assigns: %{set: %{id: id}}} = socket
       )
       when is_binary(name) do
-    {:noreply, with_current_set(socket, &rename_set(socket, &1, name))}
+    {:noreply, rename_set(socket, socket.assigns.set, name)}
   end
 
   def handle_event("rename", _params, socket), do: {:noreply, socket}
@@ -218,53 +218,50 @@ defmodule BeatgridWeb.RecSetLive do
         %{"set_id" => id, "style" => style},
         %{assigns: %{set: %{id: id}}} = socket
       ) do
-    {:noreply,
-     with_current_set(socket, fn current ->
-       case Sets.set_target_style(current, blank_to_nil(style)) do
-         {:ok, set} ->
-           load_set(socket, set)
+    case Sets.set_target_style(socket.assigns.set, blank_to_nil(style)) do
+      {:ok, set} ->
+        {:noreply, load_set(socket, set)}
 
-         {:error, %Beatgrid.Error{code: :set_not_found}} ->
-           missing_set(socket)
+      {:error, %Beatgrid.Error{code: :set_not_found}} ->
+        {:noreply, missing_set(socket)}
 
-         {:error, _changeset} ->
-           put_flash(socket, :error, "Não foi possível alterar o estilo-alvo.")
-       end
-     end)}
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Não foi possível alterar o estilo-alvo.")}
+    end
   end
 
   def handle_event("set_target_style", _params, socket), do: {:noreply, socket}
 
   def handle_event("duplicate_set", %{"id" => id}, %{assigns: %{set: %{id: id}}} = socket) do
-    {:noreply,
-     with_current_set(socket, fn current ->
-       case Sets.duplicate(current) do
-         {:ok, copy} ->
-           socket
-           |> refresh_sets()
-           |> put_flash(:info, "Cópia criada: “#{copy.name}”. Você está editando a cópia.")
-           |> push_patch(to: set_path(copy))
+    case Sets.duplicate(socket.assigns.set) do
+      {:ok, copy} ->
+        {:noreply,
+         socket
+         |> refresh_sets()
+         |> put_flash(:info, "Cópia criada: “#{copy.name}”. Você está editando a cópia.")
+         |> push_patch(to: set_path(copy))}
 
-         {:error, %Beatgrid.Error{code: :set_not_found}} ->
-           missing_set(socket)
+      {:error, %Beatgrid.Error{code: :set_not_found}} ->
+        {:noreply, missing_set(socket)}
 
-         {:error, _reason} ->
-           put_flash(socket, :error, "Não foi possível duplicar o set.")
-       end
-     end)}
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Não foi possível duplicar o set.")}
+    end
   end
 
   def handle_event("duplicate_set", _params, socket), do: {:noreply, socket}
 
   def handle_event("delete_set", %{"id" => id}, %{assigns: %{set: %{id: id}}} = socket) do
-    {:noreply,
-     with_current_set(socket, fn current ->
-       case Sets.delete(current) do
-         {:ok, _} -> select_remaining_set(socket)
-         {:error, %Beatgrid.Error{code: :set_not_found}} -> missing_set(socket)
-         {:error, _changeset} -> put_flash(socket, :error, "Não foi possível excluir o set.")
-       end
-     end)}
+    case Sets.delete(socket.assigns.set) do
+      {:ok, _} ->
+        {:noreply, select_remaining_set(socket)}
+
+      {:error, %Beatgrid.Error{code: :set_not_found}} ->
+        {:noreply, missing_set(socket)}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Não foi possível excluir o set.")}
+    end
   end
 
   def handle_event("delete_set", _params, socket), do: {:noreply, socket}
@@ -556,15 +553,6 @@ defmodule BeatgridWeb.RecSetLive do
     label = if action == :plan, do: "Plano falhou", else: "Remix falhou"
 
     put_flash(socket, :error, "#{label}: #{failure_reason(failure)} — o set ficou como estava.")
-  end
-
-  defp with_current_set(socket, fun) do
-    case Sets.get(socket.assigns.set.id) do
-      nil -> missing_set(socket)
-      set -> fun.(set)
-    end
-  rescue
-    Ecto.StaleEntryError -> missing_set(socket)
   end
 
   defp rename_set(socket, set, name) do
