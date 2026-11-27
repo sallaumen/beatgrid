@@ -199,7 +199,7 @@ test("a cut between two running decks never restarts the receiving recording fro
   assert.equal(b.paused, false)
 })
 
-function pendingCut(t, fromId = "a", callbacks = {}) {
+function pendingCut(t, fromId = "a", callbacks = {}, type = "cut") {
   const rig = booth(t, callbacks)
   const {engine} = rig
   if (fromId === "b") {
@@ -208,7 +208,7 @@ function pendingCut(t, fromId = "a", callbacks = {}) {
   }
   const toId = fromId === "a" ? "b" : "a"
   const from = rig[fromId], to = rig[toId]
-  const next = {type: "cut", from_ms: 48_000, to_ms: 1500}
+  const next = {type, from_ms: 48_000, to_ms: 1500}
   rig.hint(next)
   const attempts = []
   const play = Promise.withResolvers()
@@ -220,6 +220,29 @@ function pendingCut(t, fromId = "a", callbacks = {}) {
   })
   from.at(48)
   return {...rig, fromId, toId, from, to, next, play, attempts}
+}
+
+for (const [index, type] of ["crossfade", "fade", "bass_swap", "echo", "filter", "lowpass"].entries()) {
+  test(`a refused ${type} leaves the outgoing record playing and the set ready to retry`, async t => {
+    const fromId = index % 2 ? "b" : "a"
+    const {engine, from, to, toId, play, advances, attempts, tick} = pendingCut(t, fromId, {}, type)
+    assert.equal(engine.sessionDeck(), fromId)
+    assert.deepEqual(advances, [])
+    tick(4500)
+    play.reject(new Error("decoder refused the entry"))
+    await Promise.resolve()
+    tick(20_000)
+    assert.equal(from.paused, false)
+    assert.equal(to.paused, true)
+    assert.equal(engine.snapshot().xfadePos, fromId === "a" ? 0 : 1)
+    assert.equal(attempts.length, 1)
+    assert.deepEqual(advances, [])
+    to.play.mock.restore()
+    assert.equal(engine.fireHint().ok, true)
+    await Promise.resolve()
+    assert.deepEqual(advances.map(event => [event.deck, event.type]), [[toId, type]])
+    assert.equal(to.currentTime, 1.5)
+  })
 }
 
 for (const fromId of ["a", "b"]) {
@@ -328,7 +351,7 @@ test("moving the incoming cue while a cut waits keeps the new cue and the outgoi
 
 test("the fader takes over a pending cut and a late rejection leaves the new load alone", async t => {
   const refused = []
-  const {engine, from, play, advances} = pendingCut(t, "a", {cutRefused: e => refused.push(e)})
+  const {engine, from, play, advances} = pendingCut(t, "a", {entryRefused: e => refused.push(e)})
   engine.setCrossfader(.35)
   assert.equal(engine.loadDeck("b", {id: "replacement", src: "replacement"}), true)
   play.reject(new Error("old play stopped"))
@@ -571,24 +594,27 @@ test("a cleared, loading or stopped successor never steals playback later", t =>
   assert.equal(advances.length, 0)
 })
 
-test("reconnecting during an overlap follows the incoming deck in both directions", t => {
+test("reconnecting during an overlap follows the incoming deck in both directions", async t => {
   const {a, b, hint, engine, tick} = booth(t)
   hint({type: "crossfade", from_ms: 48_000})
   a.at(48)
+  await Promise.resolve()
   assert.equal(a.paused || b.paused, false)
   assert.equal(engine.sessionDeck(), "b")
   tick(9000)
   hint({type: "crossfade", from_ms: 48_000}, "three")
   b.at(48)
+  await Promise.resolve()
   assert.equal(a.paused || b.paused, false)
   assert.equal(engine.sessionDeck(), "a")
 })
 
-test("a cancelled AUTO blend stays on the rescued track inside the same fire window", t => {
+test("a cancelled AUTO blend stays on the rescued track inside the same fire window", async t => {
   const {a, hint, engine, advances} = booth(t)
   const next = {type: "crossfade", from_ms: 50_000}
   hint(next)
   a.at(50)
+  await Promise.resolve()
   assert.equal(engine.cancelTransition().ok, true)
   hint(next)
   a.at(51)
@@ -868,10 +894,11 @@ test("rescuing a vinyl brake restores the DJ's pitch and key-lock setting perman
   assert.equal(a.preservesPitch, false)
 })
 
-test("rescuing a bass swap restores the outgoing low end after the bass has crossed", t => {
+test("rescuing a bass swap restores the outgoing low end after the bass has crossed", async t => {
   const {engine, a, b, hint, tick} = booth(t)
   hint(null)
   assert.equal(engine.fireManual("bass_swap").ok, true)
+  await Promise.resolve()
   tick(4500)
   assert.ok(engine.decks.a.bass.gain.value < 0)
   assert.equal(engine.cancelTransition().ok, true)
@@ -912,10 +939,11 @@ test("one turn of the held DJ2GO2 maps to 1.8 seconds even before scratch audio 
   assert.ok(Math.abs(b.currentTime - 5.35) < 0.0001)
 })
 
-test("letting go after a completed crossfade does not restart the retired deck", t => {
+test("letting go after a completed crossfade does not restart the retired deck", async t => {
   const {engine, a, b, hint, tick} = booth(t)
   hint({type: "crossfade", from_ms: 48_000})
   a.at(48)
+  await Promise.resolve()
   engine.jogTouch("a", true)
   tick(9000)
   engine.jogTouch("a", false)
@@ -1206,10 +1234,11 @@ test("the incoming record also stays reserved throughout a scratch drop", async 
 })
 
 for (const type of ["fade", "crossfade", "echo", "filter", "lowpass", "bass_swap", "brake"]) {
-  test(`${type} cleanup leaves the next record available for headphone preview`, t => {
+  test(`${type} cleanup leaves the next record available for headphone preview`, async t => {
     const {engine, a, b, hint, tick} = booth(t)
     hint(null)
     assert.equal(engine.fireManual(type).ok, true)
+    await Promise.resolve()
     engine.playPause("a")
     assert.equal(hint(null, "three"), "a")
     engine.setRate("a", 1.06)
@@ -1284,35 +1313,39 @@ test("stopping a scratch drop cannot silence a new scratch pad on its next tick"
   assert.equal(b.plays, 0)
 })
 
-test("stopping an echo turns off its indicator once", t => {
+test("stopping an echo turns off its indicator once", async t => {
   const lights = []
   const {engine, hint, tick} = booth(t, {echoState: ({on}) => lights.push(on)})
   hint(null)
   assert.equal(engine.fireManual("echo").ok, true)
+  await Promise.resolve()
   engine.stopAll()
   assert.deepEqual(lights, [true, false])
   tick(12_000)
   assert.deepEqual(lights, [true, false])
 })
 
-test("a rescued echo cannot turn off the next echo early", t => {
+test("a rescued echo cannot turn off the next echo early", async t => {
   const lights = []
   const {engine, hint, tick} = booth(t, {echoState: ({on}) => lights.push(on)})
   hint(null)
   assert.equal(engine.fireManual("echo").ok, true)
+  await Promise.resolve()
   tick(2000)
   assert.equal(engine.cancelTransition().ok, true)
   assert.equal(engine.fireManual("echo").ok, true)
+  await Promise.resolve()
   tick(5000)
   assert.deepEqual(lights, [true, false, true])
   tick(2000)
   assert.deepEqual(lights, [true, false, true, false])
 })
 
-test("an early bass swap rescue leaves the incoming deck ready to play with flat bass", t => {
+test("an early bass swap rescue leaves the incoming deck ready to play with flat bass", async t => {
   const {engine, b, hint} = booth(t)
   hint(null)
   assert.equal(engine.fireManual("bass_swap").ok, true)
+  await Promise.resolve()
   // The stub applies future ramps immediately. Web Audio still reads -24 dB before the swap.
   engine.decks.b.bass.gain.value = -24
   assert.equal(engine.cancelTransition().ok, true)
@@ -1322,10 +1355,11 @@ test("an early bass swap rescue leaves the incoming deck ready to play with flat
 })
 
 for (const type of ["crossfade", "fade", "filter", "lowpass", "echo", "bass_swap", "brake"]) {
-  test(`holding CUE on the same outgoing record survives ${type} cleanup`, t => {
+  test(`holding CUE on the same outgoing record survives ${type} cleanup`, async t => {
     const {engine, a, b, hint, tick} = booth(t)
     hint(null)
     assert.equal(engine.fireManual(type).ok, true)
+    await Promise.resolve()
     engine.cueButton("a", true)
     engine.cueButton("a", false)
     engine.cueButton("a", true)
@@ -1363,11 +1397,12 @@ test("a manual LOAD distinguishes a silent gap from a session waiting for its ne
 })
 
 for (const method of ["LOAD", "set preload"]) {
-  test(`replacing the outgoing record via ${method} turns off its echo light immediately`, t => {
+  test(`replacing the outgoing record via ${method} turns off its echo light immediately`, async t => {
     const lights = []
     const {engine, a, b, hint, tick} = booth(t, {echoState: ({on}) => lights.push(on)})
     hint(null)
     assert.equal(engine.fireManual("echo").ok, true)
+    await Promise.resolve()
     engine.playPause("a")
     assert.deepEqual(lights, [true])
     if (method === "LOAD") {
@@ -1477,10 +1512,11 @@ test("unplugging and reconnecting the four-channel output rewires the PFL during
 })
 
 for (const type of ["fade", "filter", "lowpass", "echo", "bass_swap", "brake"]) {
-  test(`a loop prepared on the outgoing record survives ${type} cleanup`, t => {
+  test(`a loop prepared on the outgoing record survives ${type} cleanup`, async t => {
     const {engine, a, b, hint, tick} = booth(t)
     hint(null)
     assert.equal(engine.fireManual(type).ok, true)
+    await Promise.resolve()
     if (!a.paused) engine.playPause("a")
     engine.cueTo("a", 1250)
     engine.beatLoop("a", 2)
@@ -1494,7 +1530,7 @@ for (const type of ["fade", "filter", "lowpass", "echo", "bass_swap", "brake"]) 
   })
 }
 
-test("AUTO fits its crossfade to the section remaining after a prepared hot cue", t => {
+test("AUTO fits its crossfade to the section remaining after a prepared hot cue", async t => {
   const {engine, a, b, tick} = booth(t)
   engine.armHint({
     track: {id: "next", src: "next", markers: [{type: "cue", ms: 6000}]},
@@ -1502,6 +1538,7 @@ test("AUTO fits its crossfade to the section remaining after a prepared hot cue"
   })
   engine.cueTo("b", 4000)
   a.at(48)
+  await Promise.resolve()
   assert.equal(b.currentTime, 4)
   tick(1900)
   assert.equal(a.paused, false)
