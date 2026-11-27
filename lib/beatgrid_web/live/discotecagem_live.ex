@@ -383,14 +383,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
     case params do
       %{"playing_track_id" => id, "deck" => deck} when is_binary(id) and deck in ["a", "b"] ->
-        {:noreply, socket} =
-          handle_event("deck_started", %{"deck" => deck, "track_id" => id}, socket)
-
-        socket = restore_loaded_decks(socket, decks)
-
-        if params["has_hint"] && is_nil(socket.assigns.hint),
-          do: {:noreply, clear_client_hint(socket)},
-          else: {:noreply, socket}
+        {:noreply, restore_playing_session(socket, deck, id, params)}
 
       %{"paused_deck" => deck} when deck in ["a", "b"] and is_map(decks) ->
         socket = restore_loaded_decks(socket, decks)
@@ -603,6 +596,15 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
   defp assign_deck(socket, "a", track), do: assign(socket, deck_a: track)
   defp assign_deck(socket, "b", track), do: assign(socket, deck_b: track)
+
+  defp restore_playing_session(socket, deck, id, params) do
+    {:noreply, socket} = handle_event("deck_started", %{"deck" => deck, "track_id" => id}, socket)
+    socket = restore_loaded_decks(socket, params["decks"])
+
+    if params["has_hint"] && is_nil(socket.assigns.hint),
+      do: clear_client_hint(socket),
+      else: socket
+  end
 
   defp restore_loaded_decks(socket, %{"a" => a, "b" => b}) do
     a = get_track(a)
