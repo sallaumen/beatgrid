@@ -67,6 +67,9 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
       side = String.upcase(deck)
 
       for slot <- 1..4 do
+        assert has_element?(view, ~s(#dj-pad-#{deck}-#{slot}.h-7.px-1[title="Hot cue #{slot}"]))
+        assert has_element?(view, "#dj-padlab-#{deck}-#{slot}.min-w-0.truncate")
+
         assert has_element?(
                  view,
                  "#dj-pad-#{deck}-#{slot}[disabled] .sr-only",

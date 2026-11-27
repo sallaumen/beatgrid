@@ -2181,6 +2181,14 @@ defmodule BeatgridWeb.RecSetLive do
           class="w-full rounded-md border border-white/8 bg-input px-3 py-2 text-body focus:border-primary/50 focus:outline-none"
         />
       </form>
+      <p
+        :if={@results == [] and String.trim(@query) != ""}
+        id="set-search-empty"
+        role="status"
+        class="mt-2 text-body-sm text-ink-muted"
+      >
+        Nenhuma faixa encontrada.
+      </p>
       <div :if={@results != []} id="search-results" class="mt-2 space-y-1">
         <div
           :for={t <- @results}
