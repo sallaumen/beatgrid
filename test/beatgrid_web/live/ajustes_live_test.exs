@@ -46,6 +46,7 @@ defmodule BeatgridWeb.AjustesLiveTest do
 
     assert Beatgrid.Loudness.target_lufs() == -12.5
     assert render(view) =~ "personalizado"
+    assert has_element?(view, "#ajuste-card-target_lufs [role=status]", "salvo")
 
     view
     |> element("#ajuste-card-target_lufs button[phx-click=reset]")
@@ -64,6 +65,8 @@ defmodule BeatgridWeb.AjustesLiveTest do
       |> render_submit(%{"value" => "1.5"})
 
     assert html =~ "inválido"
+    assert has_element?(view, "#ajuste-card-instrumental_min [role=alert]", "inválido")
+    assert has_element?(view, "#ajuste-instrumental_min input[aria-invalid=true]")
     assert TrackQuery.instrumental_min() == 0.1
   end
 

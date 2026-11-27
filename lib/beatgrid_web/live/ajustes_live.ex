@@ -50,13 +50,14 @@ defmodule BeatgridWeb.AjustesLive do
     with %{} = entry <- Registry.by_param(key),
          {:ok, parsed} <- Registry.parse(entry.key, value) do
       {:ok, _} = Settings.put(entry.key, parsed)
-      {:noreply, socket |> assign(toast: {:ok, "“#{entry.label}” salvo."}) |> load()}
+      {:noreply, socket |> assign(toast: {:ok, key, "Valor salvo."}) |> load()}
     else
       nil ->
         {:noreply, socket}
 
       :error ->
-        {:noreply, assign(socket, toast: {:error, "Valor inválido — confira o tipo e a faixa."})}
+        {:noreply,
+         assign(socket, toast: {:error, key, "Valor inválido. Confira a faixa permitida."})}
     end
   end
 
@@ -67,7 +68,7 @@ defmodule BeatgridWeb.AjustesLive do
 
       entry ->
         :ok = Settings.delete(entry.key)
-        {:noreply, socket |> assign(toast: {:ok, "“#{entry.label}” voltou ao padrão."}) |> load()}
+        {:noreply, socket |> assign(toast: {:ok, key, "Valor padrão restaurado."}) |> load()}
     end
   end
 
@@ -95,87 +96,96 @@ defmodule BeatgridWeb.AjustesLive do
       </header>
 
       <div class="mx-auto max-w-[1100px] px-3 py-5 sm:px-6">
-        <div
-          :if={@toast}
-          class={[
-            "mb-4 flex items-center justify-between gap-4 rounded-md border px-4 py-2 text-body-sm",
-            elem(@toast, 0) == :ok && "border-primary/30 bg-primary/10 text-ink",
-            elem(@toast, 0) == :error && "border-coral/40 bg-coral/10 text-coral"
-          ]}
-        >
-          <span role="status">{elem(@toast, 1)}</span>
-          <button
-            phx-click="dismiss_toast"
-            aria-label="Fechar aviso"
-            class="text-ink-muted hover:text-ink"
-          >
-            ✕
-          </button>
-        </div>
-
         <div class="space-y-6">
           <section :for={{title, entries} <- @groups} :if={entries != []}>
             <h2 class="mb-2 text-[18px] font-semibold">{title}</h2>
-            <div class="grid gap-3 lg:grid-cols-2">
+            <div class="divide-y divide-white/8 rounded-xl border border-white/8 bg-surface px-4">
               <section
                 :for={e <- entries}
                 id={"ajuste-card-#{e.key}"}
-                class="flex flex-col rounded-xl border border-white/8 bg-surface p-4"
+                class="grid gap-3 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(19rem,auto)] lg:items-start"
               >
-                <div class="flex items-center justify-between gap-2">
-                  <h3 class="text-body font-medium">{e.label}</h3>
-                  <span
-                    :if={e.override?}
-                    class="rounded-full bg-amber/15 px-2 py-px text-[10px] font-semibold text-amber"
+                <div class="min-w-0">
+                  <label for={"ajuste-value-#{e.key}"} class="text-body-lg font-semibold">{e.label}</label>
+                  <span :if={e.override?} class="ml-1 text-caption font-semibold text-amber">personalizado</span>
+                  <p
+                    id={"ajuste-description-#{e.key}"}
+                    class="mt-1 max-w-prose text-body text-ink-muted"
                   >
-                    personalizado
-                  </span>
-                  <span
-                    :if={!e.override?}
-                    class="text-ink-faint rounded-full bg-white/5 px-2 py-px text-[10px] font-semibold"
-                  >
-                    padrão
-                  </span>
+                    {e.description}
+                  </p>
                 </div>
 
-                <p class="text-ink-muted mt-1 flex-1 text-body-sm">{e.description}</p>
-
-                <form
-                  id={"ajuste-#{e.key}"}
-                  phx-submit="save"
-                  class="mt-3 flex flex-wrap items-center gap-2"
-                >
-                  <input type="hidden" name="key" value={e.key} />
-                  <input
-                    type="number"
-                    name="value"
-                    value={e.current}
-                    aria-label={e.label}
-                    step={if e.type == :integer, do: "1", else: "any"}
-                    min={e.min}
-                    max={e.max}
-                    class="w-32 rounded-md border border-white/8 bg-input px-3 py-1.5 font-mono text-body-sm tabular-nums focus:border-primary/50"
-                  />
-                  <span :if={e.unit} class="text-ink-faint text-caption">{e.unit}</span>
-                  <button class="rounded-md bg-primary-deep px-3 py-1.5 text-body-sm font-semibold text-white">
-                    Salvar
-                  </button>
-                  <button
-                    :if={e.override?}
-                    type="button"
-                    phx-click="reset"
-                    phx-value-key={e.key}
-                    class="rounded-md border border-white/10 bg-input px-2.5 py-1.5 text-body-sm text-ink-secondary hover:text-ink"
+                <div class="space-y-1.5">
+                  <form
+                    id={"ajuste-#{e.key}"}
+                    phx-submit="save"
+                    phx-auto-recover="ignore"
+                    class="flex flex-wrap items-center gap-2"
                   >
-                    Restaurar padrão
-                  </button>
-                </form>
+                    <input type="hidden" name="key" value={e.key} />
+                    <div class="flex min-w-0 items-center gap-1.5">
+                      <input
+                        id={"ajuste-value-#{e.key}"}
+                        type="number"
+                        name="value"
+                        value={e.current}
+                        aria-describedby={"ajuste-range-#{e.key} ajuste-description-#{e.key}"}
+                        aria-invalid={
+                          if @toast && elem(@toast, 0) == :error &&
+                               elem(@toast, 1) == to_string(e.key), do: "true", else: "false"
+                        }
+                        required
+                        step={if e.type == :integer, do: "1", else: "any"}
+                        min={e.min}
+                        max={e.max}
+                        class="w-28 rounded-md border border-white/10 bg-input px-3 py-2 font-mono text-body tabular-nums focus:border-primary/50"
+                      />
+                      <span :if={e.unit} class="text-body-sm text-ink-muted">{e.unit}</span>
+                    </div>
+                    <button class="rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-body-sm font-semibold text-primary hover:bg-primary/15">Salvar</button>
+                    <button
+                      :if={e.override?}
+                      type="button"
+                      phx-click="reset"
+                      phx-value-key={e.key}
+                      class="rounded-md border border-white/10 bg-input px-2.5 py-2 text-body-sm text-ink-secondary hover:text-ink"
+                    >
+                      Restaurar padrão
+                    </button>
+                  </form>
 
-                <p class="text-ink-faint mt-2 text-caption">
-                  Padrão: {e.default}{if e.unit, do: " #{e.unit}"} · faixa: {e.min}{if e.max,
-                    do: " a #{e.max}",
-                    else: " ou mais"}
-                </p>
+                  <p id={"ajuste-range-#{e.key}"} class="text-body-sm text-ink-muted">
+                    Valor padrão <span class="font-mono tabular-nums">{e.default}</span>{if e.unit,
+                      do: " #{e.unit}"}
+                    <span aria-hidden="true"> · </span>
+                    Faixa <span class="font-mono tabular-nums">{e.min}</span>
+                    {if e.max, do: " a ", else: " ou mais"}<span
+                      :if={e.max}
+                      class="font-mono tabular-nums"
+                    >{e.max}</span>
+                  </p>
+                  <div
+                    :if={@toast && elem(@toast, 1) == to_string(e.key)}
+                    class="flex items-center gap-2"
+                  >
+                    <p
+                      role={if elem(@toast, 0) == :error, do: "alert", else: "status"}
+                      class={[
+                        "text-body-sm",
+                        if(elem(@toast, 0) == :error, do: "text-coral", else: "text-green")
+                      ]}
+                    >
+                      {elem(@toast, 2)}
+                    </p>
+                    <button
+                      type="button"
+                      phx-click="dismiss_toast"
+                      aria-label="Fechar aviso"
+                      class="text-ink-muted hover:text-ink"
+                    ><.icon name="hero-x-mark-mini" class="size-4" /></button>
+                  </div>
+                </div>
               </section>
             </div>
           </section>
