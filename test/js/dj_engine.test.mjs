@@ -84,7 +84,7 @@ function booth(t, callbacks = {}) {
   return {a, b, engine, hint, breath, advances, ends, tick: ms => t.mock.timers.tick(ms)}
 }
 
-async function scratchBooth(t, id) {
+async function scratchBooth(t, id, channels = 1) {
   const commands = []
   globalThis.AudioWorkletNode = class extends AudioNodeStub {
     port = {postMessage: message => commands.push(message)}
@@ -94,10 +94,110 @@ async function scratchBooth(t, id) {
   t.mock.method(globalThis, "fetch", async () => new Response(new ArrayBuffer(0)))
   const samples = new Float32Array(8 * 8000)
   await loadPeaks(id, id, {decodeAudioData: async () => ({
-    sampleRate: 8000, duration: 8, numberOfChannels: 1, getChannelData: () => samples
+    sampleRate: 8000, duration: 8, numberOfChannels: channels, getChannelData: () => samples
   })})
   return {...rig, commands}
 }
+
+for (const [fromId, mode] of [["a", "auto"], ["b", "manual"]]) {
+  test(`the ${mode} cut from ${fromId} starts the cached stereo recording at its actual cue`, async t => {
+    const id = "recorded-cut-" + fromId
+    const {engine, a, b, hint} = await scratchBooth(t, id, 2)
+    const toId = fromId === "a" ? "b" : "a", from = fromId === "a" ? a : b
+    if (fromId === "b") {
+      engine.stopAll()
+      engine.loadDeck(fromId, {id: "out", src: "out"}, {autoplay: true})
+    }
+    hint({type: "cut", from_ms: 48_000, to_ms: 1500}, id)
+    if (mode === "manual") {
+      engine.cueTo(toId, 2750)
+      engine.setVinylMode(toId, true)
+      engine.setRate(toId, 1.06)
+    }
+    const rate = mode === "manual" ? 1.06 : 1
+    const expected = mode === "manual" ? 2.75 : 1.5
+    const started = []
+    const create = engine.ctx.createBufferSource.bind(engine.ctx)
+    t.mock.method(engine.ctx, "createBufferSource", () => {
+      const source = create()
+      source.start = (when, offset) => started.push({when, offset, rate: source.playbackRate.value, channels: source.buffer.numberOfChannels})
+      return source
+    })
+    const now = engine.ctx.currentTime
+    if (mode === "manual") assert.equal(engine.fireManual("cut").ok, true)
+    else from.at(48)
+    await Promise.resolve()
+    assert.deepEqual(started, [{when: now, offset: expected, rate, channels: 2}])
+    engine.ctx.currentTime = now + 0.125
+    assert.equal(engine.snapshot()[toId].posMs, Math.round((expected + 0.125 * rate) * 1000))
+    engine.ctx.currentTime = now
+  })
+}
+
+test("a cold native cut keeps the outgoing signal through its fader ramp, including a musical rest", async t => {
+  const {engine, a, b, hint, tick, advances} = booth(t)
+  hint({type: "cut", from_ms: 48_000}, "no-decoded-stereo")
+  a.at(48)
+  await Promise.resolve()
+  assert.equal(engine.sessionDeck(), "b")
+  assert.equal(a.paused, false)
+  assert.equal(b.paused, false)
+  tick(200)
+  assert.equal(a.paused, false)
+  tick(100)
+  assert.equal(a.paused, true)
+  assert.equal(advances.length, 1)
+})
+
+for (const fromId of ["a", "b"]) {
+  test(`an incoming track ending inside the cut from ${fromId} finishes the correct track`, async t => {
+    const {engine, a, b, hint, tick, ends} = booth(t)
+    const from = fromId === "a" ? a : b
+    const to = fromId === "a" ? b : a
+    if (fromId === "b") {
+      engine.stopAll()
+      engine.loadDeck("b", {id: "out", src: "out"}, {autoplay: true})
+    }
+    hint({type: "cut", from_ms: 48_000, to_ms: 59_950}, "short-entry")
+    from.at(48)
+    await Promise.resolve()
+    tick(50)
+    to.end()
+    tick(250)
+    assert.deepEqual(ends.map(event => event.trackId), ["short-entry"])
+    assert.equal(engine.sessionDeck(), null)
+  })
+}
+
+test("the old cut timer leaves a rescued deck playing at the manual fader position", async t => {
+  const {engine, a, b, hint, tick, ends} = booth(t)
+  hint({type: "cut", from_ms: 48_000, to_ms: 59_950})
+  a.at(48)
+  await Promise.resolve()
+  engine.setCrossfader(0.36)
+  engine.playPause("b")
+  b.end()
+  tick(250)
+  assert.equal(engine.sessionDeck(), "a")
+  assert.equal(a.paused, false)
+  assert.equal(engine.snapshot().xfadePos, 0.36)
+  assert.deepEqual(ends, [])
+})
+
+test("a cut between two running decks never restarts the receiving recording from its old cue", async t => {
+  const {engine, a, b, hint, tick} = await scratchBooth(t, "already-spinning", 2)
+  hint({type: "cut", to_ms: 1500}, "already-spinning")
+  engine.playPause("b")
+  b.at(4.75)
+  const starts = t.mock.method(engine.ctx, "createBufferSource")
+  assert.equal(engine.fireManual("cut").ok, true)
+  assert.equal(b.currentTime, 4.75)
+  assert.equal(b.plays, 1)
+  assert.equal(starts.mock.callCount(), 0)
+  tick(10)
+  assert.equal(a.paused, true)
+  assert.equal(b.paused, false)
+})
 
 function pendingCut(t, fromId = "a", callbacks = {}) {
   const rig = booth(t, callbacks)
@@ -157,6 +257,7 @@ for (const fromId of ["a", "b"]) {
     to.play.mock.restore()
     assert.equal(engine.fireHint().ok, true)
     await Promise.resolve()
+    tick(250)
     assert.equal(from.paused, true)
     assert.deepEqual(advances.map(e => e.deck), [toId])
   })
@@ -212,6 +313,17 @@ test("a duplicate lookahead or resting MIDI fader doesn't revoke a cut", async t
   play.resolve()
   await Promise.resolve()
   assert.deepEqual(advances.map(e => e.toTrackId), ["two"])
+})
+
+test("moving the incoming cue while a cut waits keeps the new cue and the outgoing track", async t => {
+  const {engine, play, from, to, advances} = pendingCut(t)
+  engine.cueTo("b", 3500)
+  play.resolve()
+  await Promise.resolve()
+  assert.equal(to.currentTime, 3.5)
+  assert.equal(to.paused, true)
+  assert.equal(from.paused, false)
+  assert.deepEqual(advances, [])
 })
 
 test("the fader takes over a pending cut and a late rejection leaves the new load alone", async t => {
@@ -327,11 +439,12 @@ test("stop cancels a buffered autoplay and a pending breather", t => {
 })
 
 test("rescue cannot play a new preload in place of the outgoing record", async t => {
-  const {a, b, hint, engine, advances} = booth(t)
+  const {a, b, hint, engine, advances, tick} = booth(t)
   hint({type: "cut", from_ms: 50_000})
   a.at(50)
   assert.equal(b.plays, 1)
   await Promise.resolve()
+  tick(250)
   assert.equal(hint(null, "three"), "a")
   assert.equal(engine.cancelTransition().ok, false)
   assert.equal(a.plays, 1)
