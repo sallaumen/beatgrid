@@ -948,9 +948,27 @@ defmodule BeatgridWeb.DiscotecagemLive do
             role="img"
             class="block h-14 w-full"
           ></canvas>
+          <div class="flex items-center gap-3 border-t border-white/8 px-2 pt-1 text-body-sm text-ink-muted">
+            <span>Volume dos decks</span>
+            <span class="inline-flex items-center gap-1">
+              <span aria-hidden="true" class="w-3 border-t-2 border-amber"></span> Saída
+            </span>
+            <span class="inline-flex items-center gap-1">
+              <span aria-hidden="true" class="w-3 border-t-2 border-dashed border-green"></span>
+              Entrada
+            </span>
+          </div>
+          <canvas
+            data-gains
+            role="img"
+            aria-label="Volume dos decks"
+            aria-describedby="dj-rehearsal-timing"
+            class="block h-8 w-full"
+          ></canvas>
           <span data-cursor hidden class="pointer-events-none absolute inset-y-0 w-px bg-primary"></span>
         </div>
-        <p data-timing class="mt-1 font-mono text-caption text-ink-muted"></p>
+        <p id="dj-rehearsal-timing" data-timing class="mt-1 font-mono text-body-sm text-ink-muted">
+        </p>
         <BeatgridWeb.PassageScore.result id="dj-rehearsal-score" />
         <div class="mt-4 flex flex-wrap items-center gap-3">
           <button
