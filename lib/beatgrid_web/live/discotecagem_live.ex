@@ -358,14 +358,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
     case params do
       %{"playing_track_id" => id, "deck" => deck} when is_binary(id) and deck in ["a", "b"] ->
-        {:noreply, socket} =
-          handle_event("deck_started", %{"deck" => deck, "track_id" => id}, socket)
-
-        socket = restore_loaded_decks(socket, decks)
-
-        if params["has_hint"] && is_nil(socket.assigns.hint),
-          do: {:noreply, clear_client_hint(socket)},
-          else: {:noreply, socket}
+        {:noreply, restore_playing_session(socket, deck, id, params)}
 
       %{"paused_deck" => deck} when deck in ["a", "b"] and is_map(decks) ->
         {:noreply, restore_paused_session(socket, deck, decks, params["manual_hint"])}
@@ -502,9 +495,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
       end
     else
       _ ->
-        socket
-        |> put_flash(:error, "Set não encontrado.")
-        |> push_patch(to: ~p"/discotecagem", replace: true)
+        socket |> clear_selected_set() |> put_flash(:error, "Set não encontrado.")
     end
   end
 
@@ -631,6 +622,15 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
   defp assign_deck(socket, "a", track), do: assign(socket, deck_a: track)
   defp assign_deck(socket, "b", track), do: assign(socket, deck_b: track)
+
+  defp restore_playing_session(socket, deck, id, params) do
+    {:noreply, socket} = handle_event("deck_started", %{"deck" => deck, "track_id" => id}, socket)
+    socket = restore_loaded_decks(socket, params["decks"])
+
+    if params["has_hint"] && is_nil(socket.assigns.hint),
+      do: clear_client_hint(socket),
+      else: socket
+  end
 
   defp restore_loaded_decks(socket, %{"a" => a, "b" => b}) do
     a = get_track(a)
@@ -1387,7 +1387,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           background: rgba(255, 176, 32, 0.12);
           box-shadow: 0 0 10px rgba(255, 176, 32, 0.35);
         }
-        [id^="dj-loop-"][data-on="true"] {
+        [id^="dj-loop-"][aria-pressed="true"] {
           border-color: #5ad1a0;
           color: #5ad1a0;
           background: rgba(90, 209, 160, 0.12);
@@ -1446,7 +1446,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
       <script :type={Phoenix.LiveView.ColocatedHook} name=".DjConsole">
         import {createEngine} from "@/js/dj/engine.js"
         import {separateOutputs, unlockOutputNames} from "@/js/dj/outputs.js"
-        import {paintDeckStatus} from "@/js/dj/deck_status.js"
+        import {paintDeckStatus, paintLoopRegion} from "@/js/dj/deck_status.js"
         import {hotCues} from "@/js/dj/hot_cues.js"
         import {loadPeaks, drawWave} from "@/js/dj/waveform.js"
 
@@ -1609,31 +1609,18 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 },
                 durationChanged: ({deck}) => {
                   if (this.tracks[deck]) this.renderMarkers(deck, this.tracks[deck])
+                  paintLoopRegion(byId(`dj-loopregion-${deck}`), this.engine.decks[deck])
                 },
                 loopTooLong: ({deck, beats}) => {
                   const length = beats === 1 ? "1 tempo" : `${beats} tempos`
                   this.notice(`O loop de ${length} passa do fim da faixa no deck ${deck.toUpperCase()}.`)
                 },
-                loopState: ({deck, on, startMs, endMs, beats}) => {
+                loopState: ({deck, on, beats}) => {
                   for (const b of [1, 2, 4, 8]) {
                     const chip = byId(`dj-loop-${deck}-${b}`)
-                    if (chip) chip.dataset.on = on && beats === b ? "true" : "false"
+                    if (chip) chip.setAttribute("aria-pressed", String(on && beats === b))
                   }
-                  const region = byId(`dj-loopregion-${deck}`)
-                  if (region) {
-                    // Mesma fonte de duração do playhead: a mídia real primeiro
-                    // (metadados de VBR mentem), o banco como fallback.
-                    const dur =
-                      (this.engine.decks[deck].el.duration || 0) * 1000 ||
-                      (this.tracks[deck] && this.tracks[deck].duration_ms)
-                    if (on && endMs != null && dur) {
-                      region.style.left = `${(startMs / dur) * 100}%`
-                      region.style.width = `${((endMs - startMs) / dur) * 100}%`
-                      region.style.display = "block"
-                    } else {
-                      region.style.display = "none"
-                    }
-                  }
+                  paintLoopRegion(byId(`dj-loopregion-${deck}`), this.engine.decks[deck])
                   if (on) {
                     this.log(
                       `loop ${beats ? beats + (beats === 1 ? " tempo" : " tempos") : "manual"} no deck ${deck.toUpperCase()}`
@@ -2263,6 +2250,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           },
 
           clearDeckStatics(d) {
+            byId(`dj-loops-${d}`).disabled = true
             this.setVinyl(d, null)
             const marks = byId(`dj-marks-${d}`)
             if (marks) marks.innerHTML = ""
@@ -2366,6 +2354,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           },
 
           renderDeckStatics(d, track) {
+            byId(`dj-loops-${d}`).disabled = false
             this.setVinyl(d, track)
             this.renderMarkers(d, track)
             const bpmEl = byId(`dj-jogbpm-${d}`)
@@ -3519,11 +3508,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 title={"Hot cue #{n}"}
                 class="flex h-7 items-center justify-center rounded-md border border-white/8 bg-[#101218] text-[9px] font-semibold text-ink-faint transition-colors disabled:opacity-40"
               >
+                <span class="sr-only">Hot cue {n} do deck {String.upcase(@d)} · </span>
                 <span id={"dj-padlab-#{@d}-#{n}"}>—</span>
               </button>
             </div>
 
-            <div class="flex w-full items-center gap-1">
+            <fieldset id={"dj-loops-#{@d}"} disabled class="flex w-full items-center gap-1">
               <span class="w-7 text-[8px] font-bold uppercase tracking-wider text-ink-faint">
                 Loop
               </span>
@@ -3531,13 +3521,14 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 :for={beats <- [1, 2, 4, 8]}
                 id={"dj-loop-#{@d}-#{beats}"}
                 type="button"
-                data-on="false"
+                aria-pressed="false"
+                aria-label={"Loop de #{beats} #{if beats == 1, do: "tempo", else: "tempos"} no deck #{String.upcase(@d)}"}
                 title={"Loop de #{beats} #{if beats == 1, do: "tempo", else: "tempos"}"}
-                class="h-6 flex-1 rounded-md border border-white/8 bg-[#101218] font-mono text-[9px] font-bold text-ink-faint transition-colors hover:border-green/50 hover:text-green"
+                class="h-6 flex-1 rounded-md border border-white/8 bg-[#101218] font-mono text-[9px] font-bold text-ink-faint transition-colors hover:border-green/50 hover:text-green disabled:opacity-40"
               >
                 {beats}
               </button>
-            </div>
+            </fieldset>
           </div>
 
           <div class="flex w-9 flex-col items-center gap-1">

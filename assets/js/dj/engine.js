@@ -727,7 +727,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       breatherOut(from, to, transition, event, token)
       return
     }
-    state.fireScale = fitScale(from, mode === "auto" ? state.hint : null, toMs)
+    const entryMs = to._cued || to.audible() || toMs == null ? to.platterTime() * 1000 : toMs
+    state.fireScale = fitScale(from, mode === "auto" ? state.hint : null, entryMs)
     if (state.fireScale < 0.95) emit("transitionSqueezed", {type, factor: state.fireScale})
     const run = TRANSITIONS()[type] || cut
     state.pendingEntry = to.id
@@ -1274,6 +1275,12 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     return ++state.transitionToken
   }
 
+  // Transition cleanup resets effects only: the DJ may have armed a new loop since fire.
+  function resetDeck(deck) {
+    clearLoop(deck)
+    resetChain(deck)
+  }
+
   // Return a silenced deck to a neutral chain: unity gain, open filter, flat
   // shelf, no echo, natural tempo. Only ever called on non-audible decks.
   function resetChain(deck) {
@@ -1297,7 +1304,6 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // The echo blooms the feedback — bring it back to its resting value.
     deck.settleParam(deck.feedback.gain)
     deck.feedback.gain.setValueAtTime(RAMP.echoFeedback, now)
-    clearLoop(deck)
     deck.vinylMode = false
     deck.stopEcho?.()
     deck.stopBrake?.()
@@ -1883,7 +1889,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       if (deckBusy(deckId) || !deck.load(track, atMs)) return false
       // A fresh load is a fresh instrument — loop off (chips/região avisados),
       // FX neutros, tempo natural. Vale para preload manual também.
-      resetChain(deck)
+      resetDeck(deck)
       if (state.hint && state.hint.deck === deckId) {
         // The DJ overrode the armed preload: the hint must point at what is
         // REALLY on the deck, and the old track's entry point means nothing.
@@ -1926,7 +1932,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       if (deckBusy(idle)) return false
       const atMs = hint.transition?.to_ms ?? 0
       if (deck.trackId !== hint.track.id || deck.el.error || deck.el.ended) {
-        resetChain(deck)
+        resetDeck(deck)
         deck.load(hint.track, atMs)
       } else if (!deck._cued) {
         deck._pendingSeekMs = atMs
@@ -2108,11 +2114,13 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       const deck = decks[deckId]
       if (deck.trackId == null) return
       placePlatter(deck, ms / 1000)
-      if (jog[deckId].held && scratch[deckId].active) {
-        // A pad jump is discontinuous. Reposition the scratch head too, so
-        // the next jog turn or release continues from the selected marker.
+      const pattern = autoScratch[deckId]
+      if (scratch[deckId].active && (jog[deckId].held || pattern)) {
+        // Reset the worklet head on a jump; a held pattern also releases at its center.
+        const position = deck.clampPosition(ms / 1000) * sr
+        if (pattern) pattern.center = position
         scratch[deckId].node.port.postMessage({type: "stop"})
-        scratchScrub(deckId, deck.clampPosition(ms / 1000) * sr)
+        scratchScrub(deckId, position)
       }
     },
 
@@ -2206,7 +2214,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       deck.el.removeAttribute("src")
       deck.el.load()
       retainScratch(deck, null)
-      resetChain(deck)
+      resetDeck(deck)
       if (state.hint && state.hint.deck === deckId) this.clearHint()
       return true
     },
@@ -2287,7 +2295,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         decks[d].cueState = null
         resetScratch(d, true)
         cancelBend(d)
-        resetChain(decks[d])
+        resetDeck(decks[d])
       }
       state.activeDeck = null
       state.hint = null

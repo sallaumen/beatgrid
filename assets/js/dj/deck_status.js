@@ -26,3 +26,16 @@ export function paintDeckStatus(readout, deck, scratchPosition) {
   readout.dataset.state = state
   readout.textContent = LABELS[state]
 }
+
+export function paintLoopRegion(region, deck) {
+  if (!region) return
+  const {on, startMs, endMs} = deck.loop
+  const durationMs = Number.isFinite(deck.el.duration) ? deck.el.duration * 1000 : deck.durationMs
+  if (!on || endMs == null || !(durationMs > 0)) {
+    region.style.display = "none"
+    return
+  }
+  region.style.left = `${startMs / durationMs * 100}%`
+  region.style.width = `${(endMs - startMs) / durationMs * 100}%`
+  region.style.display = "block"
+}
