@@ -1946,6 +1946,83 @@ test("arming reserves the pair without touching either transport, even at the AU
   assert.deepEqual(rig.ends.map(e => e.trackId), ["one"])
 })
 
+test("the incoming cue stays at its first sample when recalling the controls takes time", async t => {
+  let engine
+  const rig = booth(t, {mixApplied() { engine.ctx.currentTime += .012 }})
+  engine = rig.engine
+  const starts = []
+  const create = engine.ctx.createBufferSource.bind(engine.ctx)
+  t.mock.method(engine.ctx, "createBufferSource", () => {
+    const source = create()
+    source.start = (at, offset) => starts.push({at, offset})
+    return source
+  })
+  const ramps = []
+  t.mock.method(Param.prototype, "linearRampToValueAtTime", function(value, when) {
+    ramps.push({value, when, scheduled: engine.ctx.currentTime})
+    this.value = value
+  })
+  preparePassage(rig, "cut")
+  const {plan, pair} = engine.passage()
+  const into = {...engine.deckMix("b"), rate: 1.05, vinyl: true}
+  assert.ok(engine.armPassage(pair, {...plan, mix: {out: engine.deckMix("a"), into}}, "cut").ok)
+  let rate = 1
+  Object.defineProperty(rig.b, "playbackRate", {get: () => rate, set(next) {
+    if (rate !== next) {
+      engine.ctx.currentTime += .035
+      rig.a.currentTime += .035
+    }
+    rate = next
+  }})
+  engine.confirmPassage()
+  rig.a.at(48)
+  await Promise.resolve()
+  const at = starts.find(s => s.offset === 2.5).at
+  assert.equal(rig.advances[0].type, "cut")
+  assert.equal(rig.advances[0].atMs, 48_000)
+  const fadeEnds = ramps.filter(r => r.value === 0 || r.value === 1)
+  assert.ok(fadeEnds.length >= 2)
+  for (const ramp of fadeEnds.slice(-2)) {
+    assert.equal(ramp.when, at + .008)
+    assert.ok(ramp.scheduled <= at, "a past timestamp cannot play an attack the room already missed")
+  }
+})
+
+for (const [workMs, accepted] of [[35, true], [55, false]]) {
+  test(`two record preparations of ${workMs} ms preserve the receiver's cue and the live playhead`, async t => {
+    const rig = booth(t), {engine, a, advances} = rig
+    preparePassage(rig)
+    const {pair, plan} = engine.passage()
+    const out = {...engine.deckMix("a"), rate: 1.06, vinyl: true}
+    const into = {...engine.deckMix("b"), rate: .95, vinyl: true}
+    assert.ok(engine.armPassage(pair, {...plan, mix: {out, into}}, "cut").ok)
+    const starts = [], made = engine.ctx.createBufferSource.bind(engine.ctx)
+    t.mock.method(engine.ctx, "createBufferSource", () => {
+      const voice = made()
+      engine.ctx.currentTime += workMs / 1000
+      a.currentTime += workMs / 1000
+      voice.start = (at, offset) => starts.push({at, offset})
+      return voice
+    })
+    engine.confirmPassage()
+    a.at(48)
+    await Promise.resolve()
+    assert.equal(advances.length, accepted ? 1 : 0)
+    if (accepted) {
+      assert.equal(starts.length, 2)
+      assert.equal(starts[0].at, starts[1].at)
+      assert.equal(starts[0].offset, 2.5)
+      assert.ok(Math.abs(starts[1].offset - 48.07) < .000001)
+    } else {
+      assert.deepEqual(starts, [])
+      assert.equal(engine.passage().phase, "failed")
+      assert.equal(a.paused, false)
+      assert.equal(engine.decks.a.mediaGain.gain.value, 1)
+      assert.equal(engine.decks.a.entry, null)
+    }
+  })
+}
+
 test("the four-beat bass exchange moves neither live shelf until the saved cue is confirmed and accepted", async t => {
   const rig = booth(t), {a, b, engine, advances, tick} = rig
   const gate = Promise.withResolvers()

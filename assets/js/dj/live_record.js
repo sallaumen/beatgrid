@@ -2,7 +2,7 @@ import {createRecordRenderer} from "./record_source.js"
 
 // The audible recording owns both the clock and the samples. A new bend can
 // replace queued blocks, never the block coming out of the speakers.
-export function startLiveRecord(ctx, input, buffer, offset, mix, onEnd, onFailure, fadeIn = 0, start = ctx.currentTime, saved) {
+export function startLiveRecord(ctx, input, buffer, offset, mix, onEnd, onFailure, fadeIn = 0, start = ctx.currentTime, saved, staged = false) {
   const output = ctx.createGain()
   output.connect(input)
   const sr = buffer.sampleRate
@@ -12,6 +12,8 @@ export function startLiveRecord(ctx, input, buffer, offset, mix, onEnd, onFailur
     output.gain.value = 0
   }
   const blocks = []
+  const idleVoices = staged ? new Set() : null
+  let pending = staged
   let silenceTail = null
   let direct = null, renderer = null, closed = false, lastBend = -Infinity
   let next = {when: start, frame: Math.round(offset * sr), rate: mix.rate, previous: null}
@@ -25,7 +27,8 @@ export function startLiveRecord(ctx, input, buffer, offset, mix, onEnd, onFailur
 
   function dispose(voice, stop = false) {
     voice.onended = null
-    if (stop) voice.stop()
+    const idle = idleVoices?.delete(voice)
+    if (stop && !idle) voice.stop()
     voice.disconnect()
   }
 
@@ -45,7 +48,7 @@ export function startLiveRecord(ctx, input, buffer, offset, mix, onEnd, onFailur
     // Keep the full 960 ms runway of the rehearsal when steady. While the
     // wheel moves, precompute 240 ms and replace only its unplayed blocks.
     const grains = ctx.currentTime - lastBend < 0.24 ? 6 : 24
-    const horizon = ctx.currentTime + (2 * grains * renderer.hop - skip) / sr
+    const horizon = (pending ? start : ctx.currentTime) + (2 * grains * renderer.hop - skip) / sr
     while (!closed && next.when < horizon - 1e-8 && next.frame < buffer.length) {
       const {when, frame, rate, previous} = next
       if (frame >= renderEnd - rate / 2 && renderEnd < buffer.length) {
@@ -70,8 +73,11 @@ export function startLiveRecord(ctx, input, buffer, offset, mix, onEnd, onFailur
         try { queue() } catch { onFailure(); return }
         if (!closed && !blocks.length) onEnd()
       }
-      const audibleAt = saved ? Math.max(when + skip / sr, ctx.currentTime) : when
-      try { voice.start(audibleAt, Math.max(0, audibleAt - when)) } catch (error) { dispose(voice); throw error }
+      if (pending) idleVoices.add(voice)
+      else {
+        const audibleAt = saved ? Math.max(when + skip / sr, ctx.currentTime) : when
+        try { voice.start(audibleAt, Math.max(0, audibleAt - when)) } catch (error) { dispose(voice); throw error }
+      }
       skip = 0
       blocks.push(block)
     }
@@ -139,15 +145,46 @@ export function startLiveRecord(ctx, input, buffer, offset, mix, onEnd, onFailur
       direct = null
       if (finished) onEnd()
     }
-    voice.start(start, offset)
+    if (pending) idleVoices.add(voice)
+    else voice.start(start, offset)
   } else {
     try { queue() } catch (error) { stop(); throw error }
   }
-  if (fadeIn) {
-    // Keep the existing head audible if preparing the new one took a render quantum.
-    fadeAt = Math.max(start, ctx.currentTime)
+  function fadeFrom(when) {
+    fadeAt = when
+    if (!fadeIn) return
     output.gain.setValueAtTime(0, fadeAt)
     output.gain.linearRampToValueAtTime(1, fadeAt + fadeIn)
+  }
+  if (!pending) fadeFrom(Math.max(start, ctx.currentTime))
+
+  // Both records are built before either voice is started. Only the record
+  // already on air advances during preparation; the receiver keeps its cue.
+  function launch(when, head = offset) {
+    if (!pending || closed) throw Error("Record is not prepared")
+    const shift = when - start - (head - offset) / mix.rate
+    if (direct) {
+      direct.when = when
+      direct.offset = head
+      direct.voice.start(when, head)
+      idleVoices.delete(direct.voice)
+    } else {
+      if (next.when + shift <= when) throw Error("Prepared record has expired")
+      for (const block of [...blocks]) {
+        block.when += shift
+        const at = Math.max(when, block.when)
+        if (at >= block.when + block.frames / sr) {
+          blocks.splice(blocks.indexOf(block), 1)
+          dispose(block.voice)
+          continue
+        }
+        block.voice.start(at, at - block.when)
+        idleVoices.delete(block.voice)
+      }
+    }
+    next.when += shift
+    pending = false
+    fadeFrom(when)
   }
 
   function stop(fade = 0, finished, when = ctx.currentTime) {
@@ -183,5 +220,6 @@ export function startLiveRecord(ctx, input, buffer, offset, mix, onEnd, onFailur
       voice.stop(until)
     }
   }
-  return {position, rate: () => audibleSegment(ctx.currentTime)?.rate ?? next.rate, setRate, stop, fadeAt}
+  return {position, rate: () => audibleSegment(ctx.currentTime)?.rate ?? next.rate,
+    setRate, stop, launch, get fadeAt() { return fadeAt }}
 }

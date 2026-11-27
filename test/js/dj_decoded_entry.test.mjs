@@ -64,7 +64,7 @@ test("a failed pitch-locked recall leaves the previous recording playing at its 
   const file = {numberOfChannels: 1, sampleRate: 8000, length: 80_000, duration: 10,
     getChannelData: () => new Float32Array(80_000)}
   const saved = {rate: 1.05, first: 0, end: 32000, begin: 76, hop: 160, prior: [12160, 12320]}
-  assert.throws(() => bridge.recall(file, heard, {rate: 1.05, vinyl: false}, recallSplice(saved, file, heard, 1.05)), /buffer unavailable/)
+  assert.throws(() => bridge.prepareRecall(file, heard, {rate: 1.05, vinyl: false}, recallSplice(saved, file, heard, 1.05)), /buffer unavailable/)
   assert.equal(source.stopAt, undefined)
   assert.equal(gain.value, 0)
   assert.equal(bridge.rate(), 1)
@@ -122,8 +122,10 @@ test("recalling a heard phase crossfades both heads and a stop silences both at 
   ctx.currentTime += .375
   const at = ctx.currentTime
   const heard = bridge.position()
-  bridge.recall(file, heard, out, recallSplice(saved, file, heard, out.rate))
-  assert.ok(Math.abs(bridge.position() - heard - (ctx.currentTime - at) * out.rate) < 1 / 8000)
+  const ready = bridge.prepareRecall(file, heard, out, recallSplice(saved, file, heard, out.rate))
+  const position = bridge.position()
+  ready.launch(ctx.currentTime, position)
+  assert.ok(Math.abs(bridge.position() - position) < 1 / 8000)
   assert.equal(bridge.rate(), out.rate)
   assert.equal(source.stopAt, ctx.currentTime + .004)
   assert.deepEqual(nodes[0].ramp, {value: 1, when: source.stopAt})
