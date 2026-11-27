@@ -374,18 +374,40 @@ defmodule BeatgridWeb.LibraryLive do
     ~H"""
     <.app_shell flash={@flash} active={:biblioteca} socket={@socket}>
       <div class="flex h-[calc(100vh_-_5rem)] flex-col">
-        <header class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-white/6 bg-rail px-3 py-3 lg:px-5">
-          <div class="flex items-baseline gap-3">
+        <header class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-3 border-b border-white/6 bg-rail px-3 py-3 lg:flex lg:flex-wrap lg:px-5">
+          <div class="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
             <h1 class="text-[22px] font-semibold">Biblioteca</h1>
-            <span class="font-mono text-body-sm text-ink-muted">{@total} faixas</span>
-            <.link
-              navigate={~p"/importados?origem=local"}
-              class="rounded-md bg-primary-deep px-3 py-1.5 text-body-sm font-semibold text-white"
-            >
-              Importar
-            </.link>
+            <span role="status" class="font-mono text-body-sm text-ink-muted tabular-nums">{@total} faixas</span>
           </div>
-          <div class="flex flex-1 flex-wrap items-center justify-end gap-2">
+          <.link
+            navigate={~p"/importados?origem=local"}
+            class="justify-self-end rounded-md border border-white/10 bg-input px-3 py-2 text-body-sm font-semibold text-ink-secondary hover:text-ink"
+          >
+            Importar
+          </.link>
+
+          <form
+            id="library-search"
+            phx-change="filter"
+            phx-submit="filter"
+            class="relative col-span-2 min-w-0 lg:min-w-56 lg:flex-1"
+          >
+            <span
+              class="hero-magnifying-glass pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted"
+              aria-hidden="true"
+            />
+            <input
+              type="search"
+              name="search"
+              phx-debounce="250"
+              value={@filters[:search] || ""}
+              aria-label="Buscar artista ou título"
+              placeholder="Buscar artista ou título…"
+              class="w-full rounded-md border border-white/10 bg-input py-2 pl-9 pr-3 text-body placeholder:text-ink-faint"
+            />
+          </form>
+
+          <div class="col-span-2 flex flex-wrap items-center gap-2 lg:justify-end">
             <%= if @selecting? do %>
               <div class="flex items-center gap-2">
                 <button
@@ -398,7 +420,7 @@ defmodule BeatgridWeb.LibraryLive do
                   phx-click="clear_selection"
                   class="rounded-md border border-white/8 bg-input px-2.5 py-1.5 text-body-sm text-ink-muted hover:text-ink"
                 >
-                  Limpar
+                  Limpar seleção
                 </button>
                 <button
                   phx-click="toggle_select_mode"
@@ -427,19 +449,9 @@ defmodule BeatgridWeb.LibraryLive do
               ]}
             >
               <span class="hero-adjustments-horizontal size-4" aria-hidden="true" /> Filtros
+              <span :if={Map.drop(@filters, [:search]) != %{}} class="text-primary">ativos</span>
             </button>
           </div>
-          <form id="library-search" phx-change="filter" class="w-full sm:w-60 lg:w-72">
-            <input
-              type="search"
-              name="search"
-              phx-debounce="250"
-              value={@filters[:search] || ""}
-              aria-label="Buscar artista ou título"
-              placeholder="Buscar artista ou título…"
-              class="w-full rounded-md border border-white/8 bg-input px-3 py-1.5 text-body placeholder:text-ink-faint focus:border-primary/50 focus:outline-none"
-            />
-          </form>
         </header>
 
         <.move_toast :if={@move_toast} toast={@move_toast} />
@@ -477,16 +489,17 @@ defmodule BeatgridWeb.LibraryLive do
               folders={@folders}
               playing_id={@playing_track_id}
             />
-            <p
+            <button
               :if={@has_more?}
+              type="button"
               id="library-sentinel"
               phx-hook=".InfiniteScroll"
               phx-click="load_more"
-              class="cursor-pointer py-4 text-center font-mono text-[11px] text-ink-faint hover:text-ink-muted"
+              class="w-full py-4 text-center text-body-sm text-ink-muted hover:text-ink"
             >
-              carregando mais…
-            </p>
-            <.empty_state :if={@tracks == []} />
+              Carregar mais faixas
+            </button>
+            <.empty_state :if={@tracks == []} filtered?={@filters != %{}} />
           </section>
           <script :type={Phoenix.LiveView.ColocatedHook} name=".InfiniteScroll">
             export default {
@@ -622,6 +635,7 @@ defmodule BeatgridWeb.LibraryLive do
     <div class="mt-3 mb-3">
       <button
         phx-click="toggle_gold_filter"
+        aria-pressed={to_string(@filters[:gold] == true)}
         class={chip_class(@filters[:gold] == true)}
         title="Só faixas Ouro"
       >
@@ -633,6 +647,7 @@ defmodule BeatgridWeb.LibraryLive do
       <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Pasta</span>
       <button
         phx-click="toggle_unclassified"
+        aria-pressed={to_string(@filters[:unclassified] == true)}
         class={[
           "rounded-sm border px-[7px] py-[3px] text-[10px] font-semibold transition-colors",
           @filters[:unclassified] && "border-primary/60 bg-primary/20 text-ink",
@@ -667,6 +682,7 @@ defmodule BeatgridWeb.LibraryLive do
           :for={tag <- @tags}
           phx-click="toggle_tag"
           phx-value-tag={tag}
+          aria-pressed={to_string(@filters[:tag] == tag)}
           class={chip_class(@filters[:tag] == tag)}
         >
           {tag}
@@ -682,6 +698,7 @@ defmodule BeatgridWeb.LibraryLive do
         :for={{label, level} <- @confidences}
         phx-click="toggle_confidence"
         phx-value-level={level}
+        aria-pressed={to_string(@filters[:confidence] == to_string(level))}
         class={chip_class(@filters[:confidence] == to_string(level))}
       >
         {label}
@@ -717,7 +734,7 @@ defmodule BeatgridWeb.LibraryLive do
       </button>
     </div>
 
-    <form id="library-filters" phx-change="filter" class="mt-3.5 space-y-3.5">
+    <form id="library-filters" phx-change="filter" phx-submit="filter" class="mt-3.5 space-y-3.5">
       <div>
         <p class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Nota</p>
         <div class="flex items-center gap-1.5">
@@ -729,7 +746,7 @@ defmodule BeatgridWeb.LibraryLive do
             aria-label="Nota mínima"
             placeholder="min"
             value={@filters[:rating_min]}
-            class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
+            class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50"
           />
           <span class="text-ink-faint">–</span>
           <input
@@ -740,7 +757,7 @@ defmodule BeatgridWeb.LibraryLive do
             aria-label="Nota máxima"
             placeholder="max"
             value={@filters[:rating_max]}
-            class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
+            class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50"
           />
         </div>
       </div>
@@ -758,7 +775,7 @@ defmodule BeatgridWeb.LibraryLive do
             aria-label="Energia mínima"
             placeholder="min"
             value={@filters[:energy_min]}
-            class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
+            class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50"
           />
           <span class="text-ink-faint">–</span>
           <input
@@ -769,7 +786,7 @@ defmodule BeatgridWeb.LibraryLive do
             aria-label="Energia máxima"
             placeholder="max"
             value={@filters[:energy_max]}
-            class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
+            class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50"
           />
         </div>
       </div>
@@ -785,7 +802,7 @@ defmodule BeatgridWeb.LibraryLive do
             aria-label="BPM mínimo"
             placeholder="min"
             value={@filters[:bpm_min]}
-            class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
+            class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50"
           />
           <span class="text-ink-faint">–</span>
           <input
@@ -794,7 +811,7 @@ defmodule BeatgridWeb.LibraryLive do
             aria-label="BPM máximo"
             placeholder="max"
             value={@filters[:bpm_max]}
-            class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50 focus:outline-none"
+            class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50"
           />
         </div>
       </div>
@@ -859,6 +876,7 @@ defmodule BeatgridWeb.LibraryLive do
           phx-value-id={track.id}
           aria-pressed={to_string(row_selected?(@selected, track.id))}
           class="flex items-center justify-center"
+          aria-label={"Selecionar #{track.tag_title || track.filename}"}
           title="Selecionar"
         >
           <span class={[
@@ -882,7 +900,8 @@ defmodule BeatgridWeb.LibraryLive do
           <div class="flex min-w-0 items-center gap-1.5">
             <.link
               navigate={~p"/track/#{track.id}"}
-              class="truncate text-body font-medium text-ink hover:text-primary hover:underline"
+              class="line-clamp-2 min-w-0 break-words text-body font-medium leading-tight text-ink hover:text-primary hover:underline lg:truncate"
+              title={track.tag_title || track.filename}
             >
               {track.tag_title || track.filename}
             </.link>
@@ -895,7 +914,9 @@ defmodule BeatgridWeb.LibraryLive do
               ✂
             </span>
           </div>
-          <p class="truncate text-caption text-ink-muted">{track.tag_artist || "—"}</p>
+          <p class="mt-0.5 truncate text-caption text-ink-muted" title={track.tag_artist}>
+            {track.tag_artist || "—"}
+          </p>
         </div>
         <.folder_cell track={track} open?={@folder_menu == track.id} folders={@folders} />
         <span class="text-right font-mono text-body text-primary">{bpm(track)}</span>
@@ -959,7 +980,14 @@ defmodule BeatgridWeb.LibraryLive do
         </span>
       </button>
       <%= if @open? do %>
-        <div class="fixed inset-0 z-30" phx-click="close_folder_menu" aria-hidden="true"></div>
+        <div
+          class="fixed inset-0 z-30"
+          phx-click="close_folder_menu"
+          phx-window-keydown="close_folder_menu"
+          phx-key="Escape"
+          aria-hidden="true"
+        >
+        </div>
         <div class="absolute left-0 top-7 z-40 max-h-64 w-48 overflow-auto rounded-lg border border-white/10 bg-surface py-1 shadow-xl shadow-black/40">
           <p class="px-3 pt-1.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
             Mover para
@@ -1006,12 +1034,19 @@ defmodule BeatgridWeb.LibraryLive do
           !@open? && "text-ink-muted hover:bg-white/8 hover:text-ink"
         ]}
         title="Ações"
-        aria-label="Ações"
+        aria-label={"Ações de #{@track.tag_title || @track.filename}"}
       >
         ⋯
       </button>
       <%= if @open? do %>
-        <div class="fixed inset-0 z-30" phx-click="close_row_menu" aria-hidden="true"></div>
+        <div
+          class="fixed inset-0 z-30"
+          phx-click="close_row_menu"
+          phx-window-keydown="close_row_menu"
+          phx-key="Escape"
+          aria-hidden="true"
+        >
+        </div>
         <div class="absolute right-0 top-8 z-40 w-52 overflow-hidden rounded-lg border border-white/10 bg-surface py-1 shadow-xl shadow-black/40">
           <p class="px-3 pt-1.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
             Mover para
@@ -1093,14 +1128,31 @@ defmodule BeatgridWeb.LibraryLive do
     """
   end
 
+  attr :filtered?, :boolean, required: true
+
   defp empty_state(assigns) do
     ~H"""
-    <div class="flex flex-col items-center justify-center gap-3 py-24 text-center">
-      <span class="hero-musical-note size-10 text-ink-disabled" />
-      <p class="text-ink-muted">Nenhuma faixa com esses filtros.</p>
-      <button phx-click="clear_filters" class="text-body-sm text-primary hover:underline">
+    <div class="flex flex-col items-center justify-center gap-3 px-4 py-16 text-center">
+      <span class="hero-musical-note size-8 text-ink-faint" aria-hidden="true" />
+      <p class="text-body text-ink-muted">
+        {if @filtered?,
+          do: "Nenhuma faixa com esses filtros.",
+          else: "Ainda não há faixas na biblioteca."}
+      </p>
+      <button
+        :if={@filtered?}
+        phx-click="clear_filters"
+        class="rounded-md border border-white/10 bg-input px-3 py-2 text-body-sm text-ink hover:bg-white/8"
+      >
         Limpar filtros
       </button>
+      <.link
+        :if={!@filtered?}
+        navigate={~p"/importados?origem=local"}
+        class="rounded-md bg-primary-deep px-3 py-2 text-body-sm font-semibold text-white"
+      >
+        Importar arquivos
+      </.link>
     </div>
     """
   end
@@ -1166,7 +1218,7 @@ defmodule BeatgridWeb.LibraryLive do
           <select
             name="folder"
             aria-label="Mover para a pasta"
-            class="rounded-md border border-white/10 bg-input px-2 py-1 text-body-sm focus:border-primary/50 focus:outline-none"
+            class="rounded-md border border-white/10 bg-input px-2 py-1 text-body-sm focus:border-primary/50"
           >
             <option value="">escolher…</option>
             <option :for={folder <- @folders} value={folder.key}>{folder.display_name}</option>
