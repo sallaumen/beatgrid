@@ -267,12 +267,13 @@ defmodule BeatgridWeb.GenresLive do
                   </div>
                 </form>
               <% else %>
-                <p class={[
-                  "mt-3 whitespace-pre-wrap break-words text-body leading-relaxed",
-                  if(f.description in [nil, ""], do: "text-ink-muted", else: "text-ink-secondary")
-                ]}>
-                  {if f.description in [nil, ""], do: "Nenhum critério definido.", else: f.description}
-                </p>
+                <p
+                  phx-no-format
+                  class={[
+                    "mt-3 whitespace-pre-wrap break-words text-body leading-relaxed",
+                    if(f.description in [nil, ""], do: "text-ink-muted", else: "text-ink-secondary")
+                  ]}
+                >{if f.description in [nil, ""], do: "Nenhum critério definido.", else: f.description}</p>
                 <footer class="mt-4 flex flex-wrap items-center gap-2 border-t border-white/6 pt-3">
                   <button
                     :if={f.key not in @in_use}

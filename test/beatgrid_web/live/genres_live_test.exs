@@ -43,6 +43,22 @@ defmodule BeatgridWeb.GenresLiveTest do
     assert has_element?(view, "#genre-mpb p", "Songwriter MPB; voz+violão.")
   end
 
+  test "renders multiline criteria without template indentation", %{conn: conn} do
+    description = "Primeira linha\n  Segunda linha"
+
+    insert(:genre_folder,
+      key: "mpb",
+      display_name: "MPB",
+      dir_name: "MPB",
+      description: description
+    )
+
+    {:ok, _view, html} = live(conn, ~p"/generos")
+
+    assert html =~ ">#{description}</p>"
+    assert GenreFolders.get_by_key("mpb").description == description
+  end
+
   test "creating via the form adds a folder", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/generos")
 
