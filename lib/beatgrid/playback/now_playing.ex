@@ -33,6 +33,11 @@ defmodule Beatgrid.Playback.NowPlaying do
   def detach_set(set_id, track_id),
     do: GenServer.call(__MODULE__, {:detach_set, %{set_id: set_id, track_id: track_id}})
 
+  @doc "Update the set only when the caller still owns this track."
+  @spec update_set(term(), term()) :: :ok
+  def update_set(track_id, set_id),
+    do: GenServer.call(__MODULE__, {:update_set, track_id, set_id})
+
   @doc "Clear the pointer unconditionally."
   @spec clear() :: %{track_id: nil, set_id: nil}
   def clear, do: put(@empty)
@@ -60,6 +65,15 @@ defmodule Beatgrid.Playback.NowPlaying do
     do: {:reply, :ok, publish(state, %{pointer | set_id: nil}, pid)}
 
   def handle_call({:detach_set, _pointer}, _from, state), do: {:reply, :ok, state}
+
+  def handle_call(
+        {:update_set, id, set_id},
+        {pid, _tag},
+        %{owner: pid, pointer: %{track_id: id} = pointer} = state
+      ),
+      do: {:reply, :ok, publish(state, %{pointer | set_id: set_id}, pid)}
+
+  def handle_call({:update_set, _id, _set_id}, _from, state), do: {:reply, :ok, state}
 
   def handle_call(:release, {pid, _tag}, %{owner: pid} = state),
     do: {:reply, :ok, publish(state, @empty, nil)}
