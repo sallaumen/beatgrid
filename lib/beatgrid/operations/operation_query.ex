@@ -13,6 +13,7 @@ defmodule Beatgrid.Operations.OperationQuery do
           | {:kind, atom()}
           | {:limit, pos_integer()}
           | {:preload, list()}
+          | {:order_by, term()}
 
   # What "Aplicar no disco" writes. Gain lives in the Painel with its own undo.
   @review_kinds ~w(rename move tag quarantine)a

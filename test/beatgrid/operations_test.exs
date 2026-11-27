@@ -37,6 +37,35 @@ defmodule Beatgrid.OperationsTest do
       assert Operations.list_by(batch_id: batch, status: :undone) == []
     end
 
+    test "list_by accepts compound ordering and breaks timestamp ties before applying the limit" do
+      track = insert(:track)
+      timestamp = ~U[2026-11-27 12:00:00Z]
+
+      operations =
+        for _ <- 1..2 do
+          {:ok, op} =
+            Operations.record(%{
+              track_id: track.id,
+              kind: :quarantine,
+              batch_id: Uniq.UUID.uuid7()
+            })
+
+          op |> Ecto.Changeset.change(inserted_at: timestamp) |> Repo.update!()
+        end
+
+      expected = Enum.max_by(operations, & &1.id)
+
+      assert [%{id: id}] =
+               Operations.list_by(
+                 track_id: track.id,
+                 kind: :quarantine,
+                 order_by: [desc: :inserted_at, desc: :id],
+                 limit: 1
+               )
+
+      assert id == expected.id
+    end
+
     test "requires kind, batch_id and track_id" do
       assert {:error, changeset} = Operations.record(%{from: "x"})
       assert %{kind: _, batch_id: _, track_id: _} = errors_on(changeset)
@@ -112,6 +141,91 @@ defmodule Beatgrid.OperationsTest do
         Operations.record(%{track_id: track.id, kind: :gain, batch_id: Uniq.UUID.uuid7()})
 
       assert Operations.recent_batches(limit: 5) == []
+    end
+  end
+
+  describe "quarantine restoration identity" do
+    @tag :tmp_dir
+    test "an old batch cannot restore a newer quarantine even when the destination is reused", %{
+      tmp_dir: root
+    } do
+      File.mkdir_p!(Path.join(root, "_Quarantine"))
+      path = "_Quarantine/same.mp3"
+      File.write!(Path.join(root, path), "new quarantine")
+      track = insert(:track, status: :quarantined, rel_path: path, filename: "same.mp3")
+
+      {:ok, old} =
+        Operations.record(%{
+          track_id: track.id,
+          kind: :quarantine,
+          from: "MPB/old.mp3",
+          to: path,
+          batch_id: Uniq.UUID.uuid7()
+        })
+
+      {:ok, new} =
+        Operations.record(%{
+          track_id: track.id,
+          kind: :quarantine,
+          from: "_Inbox/same.mp3",
+          to: path,
+          batch_id: Uniq.UUID.uuid7()
+        })
+
+      # The operation IDs are UUID v7, but two test inserts can share a millisecond.
+      age_batch(old.batch_id, -60)
+
+      assert {:ok, %{undone: 0, failed: 1}} = Operations.undo_batch(old.batch_id)
+      assert Tracks.get(track.id).rel_path == path
+      assert File.read!(Path.join(root, path)) == "new quarantine"
+      assert {:ok, %{undone: 1, failed: 0}} = Operations.undo_batch(new.batch_id)
+      assert Tracks.get(track.id).rel_path == "_Inbox/same.mp3"
+      assert File.read!(Path.join(root, "_Inbox/same.mp3")) == "new quarantine"
+      assert :undone = Operations.undo_operation(new)
+      assert Tracks.get(track.id).rel_path == "_Inbox/same.mp3"
+      assert File.read!(Path.join(root, "_Inbox/same.mp3")) == "new quarantine"
+    end
+
+    @tag :tmp_dir
+    test "a different current path is not restored by a stale exact-path record", %{tmp_dir: root} do
+      File.mkdir_p!(Path.join(root, "_Quarantine"))
+      path = "_Quarantine/new.mp3"
+      File.write!(Path.join(root, path), "new quarantine")
+      track = insert(:track, status: :quarantined, rel_path: path, filename: "new.mp3")
+
+      {:ok, op} =
+        Operations.record(%{
+          track_id: track.id,
+          kind: :quarantine,
+          from: "_Inbox/old.mp3",
+          to: "_Quarantine/old.mp3",
+          batch_id: Uniq.UUID.uuid7()
+        })
+
+      assert :failed = Operations.undo_operation(op)
+      assert Tracks.get(track.id).rel_path == path
+      assert File.read!(Path.join(root, path)) == "new quarantine"
+    end
+
+    @tag :tmp_dir
+    test "a latest legacy quarantine record can restore its file", %{tmp_dir: root} do
+      File.mkdir_p!(Path.join(root, "_Quarantine"))
+      path = "_Quarantine/legacy.mp3"
+      File.write!(Path.join(root, path), "legacy quarantine")
+      track = insert(:track, status: :quarantined, rel_path: path, filename: "legacy.mp3")
+
+      {:ok, op} =
+        Operations.record(%{
+          track_id: track.id,
+          kind: :quarantine,
+          from: "_Inbox/legacy.mp3",
+          to: "_Quarantine",
+          batch_id: Uniq.UUID.uuid7()
+        })
+
+      assert :undone = Operations.undo_operation(op)
+      assert Tracks.get(track.id).rel_path == "_Inbox/legacy.mp3"
+      assert File.read!(Path.join(root, "_Inbox/legacy.mp3")) == "legacy quarantine"
     end
   end
 
