@@ -973,6 +973,19 @@ test("SYNC matches the reference pitch, cancels the receiving nudge, and keeps t
   assert.ok(a.playbackRate < 1.05)
 })
 
+test("repeating SYNC on the same pitched tempo keeps the confirmed passage", t => {
+  const rig = booth(t)
+  const {engine} = rig
+  preparePassage(rig, "cut")
+  engine.decks.a.bpm = engine.decks.b.bpm = 133.01
+  engine.setRate("a", .97)
+  engine.setRate("b", .97)
+  assert.ok(engine.confirmPassage().ok)
+  assert.ok(engine.sync("b"))
+  assert.equal(engine.passage().phase, "confirmed")
+  assert.equal(engine.deckMix("b").rate, .97)
+})
+
 test("SYNC reports its limit and keeps a closer manual tempo when the target is out of range", t => {
   const {engine, b, hint} = booth(t)
   hint(null)

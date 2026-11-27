@@ -325,7 +325,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
       const bpm = side === "out" ? a : b
       const target = (side === "out" ? b : a) * mix[other].rate
       const rate = syncedRate(mix[side].rate, bpm, target)
-      editMix({...mix, [side]: {...mix[side], rate}})
+      if (rate !== mix[side].rate) editMix({...mix, [side]: {...mix[side], rate}})
       if (Math.abs(rate * bpm - target) > 0.01) {
         mixNote = "O alvo está fora do alcance de ±8% do SYNC."
         update()
