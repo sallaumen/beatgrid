@@ -17,6 +17,31 @@ export default {
     this.loadingAudio = false
     let autoplayOnLoad = false
     let selection = null
+
+    // The pointer broadcast by the server can belong to another tab. Only
+    // this audio element knows whether a marker can be placed at its position.
+    const canMarkSelection = () =>
+      selection && !this.loadingAudio && !a.error &&
+      Number.isFinite(a.duration) && a.duration > 0 &&
+      Number.isFinite(a.currentTime) && a.currentTime > 0
+
+    const syncMarkerControl = () => {
+      const control = byId("track-add-marker")
+      if (!control) return
+      const enabled = Boolean(canMarkSelection() && control.dataset.trackId === selection.id)
+      control.disabled = !enabled
+      control.title = enabled ? "Marcar a posição atual do player" : "Toque esta faixa antes de adicionar um marcador"
+      const help = byId("track-add-marker-help")
+      if (help) help.hidden = enabled
+      if (enabled) control.removeAttribute("aria-describedby")
+      else control.setAttribute("aria-describedby", "track-add-marker-help")
+    }
+
+    // The player survives LiveView navigation, but the track controls can be
+    // replaced or reset by any patch. Reconcile them from local media state.
+    on(document, "phx:update", syncMarkerControl)
+    syncMarkerControl()
+
     const notifyPaused = () => {
       if (selection) this.pushEvent("playback_paused", {track_id: selection.id})
     }
@@ -82,11 +107,16 @@ export default {
     // live position and let the server persist it on the now-playing track. Ignore
     // it when nothing has loaded/played yet, so we never store a junk 0:00 cue.
     on(a, "beatgrid:add-marker", ({detail}) => {
-      if (!selection || this.loadingAudio || !a.duration || a.currentTime <= 0) return
+      if (!canMarkSelection()) return
       if (detail?.track_id && detail.track_id !== selection.id) return
       this.pushEvent("add_marker", {track_id: selection.id, ms: Math.round(a.currentTime * 1000)})
     })
-    on(a, "beatgrid:seek", (e) => { if (a.duration) a.currentTime = e.detail.ms / 1000 })
+    on(a, "beatgrid:seek", (e) => {
+      if (a.duration) {
+        a.currentTime = e.detail.ms / 1000
+        syncMarkerControl()
+      }
+    })
 
     // Load + play a src. `atMs` (jump to a marker) wins; else a preview jumps
     // to the configured offset for long tracks; otherwise start at 0.
@@ -113,11 +143,13 @@ export default {
         // element and is only changed by the slider's input listener. Do NOT reset
         // it per load — that snapped the volume on every track change (live bug).
         a.playbackRate = 1
+        syncMarkerControl()
         if (autoplayOnLoad) safePlay(a)
         a._pendingStart = null
       }
       const absoluteSrc = new URL(src, window.location.href).href
       this.loadingAudio = true
+      syncMarkerControl()
       a._pendingStart = start
       if (!a.error && a.currentSrc === absoluteSrc && a.src === absoluteSrc && a.readyState >= 1) {
         start()
@@ -184,6 +216,7 @@ export default {
       a.pause()
       a.removeAttribute("src")
       a.load()
+      syncMarkerControl()
     }
     on(a, "beatgrid:stop", stop)
 
@@ -223,6 +256,7 @@ export default {
       if (!selection || !a.error) return
       clearPendingStart()
       this.loadingAudio = false
+      syncMarkerControl()
       setIcon("▶")
       setPlaying(false)
       notifyPaused()
@@ -240,10 +274,14 @@ export default {
       const el = byId("player-elapsed")
       if (el) el.textContent = fmt(a.currentTime)
       if (seek && document.activeElement !== seek) seek.value = Math.floor(a.currentTime)
+      syncMarkerControl()
     })
 
     const seek = byId("player-seek")
-    if (seek) on(seek, "input", () => { a.currentTime = Number(seek.value) })
+    if (seek) on(seek, "input", () => {
+      a.currentTime = Number(seek.value)
+      syncMarkerControl()
+    })
     const vol = byId("player-volume")
     if (vol) on(vol, "input", () => { a.volume = Number(vol.value) / 100 })
 

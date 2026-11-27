@@ -978,27 +978,26 @@ defmodule BeatgridWeb.TrackLive do
                     Detectar
                   </button>
                   <button
+                    id="track-add-marker"
                     type="button"
+                    data-track-id={@track.id}
                     phx-click={
                       JS.dispatch("beatgrid:add-marker",
                         to: "#player-audio",
                         detail: %{track_id: @track.id}
                       )
                     }
-                    disabled={@track.id != @playing_track_id}
+                    disabled
+                    aria-describedby="track-add-marker-help"
                     class="rounded-md border border-amber/40 bg-amber/10 px-2.5 py-1 text-[11px] font-semibold text-amber hover:bg-amber/20 disabled:cursor-not-allowed disabled:opacity-40"
-                    title={
-                      if @track.id == @playing_track_id,
-                        do: "Marcar a posição atual do player",
-                        else: "Toque esta faixa antes de adicionar um marcador"
-                    }
+                    title="Toque esta faixa antes de adicionar um marcador"
                   >
                     Adicionar marcador
                   </button>
                 </div>
               </div>
-              <p :if={@track.id != @playing_track_id} class="mt-2 text-body-sm text-ink-muted">
-                Toque esta faixa para adicionar um marcador na posição atual.
+              <p id="track-add-marker-help" class="mt-2 text-body-sm text-ink-muted">
+                Toque esta faixa no player desta aba e avance até a posição do marcador.
               </p>
               <div class="mt-3">
                 <.marker_list

@@ -48,15 +48,15 @@ class Media extends EventTarget {
   removeAttribute(name) { delete this[name] }
 }
 
-function fixture(t, lane = null) {
+function fixture(t, lane = null, nodes = {}) {
   const media = new Media()
   const browser = Object.assign(new EventTarget(), {location: {href: origin}})
   const body = {dataset: {}}
-  const document = {
+  const document = Object.assign(new EventTarget(), {
     body,
-    getElementById: id => id === "player-marker-lane" ? lane : null,
+    getElementById: id => id === "player-marker-lane" ? lane : (nodes[id] || null),
     createElement: () => Object.assign(new EventTarget(), {style: {}}),
-  }
+  })
   const globals = {window: browser, document}
   for (const [key, value] of Object.entries(globals)) {
     const old = Object.getOwnPropertyDescriptor(globalThis, key)
@@ -77,7 +77,7 @@ function fixture(t, lane = null) {
     }))
   }
   const signal = name => media.dispatchEvent(new Event("beatgrid:" + name))
-  return {hook, select, signal, media, browser, body, pushes, listeners}
+  return {hook, select, signal, media, browser, document, body, pushes, listeners}
 }
 
 test("closing a preview before metadata arrives never starts the hidden player", t => {
@@ -303,4 +303,64 @@ test("marking a position from a track page only uses that song's local audio", t
   signal("add-marker")
   const markers = pushes.filter(([name]) => name === "add_marker")
   assert.deepEqual(markers, Array(2).fill(["add_marker", {track_id: "one", ms: 14000}]))
+})
+
+test("the track marker control follows the local selection across loading, playing, pauses and page patches", t => {
+  const control = id => ({
+    dataset: {trackId: id},
+    disabled: true,
+    title: "",
+    setAttribute(name, value) { this[name] = value },
+    removeAttribute(name) { delete this[name] },
+  })
+  const nodes = {
+    "track-add-marker": control("one"),
+    "track-add-marker-help": {hidden: false},
+  }
+  const {select, signal, media, document, pushes} = fixture(t, null, nodes)
+  const button = nodes["track-add-marker"], help = nodes["track-add-marker-help"]
+  assert.equal(button.disabled, true)
+
+  select("one", {preview: false})
+  assert.equal(button.disabled, true)
+  media.metadata()
+  assert.equal(button.disabled, true) // no valid position yet
+
+  media.currentTime = 14
+  media.dispatchEvent(new Event("timeupdate"))
+  assert.equal(button.disabled, false)
+  assert.equal(help.hidden, true)
+  signal("toggle") // The DJ can mark a paused but still selected position.
+  assert.equal(media.paused, true)
+  assert.equal(button.disabled, false)
+
+  // A LiveView patch may briefly reapply the server-rendered disabled state.
+  button.disabled = true
+  help.hidden = false
+  const beforePatch = pushes.length
+  document.dispatchEvent(new Event("phx:update"))
+  assert.equal(button.disabled, false)
+  assert.equal(help.hidden, true)
+  assert.equal(pushes.length, beforePatch) // UI sync never claims global playback.
+
+  // The sticky player survives a navigation to a different track page.
+  nodes["track-add-marker"] = control("two")
+  document.dispatchEvent(new Event("phx:update"))
+  const nextButton = nodes["track-add-marker"]
+  assert.equal(nextButton.disabled, true)
+  assert.equal(help.hidden, false)
+  assert.equal(nextButton["aria-describedby"], "track-add-marker-help")
+
+  select("two")
+  assert.equal(nextButton.disabled, true)
+  media.metadata() // preview loads and seeks to 20s
+  assert.equal(nextButton.disabled, false)
+  media.currentTime = 0
+  media.dispatchEvent(new Event("timeupdate"))
+  assert.equal(nextButton.disabled, true)
+  media.currentTime = 10
+  media.dispatchEvent(new Event("timeupdate"))
+  assert.equal(nextButton.disabled, false)
+  signal("stop")
+  assert.equal(nextButton.disabled, true)
 })

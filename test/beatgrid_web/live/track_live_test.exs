@@ -126,7 +126,13 @@ defmodule BeatgridWeb.TrackLiveTest do
     assert has_element?(view, "h1", track.tag_title)
     assert has_element?(view, "h2", "Editar faixa")
     assert has_element?(view, "h2", "Marcadores")
-    assert has_element?(view, "#track-markers", "Toque esta faixa para adicionar")
+
+    assert has_element?(
+             view,
+             "#track-add-marker[disabled][aria-describedby='track-add-marker-help']"
+           )
+
+    assert has_element?(view, "#track-add-marker-help", "Toque esta faixa no player desta aba")
     assert has_element?(view, "#track-versions", "Nenhuma outra versão encontrada.")
   end
 
@@ -351,8 +357,12 @@ defmodule BeatgridWeb.TrackLiveTest do
 
     assert has_element?(
              view,
-             "button[title='Marcar a posição atual do player'][phx-click*='track_id'][phx-click*='#{track.id}']:not([disabled])"
+             "#track-add-marker[data-track-id='#{track.id}'][phx-click*='track_id'][phx-click*='#{track.id}'][disabled]"
            )
+
+    # A global now-playing broadcast cannot enable a marker control in a different
+    # tab. The local player hook re-syncs the button once it can mark a position.
+    assert has_element?(view, "#track-add-marker-help")
 
     # Marker section shows the existing cue at 0:30.
     assert html =~ "Marcadores"
