@@ -110,8 +110,7 @@ defmodule BeatgridWeb.DashboardLive do
   defp pct(_value, 0), do: 0
   defp pct(value, max), do: max(round(value / max * 100), 2)
 
-  defp max_count([]), do: 0
-  defp max_count(list), do: list |> Enum.map(fn {_k, v} -> v end) |> Enum.max()
+  defp max_count(list), do: list |> Enum.map(fn {_k, v} -> v end) |> Enum.max(fn -> 0 end)
 
   defp decade_label(d), do: "#{d}s"
 
@@ -135,8 +134,8 @@ defmodule BeatgridWeb.DashboardLive do
 
     ~H"""
     <.app_shell flash={@flash} active={:painel} socket={@socket}>
-      <header class="border-b border-white/6 bg-rail px-3 py-3 sm:px-6">
-        <div class="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3">
+      <header class="border-b border-white/6 bg-rail">
+        <div class="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3 px-3 py-3 sm:px-6">
           <h1 class="text-[22px] font-semibold">Repertório</h1>
           <div class="flex flex-wrap items-center gap-2">
             <a
@@ -191,7 +190,10 @@ defmodule BeatgridWeb.DashboardLive do
           </dl>
         </section>
 
-        <div id="dashboard-insights" class="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-4">
+        <div
+          id="dashboard-insights"
+          class="grid grid-cols-1 items-start gap-4 lg:grid-cols-2 2xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)_minmax(0,1.8fr)_minmax(0,0.75fr)]"
+        >
           <.panel id="dashboard-genres" title="Distribuição por gênero">
             <div :if={@genres != []}>
               <p class="mb-2 text-body-sm text-ink-muted">
@@ -234,16 +236,18 @@ defmodule BeatgridWeb.DashboardLive do
                 value={n}
                 max={max_count(@artists)}
                 color="var(--color-primary)"
+                wide_label
               />
             </div>
             <.empty :if={@artists == []} />
           </.panel>
 
           <.panel id="dashboard-tempo" title="Andamento (BPM)">
-            <ol :if={@bpm != []} class="space-y-2">
+            <ol :if={@bpm != []} class="lg:columns-2 lg:gap-3">
               <li
                 :for={{bucket, count} <- @bpm}
                 aria-label={"De #{bucket} a menos de #{bucket + 5} BPM, #{count} #{if count == 1, do: "faixa", else: "faixas"}"}
+                class="mb-2 break-inside-avoid"
               >
                 <.bar_row
                   label={"#{bucket}–<#{bucket + 5}"}
@@ -402,7 +406,7 @@ defmodule BeatgridWeb.DashboardLive do
 
   defp overview_stat(assigns) do
     ~H"""
-    <div class="flex min-w-0 flex-col justify-between gap-1 lg:border-white/8 lg:[&:not(:first-child)]:border-l lg:[&:not(:first-child)]:pl-4">
+    <div class="flex min-w-0 flex-col justify-between gap-1 xl:border-white/8 xl:[&:not(:first-child)]:border-l xl:[&:not(:first-child)]:pl-4">
       <dt class="text-caption font-semibold uppercase tracking-wider text-ink-muted">{@label}</dt>
       <dd class={[
         "font-mono font-semibold leading-tight tabular-nums",
@@ -443,10 +447,11 @@ defmodule BeatgridWeb.DashboardLive do
     ~H"""
     <div class={[
       "grid min-w-0 items-center gap-2",
-      if(@wide_label,
-        do: "grid-cols-[minmax(0,3fr)_minmax(1rem,2fr)_auto]",
-        else: "grid-cols-[minmax(0,2fr)_minmax(0,3fr)_auto]"
-      )
+      cond do
+        @wide_label -> "grid-cols-[minmax(0,3fr)_minmax(1rem,2fr)_auto]"
+        @mono -> "grid-cols-[4rem_minmax(0,1fr)_auto]"
+        true -> "grid-cols-[minmax(0,2fr)_minmax(0,3fr)_auto]"
+      end
     ]}>
       <span
         title={@label}

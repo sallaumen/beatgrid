@@ -352,7 +352,7 @@ defmodule BeatgridWeb.UI do
         Ir para o conteúdo
       </a>
       <BeatgridWeb.Navigation.menu active={@active} />
-      <main id="workspace-content" tabindex="-1" class="min-w-0 flex-1 pb-20">
+      <main id="workspace-content" tabindex="-1" class="min-w-0 flex-1">
         {render_slot(@inner_block)}
       </main>
       {live_render(@socket, BeatgridWeb.PlayerLive, id: "player", sticky: true)}

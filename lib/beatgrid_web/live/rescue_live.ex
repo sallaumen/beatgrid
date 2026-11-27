@@ -151,7 +151,7 @@ defmodule BeatgridWeb.RescueLive do
 
     ~H"""
     <.app_shell flash={@flash} active={:resgate} socket={@socket}>
-      <div class="mx-auto max-w-5xl px-4 py-5 sm:px-6">
+      <div class="mx-auto max-w-5xl px-3 py-5 sm:px-6">
         <header class="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 class="text-[22px] font-semibold tracking-tight">Recuperação de arquivos</h1>
@@ -169,49 +169,52 @@ defmodule BeatgridWeb.RescueLive do
 
         <p :if={@note} role="status" class="mt-3 text-body text-ink-secondary">{@note}</p>
 
-        <section class="mt-4" aria-labelledby="integrity-heading">
-          <h2 id="integrity-heading" class="mb-2 text-body-lg font-semibold text-ink-secondary">
+        <section
+          class="mt-4 rounded-xl border border-white/8 bg-surface px-3 py-3 sm:px-4"
+          aria-labelledby="integrity-heading"
+        >
+          <h2 id="integrity-heading" class="mb-3 text-[18px] font-semibold">
             Integridade da biblioteca
           </h2>
-          <dl class="grid grid-cols-2 gap-3 rounded-xl border border-white/8 bg-surface p-4 sm:grid-cols-4">
-            <div>
+          <dl class="grid grid-cols-2 gap-3 tabular-nums sm:grid-cols-4">
+            <div class="flex flex-col justify-between gap-1">
               <dt class="text-body-sm text-ink-muted">Íntegras</dt>
-              <dd class="mt-1 font-mono text-[18px] font-semibold text-green">
+              <dd class="font-mono text-[18px] font-semibold text-green">
                 {count(@progress, :ok)}
               </dd>
             </div>
-            <div>
+            <div class="flex flex-col justify-between gap-1">
               <dt class="text-body-sm text-ink-muted">Arquivos ausentes</dt>
-              <dd class="mt-1 font-mono text-[18px] font-semibold text-coral">
+              <dd class="font-mono text-[18px] font-semibold text-coral">
                 {count(@progress, :missing_file)}
               </dd>
             </div>
-            <div>
+            <div class="flex flex-col justify-between gap-1">
               <dt class="text-body-sm text-ink-muted">Arquivos corrompidos</dt>
-              <dd class="mt-1 font-mono text-[18px] font-semibold text-amber">
+              <dd class="font-mono text-[18px] font-semibold text-amber">
                 {count(@progress, :corrupt)}
               </dd>
             </div>
-            <div>
+            <div class="flex flex-col justify-between gap-1">
               <dt class="text-body-sm text-ink-muted">Sem verificação</dt>
-              <dd class="mt-1 font-mono text-[18px] font-semibold text-ink-secondary">
+              <dd class="font-mono text-[18px] font-semibold text-ink-secondary">
                 {count(@progress, :unchecked)}
               </dd>
             </div>
           </dl>
         </section>
 
-        <nav aria-label="Categorias de recuperação" class="mt-4 grid grid-cols-2 gap-2">
+        <nav aria-label="Categorias de recuperação" class="mt-4 flex flex-wrap gap-2">
           <a
             href="#arquivos-danificados"
-            class="inline-flex min-w-0 items-center justify-between gap-2 rounded-md border border-white/10 bg-input px-3 py-2 text-body font-medium text-ink-secondary hover:text-ink"
+            class="inline-flex min-w-0 items-center gap-2 rounded-md border border-white/10 bg-input px-3 py-2 text-body font-medium text-ink-secondary hover:text-ink"
           >
             <span>Arquivos com problema</span>
             <.icon name="hero-arrow-down-mini" class="size-4 shrink-0" />
           </a>
           <a
             href="#quarentena"
-            class="inline-flex min-w-0 items-center justify-between gap-2 rounded-md border border-white/10 bg-input px-3 py-2 text-body font-medium text-ink-secondary hover:text-ink"
+            class="inline-flex min-w-0 items-center gap-2 rounded-md border border-white/10 bg-input px-3 py-2 text-body font-medium text-ink-secondary hover:text-ink"
           >
             <span>Quarentena</span>
             <.icon name="hero-arrow-down-mini" class="size-4 shrink-0" />

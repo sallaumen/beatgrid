@@ -298,35 +298,40 @@ defmodule BeatgridWeb.ReviewLive do
     ~H"""
     <.app_shell flash={@flash} active={:revisao} socket={@socket}>
       <div class="flex min-w-0 flex-col">
-        <header class="border-b border-white/6 bg-rail px-4 pt-4 sm:px-5">
-          <h1 class="text-[22px] font-semibold">Revisão de sugestões</h1>
+        <header class="border-b border-white/6 bg-rail">
+          <div class="mx-auto max-w-[1600px] px-3 pt-4 sm:px-6">
+            <h1 class="text-[22px] font-semibold">Revisão de sugestões</h1>
 
-          <nav aria-label="Tipos de revisão" class="mt-3 grid grid-cols-3 gap-1 sm:flex sm:flex-wrap">
-            <.tab
-              path={~p"/revisao?aba=renames"}
-              label="Renomeações"
-              count={@counts.renames}
-              active={@tab == :renames}
-            />
-            <.tab
-              path={~p"/revisao?aba=classifications"}
-              label="Classificação"
-              count={@counts.classifications}
-              active={@tab == :classifications}
-            />
-            <.tab
-              path={~p"/revisao?aba=auditoria"}
-              label="Auditoria"
-              count={@counts.auditoria}
-              active={@tab == :auditoria}
-            />
-          </nav>
+            <nav
+              aria-label="Tipos de revisão"
+              class="mt-3 grid grid-cols-3 gap-1 sm:flex sm:flex-wrap"
+            >
+              <.tab
+                path={~p"/revisao?aba=renames"}
+                label="Renomeações"
+                count={@counts.renames}
+                active={@tab == :renames}
+              />
+              <.tab
+                path={~p"/revisao?aba=classifications"}
+                label="Classificação"
+                count={@counts.classifications}
+                active={@tab == :classifications}
+              />
+              <.tab
+                path={~p"/revisao?aba=auditoria"}
+                label="Auditoria"
+                count={@counts.auditoria}
+                active={@tab == :auditoria}
+              />
+            </nav>
+          </div>
         </header>
 
-        <div class="mx-auto w-full max-w-[1600px] px-4 py-4 sm:px-5">
+        <div class="mx-auto w-full max-w-[1600px] px-3 py-4 sm:px-6">
           <.toast :if={@toast} toast={@toast} />
 
-          <div class="mb-4 grid items-start gap-2 sm:grid-cols-2">
+          <div class="mb-4 flex flex-wrap items-start gap-2">
             <.applied_batches :if={@recent_batches != []} batches={@recent_batches} />
 
             <.link
@@ -347,7 +352,7 @@ defmodule BeatgridWeb.ReviewLive do
 
             <details
               :if={@tab == :renames}
-              class="rounded-md border border-white/10 bg-input px-3 py-2"
+              class="max-w-full rounded-md border border-white/10 bg-input px-3 py-2"
             >
               <summary class="cursor-pointer text-body font-medium text-ink-secondary">
                 Reavaliar renomeações com IA
@@ -362,11 +367,15 @@ defmodule BeatgridWeb.ReviewLive do
                 <button phx-click="reevaluate" phx-value-scope="rejected" class={reeval_btn()}>
                   Rejeitados
                 </button>
-                <form id="reeval-folder-form" phx-change="reevaluate_folder">
+                <form
+                  id="reeval-folder-form"
+                  phx-change="reevaluate_folder"
+                  class="min-w-0 max-w-full"
+                >
                   <select
                     name="folder"
                     aria-label="Reavaliar com IA por pasta"
-                    class="rounded-md border border-white/8 bg-input px-2 py-1.5 text-[12px]"
+                    class="max-w-full rounded-md border border-white/8 bg-input px-2 py-1.5 text-body"
                   >
                     <option value="">Por pasta…</option>
                     <option :for={f <- @folders} value={f.key}>{f.display_name}</option>
@@ -616,7 +625,7 @@ defmodule BeatgridWeb.ReviewLive do
   # batches stay listed here so the reversal outlives the message.
   defp applied_batches(assigns) do
     ~H"""
-    <details class="rounded-md border border-white/10 bg-input px-3 py-2">
+    <details class="max-w-full rounded-md border border-white/10 bg-input px-3 py-2">
       <summary class="cursor-pointer text-body font-medium text-ink-secondary">
         Últimos lotes aplicados
       </summary>

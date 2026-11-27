@@ -55,7 +55,7 @@ defmodule BeatgridWeb.MaintenanceLive do
       <header class="border-b border-white/6 bg-rail px-3 py-3 sm:px-6">
         <div class="mx-auto flex max-w-[1100px] flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 class="text-[22px] font-semibold">Manutenção</h1>
+            <h1 class="text-title font-semibold">Manutenção</h1>
             <p class="text-body-sm text-ink-muted">Ações em toda a biblioteca</p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
@@ -295,9 +295,9 @@ defmodule BeatgridWeb.MaintenanceLive do
     <section
       id={@id}
       aria-labelledby={"#{@id}-title"}
-      class="scroll-mt-20 rounded-xl border border-white/8 bg-surface px-4 pt-3"
+      class="scroll-mt-20 rounded-xl border border-white/8 bg-surface px-3 pt-3 sm:px-4"
     >
-      <h2 id={"#{@id}-title"} class="mb-2 text-[18px] font-semibold">{@title}</h2>
+      <h2 id={"#{@id}-title"} class="text-heading font-semibold">{@title}</h2>
       <div class="divide-y divide-white/8">{render_slot(@inner_block)}</div>
     </section>
     """
@@ -312,13 +312,15 @@ defmodule BeatgridWeb.MaintenanceLive do
     ~H"""
     <div
       id={@id}
-      class="grid grid-cols-1 gap-2 py-3 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,auto)] lg:items-center lg:gap-4"
+      class="grid grid-cols-1 gap-3 py-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,20rem)] lg:items-start lg:gap-4"
     >
-      <div class="min-w-0 flex-1 space-y-1">
+      <div class="min-w-0 space-y-1">
         <h3 class="text-body-lg font-semibold">{@title}</h3>
         {render_slot(@inner_block)}
       </div>
-      <div class="flex flex-wrap items-center gap-2 lg:justify-end">{render_slot(@actions)}</div>
+      <div class="flex min-w-0 flex-wrap items-start gap-2 lg:justify-end">
+        {render_slot(@actions)}
+      </div>
     </div>
     """
   end

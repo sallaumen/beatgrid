@@ -508,7 +508,9 @@ defmodule BeatgridWeb.LibraryLive do
 
     ~H"""
     <.app_shell flash={@flash} active={:biblioteca} socket={@socket}>
-      <div class="flex h-[calc(100vh_-_5rem)] flex-col">
+      <%!-- Below md the 44px menu button, 8px vertical padding and 1px
+      hairline take room above this viewport; the player reserve comes from the shell. --%>
+      <div class="flex h-[calc(100dvh_-_var(--workspace-player-reserve,5rem)_-_3.25rem_-_1px)] w-full max-w-[1840px] flex-col md:h-[calc(100dvh_-_var(--workspace-player-reserve,5rem))]">
         <header class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-3 border-b border-white/6 bg-rail px-3 py-3 lg:flex lg:flex-wrap lg:px-5">
           <div class="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
             <h1 class="text-[22px] font-semibold">Biblioteca</h1>
@@ -527,7 +529,7 @@ defmodule BeatgridWeb.LibraryLive do
             id="library-search"
             phx-change="filter"
             phx-submit="filter"
-            class="relative col-span-2 min-w-0 lg:min-w-56 lg:flex-1"
+            class="relative col-span-2 min-w-0 lg:ml-auto lg:min-w-56 lg:max-w-3xl lg:flex-1"
           >
             <span
               class="hero-magnifying-glass pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted"
@@ -545,9 +547,9 @@ defmodule BeatgridWeb.LibraryLive do
             />
           </form>
 
-          <div class="col-span-2 flex flex-wrap items-center gap-2 lg:justify-end">
+          <div class="col-span-2 flex min-w-0 flex-wrap items-center gap-2 lg:justify-end">
             <%= if @selecting? do %>
-              <div class="flex items-center gap-2">
+              <div class="flex min-w-0 flex-wrap items-center gap-2">
                 <button
                   phx-click="select_all"
                   class="rounded-md border border-white/8 bg-input px-2.5 py-1.5 text-body-sm text-ink-muted hover:text-ink"
@@ -753,7 +755,11 @@ defmodule BeatgridWeb.LibraryLive do
       </button>
     </div>
 
-    <form id="library-compact-sort" phx-change="sort" class="mt-3 flex items-center gap-2 lg:hidden">
+    <form
+      id="library-compact-sort"
+      phx-change="sort"
+      class="mt-3 flex flex-wrap items-center gap-2 lg:hidden"
+    >
       <label for="library-sort-field" class="text-body-sm text-ink-muted">Ordenar por</label>
       <select
         id="library-sort-field"
@@ -892,10 +898,10 @@ defmodule BeatgridWeb.LibraryLive do
       </button>
     </div>
 
-    <form id="library-filters" phx-change="filter" phx-submit="filter" class="mt-3.5 space-y-3.5">
+    <form id="library-filters" phx-change="filter" phx-submit="filter" class="mt-4 max-w-52 space-y-4">
       <div>
         <p class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Nota</p>
-        <div class="flex items-center gap-1.5">
+        <div class="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1.5">
           <input
             type="number"
             name="rating_min"
@@ -904,7 +910,7 @@ defmodule BeatgridWeb.LibraryLive do
             aria-label="Nota mínima"
             placeholder="min"
             value={@filters[:rating_min]}
-            class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50"
+            class="w-full min-w-0 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50"
           />
           <span class="text-ink-faint">–</span>
           <input
@@ -915,7 +921,7 @@ defmodule BeatgridWeb.LibraryLive do
             aria-label="Nota máxima"
             placeholder="max"
             value={@filters[:rating_max]}
-            class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50"
+            class="w-full min-w-0 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50"
           />
         </div>
       </div>
@@ -924,7 +930,7 @@ defmodule BeatgridWeb.LibraryLive do
         <p class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
           Energia
         </p>
-        <div class="flex items-center gap-1.5">
+        <div class="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1.5">
           <input
             type="number"
             name="energy_min"
@@ -933,7 +939,7 @@ defmodule BeatgridWeb.LibraryLive do
             aria-label="Energia mínima"
             placeholder="min"
             value={@filters[:energy_min]}
-            class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50"
+            class="w-full min-w-0 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50"
           />
           <span class="text-ink-faint">–</span>
           <input
@@ -944,7 +950,7 @@ defmodule BeatgridWeb.LibraryLive do
             aria-label="Energia máxima"
             placeholder="max"
             value={@filters[:energy_max]}
-            class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50"
+            class="w-full min-w-0 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50"
           />
         </div>
       </div>
@@ -953,14 +959,14 @@ defmodule BeatgridWeb.LibraryLive do
         <p class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
           Faixa de BPM
         </p>
-        <div class="flex items-center gap-1.5">
+        <div class="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1.5">
           <input
             type="number"
             name="bpm_min"
             aria-label="BPM mínimo"
             placeholder="min"
             value={@filters[:bpm_min]}
-            class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50"
+            class="w-full min-w-0 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50"
           />
           <span class="text-ink-faint">–</span>
           <input
@@ -969,7 +975,7 @@ defmodule BeatgridWeb.LibraryLive do
             aria-label="BPM máximo"
             placeholder="max"
             value={@filters[:bpm_max]}
-            class="w-16 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50"
+            class="w-full min-w-0 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-body-sm focus:border-primary/50"
           />
         </div>
       </div>
@@ -1107,7 +1113,10 @@ defmodule BeatgridWeb.LibraryLive do
         />
         <p
           :if={@show_paths?}
-          class="col-span-full min-w-0 break-words px-1 font-mono text-body-sm leading-relaxed text-ink-secondary [overflow-wrap:anywhere]"
+          class={[
+            "col-end-[-1] min-w-0 break-words font-mono text-body-sm leading-relaxed text-ink-secondary [overflow-wrap:anywhere]",
+            if(@selecting?, do: "col-start-3", else: "col-start-2")
+          ]}
         >
           {track.rel_path}
         </p>
@@ -1223,7 +1232,7 @@ defmodule BeatgridWeb.LibraryLive do
           aria-hidden="true"
         >
         </div>
-        <div class="absolute right-0 top-8 z-40 w-52 overflow-hidden rounded-lg border border-white/10 bg-surface py-1 shadow-xl shadow-black/40">
+        <div class="absolute right-0 top-8 z-40 max-h-64 w-52 overflow-y-auto rounded-lg border border-white/10 bg-surface py-1 shadow-xl shadow-black/40">
           <div class="lg:hidden">
             <p class="px-3 pt-1.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
               Mover para
@@ -1350,7 +1359,7 @@ defmodule BeatgridWeb.LibraryLive do
     assigns = assign(assigns, label: label, undoable: undoable)
 
     ~H"""
-    <div class="flex items-center justify-between gap-4 border-b border-primary/30 bg-primary/10 px-5 py-2">
+    <div class="flex items-center justify-between gap-3 border-b border-primary/30 bg-primary/10 px-3 py-2 lg:px-5">
       <p class="text-body-sm text-ink">
         {@label}
       </p>
@@ -1385,25 +1394,29 @@ defmodule BeatgridWeb.LibraryLive do
 
   defp batch_bar(assigns) do
     ~H"""
-    <div class="border-t border-primary/30 bg-primary/10 px-5 py-2.5 backdrop-blur">
-      <div class="flex flex-wrap items-center gap-x-5 gap-y-2">
+    <div class="border-t border-primary/30 bg-primary/10 px-3 py-2.5 lg:px-5">
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
         <span class="text-body-sm font-semibold text-ink">
           {@count} {if @count == 1, do: "selecionada", else: "selecionadas"}
         </span>
 
-        <form id="batch-move" phx-change="move_selected" class="flex items-center gap-2">
+        <form
+          id="batch-move"
+          phx-change="move_selected"
+          class="flex min-w-0 flex-wrap items-center gap-2"
+        >
           <label class="text-body-sm text-ink-muted">Mover para</label>
           <select
             name="folder"
             aria-label="Mover para a pasta"
-            class="rounded-md border border-white/10 bg-input px-2 py-1 text-body-sm focus:border-primary/50"
+            class="max-w-full rounded-md border border-white/10 bg-input px-2 py-1 text-body-sm focus:border-primary/50"
           >
             <option value="">escolher…</option>
             <option :for={folder <- @folders} value={folder.key}>{folder.display_name}</option>
           </select>
         </form>
 
-        <div class="flex items-center gap-2">
+        <div class="flex min-w-0 flex-wrap items-center gap-2">
           <span class="text-body-sm text-ink-muted">Avaliar</span>
           <div class="flex flex-wrap gap-0.5">
             <button
@@ -1438,7 +1451,7 @@ defmodule BeatgridWeb.LibraryLive do
 
   defp chip_class(active?) do
     [
-      "rounded-sm border px-[9px] py-[5px] text-[11px] font-semibold transition-colors",
+      "max-w-full break-words rounded-sm border px-2 py-1.5 text-left text-[11px] font-semibold [overflow-wrap:anywhere] transition-colors",
       active? && "border-primary/60 bg-primary/20 text-ink",
       !active? && "border-white/8 bg-input text-ink-muted hover:border-white/20"
     ]

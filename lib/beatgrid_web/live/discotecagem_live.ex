@@ -907,13 +907,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
     ~H"""
     <.app_shell flash={@flash} active={:discotecagem} socket={@socket}>
-      <div class="mx-auto max-w-7xl px-4 py-3">
-        <header class="flex flex-wrap items-center gap-x-5 gap-y-2.5 border-b border-white/8 pb-3">
+      <div class="@container mx-auto max-w-[1600px] px-4 py-3">
+        <header class="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-white/8 pb-3">
           <h1 class="text-[22px] font-semibold tracking-tight">Discotecagem</h1>
           <div
             role="group"
             aria-label="Preparação do set"
-            class="flex w-full min-w-0 items-center gap-1.5 sm:w-auto sm:min-w-48 sm:flex-1"
+            class="flex w-full min-w-0 items-center gap-1.5 @min-[44rem]:w-auto @min-[44rem]:min-w-48 @min-[44rem]:flex-1"
           >
             <form id="dj-set-picker" phx-change="select_set" class="min-w-0 flex-1 sm:max-w-64">
               <select
@@ -996,7 +996,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             @preflight.issues != [] && "border-amber/30 bg-amber/5"
           ]}
         >
-          <div class="flex items-center justify-between">
+          <div class="flex items-center justify-between gap-2">
             <p class="text-body-sm font-semibold">
               {cond do
                 @preflight.total == 0 -> "O set está vazio."
@@ -1008,7 +1008,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               type="button"
               phx-click="close_preflight"
               aria-label="Fechar checagem"
-              class="inline-flex min-h-6 items-center text-ink-faint hover:text-ink"
+              class="inline-flex min-h-6 shrink-0 items-center text-ink-faint hover:text-ink"
             >
               <.icon name="hero-x-mark" class="size-4" />
             </button>
@@ -1039,9 +1039,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
             id="dj-trip"
             aria-label="Modo viagem"
             phx-update="ignore"
-            class="fixed inset-0 m-0 hidden h-dvh max-h-none w-screen max-w-none flex-col items-center justify-start gap-4 overflow-y-auto border-0 bg-base p-4 text-ink open:flex sm:justify-center sm:gap-6 sm:p-8"
+            class="fixed inset-0 m-0 hidden h-dvh max-h-none w-screen max-w-none flex-col items-center justify-start gap-4 overflow-y-auto border-0 bg-base p-4 text-ink open:flex sm:justify-center-safe sm:gap-6 sm:p-8"
           >
-            <div class="w-full min-w-0 max-w-4xl text-center">
+            <div class="w-full min-w-0 max-w-4xl shrink-0 text-center">
               <div
                 id="trip-now-live"
                 role="status"
@@ -1063,7 +1063,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 </p>
                 <p
                   id="trip-artist"
-                  class="mt-1 break-words text-xl text-ink-muted [overflow-wrap:anywhere] sm:text-2xl"
+                  class="mt-1 break-words text-xl text-ink-muted [overflow-wrap:anywhere] empty:hidden sm:text-2xl"
                 >
                 </p>
                 <p
@@ -1072,9 +1072,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 >
                 </p>
               </div>
-              <p id="trip-pos" class="mt-2 font-mono text-lg tabular-nums text-ink-faint"></p>
+              <p id="trip-pos" class="mt-2 font-mono text-lg tabular-nums text-ink-faint empty:hidden">
+              </p>
             </div>
-            <div class="w-full min-w-0 max-w-3xl text-center">
+            <div class="w-full min-w-0 max-w-3xl shrink-0 text-center">
               <p class="text-caption uppercase tracking-[0.2em] text-ink-faint">próxima</p>
               <div
                 id="trip-next-live"
@@ -1091,7 +1092,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 </p>
                 <p
                   id="trip-next-artist"
-                  class="mt-1 break-words text-body-lg text-ink-muted [overflow-wrap:anywhere] sm:text-lg"
+                  class="mt-1 break-words text-body-lg text-ink-muted [overflow-wrap:anywhere] empty:hidden sm:text-lg"
                 >
                 </p>
                 <p
@@ -1107,30 +1108,30 @@ defmodule BeatgridWeb.DiscotecagemLive do
               </div>
               <p id="trip-countdown" class="mt-1 font-mono text-3xl tabular-nums text-amber">—</p>
             </div>
-            <div class="flex w-full max-w-3xl flex-col gap-3 sm:flex-row">
+            <div class="flex w-full max-w-3xl shrink-0 flex-col gap-3 sm:flex-row">
               <button
                 type="button"
                 data-trip="postpone"
-                class="h-16 flex-1 rounded-xl border border-white/15 text-lg font-bold text-ink hover:border-primary/50"
+                class="h-16 shrink-0 rounded-xl border border-white/15 text-lg font-bold text-ink hover:border-primary/50 sm:flex-1"
               >
                 Adiar 15 s
               </button>
               <button
                 type="button"
                 data-trip="fire"
-                class="h-16 flex-1 rounded-xl bg-primary-deep text-lg font-bold text-white hover:bg-primary-deep/90"
+                class="h-16 shrink-0 rounded-xl bg-primary-deep text-lg font-bold text-white hover:bg-primary-deep/90 sm:flex-1"
               >
                 Disparar <kbd class="font-mono text-body">(T)</kbd>
               </button>
               <button
                 type="button"
                 data-trip="cancel"
-                class="h-16 flex-1 rounded-xl border border-coral/40 text-lg font-bold text-coral hover:bg-coral/10"
+                class="h-16 shrink-0 rounded-xl border border-coral/40 text-lg font-bold text-coral hover:bg-coral/10 sm:flex-1"
               >
                 Cancelar <kbd class="font-mono text-body">(X)</kbd>
               </button>
             </div>
-            <div class="flex items-center gap-4">
+            <div class="flex shrink-0 flex-wrap items-center justify-center gap-4">
               <button
                 type="button"
                 data-trip="auto"
@@ -1162,7 +1163,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           <div
             id="dj-waves"
             phx-update="ignore"
-            class="mb-1 divide-y divide-white/8 overflow-hidden rounded-xl border border-white/8 bg-deep"
+            class="mb-2 divide-y divide-white/8 overflow-hidden rounded-xl border border-white/8 bg-deep"
           >
             <div :for={d <- ["a", "b"]} class="grid grid-cols-[5rem_minmax(0,1fr)] items-stretch">
               <div class="flex min-w-0 flex-col justify-center border-r border-white/8 bg-surface px-2">
@@ -1190,7 +1191,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             </div>
           </div>
 
-          <div class="grid gap-3 lg:grid-cols-[1fr_200px_1fr]">
+          <div class="grid gap-x-3 gap-y-2 @min-[48rem]:grid-cols-[minmax(0,1fr)_200px_minmax(0,1fr)]">
             <.deck_panel
               d="a"
               track={@deck_a}
@@ -1212,8 +1213,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
               accent="#2d9cff"
             />
           </div>
-          <div class="mt-1 grid items-start gap-3 lg:grid-cols-[210px_minmax(0,1fr)_minmax(300px,360px)]">
-            <div class="flex min-w-0 flex-col gap-2.5">
+          <div class="mt-3 grid items-start gap-3 @min-[44rem]:grid-cols-2 @min-[60rem]:grid-cols-[210px_minmax(0,1fr)_minmax(0,1fr)]">
+            <div class="min-w-0 @min-[44rem]:col-span-2 @min-[60rem]:col-span-1">
               <details
                 id="dj-details-trans"
                 open
@@ -1275,7 +1276,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 <div
                   id="dj-transitions"
                   phx-update="ignore"
-                  class="grid grid-cols-2 gap-1 px-3 pb-2"
+                  class="grid grid-cols-2 gap-1 px-3 pb-2 @min-[44rem]:grid-cols-4 @min-[60rem]:grid-cols-2"
                 >
                   <.fire_chip
                     :for={{key, label, desc, color} <- transition_buttons(:classicas)}
@@ -1284,10 +1285,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
                     desc={desc}
                     color={color}
                   />
-                  <div class="col-span-2 mt-0.5 border-t border-white/8 pt-0.5 text-[8px] font-bold uppercase tracking-[0.18em] text-ink-faint">
+                  <div class="col-span-full mt-1 border-t border-white/8 pt-1 text-[8px] font-bold uppercase tracking-[0.18em] text-ink-faint">
                     Scratch
                   </div>
-                  <div class="col-span-2 grid grid-cols-5 gap-1">
+                  <div class="col-span-full grid grid-cols-5 gap-1">
                     <.fire_chip
                       :for={{key, label, desc, color} <- transition_buttons(:scratch)}
                       key={key}
@@ -1324,7 +1325,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             />
           </div>
 
-          <div class="mt-1 grid items-start gap-3 lg:grid-cols-2">
+          <div class="mt-3 grid items-start gap-3 @min-[44rem]:grid-cols-2">
             <details
               id="dj-details-scratch"
               class="rounded-xl border border-white/8"
@@ -1421,7 +1422,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               </summary>
               <div class="max-h-[220px] overflow-auto border-t border-white/6">
                 <.midi_panel midi={@midi} />
-                <div class="px-3 pb-3 pt-1">
+                <div class="border-t border-white/6 px-3 py-3">
                   <h3 class="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
                     Eventos
                   </h3>
@@ -3448,13 +3449,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
     <section
       id={"dj-deck-#{@d}"}
       aria-labelledby={"dj-deck-label-#{@d}"}
-      class="min-w-0 rounded-2xl border p-2 transition-colors"
-      style={"background:linear-gradient(180deg,#11131a,#0e0f15);box-shadow:0 10px 30px rgba(0,0,0,.35);border-color:#{if @active, do: @accent <> "66", else: "rgba(255,255,255,.08)"}"}
+      class="min-w-0 rounded-2xl border p-2 transition-colors @min-[48rem]:row-span-3 @min-[48rem]:grid @min-[48rem]:grid-rows-subgrid"
+      style={"background:linear-gradient(180deg,#11131a,#0e0f15);border-color:#{if @active, do: @accent <> "66", else: "rgba(255,255,255,.08)"}"}
     >
-      <div class="flex items-center justify-between gap-1">
+      <div class="flex items-start justify-between gap-2">
         <h2
           id={"dj-deck-label-#{@d}"}
-          class="rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em]"
+          class="shrink-0 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em]"
           style={"background:#{@accent}22;color:#{@accent}"}
         >
           Deck {String.upcase(@d)}
@@ -3479,11 +3480,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
         </div>
       </div>
 
-      <div class="mt-2 flex min-h-[36px] items-center gap-2">
+      <div class="mt-2 flex min-h-9 items-start gap-2 @min-[48rem]:mt-0">
         <.cover :if={@track} src={cover_src(@track)} artist={@track.tag_artist} size={32} />
         <div :if={@track} class="min-w-0 flex-1">
           <.booth_track_link track={@track} set_id={@set_id} />
-          <p class="break-words text-body-sm text-ink-muted">{@track.tag_artist || "—"}</p>
+          <p class="break-words text-body-sm text-ink-muted [overflow-wrap:anywhere]">
+            {@track.tag_artist || "—"}
+          </p>
           <.version_path track={@track} class="mt-0.5" />
         </div>
         <p :if={!@track} class="text-[11px] text-ink-faint">
@@ -3497,15 +3500,15 @@ defmodule BeatgridWeb.DiscotecagemLive do
           disabled={@active}
           aria-label={"Ejetar deck #{String.upcase(@d)}"}
           title="Ejetar o deck (só quando parado)"
-          class="ml-auto flex h-6 w-5 shrink-0 items-center justify-center rounded-md text-[10px] text-ink-faint transition-colors hover:bg-white/5 hover:text-coral disabled:cursor-not-allowed disabled:opacity-40"
+          class="ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[10px] text-ink-faint transition-colors hover:bg-white/5 hover:text-coral disabled:cursor-not-allowed disabled:opacity-40"
         >
           ✕
         </button>
       </div>
 
-      <div id={"dj-client-#{@d}"} phx-update="ignore" class="mt-2">
-        <div class="flex items-stretch gap-2.5">
-          <div class="flex flex-1 flex-col items-center gap-2">
+      <div id={"dj-client-#{@d}"} phx-update="ignore" class="mt-2 @min-[48rem]:mt-0">
+        <div class="flex items-stretch gap-2">
+          <div class="flex min-w-0 flex-1 flex-col items-center gap-2">
             <div
               id={"dj-jog-#{@d}"}
               class="relative size-20 cursor-grab select-none active:cursor-grabbing"
@@ -3581,7 +3584,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               <div id={"dj-marks-#{@d}"} class="pointer-events-none absolute inset-0"></div>
             </div>
 
-            <div class="flex w-full items-center justify-center gap-1.5">
+            <div class="flex w-full flex-wrap items-center justify-center gap-1.5">
               <button
                 id={"dj-cue-#{@d}"}
                 type="button"
@@ -3619,7 +3622,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               </button>
             </div>
 
-            <div class="flex w-full items-center justify-center gap-2 py-0.5">
+            <div class="flex w-full flex-wrap items-center justify-center gap-2 py-0.5">
               <.knob
                 id={"dj-filter-#{@d}"}
                 label="Filtro"
@@ -3698,7 +3701,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             </fieldset>
           </div>
 
-          <div class="flex w-9 flex-col items-center gap-1">
+          <div class="flex w-9 shrink-0 flex-col items-center gap-1">
             <span class="text-[8px] font-bold uppercase tracking-wider text-ink-faint">Pitch</span>
             <div
               class="flex h-28 items-center justify-center rounded-md border border-white/8 bg-base px-1"
@@ -3732,8 +3735,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
   defp mixer(assigns) do
     ~H"""
     <section
-      class="flex flex-col rounded-2xl border border-white/8 p-3"
-      style="background:linear-gradient(180deg,#11131a,#0e0f15);box-shadow:0 10px 30px rgba(0,0,0,.35)"
+      class="flex min-w-0 flex-col rounded-2xl border border-white/8 p-3 @min-[48rem]:row-span-3"
+      style="background:linear-gradient(180deg,#11131a,#0e0f15)"
     >
       <div id="dj-mixer" phx-update="ignore" class="flex flex-1 flex-col items-center gap-2.5">
         <div class="flex items-end justify-center gap-3">
@@ -3850,7 +3853,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
         <p class="mt-0.5 break-words text-body font-medium text-ink">
           {@hint.track.tag_title || @hint.track.filename}
         </p>
-        <p class="break-words text-body-sm text-ink-muted">{@hint.track.tag_artist || "—"}</p>
+        <p class="break-words text-body-sm text-ink-muted [overflow-wrap:anywhere]">
+          {@hint.track.tag_artist || "—"}
+        </p>
         <.version_path track={@hint.track} class="mt-0.5" />
         <p
           :if={@hint.transition && @hint.transition["reason"]}
@@ -3901,20 +3906,21 @@ defmodule BeatgridWeb.DiscotecagemLive do
     <section
       id="dj-queue-panel"
       class={[
-        "flex max-h-[calc(100vh-600px)] min-h-[200px] flex-col overflow-hidden rounded-2xl border bg-surface p-3 transition-colors",
+        "flex min-w-0 flex-col overflow-hidden rounded-2xl border bg-surface p-3 transition-colors",
+        @entries != [] && "max-h-[50dvh] min-h-64 @min-[60rem]:max-h-[calc(100dvh-600px)]",
         @rail_tab == "fila" && "border-primary/40",
         @rail_tab != "fila" && "border-white/8"
       ]}
     >
-      <div class="flex shrink-0 items-center justify-between gap-2">
-        <h2 class="flex items-center">
+      <div class="flex shrink-0 flex-wrap items-center justify-between gap-2">
+        <h2 class="flex min-w-0 items-center">
           <button
             type="button"
             phx-click="rail_tab"
             phx-value-tab="fila"
             aria-pressed={to_string(@rail_tab == "fila")}
             title="Marcar a fila como a lista que o browse navega"
-            class="flex min-h-6 items-center gap-2"
+            class="flex min-h-6 flex-wrap items-center gap-2"
           >
             <span class="text-[10px] font-bold uppercase tracking-[0.12em] text-ink-secondary">
               {fila_tab_label(@entries, @pointer_id)}
@@ -3970,8 +3976,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
           <span class="text-right font-mono text-body-sm text-ink-muted">{e.position}</span>
           <.cover src={cover_src(e.track)} artist={e.track.tag_artist} size={28} />
           <div class="min-w-0">
-            <.booth_track_link track={e.track} set_id={@set && @set.id} />
-            <p class="break-words text-body-sm text-ink-secondary">{e.track.tag_artist || "—"}</p>
+            <.booth_track_link track={e.track} set_id={@set.id} />
+            <p class="break-words text-body-sm text-ink-secondary [overflow-wrap:anywhere]">
+              {e.track.tag_artist || "—"}
+            </p>
           </div>
           <.load_buttons track={e.track} />
           <.version_path
@@ -4029,7 +4037,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
   defp library_panel(assigns) do
     ~H"""
     <section class={[
-      "flex max-h-[calc(100vh-600px)] min-h-[200px] flex-col overflow-hidden rounded-2xl border bg-surface p-3 transition-colors",
+      "flex min-w-0 flex-col overflow-hidden rounded-2xl border bg-surface p-3 transition-colors",
+      @lib_tracks != [] && "max-h-[50dvh] min-h-64 @min-[60rem]:max-h-[calc(100dvh-600px)]",
       @rail_tab == "biblioteca" && "border-primary/40",
       @rail_tab != "biblioteca" && "border-white/8"
     ]}>
@@ -4063,7 +4072,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           aria-label="Buscar na biblioteca"
           phx-debounce="250"
           autocomplete="off"
-          class="w-full rounded-lg border border-white/10 bg-input px-3 py-1.5 text-[12px] text-ink placeholder:text-ink-faint focus:border-primary/60 focus:outline-none"
+          class="w-full rounded-lg border border-white/10 bg-input px-3 py-1.5 text-[12px] text-ink placeholder:text-ink-faint focus:border-primary/60"
         />
       </form>
       <p :if={@lib_tracks == []} class="mt-3 text-[12px] text-ink-faint">
@@ -4080,7 +4089,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
           <.cover src={cover_src(t)} artist={t.tag_artist} size={28} />
           <div class="min-w-0">
             <.booth_track_link track={t} set_id={@set_id} />
-            <p class="break-words text-body-sm text-ink-secondary">{t.tag_artist || "—"}</p>
+            <p class="break-words text-body-sm text-ink-secondary [overflow-wrap:anywhere]">
+              {t.tag_artist || "—"}
+            </p>
           </div>
           <.load_buttons track={t} />
           <.version_path
@@ -4216,8 +4227,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
   defp midi_panel(assigns) do
     ~H"""
-    <section id="dj-midi" phx-hook=".DjMidi" class="rounded-2xl border border-white/8 bg-surface p-4">
-      <div class="flex items-center justify-between">
+    <section id="dj-midi" phx-hook=".DjMidi" class="px-3 py-3">
+      <div class="flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-secondary">
           Controladora MIDI
         </h2>

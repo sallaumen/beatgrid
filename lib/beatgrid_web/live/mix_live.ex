@@ -306,7 +306,11 @@ defmodule BeatgridWeb.MixLive do
   def render(assigns) do
     ~H"""
     <.app_shell flash={@flash} active={:mixes} socket={@socket}>
-      <div id={"mix-study-#{@mix.id}"} data-mix-study class="mx-auto max-w-[1100px] px-3 py-5 sm:px-6">
+      <div
+        id={"mix-study-#{@mix.id}"}
+        data-mix-study
+        class="@container mx-auto max-w-[1100px] px-3 py-5 sm:px-6"
+      >
         <.link
           navigate={~p"/sets-online"}
           class="inline-flex items-center gap-1 text-body-sm text-ink-muted hover:text-ink"
@@ -327,7 +331,7 @@ defmodule BeatgridWeb.MixLive do
             </span>
           </div>
           <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-body text-ink-secondary">
-            <span>{@mix.dj || "DJ desconhecido"}</span>
+            <span class="min-w-0 [overflow-wrap:anywhere]">{@mix.dj || "DJ desconhecido"}</span>
             <a
               href={@mix.source_url}
               target="_blank"
@@ -376,7 +380,7 @@ defmodule BeatgridWeb.MixLive do
             >
               Linha do tempo
             </h2>
-            <div class="flex items-center gap-2 text-caption text-ink-muted">
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-ink-muted">
               <span class="flex items-center gap-1"><span class="size-2 rounded-xs bg-green/70"></span>
               Na biblioteca</span>
               <span class="flex items-center gap-1"><span class="size-2 rounded-xs bg-primary/50"></span>
@@ -419,7 +423,7 @@ defmodule BeatgridWeb.MixLive do
         <div :if={@mix.audio_deleted_at} class="mt-3 flex flex-wrap items-center gap-2">
           <p class="text-body-sm text-ink-muted">Áudio apagado (análise preservada).</p>
           <button
-            :if={@mix.audio_deleted_at && @mix.status != :downloading}
+            :if={@mix.status != :downloading}
             phx-click="redownload_audio"
             class="rounded-md border border-primary/30 bg-primary/10 px-3 py-1 text-[12px] font-medium text-primary hover:bg-primary/20"
           >
@@ -679,7 +683,7 @@ defmodule BeatgridWeb.MixLive do
           aria-labelledby="recorte-title"
           class="mt-4 scroll-mt-36 rounded-xl border border-primary/25 bg-surface p-3 sm:p-4"
         >
-          <div class="flex items-center justify-between">
+          <div class="flex items-center justify-between gap-3">
             <h2 id="recorte-title" tabindex="-1" class="text-[18px] font-semibold">Novo recorte</h2>
             <button
               id="recorte-close"
@@ -687,7 +691,7 @@ defmodule BeatgridWeb.MixLive do
               phx-click="close_recorte"
               aria-label="Fechar recorte"
               data-recorte-confirm="Descartar esta edição de recorte?"
-              class="rounded-md border border-white/10 px-2 py-1.5 text-body-sm text-ink-secondary hover:text-ink"
+              class="shrink-0 rounded-md border border-white/10 px-2 py-1.5 text-body-sm text-ink-secondary hover:text-ink"
             >
               Fechar
             </button>
@@ -698,7 +702,7 @@ defmodule BeatgridWeb.MixLive do
 
           <div class="mt-4 space-y-4">
             <section>
-              <div class="flex items-baseline gap-2">
+              <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                 <h3 class="text-body-lg font-semibold">
                   <label for="recorte-range">Intervalo do recorte</label>
                 </h3>
@@ -841,9 +845,9 @@ defmodule BeatgridWeb.MixLive do
                 id="recorte-form"
                 phx-change="recorte_change"
                 phx-submit="create_recorte"
-                class="mt-1.5 grid grid-cols-1 items-end gap-2 sm:grid-cols-12"
+                class="mt-1.5 grid items-end gap-2 @min-[30rem]:grid-cols-2 @min-[48rem]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(9rem,0.7fr)_auto]"
               >
-                <label class="text-caption text-ink-muted sm:col-span-4">
+                <label class="min-w-0 text-caption text-ink-muted">
                   Título da música
                   <input
                     name="title"
@@ -853,7 +857,7 @@ defmodule BeatgridWeb.MixLive do
                     class="mt-0.5 h-10 w-full rounded-lg border border-white/12 bg-input px-3 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary"
                   />
                 </label>
-                <label class="text-caption text-ink-muted sm:col-span-4">
+                <label class="min-w-0 text-caption text-ink-muted">
                   Artista <span class="text-ink-faint">(opcional)</span>
                   <input
                     name="artist"
@@ -862,11 +866,11 @@ defmodule BeatgridWeb.MixLive do
                     class="mt-0.5 h-10 w-full rounded-lg border border-white/12 bg-input px-3 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary"
                   />
                 </label>
-                <label class="text-caption text-ink-muted sm:col-span-2">
+                <label class="min-w-0 text-caption text-ink-muted">
                   Pasta
                   <select
                     name="folder"
-                    class="mt-0.5 h-10 w-full rounded-lg border border-white/12 bg-input px-2 text-body-sm text-ink focus:border-primary"
+                    class="mt-0.5 h-10 w-full min-w-0 rounded-lg border border-white/12 bg-input px-2 text-body-sm text-ink focus:border-primary"
                   >
                     <option value="">_Inbox</option>
                     <option :for={f <- @folders} value={f.key} selected={@recorte.folder == f.key}>
@@ -878,7 +882,7 @@ defmodule BeatgridWeb.MixLive do
                   type="submit"
                   disabled={is_nil(recorte_range(@recorte))}
                   phx-disable-with="Enfileirando…"
-                  class="h-10 rounded-lg bg-primary-deep px-4 text-body-sm font-semibold text-white hover:bg-primary-deep/90 disabled:opacity-40 sm:col-span-2"
+                  class="h-10 rounded-lg bg-primary-deep px-4 text-body-sm font-semibold text-white hover:bg-primary-deep/90 disabled:opacity-40"
                 >
                   Salvar MP3
                 </button>
@@ -1374,7 +1378,7 @@ defmodule BeatgridWeb.MixLive do
       data-seg
       data-start-ms={@seg.start_ms}
       data-end-ms={@seg.end_ms}
-      class="grid min-w-0 gap-2 rounded-lg border border-white/6 bg-surface px-3 py-2.5 xl:grid-cols-[minmax(9rem,auto)_minmax(0,1fr)_auto] xl:items-center"
+      class="grid min-w-0 gap-2 rounded-lg border border-white/6 bg-surface px-3 py-2.5 @min-[50rem]:grid-cols-[10rem_minmax(0,1fr)_14rem] @min-[50rem]:items-center"
     >
       <div class="flex flex-wrap items-center gap-2">
         <button
@@ -1414,7 +1418,7 @@ defmodule BeatgridWeb.MixLive do
       <form
         id={"seg-form-#{@seg.id}"}
         phx-submit="save_segment"
-        class="flex min-w-0 items-center gap-1.5"
+        class="grid min-w-0 grid-cols-[minmax(0,2fr)_minmax(0,3fr)_auto] items-center gap-1.5"
       >
         <input type="hidden" name="segment_id" value={@seg.id} />
         <input
@@ -1422,14 +1426,14 @@ defmodule BeatgridWeb.MixLive do
           value={@seg.artist || ""}
           placeholder="Artista"
           aria-label={"Artista da faixa em #{format_clock(@seg.start_ms)}"}
-          class="w-[35%] min-w-0 rounded border border-white/10 bg-transparent px-1.5 py-1.5 text-body text-ink placeholder:text-ink-faint focus:border-primary/50"
+          class="w-full min-w-0 rounded border border-white/10 bg-transparent px-1.5 py-1.5 text-body text-ink placeholder:text-ink-faint focus:border-primary/50"
         />
         <input
           name="title"
           value={@seg.title || ""}
           placeholder="Título"
           aria-label={"Título da faixa em #{format_clock(@seg.start_ms)}"}
-          class="min-w-0 flex-1 rounded border border-white/10 bg-transparent px-1.5 py-1.5 text-body text-ink placeholder:text-ink-faint focus:border-primary/50"
+          class="w-full min-w-0 rounded border border-white/10 bg-transparent px-1.5 py-1.5 text-body text-ink placeholder:text-ink-faint focus:border-primary/50"
         />
         <button
           type="submit"
@@ -1437,7 +1441,7 @@ defmodule BeatgridWeb.MixLive do
           class="shrink-0 rounded-md border border-white/10 px-2 py-1 text-body-sm text-ink-secondary hover:text-ink"
         >Salvar</button>
       </form>
-      <div class="flex flex-wrap items-center gap-2 xl:justify-end">
+      <div class="flex flex-wrap items-center gap-2 @min-[50rem]:justify-end">
         <button
           :if={@playable}
           type="button"

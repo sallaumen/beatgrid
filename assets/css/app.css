@@ -112,9 +112,14 @@ html, body { color-scheme: dark; background: var(--bg-base); color: var(--text-p
    on specificity and keep it. */
 :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
+#workspace-content {
+  --workspace-player-reserve: 5rem;
+  padding-bottom: var(--workspace-player-reserve);
+}
+
 @media (max-width: 63.999rem) {
   body:has(#player-bar:not(.hidden)) #workspace-content {
-    padding-bottom: calc(7rem + env(safe-area-inset-bottom));
+    --workspace-player-reserve: calc(7rem + env(safe-area-inset-bottom));
   }
 }
 
@@ -137,8 +142,10 @@ html, body { color-scheme: dark; background: var(--bg-base); color: var(--text-p
 }
 
 @media (min-width: 1400px) {
-  .lib-grid { grid-template-columns: 38px minmax(200px, 1fr) 130px 52px 56px 80px 52px 64px 100px 28px; }
-  .lib-grid.is-selecting { grid-template-columns: 24px 38px minmax(200px, 1fr) 130px 52px 56px 80px 52px 64px 100px 28px; }
+  /* Leave space for the selection checkbox even beside the expanded rail and
+     filters. Shorten the energy meter and gain hint, not the title. */
+  .lib-grid { grid-template-columns: 38px minmax(200px, 1fr) 130px 52px 56px 64px 52px 56px 100px 28px; }
+  .lib-grid.is-selecting { grid-template-columns: 24px 38px minmax(200px, 1fr) 130px 52px 56px 64px 52px 56px 100px 28px; }
 }
 
 /* Now-playing disc: uses Tailwind's `animate-spin`, but only actually spins while

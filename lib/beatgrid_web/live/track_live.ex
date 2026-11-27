@@ -564,10 +564,14 @@ defmodule BeatgridWeb.TrackLive do
             </div>
 
             <div class="min-w-0 flex-1">
-              <div class="flex min-w-0 flex-wrap items-center gap-2">
-                <h1 class="w-full min-w-0 break-words text-[24px] font-semibold leading-tight sm:text-[28px]">
-                  {title(@track)}
-                </h1>
+              <h1 class="min-w-0 break-words text-[24px] font-semibold leading-tight [overflow-wrap:anywhere] sm:text-[28px]">
+                {title(@track)}
+              </h1>
+              <p class="mt-1 break-words text-body-lg text-ink-secondary [overflow-wrap:anywhere]">
+                {@track.tag_artist || "—"}
+              </p>
+
+              <div class="mt-2 flex min-w-0 flex-wrap items-center gap-2">
                 <.track_gold_toggle track={@track} />
                 <span
                   :if={@track.id == @playing_track_id}
@@ -576,10 +580,6 @@ defmodule BeatgridWeb.TrackLive do
                   <.vinyl size={12} /> Tocando agora
                 </span>
               </div>
-
-              <p class="mt-1 break-words text-body-lg text-ink-secondary">
-                {@track.tag_artist || "—"}
-              </p>
 
               <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
                 <.stat label="BPM" value={bpm(@track)} class="text-primary" />
@@ -650,20 +650,24 @@ defmodule BeatgridWeb.TrackLive do
             aria-label="Seções da ficha"
             class="mt-3 space-y-2 border-t border-white/6 pt-3 text-body-sm"
           >
-            <div class="flex flex-wrap items-baseline gap-x-4 gap-y-2">
+            <div class="grid items-baseline gap-x-3 gap-y-1.5 sm:grid-cols-[5rem_minmax(0,1fr)]">
               <span class="font-semibold text-ink-muted">Preparar</span>
-              <a href="#track-edit" class="text-ink-secondary hover:text-ink hover:underline">Editar faixa</a>
-              <a href="#track-curation" class="text-ink-secondary hover:text-ink hover:underline">Nota e tags</a>
-              <a href="#track-markers" class="text-ink-secondary hover:text-ink hover:underline">Marcadores</a>
-              <a href="#track-loudness" class="text-ink-secondary hover:text-ink hover:underline">Volume</a>
+              <div class="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1.5">
+                <a href="#track-edit" class="text-ink-secondary hover:text-ink hover:underline">Editar faixa</a>
+                <a href="#track-curation" class="text-ink-secondary hover:text-ink hover:underline">Nota e tags</a>
+                <a href="#track-markers" class="text-ink-secondary hover:text-ink hover:underline">Marcadores</a>
+                <a href="#track-loudness" class="text-ink-secondary hover:text-ink hover:underline">Volume</a>
+              </div>
             </div>
-            <div class="flex flex-wrap items-baseline gap-x-4 gap-y-2">
+            <div class="grid items-baseline gap-x-3 gap-y-1.5 sm:grid-cols-[5rem_minmax(0,1fr)]">
               <span class="font-semibold text-ink-muted">Consultar</span>
-              <a href="#track-analysis" class="text-ink-secondary hover:text-ink hover:underline">Análise</a>
-              <a href="#track-origin" class="text-ink-secondary hover:text-ink hover:underline">Origem</a>
-              <a href="#track-versions" class="text-ink-secondary hover:text-ink hover:underline">Versões</a>
-              <a href="#track-next" class="text-ink-secondary hover:text-ink hover:underline">Próxima faixa</a>
-              <a href="#track-matches" class="text-ink-secondary hover:text-ink hover:underline">Parecidas (IA)</a>
+              <div class="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1.5">
+                <a href="#track-analysis" class="text-ink-secondary hover:text-ink hover:underline">Análise</a>
+                <a href="#track-origin" class="text-ink-secondary hover:text-ink hover:underline">Origem</a>
+                <a href="#track-versions" class="text-ink-secondary hover:text-ink hover:underline">Versões</a>
+                <a href="#track-next" class="text-ink-secondary hover:text-ink hover:underline">Próxima faixa</a>
+                <a href="#track-matches" class="text-ink-secondary hover:text-ink hover:underline">Parecidas (IA)</a>
+              </div>
             </div>
           </nav>
         </header>
@@ -752,7 +756,7 @@ defmodule BeatgridWeb.TrackLive do
                   <form
                     id="track-folder"
                     phx-change="change_folder"
-                    class="flex flex-wrap items-center gap-2"
+                    class="flex min-w-0 flex-wrap items-center gap-2"
                   >
                     <label for="track-folder-select" class="text-body-sm text-ink-secondary">
                       Mover para outra pasta
@@ -760,7 +764,7 @@ defmodule BeatgridWeb.TrackLive do
                     <select
                       id="track-folder-select"
                       name="folder"
-                      class="max-w-[180px] rounded-md border border-white/10 bg-input px-2 py-1 text-body-sm text-ink focus:border-primary/50"
+                      class="min-w-0 max-w-full rounded-md border border-white/10 bg-input px-2 py-1 text-body-sm text-ink focus:border-primary/50 sm:max-w-48"
                       title="Mover a faixa para outra pasta (move o arquivo no disco)"
                     >
                       <option :if={is_nil(@track.genre_folder)} value="" selected>
@@ -814,17 +818,17 @@ defmodule BeatgridWeb.TrackLive do
 
               <div class="mt-4 border-t border-white/6 pt-3">
                 <.section_label>Minhas tags</.section_label>
-                <div class="mt-3 flex flex-wrap gap-1.5">
+                <div class="mt-2 flex flex-wrap gap-1.5">
                   <span
                     :for={tag <- @track.tags || []}
-                    class="inline-flex items-center gap-1 rounded-sm border border-primary/40 bg-primary/15 px-2 py-1 text-[11px] text-ink"
+                    class="inline-flex min-w-0 max-w-full items-center gap-1 rounded-sm border border-primary/40 bg-primary/15 px-2 py-1 text-[11px] text-ink"
                   >
-                    {tag}
+                    <span class="min-w-0 break-words [overflow-wrap:anywhere]">{tag}</span>
                     <button
                       phx-click="remove_tag"
                       phx-value-tag={tag}
                       aria-label={"Remover tag #{tag}"}
-                      class="text-ink-muted hover:text-coral"
+                      class="shrink-0 text-ink-muted hover:text-coral"
                     >✕</button>
                   </span>
                   <span :if={(@track.tags || []) == []} class="text-body-sm text-ink-faint">Sem tags ainda.</span>
@@ -854,7 +858,7 @@ defmodule BeatgridWeb.TrackLive do
                   phx-debounce="600"
                   aria-label="Anotação pessoal"
                   placeholder="Observações suas sobre a faixa…"
-                  class="mt-3 w-full resize-none rounded-md border border-white/8 bg-input px-3 py-2 text-body-sm focus:border-primary/50"
+                  class="mt-2 w-full resize-none rounded-md border border-white/8 bg-input px-3 py-2 text-body-sm focus:border-primary/50"
                 >{@track.personal_note}</textarea>
               </form>
             </section>
@@ -919,42 +923,46 @@ defmodule BeatgridWeb.TrackLive do
                 </span>
               </div>
 
-              <div :if={@track.loudness_lufs} class="mt-3 space-y-2 text-body-sm">
-                <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <span class="w-28 text-ink-faint">Arquivo atual</span>
+              <dl
+                :if={@track.loudness_lufs}
+                class="mt-3 grid grid-cols-[7rem_minmax(0,1fr)] items-baseline gap-x-3 gap-y-2 text-body-sm"
+              >
+                <dt class="text-ink-faint">Arquivo atual</dt>
+                <dd class="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
                   <span class="text-amber font-mono">{format_lufs(@track.loudness_lufs)}</span>
                   <span :if={@track.true_peak_dbtp} class="text-ink-secondary font-mono">
                     {Float.round(@track.true_peak_dbtp, 1)} dBTP
                   </span>
-                </div>
-                <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <span class="w-28 text-ink-faint">Ganho recomendado</span>
-                  <span class="font-mono text-primary">{format_gain(
-                    Loudness.gain_db(@track.loudness_lufs, @track.true_peak_dbtp)
-                  )}</span>
-                </div>
+                </dd>
+                <dt class="text-ink-faint">Ganho recomendado</dt>
+                <dd class="font-mono text-primary">
+                  {format_gain(Loudness.gain_db(@track.loudness_lufs, @track.true_peak_dbtp))}
+                </dd>
 
-                <div
+                <dt :if={@track.original_loudness_lufs} class="text-ink-faint">Backup original</dt>
+                <dd
                   :if={@track.original_loudness_lufs}
-                  class="flex flex-wrap items-center gap-x-3 gap-y-1"
+                  class="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1"
                 >
-                  <span class="w-28 text-ink-faint">Backup original</span>
                   <span class="font-mono text-ink-secondary">
                     {format_lufs(@track.original_loudness_lufs)}
                   </span>
                   <span :if={@track.original_true_peak_dbtp} class="font-mono text-ink-muted">
                     {Float.round(@track.original_true_peak_dbtp, 1)} dBTP
                   </span>
-                </div>
+                </dd>
 
-                <div :if={@track.gain_applied_at} class="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <span class="w-28 text-ink-faint">Ganho aplicado</span>
+                <dt :if={@track.gain_applied_at} class="text-ink-faint">Ganho aplicado</dt>
+                <dd
+                  :if={@track.gain_applied_at}
+                  class="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1"
+                >
                   <span class="font-mono text-primary">{format_gain(@track.gain_applied_db)}</span>
                   <span class="text-ink-muted">{if @gain_backup,
                     do: "Backup original registrado",
                     else: "Sem backup original registrado"}</span>
-                </div>
-              </div>
+                </dd>
+              </dl>
 
               <p :if={!@track.loudness_lufs} class="text-ink-faint mt-3 text-caption">
                 Loudness ainda não medido.
@@ -966,7 +974,7 @@ defmodule BeatgridWeb.TrackLive do
                 </.link>
               </p>
 
-              <div :if={@gain_backup} class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div :if={@gain_backup} class="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
                   phx-click={
@@ -998,7 +1006,7 @@ defmodule BeatgridWeb.TrackLive do
               id="track-analysis"
               class="min-w-0 scroll-mt-4 rounded-xl border border-white/6 bg-surface p-4"
             >
-              <div class="flex items-center justify-between gap-3">
+              <div class="flex flex-wrap items-center justify-between gap-2">
                 <.section_label major>Análise de BPM e tom</.section_label>
                 <button
                   phx-click="reanalyze"
@@ -1186,8 +1194,8 @@ defmodule BeatgridWeb.TrackLive do
               id="track-matches"
               class="min-w-0 scroll-mt-4 rounded-xl border border-white/6 bg-surface p-4"
             >
-              <div class="flex items-center justify-between gap-3">
-                <div class="min-w-0">
+              <div class="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+                <div class="min-w-0 flex-1 basis-48">
                   <.section_label major>Sugestões parecidas (IA)</.section_label>
                   <p class="mt-1 text-caption text-ink-faint">
                     Faixas de outra origem que combinam com esta — mesmo clima, época e energia.
@@ -1241,7 +1249,7 @@ defmodule BeatgridWeb.TrackLive do
 
               <p
                 :if={@recs == [] and not @recommending?}
-                class="mt-3 rounded-lg border border-dashed border-white/8 px-3 py-4 text-center text-body-sm text-ink-faint"
+                class="mt-3 text-body-sm text-ink-faint"
               >
                 Nenhuma sugestão salva para esta faixa. Clique em <span class="text-ink-secondary">Buscar parecidas</span>.
               </p>
@@ -1303,14 +1311,14 @@ defmodule BeatgridWeb.TrackLive do
 
   defp editable_row(assigns) do
     ~H"""
-    <div class="flex items-center gap-2 py-1.5">
-      <span class="w-20 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+    <div class="grid grid-cols-[5rem_minmax(0,1fr)] items-center gap-x-2 gap-y-1.5 py-1.5">
+      <span class="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
         {@label}
       </span>
       <form
         :if={@editing == @field}
         phx-submit="save_field"
-        class="flex min-w-0 flex-1 items-center gap-1.5"
+        class="col-span-2 flex min-w-0 items-center gap-1.5 sm:col-span-1"
       >
         <input type="hidden" name="field" value={@field} />
         <input
@@ -1338,8 +1346,11 @@ defmodule BeatgridWeb.TrackLive do
           <.icon name="hero-x-mark" class="size-4" />
         </button>
       </form>
-      <span :if={@editing != @field} class="flex min-w-0 flex-1 items-center gap-1.5">
-        <span class={["min-w-0 break-words text-body-sm", @display in [nil, ""] && "text-ink-faint"]}>
+      <span :if={@editing != @field} class="flex min-w-0 items-center gap-1.5">
+        <span class={[
+          "min-w-0 break-words text-body-sm [overflow-wrap:anywhere]",
+          @display in [nil, ""] && "text-ink-faint"
+        ]}>
           {(@display in [nil, ""] && "—") || @display}
         </span>
         <span :if={@edited?} class="shrink-0 text-[11px] text-primary" title="editado manualmente">
@@ -1365,7 +1376,7 @@ defmodule BeatgridWeb.TrackLive do
 
   defp section_label(assigns) do
     ~H"""
-    <h2 :if={@major} class="text-body-lg font-semibold text-ink">
+    <h2 :if={@major} class="text-[18px] font-semibold leading-tight text-ink">
       {render_slot(@inner_block)}
     </h2>
     <h3 :if={!@major} class="text-caption font-semibold uppercase tracking-wider text-ink-muted">

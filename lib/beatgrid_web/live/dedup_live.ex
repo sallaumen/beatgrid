@@ -278,29 +278,30 @@ defmodule BeatgridWeb.DedupLive do
     ~H"""
     <.app_shell flash={@flash} active={:dedup} socket={@socket}>
       <div class="flex min-w-0 flex-col">
-        <header class="flex flex-wrap items-center justify-between gap-4 border-b border-white/6 bg-rail px-5 py-3">
-          <div class="flex items-baseline gap-3">
-            <h1 class="text-[22px] font-semibold">Duplicatas</h1>
-            <span class="font-mono text-body-sm text-ink-muted">{group_count(@groups)}</span>
+        <header class="border-b border-white/6 bg-rail">
+          <div class="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3 px-3 py-3 sm:px-6">
+            <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h1 class="text-[22px] font-semibold">Duplicatas</h1>
+              <span class="font-mono text-body-sm text-ink-muted">{group_count(@groups)}</span>
+            </div>
+            <button
+              phx-click="scan"
+              disabled={@scanning?}
+              class="flex items-center gap-2 rounded-md bg-primary-deep px-3 py-2 text-body font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <span
+                :if={@scanning?}
+                class="size-2 motion-safe:animate-pulse rounded-full bg-white"
+                aria-hidden="true"
+              />
+              <span class={[!@scanning? && "hero-magnifying-glass size-4"]} aria-hidden="true" />
+              {if @scanning?, do: "Procurando…", else: "Procurar duplicatas"}
+            </button>
           </div>
-          <button
-            phx-click="scan"
-            disabled={@scanning?}
-            class="flex items-center gap-2 rounded-md bg-primary-deep px-3 py-2 text-body font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <span
-              :if={@scanning?}
-              class="size-2 motion-safe:animate-pulse rounded-full bg-white"
-              aria-hidden="true"
-            />
-            <span class={[!@scanning? && "hero-magnifying-glass size-4"]} aria-hidden="true" />
-            {if @scanning?, do: "Procurando…", else: "Procurar duplicatas"}
-          </button>
         </header>
 
-        <.undo_toast :if={@undo} undo={@undo} />
-
-        <div class="mx-auto w-full max-w-[1600px] px-4 py-4 sm:px-5">
+        <div class="mx-auto w-full max-w-[1600px] px-3 py-4 sm:px-6">
+          <.undo_toast :if={@undo} undo={@undo} />
           <div class="mb-4 flex flex-wrap items-center justify-between gap-2 text-body">
             <p class="text-ink-muted">
               Compare os arquivos, artista e título de cada gravação antes de escolher qual cópia manter.
@@ -462,7 +463,7 @@ defmodule BeatgridWeb.DedupLive do
     <div
       id={"copy-#{@member.track_id}"}
       class={[
-        "grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-3 px-4 py-3 lg:grid-cols-[auto_minmax(0,1.25fr)_minmax(0,1fr)_minmax(9rem,auto)]",
+        "grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3 px-4 py-3 xl:grid-cols-[auto_minmax(0,1.25fr)_minmax(0,1fr)_minmax(9rem,auto)]",
         @chosen && "bg-green/5"
       ]}
     >
@@ -488,7 +489,7 @@ defmodule BeatgridWeb.DedupLive do
         </p>
       </div>
 
-      <dl class="col-span-2 grid min-w-0 grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3 lg:col-span-1">
+      <dl class="col-span-2 grid min-w-0 grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3 xl:col-span-1">
         <div
           :for={{label, value} <- quality_fields(@member.track, @member, @show_isrc?)}
           class="min-w-0"
@@ -500,7 +501,7 @@ defmodule BeatgridWeb.DedupLive do
         </div>
       </dl>
 
-      <div class="col-span-2 min-w-0 lg:col-span-1">
+      <div class="col-span-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 xl:col-span-1 xl:block">
         <label class={[
           "flex min-h-10 cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-body font-medium",
           @chosen && "border-green/40 bg-green/10 text-green",
@@ -526,7 +527,7 @@ defmodule BeatgridWeb.DedupLive do
           end}
         </label>
         <p class={[
-          "mt-1.5 text-body-sm font-medium",
+          "text-body-sm font-medium xl:mt-1.5",
           @chosen && "text-green",
           !@chosen && (@different? or @member.track.status != :present) && "text-ink-secondary",
           !@chosen && !@different? && @member.track.status == :present && "text-amber"
@@ -567,7 +568,7 @@ defmodule BeatgridWeb.DedupLive do
     <div
       role="status"
       class={[
-        "flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3",
+        "mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3",
         if(undo_problem?(@undo),
           do: "border-coral/30 bg-coral/10",
           else: "border-green/30 bg-green/10"
@@ -587,7 +588,7 @@ defmodule BeatgridWeb.DedupLive do
           class="mt-1 inline-block text-body-sm text-primary hover:underline"
         >Recuperação de arquivos</.link>
       </div>
-      <div class="flex items-center gap-3">
+      <div class="flex items-center gap-6">
         <button
           :if={undo_batch_info(@undo)}
           phx-click="undo"

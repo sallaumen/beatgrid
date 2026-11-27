@@ -103,7 +103,7 @@ defmodule BeatgridWeb.AjustesLive do
       <header class="border-b border-white/6 bg-rail px-3 py-3 sm:px-6">
         <div class="mx-auto flex max-w-[1100px] flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 class="text-[22px] font-semibold">Ajustes</h1>
+            <h1 class="text-title font-semibold">Ajustes</h1>
             <p class="text-body-sm text-ink-muted">As alterações entram em vigor ao salvar.</p>
           </div>
           <.link
@@ -118,18 +118,20 @@ defmodule BeatgridWeb.AjustesLive do
       </header>
 
       <div class="mx-auto max-w-[1100px] px-3 py-5 sm:px-6">
-        <div class="space-y-6">
+        <div class="space-y-5">
           <section :for={{title, entries} <- @groups} :if={entries != []}>
-            <h2 class="mb-2 text-[18px] font-semibold">{title}</h2>
-            <div class="divide-y divide-white/8 rounded-xl border border-white/8 bg-surface px-4">
+            <h2 class="mb-2 text-heading font-semibold">{title}</h2>
+            <div class="divide-y divide-white/8 rounded-xl border border-white/8 bg-surface px-3 sm:px-4">
               <section
                 :for={e <- entries}
                 id={"ajuste-card-#{e.key}"}
-                class="grid gap-3 py-4 lg:grid-cols-[minmax(0,1fr)_23rem] lg:items-start"
+                class="grid gap-3 py-3 lg:grid-cols-[minmax(0,1fr)_23rem] lg:items-start lg:gap-4"
               >
                 <div class="min-w-0">
-                  <label for={"ajuste-value-#{e.key}"} class="text-body-lg font-semibold">{e.label}</label>
-                  <span :if={e.override?} class="ml-1 text-caption font-semibold text-amber">personalizado</span>
+                  <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                    <label for={"ajuste-value-#{e.key}"} class="text-body-lg font-semibold">{e.label}</label>
+                    <span :if={e.override?} class="text-caption font-semibold text-amber">personalizado</span>
+                  </div>
                   <p
                     id={"ajuste-description-#{e.key}"}
                     class="mt-1 max-w-prose text-body text-ink-muted"
@@ -138,34 +140,38 @@ defmodule BeatgridWeb.AjustesLive do
                   </p>
                 </div>
 
-                <div class="space-y-1.5">
+                <div class="min-w-0 space-y-1.5">
                   <form
                     id={"ajuste-#{e.key}"}
                     phx-submit="save"
                     phx-auto-recover="ignore"
-                    class="flex flex-wrap items-center gap-2"
+                    class="flex flex-wrap items-center gap-x-2 gap-y-1.5"
                   >
                     <input type="hidden" name="key" value={e.key} />
-                    <div class="flex min-w-0 items-center gap-1.5">
-                      <input
-                        id={"ajuste-value-#{e.key}"}
-                        type="number"
-                        name="value"
-                        value={e.current}
-                        aria-describedby={"ajuste-range-#{e.key} ajuste-description-#{e.key}"}
-                        aria-invalid={
-                          if @toast && elem(@toast, 0) == :error &&
-                               elem(@toast, 1) == to_string(e.key), do: "true", else: "false"
-                        }
-                        required
-                        step={if e.type == :integer, do: "1", else: "any"}
-                        min={e.min}
-                        max={e.max}
-                        class="w-28 scroll-mt-20 rounded-md border border-white/10 bg-input px-3 py-2 font-mono text-body tabular-nums focus:border-primary/50"
-                      />
-                      <span :if={e.unit} class="text-body-sm text-ink-muted">{e.unit}</span>
+                    <div class="flex min-w-0 max-w-full items-center gap-2">
+                      <div class="flex w-40 min-w-0 items-center gap-1.5">
+                        <input
+                          id={"ajuste-value-#{e.key}"}
+                          type="number"
+                          name="value"
+                          value={e.current}
+                          aria-describedby={"ajuste-range-#{e.key} ajuste-description-#{e.key}"}
+                          aria-invalid={
+                            if @toast && elem(@toast, 0) == :error &&
+                                 elem(@toast, 1) == to_string(e.key), do: "true", else: "false"
+                          }
+                          required
+                          step={if e.type == :integer, do: "1", else: "any"}
+                          min={e.min}
+                          max={e.max}
+                          class="w-28 min-w-0 scroll-mt-20 rounded-md border border-white/10 bg-input px-3 py-2 font-mono text-body tabular-nums focus:border-primary/50"
+                        />
+                        <span :if={e.unit} class="text-body-sm text-ink-muted">{e.unit}</span>
+                      </div>
+                      <button class="shrink-0 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-body-sm font-semibold text-primary hover:bg-primary/15">
+                        Salvar
+                      </button>
                     </div>
-                    <button class="rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-body-sm font-semibold text-primary hover:bg-primary/15">Salvar</button>
                     <button
                       :if={e.override?}
                       type="button"
@@ -189,12 +195,12 @@ defmodule BeatgridWeb.AjustesLive do
                   </p>
                   <div
                     :if={@toast && elem(@toast, 1) == to_string(e.key)}
-                    class="flex items-center gap-2"
+                    class="flex items-start gap-2"
                   >
                     <p
                       role={if elem(@toast, 0) == :error, do: "alert", else: "status"}
                       class={[
-                        "text-body-sm",
+                        "min-w-0 break-words text-body-sm",
                         if(elem(@toast, 0) == :error, do: "text-coral", else: "text-green")
                       ]}
                     >
@@ -204,7 +210,7 @@ defmodule BeatgridWeb.AjustesLive do
                       type="button"
                       phx-click="dismiss_toast"
                       aria-label="Fechar aviso"
-                      class="text-ink-muted hover:text-ink"
+                      class="shrink-0 text-ink-muted hover:text-ink"
                     ><.icon name="hero-x-mark-mini" class="size-4" /></button>
                   </div>
                   <.link
