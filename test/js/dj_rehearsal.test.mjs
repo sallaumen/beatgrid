@@ -22,17 +22,23 @@ test("short files, an opening cue at zero and unknown BPM produce a bounded prev
 })
 
 test("auditions schedule independent sources only into phones and restore PFL on stop or completion", () => {
-  const sources = []
+  const sources = [], splitters = []
   const param = () => ({value: 1, setValueAtTime(v) { this.value = v }, linearRampToValueAtTime() {}, cancelScheduledValues() {}})
   const node = () => ({
-    connect(next) { this.next = next },
-    disconnect() { this.next = null },
+    connections: [],
+    connect(next, output = 0) { this.connections.push({next, output}) },
+    disconnect() { this.connections.length = 0 },
     frequency: param(), gain: param()
   })
   const ctx = {
     currentTime: 10,
     createStereoPanner: () => ({...node(), pan: {value: 0}}),
     createGain: node, createBiquadFilter: node,
+    createChannelSplitter() {
+      const splitter = node()
+      splitters.push(splitter)
+      return splitter
+    },
     createBufferSource() {
       const source = {...node(), playbackRate: param(), start(...args) { this.args = args }, stop() { this.stopped = true }}
       sources.push(source)
@@ -41,25 +47,40 @@ test("auditions schedule independent sources only into phones and restore PFL on
   }
   const phones = node(), pfl = node()
   const preview = createRehearsal(ctx, phones, pfl)
-  const plan = planRehearsal({duration: 14}, {duration: 8}, 12, 5, 120)
-  let canceled = 0
-  const observe = (level, times) => {
-    assert.equal(level.next.next, phones)
-    assert.equal(times.change, 13)
-    assert.equal(times.end, 16)
+  function track(duration, polarity) {
+    const left = new Float32Array(duration * 1000).fill(0.5)
+    const right = new Float32Array(duration * 1000).fill(polarity * 0.5)
+    return {duration, sampleRate: 1000, numberOfChannels: 2, getChannelData: ch => [left, right][ch]}
+  }
+  const plan = planRehearsal(track(14, 1), track(8, -1), 12, 5, 120)
+  let canceled = 0, stereoTap, clock
+  const observe = (tap, times) => {
+    stereoTap = tap
+    clock = times
     return () => { canceled++ }
   }
   preview.play(plan, "blend", -1, 0, observe)
+  assert.equal(clock.change, 13)
+  assert.equal(clock.end, 16)
+  assert.equal(stereoTap.connections.length, 0)
   const [a, b] = sources
   assert.equal(a.buffer, plan.outgoing)
   assert.equal(b.buffer, plan.incoming)
   assert.deepEqual(a.args, [10, 9, 5])
   assert.deepEqual(b.args, [13, 5, 3])
-  for (const source of [a, b]) {
-    let bus = source
-    while (bus.next && !bus.pan) bus = bus.next
-    assert.equal(bus.next, phones)
-    assert.equal(bus.pan.value, -1)
+  for (const [index, source] of [a, b].entries()) {
+    let fader = source
+    while (fader.connections.length === 1) fader = fader.connections[0].next
+    assert.deepEqual(fader.connections.map(edge => edge.next), [stereoTap, splitters[index]])
+    const [left, right] = splitters[index].connections
+    assert.deepEqual([left.output, right.output], [0, 1])
+    assert.deepEqual([left.next.gain.value, right.next.gain.value], [0.5, index === 0 ? 0.5 : -0.5])
+    const monitor = left.next.connections[0].next
+    assert.equal(right.next.connections[0].next, monitor)
+    assert.equal(monitor.channelCount, 1)
+    const panner = monitor.connections[0].next
+    assert.equal(panner.pan.value, -1)
+    assert.equal(panner.connections[0].next, phones)
   }
   assert.equal(pfl.gain.value, 0)
   const staleEnd = b.onended
@@ -71,11 +92,13 @@ test("auditions schedule independent sources only into phones and restore PFL on
   sources.at(-1).onended()
   assert.equal(pfl.gain.value, 1)
   assert.equal(preview.elapsed(), null)
-  assert.ok(sources.every(s => s.stopped && !s.next))
+  assert.ok(sources.every(s => s.stopped && !s.connections.length))
   assert.equal(canceled, 1, "natural completion lets the last meter window arrive")
   preview.stop()
   assert.equal(canceled, 2)
+  const splittersBeforeStereo = splitters.length
   preview.play(plan, "cut", 0, 0, () => { throw new Error("observer unavailable") })
+  assert.equal(splitters.length, splittersBeforeStereo)
   assert.equal(preview.elapsed(), 0)
   preview.stop()
 })

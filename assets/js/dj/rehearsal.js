@@ -1,6 +1,7 @@
 import {applyFilter, applyTone, createEq, neutralMix, setMixParam} from "./deck_mix.js"
 import {blendGains, scheduleBlend} from "./blend_curve.js"
 import {createRecordSource} from "./record_source.js"
+import {connectHeadphoneFold} from "./headphone_fold.js"
 
 // Cue points are record seconds. Durations and automation use the audio clock.
 export function planRehearsal(outgoing, incoming, exit, entry, bpm, mix = {out: neutralMix, into: neutralMix}) {
@@ -72,14 +73,23 @@ export function createRehearsal(ctx, phones, pfl) {
     const output = ctx.createStereoPanner()
     output.pan.value = pan
     const level = ctx.createGain()
+    const oneEar = Math.abs(pan) === 1
+    const monitor = oneEar ? ctx.createGain() : level
+    if (oneEar) {
+      monitor.channelCount = 1
+      monitor.channelCountMode = "explicit"
+    }
     const edge = Math.min(0.006, (finish - now) / 3)
-    level.gain.setValueAtTime(0, now)
-    level.gain.linearRampToValueAtTime(1, now + edge)
-    level.gain.setValueAtTime(1, finish - edge)
-    level.gain.linearRampToValueAtTime(0, finish)
-    level.connect(output)
+    const buses = oneEar ? [level, monitor] : [level]
+    for (const bus of buses) {
+      bus.gain.setValueAtTime(0, now)
+      bus.gain.linearRampToValueAtTime(1, now + edge)
+      bus.gain.setValueAtTime(1, finish - edge)
+      bus.gain.linearRampToValueAtTime(0, finish)
+    }
+    monitor.connect(output)
     output.connect(phones)
-    current = {start, plan, channels: {}, sources: [], nodes: [level, output]}
+    current = {start, plan, channels: {}, sources: [], nodes: [...buses, output]}
     try {
       const add = (side, buffer, at, end) => {
         if (end <= at) return null
@@ -97,7 +107,12 @@ export function createRehearsal(ctx, phones, pfl) {
           scheduleBlend(fader.gain, kind === "blend" && plan.blendCurve, side === "out" ? 0 : 1, change, fade, at)
         }
         current.nodes.push(source, ...Object.values(eq), channel, fader)
-        source.start(at, Math.max(0, recordTime(plan, side, at - start)), (end - at) * mix.rate)
+        const offset = Math.max(0, recordTime(plan, side, at - start))
+        if (oneEar) {
+          const fold = connectHeadphoneFold(ctx, fader, monitor, buffer, at, offset, end - at, mix.rate)
+          current.nodes.push(...fold)
+        }
+        source.start(at, offset, (end - at) * mix.rate)
         current.sources.push(source)
         return source
       }
