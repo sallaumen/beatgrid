@@ -1085,3 +1085,19 @@ test("AUTO fits its crossfade to the section remaining after a prepared hot cue"
   assert.equal(a.paused, true)
   assert.equal(b.paused, false)
 })
+
+for (const playing of [false, true]) {
+  test(`a hot cue moves the scratch pattern and its ${playing ? "playing" : "paused"} release point`, async t => {
+    const {engine, b, tick} = await scratchBooth(t, "pad-record")
+    engine.loadDeck("b", {id: "pad-record", src: "pad-record"}, {autoplay: playing})
+    engine.cueTo("b", 1250)
+    assert.equal(engine.startAutoScratch("b", "baby").ok, true)
+    engine.cueTo("b", 4000)
+    assert.equal(engine.scratchPosSec("b"), 4)
+    tick(50)
+    assert.ok(Math.abs(engine.scratchPosSec("b") - 4) < 0.2)
+    engine.stopAutoScratch("b")
+    assert.equal(b.currentTime, 4)
+    assert.equal(b.paused, !playing)
+  })
+}
