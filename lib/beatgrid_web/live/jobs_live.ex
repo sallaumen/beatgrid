@@ -471,17 +471,16 @@ defmodule BeatgridWeb.JobsLive do
 
   defp ago(%DateTime{} = dt) do
     case DateTime.diff(DateTime.utc_now(), dt, :second) do
-      s when s <= -86_400 -> "daqui a #{div(-s, 86_400)}d"
-      s when s <= -3_600 -> "daqui a #{div(-s, 3_600)}h"
-      s when s <= -60 -> "daqui a #{div(-s, 60)}min"
-      s when s < -4 -> "daqui a #{-s}s"
-      s when s < 5 -> "agora"
-      s when s < 60 -> "há #{s}s"
-      s when s < 3_600 -> "há #{div(s, 60)}min"
-      s when s < 86_400 -> "há #{div(s, 3_600)}h"
-      s -> "há #{div(s, 86_400)}d"
+      s when abs(s) < 5 -> "agora"
+      s when s < 0 -> "daqui a #{relative_duration(-s)}"
+      s -> "há #{relative_duration(s)}"
     end
   end
+
+  defp relative_duration(s) when s < 60, do: "#{s}s"
+  defp relative_duration(s) when s < 3_600, do: "#{div(s, 60)}min"
+  defp relative_duration(s) when s < 86_400, do: "#{div(s, 3_600)}h"
+  defp relative_duration(s), do: "#{div(s, 86_400)}d"
 
   # ── Errors / extra detail ──────────────────────────────────────────────────
 
