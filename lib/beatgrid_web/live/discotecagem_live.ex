@@ -1096,7 +1096,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
             Edite a cópia no fone. Ao confirmar, os dois decks usam os ajustes salvos no ponto da passagem.
           </p>
           <div class="mt-3 grid gap-4 sm:grid-cols-2">
-            <fieldset :for={{side, label} <- [{"out", "Saída"}, {"into", "Entrada"}]} data-side={side}>
+            <fieldset
+              :for={{side, label} <- [{"out", "Saída"}, {"into", "Entrada"}]}
+              data-side={side}
+              disabled
+              class="disabled:[&_button]:opacity-40 disabled:[&_input]:opacity-40"
+            >
               <legend class="text-body font-semibold text-ink">
                 {label} · <span data-mix-deck></span>
               </legend>
@@ -1149,7 +1154,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
           <button
             type="button"
             data-copy-mix
-            class="mt-3 min-h-9 rounded-md border border-white/10 px-3 text-body"
+            disabled
+            class="mt-3 min-h-9 rounded-md border border-white/10 px-3 text-body disabled:opacity-40"
           >
             Copiar ajustes atuais da cabine
           </button>

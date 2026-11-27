@@ -42,6 +42,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
   const blendReview = createBlendReview()
   const score = mountPassageScore(dialog.querySelector("#dj-rehearsal-score"))
   const strips = [...dialog.querySelectorAll("[data-side]")]
+  const copyMix = dialog.querySelector("[data-copy-mix]")
   let lastChoice, lastPhase, lastEdit, lastAudition, originalAudition, mix, mixNote = ""
   let pair, plan, lastDeckCue, failure, pending = false, request = 0
   const kind = () => dialog.querySelector('input[name="dj-rehearse-kind"]:checked').value
@@ -264,6 +265,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
     lastDeckCue = deckCue
     comparison.bind(pair, plan, a.bpm)
     const phones = hasPhones()
+    copyMix.disabled = !plan
     for (const strip of strips) {
       strip.disabled = !plan
       strip.querySelector("[data-pulse-sync]").disabled = !plan || !phones || pending
@@ -279,7 +281,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
     let message = failure
     if (!out || !into) message = "Carregue uma faixa em cada deck para ensaiar."
     else if (a.el.error || b.el.error || waves[from]?.failed || waves[to]?.failed) message = "Não foi possível ler o áudio de um dos decks."
-    else if (!ready) message = "Preparando as ondas das duas faixas…"
+    else if (!ready) message = "Preparando as ondas para liberar os ajustes e a escuta no fone…"
     else if (!plan) message = "Reposicione o deck de entrada antes do fim da faixa."
     else if (shortBass) message = "Escolha corte ou mistura, ou reposicione a entrada para caberem quatro tempos."
     else if (!phones) message = "Escolha uma saída separada em Fone (cue) para ouvir."
@@ -386,7 +388,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
       return play()
     }
   }
-  dialog.querySelector("[data-copy-mix]").onclick = () => { if (plan) editMix(boothMix()) }
+  copyMix.onclick = () => { if (plan) editMix(boothMix()) }
   function playTake(transition, id, keepPhones) {
     let measured
     const reading = new Promise(resolve => { measured = resolve })
