@@ -40,19 +40,31 @@ defmodule BeatgridWeb.LocalImportComponent do
   def render(assigns) do
     result = scoped_result(assigns.local_result, assigns.batch, assigns.job)
     progress = scoped_progress(assigns.local_progress, assigns.batch, assigns.job, result)
-    assigns = assign(assigns, visible_result: result, visible_progress: progress)
+    active_batch? = not is_nil(assigns.batch) or not is_nil(result) or progress != %{}
+
+    assigns =
+      assign(assigns,
+        visible_result: result,
+        visible_progress: progress,
+        active_batch?: active_batch?
+      )
 
     ~H"""
-    <div id={@id} hidden={!@active} class="max-w-[1100px]">
-      <.local_import_panel :if={@active} import={@local_import} target={@myself} />
+    <div id={@id} hidden={!@active} class="max-w-[1100px] space-y-4">
       <.local_import_activity
-        :if={@active}
+        :if={@active && @active_batch?}
         progress={@visible_progress}
         result={@visible_result}
         batch={@batch}
         job={@job}
         stored_receipt={@stored_receipt}
         target={@myself}
+      />
+      <.local_import_panel
+        :if={@active}
+        import={@local_import}
+        target={@myself}
+        show_queue_link={!@active_batch?}
       />
     </div>
     """
@@ -291,15 +303,22 @@ defmodule BeatgridWeb.LocalImportComponent do
 
   attr :target, :any, required: true
 
+  attr :show_queue_link, :boolean, required: true
+
   defp local_import_panel(assigns) do
     ~H"""
     <section
       class="rounded-lg border border-white/8 bg-surface p-4"
       aria-labelledby="local-import-title"
     >
-      <h2 id="local-import-title" class="mb-3 text-[18px] font-semibold">
-        Importar pasta ou arquivo
-      </h2>
+      <div class="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <h2 id="local-import-title" class="text-[18px] font-semibold">Importar pasta ou arquivo</h2>
+        <.link
+          :if={@show_queue_link}
+          navigate={~p"/jobs?worker=ImportWorker"}
+          class="inline-flex min-h-8 items-center text-body-sm text-primary-soft underline"
+        >Ver fila e tentativas</.link>
+      </div>
 
       <form
         id="import-source"
@@ -335,8 +354,6 @@ defmodule BeatgridWeb.LocalImportComponent do
         </div>
       </form>
 
-      <.source_browser browse={@import.browse} target={@target} />
-
       <p :if={@import[:error]} role="alert" class="mt-3 text-body-sm text-coral-soft">
         {@import.error}
       </p>
@@ -351,6 +368,13 @@ defmodule BeatgridWeb.LocalImportComponent do
         soundcharts={@import[:soundcharts]}
         target={@target}
       />
+
+      <details id="import-picker" class="mt-3 border-t border-white/8">
+        <summary class="cursor-pointer py-3 text-body-sm font-semibold text-ink-secondary hover:text-ink">
+          Procurar no disco
+        </summary>
+        <.source_browser browse={@import.browse} target={@target} />
+      </details>
     </section>
     """
   end
@@ -372,7 +396,11 @@ defmodule BeatgridWeb.LocalImportComponent do
       )
 
     ~H"""
-    <section id="local-import-activity" class="mt-4" aria-labelledby="local-activity-title">
+    <section
+      id="local-import-activity"
+      class="border-b border-white/8 pb-4"
+      aria-labelledby="local-activity-title"
+    >
       <div class="flex flex-wrap items-center justify-between gap-2">
         <h2 id="local-activity-title" class="text-[18px] font-semibold">
           {if @batch, do: "Lote de arquivos", else: "Cópia de arquivos"}
@@ -399,9 +427,6 @@ defmodule BeatgridWeb.LocalImportComponent do
         class="mt-2 text-body-sm text-ink-secondary"
       >
         {batch_status(@job)}
-      </p>
-      <p :if={!@batch and @progress == %{} and !@result} class="mt-2 text-body-sm text-ink-muted">
-        Nenhuma cópia em andamento.
       </p>
 
       <div
@@ -595,7 +620,14 @@ defmodule BeatgridWeb.LocalImportComponent do
 
     ~H"""
     <div class="mt-5 border-t border-white/8 pt-4" aria-labelledby="import-preview-title">
-      <h3 id="import-preview-title" class="text-[18px] font-semibold">Prévia das faixas</h3>
+      <h3
+        id="import-preview-title"
+        tabindex="-1"
+        phx-mounted={JS.focus()}
+        class="text-[18px] font-semibold"
+      >
+        Prévia das faixas
+      </h3>
       <p class="mt-1 mb-3 text-body-sm text-ink-muted" role="status">
         {counted(length(@new_rows), "nova", "novas")}, {counted(@dupes, "duplicada", "duplicadas")}
       </p>

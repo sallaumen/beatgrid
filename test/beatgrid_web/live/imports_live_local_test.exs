@@ -79,6 +79,9 @@ defmodule BeatgridWeb.ImportsLiveLocalTest do
 
     html = render_async(view)
     assert html =~ "1 nova, 0 duplicadas"
+    assert has_element?(view, "details#import-picker:not([open]) summary", "Procurar no disco")
+    assert has_element?(view, "#import-preview-title[tabindex='-1']")
+    assert before?(html, ~s(id="import-preview-title"), ~s(id="import-picker"))
     assert html =~ "Djavan"
     assert html =~ "Sina"
     assert html =~ "Importar 1 faixa"
@@ -250,6 +253,7 @@ defmodule BeatgridWeb.ImportsLiveLocalTest do
       |> Enum.filter(&(&1.source_playlist == "import"))
 
     assert has_element?(view, "#local-import-activity", "1 faixa importada, 1 duplicada")
+    assert before?(render(view), ~s(id="local-import-receipt"), ~s(id="import-source"))
     assert has_element?(view, "#local-import-receipt a[href='/track/#{new.id}']", "Abrir faixa")
 
     assert has_element?(
@@ -435,6 +439,12 @@ defmodule BeatgridWeb.ImportsLiveLocalTest do
 
     assert has_element?(view, "a", "Nova faixa")
     refute has_element?(view, "#local-import-activity")
+  end
+
+  defp before?(html, first, second) do
+    {start, _} = :binary.match(html, first)
+    {after_start, _} = :binary.match(html, second)
+    start < after_start
   end
 
   describe "folder browser" do
