@@ -1988,6 +1988,69 @@ test("the incoming cue stays at its first sample when recalling the controls tak
   }
 })
 
+test("an early confirmation absorbs preparation time without advancing either cue on air", async t => {
+  const rig = booth(t), {engine, a, advances} = rig
+  preparePassage(rig, "cut")
+  const {plan, pair} = engine.passage()
+  const mix = {out: {...engine.deckMix("a"), rate: 1.04, vinyl: true}, into: engine.deckMix("b")}
+  const phases = [], starts = [], allocations = engine.ctx.createBufferSource.bind(engine.ctx)
+  let phase = "arm"
+  t.mock.method(engine.ctx, "createBufferSource", () => {
+    phases.push(phase)
+    const voice = allocations()
+    engine.ctx.currentTime += .035
+    a.currentTime += .035
+    voice.start = (time, offset) => starts.push({time, offset})
+    return voice
+  })
+  assert.ok(engine.armPassage(pair, {...plan, mix}, "cut").ok)
+  assert.deepEqual(phases, [])
+  a.at(40)
+  phase = "confirm"
+  assert.ok(engine.confirmPassage().ok)
+  assert.deepEqual(starts, [])
+  assert.equal(engine.decks.a.mediaGain.gain.value, 1)
+  phase = "cue"
+  a.at(48)
+  await Promise.resolve()
+  assert.deepEqual(phases, ["confirm", "confirm"])
+  assert.equal(advances[0].atMs, 48_000)
+  assert.deepEqual(starts.map(s => s.offset), [2.5, 48])
+})
+
+for (const revoke of ["discard", "rate", "reject", "stop"]) {
+  test(`${revoke} disconnects both prepared heads without starting the canceled version`, async t => {
+    const rig = booth(t), {engine, a, b, advances} = rig
+    preparePassage(rig, "cut")
+    const {plan, pair} = engine.passage()
+    const mix = {out: {...engine.deckMix("a"), rate: 1.05, vinyl: true}, into: engine.deckMix("b")}
+    const voices = [], make = engine.ctx.createBufferSource.bind(engine.ctx)
+    t.mock.method(engine.ctx, "createBufferSource", () => {
+      const voice = make()
+      voice.start = () => { voice.played = true }
+      voice.stop = () => { if (!voice.played) throw Error("an unused source cannot be stopped") }
+      voice.disconnect = () => { voice.disconnected = true }
+      voices.push(voice)
+      return voice
+    })
+    assert.ok(engine.armPassage(pair, {...plan, mix}, "cut").ok)
+    a.at(40)
+    assert.ok(engine.confirmPassage().ok)
+    assert.equal(voices.length, 2)
+    if (revoke === "discard") engine.disarmPassage()
+    if (revoke === "rate") engine.setRate("b", .96)
+    if (revoke === "stop") engine.stopAll()
+    if (revoke === "reject") {
+      t.mock.method(b, "play", () => Promise.reject(Error("refused")))
+      a.at(48)
+      await Promise.resolve()
+    }
+    assert.ok(voices.every(voice => voice.disconnected && !voice.played))
+    assert.deepEqual(advances, [])
+    if (revoke !== "stop") assert.equal(a.paused, false)
+  })
+}
+
 for (const [workMs, accepted] of [[35, true], [55, false]]) {
   test(`two record preparations of ${workMs} ms preserve the receiver's cue and the live playhead`, async t => {
     const rig = booth(t), {engine, a, advances} = rig
@@ -2004,8 +2067,8 @@ for (const [workMs, accepted] of [[35, true], [55, false]]) {
       voice.start = (at, offset) => starts.push({at, offset})
       return voice
     })
-    engine.confirmPassage()
     a.at(48)
+    engine.confirmPassage()
     await Promise.resolve()
     assert.equal(advances.length, accepted ? 1 : 0)
     if (accepted) {
