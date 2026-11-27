@@ -1,6 +1,27 @@
 const readingStates = {good: "Em ordem", watch: "Atenção", poor: "Rever", unknown: "Sem leitura"}
 const listeningMessage = "Medindo a passagem."
 
+export function renderPassageDifferences(table, comparison) {
+  table.hidden = !comparison
+  if (!comparison) return
+  const headers = table.tHead.rows[0].cells
+  comparison.names.forEach((name, i) => { headers[i + 1].textContent = name })
+  const template = table.querySelector("template").content.firstElementChild
+  const rows = comparison.rows.map(({first, second}) => {
+    const row = template.cloneNode(true)
+    row.cells[0].textContent = first.label
+    for (const [i, metric] of [first, second].entries()) {
+      const cell = row.cells[i + 1]
+      cell.querySelector("[data-value]").textContent = metric.value
+      const state = cell.querySelector("[data-state]")
+      state.dataset.state = metric.state
+      state.textContent = readingStates[metric.state]
+    }
+    return row
+  })
+  table.tBodies[0].replaceChildren(...rows)
+}
+
 // Renders only transport events. Audio frames never update the live region.
 export function mountPassageScore(root) {
   const part = name => root.querySelector(`[data-score-${name}]`)

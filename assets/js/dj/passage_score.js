@@ -2,7 +2,7 @@
 // amplitudes are linear. A catalog BPM can break a tie, never supply an attack.
 const names = {pulse: "Pulso", level: "Nível", headroom: "Margem de pico"}
 const steadyEnds = "Pulso e nível semelhantes antes e depois."
-const metric = (id, state, value) => ({id, label: names[id], state, value})
+const metric = (id, state, value, finding = id) => ({id, label: names[id], state, value, finding})
 const unknown = (id, value = "Trecho insuficiente") => metric(id, "unknown", value)
 const db = value => 20 * Math.log10(Math.max(value, 1e-8))
 const decimal = value => value.toLocaleString("pt-BR", {maximumFractionDigits: 1})
@@ -115,8 +115,8 @@ function pulseMetric(before, after, middle, start, end, dt, kind, bpm, descripti
   const gap = (beatAt(a) - beatAt(b)) / step
   const phase = Math.abs(gap - Math.round(gap))
 
-  if (kind !== "cut" && drift > 0.065) return metric("pulse", "poor", "Andamentos diferentes antes e depois")
-  if (phase > 0.21) return metric("pulse", "poor", "Diferença de fase entre saída e entrada")
+  if (kind !== "cut" && drift > 0.065) return metric("pulse", "poor", "Andamentos diferentes antes e depois", "tempo")
+  if (phase > 0.21) return metric("pulse", "poor", "Diferença de fase entre saída e entrada", "phase")
   if (!descriptive && kind !== "cut" && middle.length * dt >= a.period * 2.8) {
     const cross = attacks(middle, start, dt)
     let count = 0, hits = 0
@@ -125,10 +125,10 @@ function pulseMetric(before, after, middle, start, end, dt, kind, bpm, descripti
       count++
       if (cross.some(p => Math.abs(p.time - t) < a.period * 0.15)) hits++
     }
-    if (count >= 3 && hits < count / 2) return metric("pulse", "poor", "Pulso sumiu na mistura")
+    if (count >= 3 && hits < count / 2) return metric("pulse", "poor", "Pulso sumiu na mistura", "missing_pulse")
   }
-  if (phase > 0.10) return metric("pulse", "watch", "Pequena diferença de fase entre saída e entrada")
-  if (drift > 0.035) return metric("pulse", "watch", kind === "cut" ? "O andamento mudou no corte" : "Pequena mudança de andamento entre as faixas")
+  if (phase > 0.10) return metric("pulse", "watch", "Pequena diferença de fase entre saída e entrada", "phase")
+  if (drift > 0.035) return metric("pulse", "watch", kind === "cut" ? "O andamento mudou no corte" : "Pequena mudança de andamento entre as faixas", "tempo")
   // Comparing odd/even accents requires the same measured step on both sides.
   if (Math.abs(b.period / a.period - 1) <= 0.035) {
     const reference = beatAt(a)
@@ -163,10 +163,11 @@ function levelWindows(frames, width) {
 function levelMetric(before, middle, after, dt, kind, descriptive) {
   const out = rms(before), into = rms(after)
   if (out < 0.001 && into < 0.001) return unknown("level", "Sem sinal nos dois lados")
-  if (out < 0.001 || into < 0.001) return metric("level", "poor", into < 0.001 ? "Entrada em silêncio" : "Saída em silêncio")
+  if (into < 0.001) return metric("level", "poor", "Entrada em silêncio", "silent_entry")
+  if (out < 0.001) return metric("level", "poor", "Saída em silêncio", "silent_exit")
   const jump = db(into / out), change = Math.abs(jump)
   const ends = change > 3.5
-    ? metric("level", change >= 8 ? "poor" : "watch", `Entrada ${decimal(change)} dB ${jump > 0 ? "acima" : "abaixo"}`)
+    ? metric("level", change >= 8 ? "poor" : "watch", `Entrada ${decimal(change)} dB ${jump > 0 ? "acima" : "abaixo"}`, jump > 0 ? "louder_entry" : "quieter_entry")
     : metric("level", "good", `Variação de ${decimal(change)} dB`)
   if (descriptive) return ends
   const guard = Math.round(0.75 / dt)
@@ -175,7 +176,7 @@ function levelMetric(before, middle, after, dt, kind, descriptive) {
   const quiet = longestQuiet(center, floor) * dt
   const rest = Math.max(longestQuiet(before.slice(0, -guard), floor), longestQuiet(after.slice(guard), floor)) * dt
   if (quiet > Math.max(0.18, rest + 0.12)) {
-    return metric("level", quiet >= 0.32 ? "poor" : "watch", `Silêncio de ${Math.round(quiet * 1000)} ms`)
+    return metric("level", quiet >= 0.32 ? "poor" : "watch", `Silêncio de ${Math.round(quiet * 1000)} ms`, "gap")
   }
   if (ends.state !== "good") return ends
   const width = Math.max(1, Math.round(0.45 / dt))
@@ -183,9 +184,9 @@ function levelMetric(before, middle, after, dt, kind, descriptive) {
     const context = [...levelWindows(before, width), ...levelWindows(after, width)]
     const levels = levelWindows(middle, width)
     const dip = db(quantile(levels, 0.05) / Math.max(quantile(context, 0.1), floor))
-    if (dip < -5) return metric("level", dip < -8 ? "poor" : "watch", `Queda de ${decimal(-dip)} dB na mistura`)
+    if (dip < -5) return metric("level", dip < -8 ? "poor" : "watch", `Queda de ${decimal(-dip)} dB na mistura`, "dip")
     const lift = db(quantile(levels, 0.95) / Math.max(quantile(context, 0.9), floor))
-    if (lift > 4) return metric("level", lift > 7 ? "poor" : "watch", `Subida de ${decimal(lift)} dB na mistura`)
+    if (lift > 4) return metric("level", lift > 7 ? "poor" : "watch", `Subida de ${decimal(lift)} dB na mistura`, "swell")
   }
   return ends
 }
@@ -200,7 +201,8 @@ function headroomMetric(frames) {
   if (peak < 0.001) return unknown("headroom", "Sem sinal na troca")
   const state = peak > 1 || nearRail >= 2 ? "poor" : db(peak) > -1 ? "watch" : "good"
   const reading = decimal(Math.round(db(peak) * 10) / 10 || 0)
-  return metric("headroom", state, estimated ? `Pico estimado de ${reading} dBTP` : `Pico de ${reading} dBFS`)
+  return estimated ? metric("headroom", state, `Pico estimado de ${reading} dBTP`, "true_peak") :
+    metric("headroom", state, `Pico de ${reading} dBFS`, "sample_peak")
 }
 
 export function scorePassage({frames, frameSeconds: dt, changeAt, overlap, kind, bpm, descriptive = false} = {}) {

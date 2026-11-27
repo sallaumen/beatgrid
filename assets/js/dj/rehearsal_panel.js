@@ -3,7 +3,7 @@ import {mountCueAssist} from "./cue_assist.js"
 import {measurePassage, preparePassageMeter} from "./passage_meter.js"
 import {mountPassageComparison, rehearsalKey} from "./passage_comparison.js"
 import {scorePassage} from "./passage_score.js"
-import {mountPassageScore} from "./passage_score_view.js"
+import {mountPassageScore, renderPassageDifferences} from "./passage_score_view.js"
 import {getDeckAudio} from "./waveform.js"
 import {pulseSync, syncedRate} from "./deck_mix.js"
 import {updateComparisonChoice} from "./rehearsal_choices.js"
@@ -48,7 +48,9 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
   const kind = () => dialog.querySelector('input[name="dj-rehearse-kind"]:checked').value
   let sequence = null
   const heardKind = () => sequence?.kind ?? kind()
-  const comparison = mountPassageComparison(score, [...dialog.querySelectorAll("[data-score-for]")], kind, name)
+  const differenceTable = dialog.querySelector("#dj-heard-differences")
+  const comparison = mountPassageComparison(score, [...dialog.querySelectorAll("[data-score-for]")], kind, name,
+    value => renderPassageDifferences(differenceTable, value))
   const assist = mountCueAssist(dialog.querySelector("[data-cue-assist]"), {audition: tryEntry, refresh: update})
 
   function stop() {

@@ -12,7 +12,18 @@ function scoreLabel(result, unavailable) {
   return result.score == null ? "Sem nota" : `${result.score}/100`
 }
 
-export function mountPassageComparison(details, labels, selected, name) {
+function differences(first, second) {
+  if (!first || !second) return []
+  return first.metrics.flatMap(a => {
+    const b = second.metrics.find(m => m.id === a.id)
+    if (!b || a.state === "unknown" || b.state === "unknown") return []
+    if (a.id === "headroom" && a.finding !== b.finding) return [] // dBTP and dBFS are different measurements.
+    if (a.state === b.state && (a.state === "good" || a.finding === b.finding)) return []
+    return [{first: a, second: b}]
+  })
+}
+
+export function mountPassageComparison(details, labels, selected, name, showDifferences = () => {}) {
   const heard = new Map()
   const unavailable = new Set()
   let key = null, active = null, pairSummary = ""
@@ -37,9 +48,14 @@ export function mountPassageComparison(details, labels, selected, name) {
     else details.clear()
   }
 
+  function clearSummary() {
+    if (pairSummary) showDifferences(null)
+    pairSummary = ""
+  }
+
   function select() {
     active = null
-    pairSummary = ""
+    clearSummary()
     render(true)
   }
 
@@ -59,7 +75,7 @@ export function mountPassageComparison(details, labels, selected, name) {
   }
 
   function begin(kind) {
-    pairSummary = ""
+    clearSummary()
     const take = {
       finish(result) {
         if (active !== take) return
@@ -88,6 +104,12 @@ export function mountPassageComparison(details, labels, selected, name) {
       const value = unavailable.has(kind) ? "sem medição" : scoreLabel(heard.get(kind), false).toLowerCase()
       return name(kind) + " " + value
     }).join(" · ") + "."
+    const rows = differences(...kinds.map(kind => unavailable.has(kind) ? null : heard.get(kind)))
+    if (rows.length) {
+      const metrics = rows.map(({first}) => first.label.toLocaleLowerCase("pt-BR"))
+      pairSummary += " Há diferenças de " + new Intl.ListFormat("pt-BR").format(metrics) + "."
+    }
+    showDifferences(rows.length ? {names: kinds.map(kind => name(kind, true)), rows} : null)
   }
 
   function reading() {
@@ -95,5 +117,5 @@ export function mountPassageComparison(details, labels, selected, name) {
     return unavailable.has(kind) ? null : heard.get(kind) ?? null
   }
 
-  return {select, bind, begin, reading, finishPair, summary: () => pairSummary, clearSummary() { pairSummary = "" }}
+  return {select, bind, begin, reading, finishPair, summary: () => pairSummary, clearSummary}
 }

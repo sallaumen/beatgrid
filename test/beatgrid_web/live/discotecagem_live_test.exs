@@ -192,6 +192,20 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
            )
 
     assert has_element?(view, "#dj-rehearse-dialog [data-listen-both][disabled]", "Ouvir as duas")
+
+    assert has_element?(
+             view,
+             "#dj-rehearse-dialog [data-listen-both][aria-controls=dj-heard-differences]"
+           )
+
+    assert has_element?(view, "table#dj-heard-differences[hidden] caption", "Diferenças no fone")
+    assert has_element?(view, "#dj-heard-differences th[scope=col]", "Leitura")
+
+    refute has_element?(
+             view,
+             "#dj-heard-differences[aria-live], #dj-heard-differences [aria-live]"
+           )
+
     assert has_element?(view, "#dj-rehearse-dialog [data-arm][disabled]", "Armar esta passagem")
 
     assert has_element?(
