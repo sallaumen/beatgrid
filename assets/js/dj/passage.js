@@ -1,10 +1,11 @@
 // Reserve one loaded pair and follow the outgoing record's clock, including during stalls.
 const MAX_LATE_MS = 100
 
-export function createPassage(decks, available, start) {
+export function createPassage(decks, available, start, observer = {}) {
   let choice = null, timer = null, abortStart = null
 
-  function stopWaiting() {
+  function stopWaiting(saved = choice) {
+    if (saved) observer.abandoned?.(saved)
     clearTimeout(timer)
     const abort = abortStart
     abortStart = null
@@ -12,8 +13,9 @@ export function createPassage(decks, available, start) {
   }
 
   function disarm() {
+    const saved = choice
     choice = null
-    stopWaiting()
+    stopWaiting(saved)
   }
 
   function fail(phase = "failed") {
@@ -77,6 +79,7 @@ export function createPassage(decks, available, start) {
     if (!available(decks[from], decks[to])) return {ok: false}
     choice.review = null
     choice.phase = "confirmed"
+    observer.confirmed?.(choice)
     check()
     return {ok: true}
   }

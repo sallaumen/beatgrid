@@ -1,8 +1,9 @@
 defmodule BeatgridWeb.PassageScore do
-  @moduledoc "Presentation for a transition measured during headphone rehearsal."
+  @moduledoc "Presentation for a transition measured from a rehearsal or the program output."
   use BeatgridWeb, :html
 
   attr :id, :string, required: true
+  attr :title, :string, default: "Nota da passagem"
 
   @doc "Renders the measurement panel and its persistent announcement target."
   def result(assigns) do
@@ -15,7 +16,7 @@ defmodule BeatgridWeb.PassageScore do
         class="mt-3 border-y border-white/10 py-3"
       >
         <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-          <h3 id={"#{@id}-title"} class="text-body-lg font-semibold">Nota da passagem</h3>
+          <h3 id={"#{@id}-title"} class="text-body-lg font-semibold" data-score-title>{@title}</h3>
           <p data-score-total hidden aria-hidden="true" class="flex items-baseline gap-1 font-mono">
             <span data-score-number class="text-title font-semibold leading-none tabular-nums"></span>
             <span data-score-scale class="text-body text-ink-muted">/100</span>
