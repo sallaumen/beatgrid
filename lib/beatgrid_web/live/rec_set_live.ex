@@ -1083,13 +1083,13 @@ defmodule BeatgridWeb.RecSetLive do
             </header>
 
             <div class="mt-2 flex flex-wrap items-center gap-3">
-              <form id="target-style" phx-change="set_target_style">
+              <form id="target-style" phx-change="set_target_style" class="min-w-0 max-w-full">
                 <input type="hidden" name="set_id" value={@set.id} />
-                <label class="flex items-center gap-2 text-caption text-ink-muted">
-                  Estilo-alvo
+                <label class="flex min-w-0 items-center gap-2 text-caption text-ink-muted">
+                  <span class="shrink-0">Estilo-alvo</span>
                   <select
                     name="style"
-                    class="rounded-md border border-white/8 bg-input px-2 py-1 text-body-sm focus:border-primary/50 focus:outline-none"
+                    class="h-8 min-w-0 max-w-full flex-1 truncate rounded-md border border-white/8 bg-input px-2 py-1 text-body-sm focus:border-primary/50 focus:outline-none"
                   >
                     <option value="" selected={is_nil(@set.target_style)}>— qualquer —</option>
                     <option
@@ -1153,14 +1153,16 @@ defmodule BeatgridWeb.RecSetLive do
                       phx-click="toggle_breather"
                       phx-value-track={e.track.id}
                       class={[
-                        "min-h-6 rounded px-1 py-0.5 text-[10px]",
-                        (Sets.breather?(e) && "bg-emerald-500/20") ||
-                          "opacity-30 grayscale hover:opacity-70",
-                        is_boolean(breather_override(e)) && "ring-1 ring-emerald-400/50"
+                        "grid size-6 shrink-0 place-items-center rounded-sm",
+                        (Sets.breather?(e) && "bg-green/15 text-green") ||
+                          "text-ink-faint hover:text-ink",
+                        is_boolean(breather_override(e)) && "ring-1 ring-green/50"
                       ]}
                       title={breather_title(e)}
+                      aria-label={breather_title(e)}
+                      aria-pressed={to_string(Sets.breather?(e))}
                     >
-                      🤝
+                      <span class="hero-pause size-4" aria-hidden="true" />
                     </button>
                     <span
                       :if={e.position > 1 && transition_on?(e) && @pair_timings[e.track.id]}
@@ -1180,8 +1182,9 @@ defmodule BeatgridWeb.RecSetLive do
                       phx-value-track={e.track.id}
                       class="grid size-6 place-items-center rounded-sm text-[11px] text-ink-faint hover:text-coral"
                       title="Desconectar (volta a tocar em sequência)"
+                      aria-label="Desconectar transição"
                     >
-                      ✕
+                      <span class="hero-link-slash size-4" aria-hidden="true" />
                     </button>
                     <button
                       :if={e.position > 1 && !transition_on?(e)}
@@ -1265,7 +1268,7 @@ defmodule BeatgridWeb.RecSetLive do
                         class="text-ink-faint hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
                         title="Para o topo"
                         aria-label={"Para o topo: faixa #{e.position}, #{title(e.track)}"}
-                      >⤒</button>
+                      ><span class="hero-chevron-double-up size-4" aria-hidden="true" /></button>
                       <button
                         phx-click="move"
                         phx-value-set_id={@set.id}
@@ -1275,7 +1278,7 @@ defmodule BeatgridWeb.RecSetLive do
                         class="text-ink-faint hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
                         title="Subir"
                         aria-label={"Subir: faixa #{e.position}, #{title(e.track)}"}
-                      >▲</button>
+                      ><span class="hero-chevron-up size-4" aria-hidden="true" /></button>
                       <button
                         phx-click="move"
                         phx-value-set_id={@set.id}
@@ -1285,7 +1288,7 @@ defmodule BeatgridWeb.RecSetLive do
                         class="text-ink-faint hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
                         title="Descer"
                         aria-label={"Descer: faixa #{e.position}, #{title(e.track)}"}
-                      >▼</button>
+                      ><span class="hero-chevron-down size-4" aria-hidden="true" /></button>
                       <button
                         phx-click="move"
                         phx-value-set_id={@set.id}
@@ -1295,7 +1298,7 @@ defmodule BeatgridWeb.RecSetLive do
                         class="text-ink-faint hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
                         title="Para o fim"
                         aria-label={"Para o fim: faixa #{e.position}, #{title(e.track)}"}
-                      >⤓</button>
+                      ><span class="hero-chevron-double-down size-4" aria-hidden="true" /></button>
                       <button
                         phx-click="remove"
                         phx-value-set_id={@set.id}
@@ -1303,7 +1306,7 @@ defmodule BeatgridWeb.RecSetLive do
                         class="ml-1 text-ink-muted hover:text-coral"
                         title="Remover"
                         aria-label={"Remover do set: faixa #{e.position}, #{title(e.track)}"}
-                      >✕</button>
+                      ><span class="hero-x-mark size-4" aria-hidden="true" /></button>
                     </div>
                   </div>
                 </div>
@@ -1767,7 +1770,7 @@ defmodule BeatgridWeb.RecSetLive do
 
   defp plan_input,
     do:
-      "w-full min-w-0 rounded-md border border-white/8 bg-input px-2 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
+      "h-8 w-full min-w-0 rounded-md border border-white/8 bg-input px-2 py-1.5 text-body-sm focus:border-primary/50 focus:outline-none"
 
   attr :series, :list, required: true
 
@@ -2325,7 +2328,7 @@ defmodule BeatgridWeb.RecSetLive do
         phx-click="dismiss_toast"
         aria-label="Fechar aviso"
         class="text-ink-muted hover:text-ink text-body-sm"
-      >✕</button>
+      ><span class="hero-x-mark size-4" aria-hidden="true" /></button>
     </div>
     """
   end

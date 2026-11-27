@@ -764,7 +764,7 @@ defmodule BeatgridWeb.TrackLive do
                     <select
                       id="track-folder-select"
                       name="folder"
-                      class="min-w-0 max-w-full rounded-md border border-white/10 bg-input px-2 py-1 text-body-sm text-ink focus:border-primary/50 sm:max-w-48"
+                      class="h-8 min-w-0 max-w-full rounded-md border border-white/10 bg-input px-2 py-1 text-body-sm text-ink focus:border-primary/50 sm:max-w-48"
                       title="Mover a faixa para outra pasta (move o arquivo no disco)"
                     >
                       <option :if={is_nil(@track.genre_folder)} value="" selected>

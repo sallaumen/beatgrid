@@ -951,7 +951,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           >Ouvir no fone</button>
           <label class="flex items-center gap-2 text-body">
             Fone
-            <select class="min-h-9 rounded-md border border-white/10 bg-input px-2 text-body">
+            <select class="h-9 rounded-md border border-white/10 bg-input px-2 text-body">
               <option value="0">Estéreo</option>
               <option value="-1">Só esquerda</option>
               <option value="1">Só direita</option>
@@ -1572,7 +1572,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 class="flex cursor-pointer list-none items-center gap-2 px-3 py-1.5"
                 title="Controladora & fone · Eventos — clique para abrir"
               >
-                <span class="text-[12px] leading-none">🎛</span>
+                <span
+                  class="hero-adjustments-vertical size-4 shrink-0 text-ink-muted"
+                  aria-hidden="true"
+                />
                 <span class="flex-1 text-[9px] font-bold uppercase tracking-[0.14em] text-ink-faint">
                   Controladora · Eventos
                 </span>
@@ -3826,9 +3829,20 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 aria-label={"Pré-escuta do deck #{String.upcase(@d)}"}
                 aria-pressed="false"
                 title="Escutar este deck no fone (pré-fader) — botão de fone na controladora"
-                class="h-8 w-9 rounded-lg border border-white/10 bg-input text-[12px] text-ink-muted transition-colors hover:border-amber/50 hover:text-amber"
+                class="grid h-8 w-9 place-items-center rounded-lg border border-white/10 bg-input text-ink-muted transition-colors hover:border-amber/50 hover:text-amber"
               >
-                🎧
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  class="size-4"
+                  aria-hidden="true"
+                >
+                  <path d="M3 14v-2a9 9 0 0 1 18 0v2M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-5Zm18 0h-3a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-5Z" />
+                </svg>
               </button>
             </div>
 

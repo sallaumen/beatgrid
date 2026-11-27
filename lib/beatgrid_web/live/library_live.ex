@@ -1409,7 +1409,7 @@ defmodule BeatgridWeb.LibraryLive do
           <select
             name="folder"
             aria-label="Mover para a pasta"
-            class="max-w-full rounded-md border border-white/10 bg-input px-2 py-1 text-body-sm focus:border-primary/50"
+            class="h-8 max-w-full rounded-md border border-white/10 bg-input px-2 py-1 text-body-sm focus:border-primary/50"
           >
             <option value="">escolher…</option>
             <option :for={folder <- @folders} value={folder.key}>{folder.display_name}</option>
