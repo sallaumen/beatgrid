@@ -501,7 +501,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     transitionToken: 0,
     firedForTrack: null, // dedupes transition vs ended for one boundary
     rescue: null, // outgoing load that can still be brought back
-    pendingEntry: null, // receiving deck reserved while a brake or scratch drop plays
+    pendingEntry: null, // receiving deck reserved until its entry starts
+    cancelCut: null, // revokes a cut waiting for media playback
     waitingForNext: false, // the outgoing ended before the authorized preload was ready
     lastFireAt: null, // performance.now() of the last fired transition
     autoOn: false,
@@ -707,6 +708,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       // Capture transport intent before pause() clears it. A media failure on
       // a manually paused source must not command playback of the other deck.
       const trackId = deck.trackId
+      state.cancelCut?.()
       passage.fail()
       const wasPlaying = state.activeDeck === deck.id && Boolean(deck.wantsPlayback || sessionDeck() === deck.id)
       deck.pause()
@@ -722,6 +724,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   function handleEnded(deck, trackId = deck.trackId) {
+    if (state.cancelCut) return // the receiving play owns this boundary until it settles
     state.postponeMs = 0
     if (passage.current()?.pair.from === deck.id) {
       passage.disarm()
@@ -756,7 +759,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     const id = state.activeDeck
     if (!id) return null
     const deck = decks[id]
-    if (deck.audible() || deck.playPending || restartingLoop(deck) || platterWillResume(deck) || state.pendingEntry === id || state.breatherGap || state.waitingForNext ||
+    if (deck.audible() || deck.playPending || restartingLoop(deck) || platterWillResume(deck) || state.pendingEntry === id || state.cancelCut || state.breatherGap || state.waitingForNext ||
         (deck.el.ended && deck.wantsPlayback && state.autoOn && state.hint)) return id
     return audibleDeckId()
   }
@@ -822,11 +825,11 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     bass_swap: bassSwap,
     brake,
     lowpass,
-    scratch_cut: (from, to, toMs, token) => scratchDrop(from, to, toMs, token, "rasgo"),
-    spinback: (from, to, toMs, token) => scratchDrop(from, to, toMs, token, "rebobina"),
-    chirp: (from, to, toMs, token) => scratchDrop(from, to, toMs, token, "chirp"),
-    transform: (from, to, toMs, token) => scratchDrop(from, to, toMs, token, "transform"),
-    scribble: (from, to, toMs, token) => scratchDrop(from, to, toMs, token, "scribble"),
+    scratch_cut: scratchDrop,
+    spinback: scratchDrop,
+    chirp: scratchDrop,
+    transform: scratchDrop,
+    scribble: scratchDrop,
   })
 
   function fireTransition(from, to, transition, mode, origin) {
@@ -876,7 +879,13 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     if (state.fireScale < 0.95) emit("transitionSqueezed", {type, factor: state.fireScale})
     const run = TRANSITIONS()[type] || cut
     state.pendingEntry = to.id
-    run(from, to, toMs, token)
+    const fallbackCut = run === scratchDrop && !scratchArm(from.id)
+    if (run === cut || fallbackCut) {
+      if (fallbackCut) riseIncoming(to, 0.03)
+      state.fireScale = 1
+      return cut(from, to, toMs, event)
+    }
+    run(from, to, toMs, token, type)
     state.fireScale = 1
     handoff(from, to, event)
   }
@@ -994,10 +1003,46 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     to.gain.gain.linearRampToValueAtTime(1, now + riseEndS)
   }
 
-  function cut(from, to, toMs) {
-    from.pause()
-    startIncoming(to, toMs)
-    setXfadeTo(sideOf(to.id), 0.15)
+  function cut(from, to, toMs, event) {
+    const land = () => {
+      state.cancelCut = null
+      state.pendingEntry = null
+      const atMs = from.positionMs()
+      state.lastFireAt = performance.now()
+      from.pause()
+      setXfadeTo(sideOf(to.id), 0.15)
+      handoff(from, to, {...event, atMs})
+    }
+    if (to.audible()) return land()
+
+    // canplay and paused=false can both precede the first audible frame.
+    // Keep the current record and its set pointer while the receiver starts.
+    const cancel = () => {
+      state.cancelCut = null
+      state.pendingEntry = null
+      state.rescue = null
+      state.firedForTrack = null
+      state.waitingForNext = from.ended() && state.autoOn && state.hint != null
+      from._seekGuard = true
+      if (to.playToken === playToken) to.pause()
+    }
+    state.cancelCut = cancel
+    to.play(to._cued ? null : toMs, () => {
+      if (state.cancelCut !== cancel) return
+      if (to.playToken !== playToken || !to.audible() || deckHeld(from.id)) return cancel()
+      to._cued = false
+      land()
+    }, () => {
+      if (state.cancelCut !== cancel) return
+      cancel()
+      emit("cutRefused", {deck: to.id})
+      if (from.ended()) {
+        state.waitingForNext = false
+        state.hint = null
+        boundaryOnce(from.trackId, () => emit("trackEnded", {trackId: from.trackId}))
+      }
+    })
+    const playToken = to.playToken
   }
 
   function fade(from, to, toMs, token) {
@@ -1201,7 +1246,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // only buys more beats of scratch.
   const SCRATCH_DROPS = {
     // baby-scratch flourish: two strokes per beat, then the hard drop.
-    rasgo: {
+    scratch_cut: {
       beats: 2,
       pos: (p, run) =>
         run.center + RAMP.rasgoDepthS * sr * Math.sin(2 * Math.PI * 2 * run.beats * p),
@@ -1209,7 +1254,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // reverse spin-back: a steady ~2x rewind the WHOLE run (no silent
     // accelerate-from-zero start, no aliased over-fast blur), capped at the
     // track head so the platter never pins silent at 0.
-    rebobina: {
+    spinback: {
       beats: 2,
       pos: (p, run) => run.center - run.backSamples * p,
     },
@@ -1244,14 +1289,6 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
   // Falls back to a plain cut when the outgoing has no decoded PCM/worklet.
   function scratchDrop(from, to, toMs, token, kind) {
-    if (!scratchArm(from.id)) {
-      // No PCM/worklet → fall back to a plain cut, but raise the incoming gain
-      // first (neutralizeIncoming doesn't do it for the scratch types, so cut
-      // alone could drop a frozen-low deck in silent — dead air).
-      riseIncoming(to, 0.03)
-      cut(from, to, toMs)
-      return
-    }
     const spec = SCRATCH_DROPS[kind]
     const s = scratch[from.id]
     const center = from.el.currentTime * sr
@@ -1410,6 +1447,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   function interruptTransition({keepPassage = false} = {}) {
+    state.cancelCut?.()
     if (roomReading?.arrived) cancelRoomReading()
     if (keepPassage) passage.mixChanged()
     else passage.disarm()
@@ -1532,6 +1570,10 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     if (reservedMidiJitter(xfade.pos, next, midiStep)) return
     if (next !== xfade.pos) passage.mixChanged()
     else if (passage.current()?.phase === "starting") return // keep the pending input muted
+    if (state.cancelCut) {
+      if (Math.abs(next - xfade.pos) <= midiStep + Number.EPSILON) return
+      cancelTransition()
+    }
     faderVersion++
     xfadeGlide++
     cancelAnimationFrame(xfadeAnim)
@@ -1998,6 +2040,13 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // back on air with a neutral chain, the incoming is pulled off, and the
   // server hears transitionCancelled to rewind the set pointer.
   function cancelTransition({keepFader = false} = {}) {
+    if (state.cancelCut) {
+      const outgoing = decks[state.rescue.deck]
+      state.cancelCut()
+      state.waitingForNext = false
+      if (outgoing.ended()) outgoing.play()
+      return {ok: true} // the server still has the outgoing record
+    }
     if (!state.lastFireAt || performance.now() - state.lastFireAt > 30_000) {
       return {ok: false, reason: "nothing"}
     }
@@ -2034,6 +2083,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   function pauseTransport(deck) {
+    state.cancelCut?.()
     passage.mixChanged()
     const other = decks[otherId(deck.id)]
     if (state.activeDeck === deck.id && other.audible() && !other.cueState) {
@@ -2069,6 +2119,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
     loadDeck(deckId, track, {autoplay = false, atMs = 0} = {}) {
       const deck = decks[deckId]
+      if (state.pendingEntry === deckId) state.cancelCut?.()
       // Only a silent breather frees a deck that still owns a live set boundary.
       if (!autoplay && sessionDeck() === deckId && !activeBreatherGap()) return false
       if (deckBusy(deckId) || !deck.load(track, atMs)) return false
@@ -2096,6 +2147,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         state.firedForTrack = null
         state.postponeMs = 0
         emit("deckStarted", {deck: deckId, trackId: track.id})
+      } else if (state.waitingForNext) {
+        retryReadyHint(deck)
       }
       return true
     },
@@ -2106,6 +2159,11 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     armHint(hint) {
       const idle = state.activeDeck === "a" ? "b" : "a"
       const deck = decks[idle]
+      if (state.cancelCut && deck.trackId === hint.track.id) {
+        state.hint = {...hint, deck: idle}
+        return idle // a repeated lookahead cannot revoke a start already requested
+      }
+      state.cancelCut?.()
       // A jog-held, auto-scratching or scratch-DROP-owned deck is IN THE DJ'S
       // HANDS — loading over it would make the release play a different track
       // than the one scratching. The scratch[].active case is the palette
@@ -2123,11 +2181,18 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         deck._pendingSeekMs = atMs
       }
       state.hint = {...hint, deck: idle}
+      if (state.waitingForNext) retryReadyHint(deck)
       return idle
     },
 
     clearHint() {
       state.hint = null
+      if (state.cancelCut) {
+        const from = decks[state.activeDeck]
+        state.cancelCut()
+        if (from.ended()) handleEnded(from)
+        return
+      }
       if (state.breatherGap || state.waitingForNext) {
         const from = decks[state.activeDeck]
         const gap = state.breatherGap
@@ -2256,6 +2321,10 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       const deck = decks[deckId]
       if (jog[deckId].held) return // nunca dar play embaixo da mão do DJ
       this.resume()
+      if (state.cancelCut && state.pendingEntry === deckId) {
+        cancelTransition()
+        return
+      }
       const latchPreview = deck.cueState === "preview"
       deck.cueState = null
       if (!latchPreview && (deck.audible() || deck.playPending)) {
