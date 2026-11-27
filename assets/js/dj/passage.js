@@ -24,7 +24,7 @@ export function createPassage(decks, available, start) {
 
   function arm(pair, plan, kind) {
     const from = decks[pair.from], to = decks[pair.to]
-    const exitMs = Math.round((plan.outStart + plan.lead) * 1000)
+    const exitMs = Math.round((plan.exit ?? plan.outStart + plan.lead) * 1000)
     if (from.loadToken !== pair.fromLoad || to.loadToken !== pair.toLoad || !available(from, to) ||
         from.positionMs() > exitMs || !["cut", "blend"].includes(kind)) return {ok: false}
     disarm()
@@ -75,6 +75,7 @@ export function createPassage(decks, available, start) {
     if (choice?.phase !== "armed") return {ok: false}
     const {from, to} = choice.pair
     if (!available(decks[from], decks[to])) return {ok: false}
+    choice.review = null
     choice.phase = "confirmed"
     check()
     return {ok: true}
@@ -84,5 +85,13 @@ export function createPassage(decks, available, start) {
     if (choice?.pair.from === deck.id && positionMs >= choice.exitMs) fail("missed")
   }
 
-  return {arm, confirm, disarm, check, seek, fail, current: () => choice}
+  function mixChanged(reason = "live") {
+    if (!choice || !["armed", "confirmed", "starting"].includes(choice.phase)) return
+    if (reason === "draft" && choice.phase === "armed") return
+    stopWaiting()
+    choice.phase = "armed"
+    choice.review = reason
+  }
+
+  return {arm, confirm, disarm, check, seek, fail, mixChanged, current: () => choice}
 }

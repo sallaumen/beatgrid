@@ -27,6 +27,7 @@
 // the headphones either as channels 3/4 of a 4-channel interface (DJ2GO2
 // Touch main = 1/2, phones = 3/4) or via a routable MediaStream element.
 
+import {applyFilter, applyTone, createEq, neutralMix, setMixParam, syncedRate} from "./deck_mix.js"
 import {startDecodedEntry} from "./decoded_entry.js"
 import {createPassage} from "./passage.js"
 import {createRehearsal, rampRehearsalGain, rehearsalOverlap} from "./rehearsal.js"
@@ -66,7 +67,6 @@ const RAMP = Object.freeze({
   jogSeekStepS: 0.036, // faster search with the paused platter's outer edge
   scratchDepthS: 0.16,
   scratchGain: 1.5, // the scratched deck sits ~3.5 dB above its own music (Lucas mixes at max on the crossfader)
-  toneMaxDb: 9, // "Tom" tilt EQ: full turn tilts each shelf ±9 dB
   // Scratch DROP transitions — runs last WHOLE beats of the outgoing track
   // (knob-scaled), so a fire on the count drops on a count. Stroke depths are
   // seconds of record travel; the gate retard matches tickAutoScratch's (the
@@ -82,7 +82,6 @@ const RAMP = Object.freeze({
   dropTailFadeS: 0.35, // echoTail kinds: the last chop's tail bleeds under the incoming
 })
 
-const SYNC_RATE_CLAMP = 0.08 // ±8%, matching the set-builder's bpm_close? band
 const PITCH_RATE_CLAMP = 0.2 // ±20% for the manual pitch fader (well wide/slow on purpose)
 
 // The AudioContext and MediaElementSource nodes must survive LiveView remounts:
@@ -138,28 +137,8 @@ class Deck {
     this.playPending = false
 
     this.gain = ctx.createGain() // deck level fader
-    this.hpf = ctx.createBiquadFilter() // "filtro" sweep; 10 Hz = transparent
-    this.hpf.type = "highpass"
-    this.hpf.frequency.value = 10
-    this.lpf = ctx.createBiquadFilter() // "afunda"/filtro bipolar; 20 kHz = transparent
-    this.lpf.type = "lowpass"
-    this.lpf.frequency.value = 20_000
-    this.bass = ctx.createBiquadFilter() // "troca de grave"; 0 dB = flat
-    this.bass.type = "lowshelf"
-    this.bass.frequency.value = 200
-    this.bass.gain.value = 0
-    // "Tom": the DJ's tilt EQ (grave↔agudo). Its own shelf pair, separate from
-    // `bass` above (which the bass_swap transition automates) so the two never
-    // fight. v>0 = brighter (less low, more high), v<0 = warmer. 0 dB = flat.
-    this.toneBass = ctx.createBiquadFilter()
-    this.toneBass.type = "lowshelf"
-    this.toneBass.frequency.value = 250
-    this.toneBass.gain.value = 0
-    this.toneTreble = ctx.createBiquadFilter()
-    this.toneTreble.type = "highshelf"
-    this.toneTreble.frequency.value = 3_000
-    this.toneTreble.gain.value = 0
-
+    Object.assign(this, createEq(ctx))
+    this.controls = {...neutralMix}
     this.baseRate = 1 // tempo alvo (pitch fader / SYNC); o bend do jog decai para cá
     this.vinylMode = false // TOM: pitch muda a afinação; sobrevive a SYNC/brake
     this.loop = {on: false, startMs: null, endMs: null, beats: null}
@@ -179,10 +158,6 @@ class Deck {
     this.mediaGain = ctx.createGain()
     sourceFor(el).connect(this.mediaGain)
     this.mediaGain.connect(this.hpf)
-    this.hpf.connect(this.lpf)
-    this.lpf.connect(this.bass)
-    this.bass.connect(this.toneBass)
-    this.toneBass.connect(this.toneTreble)
     this.toneTreble.connect(this.dry)
     this.toneTreble.connect(this.echoSend)
     this.echoSend.connect(this.delay)
@@ -264,6 +239,14 @@ class Deck {
     })
   }
 
+  playDecoded(buffer, offset, mix) {
+    this.useMedia(false)
+    this.entry = startDecodedEntry(this.ctx, this.el, buffer, offset, this.hpf, this.mediaGain, ended => {
+      this.entry = null
+      if (ended) this.recordEnded()
+    }, mix)
+  }
+
   useMedia(sync = true) {
     this.entry?.release(sync)
     this.entry = null
@@ -300,9 +283,7 @@ class Deck {
     this.useMedia()
     if (!this.bpm || !targetBpm) return false
     const rate = targetBpm / this.bpm
-    const limited = Math.min(1 + SYNC_RATE_CLAMP, Math.max(1 - SYNC_RATE_CLAMP, rate))
-    // A DJ may already be closer using the wider manual pitch range.
-    if (Math.abs(limited - rate) < Math.abs(this.baseRate - rate)) this.baseRate = limited
+    this.baseRate = syncedRate(this.baseRate, this.bpm, targetBpm)
     this.el.preservesPitch = !this.vinylMode
     this.el.playbackRate = this.baseRate
     return Math.abs(this.baseRate - rate) < 1e-9
@@ -550,8 +531,28 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     from.audible() && !deckHeld(from.id) && !from.loop.on && !state.breatherGap &&
     to.trackId != null && !deckBusy(to.id) && !to.el.error && to.ready(), startPassage)
 
+  function deckMix(id) {
+    const deck = decks[id]
+    return {...deck.controls, rate: deck.baseRate, vinyl: deck.vinylMode}
+  }
+
+  function recallMix(deck, mix, smooth) {
+    cancelBend(deck.id)
+    deck.baseRate = mix.rate
+    deck.vinylMode = mix.vinyl
+    deck.el.preservesPitch = !mix.vinyl
+    deck.el.playbackRate = mix.rate
+    deck.controls = {...mix}
+    const now = ctx.currentTime
+    applyFilter(deck, mix.filter, now, smooth)
+    applyTone(deck, mix.tone, now, smooth)
+    setMixParam(deck.gain.gain, mix.level, now, smooth)
+    emit("mixApplied", {deck: deck.id, mix})
+  }
+
   function startPassage(from, to, {plan, kind}, complete) {
     const fade = rehearsalOverlap(plan, kind)
+    const mix = plan.mix ?? {out: deckMix(from.id), into: deckMix(to.id)}
     const version = faderVersion
     const mute = xfade[to.id].gain
     const previous = mute.value
@@ -564,10 +565,10 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     to.play(plan.inStart * 1000, () => {
       const owned = to.playToken === playToken && !deckHeld(from.id) && !deckHeld(to.id)
       if (!complete(owned, () => {
-        to.entry = startDecodedEntry(ctx, to.el, plan.incoming, plan.inStart, to.hpf, to.mediaGain, ended => {
-          to.entry = null
-          if (ended) to.recordEnded()
-        })
+        to.playDecoded(plan.incoming, plan.inStart, mix.into)
+        if (from.el.playbackRate !== mix.out.rate || from.vinylMode !== mix.out.vinyl) {
+          from.playDecoded(plan.outgoing, from.positionMs() / 1000, mix.out)
+        }
       })) return
       const token = interruptTransition()
       state.lastFireAt = performance.now()
@@ -577,8 +578,10 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       clearLoop(to)
       to._cued = false
       settleTransitionParams(to)
-      neutralizeIncoming(to, "cut")
-      emit("fxReset", {deck: to.id})
+      to.dry.gain.setValueAtTime(1, ctx.currentTime)
+      to.bass.gain.setValueAtTime(0, ctx.currentTime)
+      recallMix(from, mix.out, true)
+      recallMix(to, mix.into, false)
       const now = ctx.currentTime
       const outGain = xfade[from.id].gain
       const outLevel = outGain.value
@@ -890,6 +893,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // it may already be audible. Params the incoming transition owns are left
   // for it to set.
   function neutralizeIncoming(to, type) {
+    to.controls.filter = to.controls.tone = 0
+    if (["cut", "crossfade", "brake"].includes(type)) to.controls.level = 1
     const now = ctx.currentTime
     to.dry.gain.linearRampToValueAtTime(1, now + 0.3)
     to.echoSend.gain.linearRampToValueAtTime(0, now + 0.3)
@@ -920,6 +925,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // MUST be scheduled BEFORE startIncoming: play() flips the element to
   // "audible" synchronously, which would make this skip the silent start.
   function riseIncoming(to, riseEndS) {
+    to.controls.level = 1
     const now = ctx.currentTime
     if (!to.audible()) to.gain.gain.setValueAtTime(0, now)
     to.gain.gain.linearRampToValueAtTime(1, now + riseEndS)
@@ -1366,6 +1372,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // Return a silenced deck to a neutral chain: unity gain, open filter, flat
   // shelf, no echo, natural tempo. Only ever called on non-audible decks.
   function resetChain(deck) {
+    deck.controls = {...neutralMix}
     const now = ctx.currentTime
     deck.settleGain(deck.gain)
     deck.gain.gain.setValueAtTime(1, now)
@@ -1471,7 +1478,11 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   function setDeckLevel(deckId, value) {
-    takeOver(decks[deckId].gain.gain, Math.min(Math.max(value, 0), 1), RAMP.manualFaderTau)
+    const deck = decks[deckId]
+    const level = Math.min(Math.max(value, 0), 1)
+    if (deck.controls.level !== level) passage.mixChanged()
+    deck.controls.level = level
+    takeOver(deck.gain.gain, level, RAMP.manualFaderTau)
   }
 
   function setMasterLevel(value) {
@@ -2059,8 +2070,10 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // "No ar" for the UI and for manual fires: crossfader side wins when both
     // decks are running.
     rehearsal,
+    deckMix,
     armPassage: passage.arm,
     confirmPassage: passage.confirm,
+    editPassageMix() { passage.mixChanged("draft") },
     disarmPassage() {
       const current = passage.current()
       if (current) decks[current.pair.from]._seekGuard = true
@@ -2248,13 +2261,18 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     },
 
     sync(deckId) {
-      return syncTempo(decks[deckId], decks[otherId(deckId)])
+      const before = decks[deckId].baseRate
+      const ok = syncTempo(decks[deckId], decks[otherId(deckId)])
+      if (before !== decks[deckId].baseRate) passage.mixChanged()
+      return ok
     },
 
     setRate(deckId, rate) {
       const deck = decks[deckId]
       deck.stopBrake?.()
-      deck.baseRate = Math.min(Math.max(rate, 1 - PITCH_RATE_CLAMP), 1 + PITCH_RATE_CLAMP)
+      const next = Math.min(Math.max(rate, 1 - PITCH_RATE_CLAMP), 1 + PITCH_RATE_CLAMP)
+      if (deck.baseRate !== next) passage.mixChanged()
+      deck.baseRate = next
       applyRate(deck)
     },
 
@@ -2264,13 +2282,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     setFilter(deckId, value) {
       const deck = decks[deckId]
       const v = Math.min(Math.max(value, -1), 1)
-      const now = ctx.currentTime
-      deck.settleParam(deck.lpf.frequency)
-      deck.settleParam(deck.hpf.frequency)
-      const lpfHz = v < 0 ? 20_000 * Math.pow(150 / 20_000, -v) : 20_000
-      const hpfHz = v > 0 ? 10 * Math.pow(4_000 / 10, v) : 10
-      deck.lpf.frequency.setTargetAtTime(lpfHz, now, 0.03)
-      deck.hpf.frequency.setTargetAtTime(hpfHz, now, 0.03)
+      if (deck.controls.filter !== v) passage.mixChanged()
+      deck.controls.filter = v
+      applyFilter(deck, v, ctx.currentTime)
     },
 
     // Eco manual: abre o send do delay (já sincronizado ao BPM no load).
@@ -2286,11 +2300,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     setTone(deckId, value) {
       const deck = decks[deckId]
       const v = Math.min(Math.max(value, -1), 1)
-      const now = ctx.currentTime
-      deck.settleParam(deck.toneBass.gain)
-      deck.settleParam(deck.toneTreble.gain)
-      deck.toneBass.gain.setTargetAtTime(-v * RAMP.toneMaxDb, now, 0.03)
-      deck.toneTreble.gain.setTargetAtTime(v * RAMP.toneMaxDb, now, 0.03)
+      if (deck.controls.tone !== v) passage.mixChanged()
+      deck.controls.tone = v
+      applyTone(deck, v, ctx.currentTime)
     },
 
     // Modo VINIL: o pitch passa a mudar a afinação junto com o tempo.
@@ -2298,6 +2310,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     setVinylMode(deckId, on) {
       const deck = decks[deckId]
       deck.stopBrake?.()
+      if (deck.vinylMode !== on) passage.mixChanged()
       deck.vinylMode = on
       deck.el.preservesPitch = !on
       applyRate(deck)
