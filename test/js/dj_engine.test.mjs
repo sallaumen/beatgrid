@@ -30,6 +30,7 @@ class Param {
   value = 1
   setValueAtTime(value) { this.value = value }
   linearRampToValueAtTime(value) { this.value = value }
+  exponentialRampToValueAtTime(value) { this.value = value }
   setTargetAtTime(value) { this.value = value }
   cancelScheduledValues() {}
 }
@@ -843,4 +844,50 @@ test("the incoming record also stays reserved throughout a scratch drop", async 
   tick(1100)
   assert.equal(b.plays, 1)
   assert.equal(engine.snapshot().b.trackId, "next")
+})
+
+for (const type of ["fade", "crossfade", "echo", "filter", "lowpass", "bass_swap", "brake"]) {
+  test(`${type} cleanup leaves the next record available for headphone preview`, t => {
+    const {engine, a, b, hint, tick} = booth(t)
+    hint(null)
+    assert.equal(engine.fireManual(type).ok, true)
+    engine.playPause("a")
+    assert.equal(hint(null, "three"), "a")
+    engine.setRate("a", 1.06)
+    engine.cueButton("a", true)
+    assert.equal(a.paused, false)
+    tick(12_000)
+    tick(1000) // let the echo tail finish
+    assert.equal(b.paused, false)
+    assert.equal(a.paused, false)
+    assert.equal(a.playbackRate, 1.06)
+    engine.cueButton("a", false)
+    assert.equal(a.paused, true)
+  })
+}
+
+test("the tail of a scratch drop preserves the next record's prepared loop", async t => {
+  const {engine, a, b, hint, tick} = await scratchBooth(t, "one")
+  a.at(3)
+  hint(null)
+  assert.equal(engine.fireManual("scratch_cut").ok, true)
+  tick(1100)
+  assert.equal(b.plays, 1)
+  assert.equal(hint(null, "three"), "a")
+  engine.beatLoop("a", 4)
+  tick(300)
+  assert.equal(engine.loopState("a").on, true)
+})
+
+test("a breather releases the planned track without resetting a reload during the gap", t => {
+  const {engine, a, b, hint, breath, advances, tick} = booth(t)
+  hint(breath)
+  a.at(56)
+  a.end()
+  assert.equal(engine.loadDeck("a", {id: "three", src: "three", bpm: 120}), true)
+  engine.beatLoop("a", 4)
+  tick(2500)
+  assert.equal(b.plays, 1)
+  assert.deepEqual(advances.map(event => event.toTrackId), ["two"])
+  assert.equal(engine.loopState("a").on, true)
 })
