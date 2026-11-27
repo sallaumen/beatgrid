@@ -2110,11 +2110,13 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       const deck = decks[deckId]
       if (deck.trackId == null) return
       placePlatter(deck, ms / 1000)
-      if (jog[deckId].held && scratch[deckId].active) {
-        // A pad jump is discontinuous. Reposition the scratch head too, so
-        // the next jog turn or release continues from the selected marker.
+      const pattern = autoScratch[deckId]
+      if (scratch[deckId].active && (jog[deckId].held || pattern)) {
+        // Reset the worklet head on a jump; a held pattern also releases at its center.
+        const position = deck.clampPosition(ms / 1000) * sr
+        if (pattern) pattern.center = position
         scratch[deckId].node.port.postMessage({type: "stop"})
-        scratchScrub(deckId, deck.clampPosition(ms / 1000) * sr)
+        scratchScrub(deckId, position)
       }
     },
 
