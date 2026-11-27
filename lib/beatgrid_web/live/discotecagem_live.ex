@@ -942,6 +942,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           <span data-cursor hidden class="pointer-events-none absolute inset-y-0 w-px bg-primary"></span>
         </div>
         <p data-timing class="mt-1 font-mono text-caption text-ink-muted"></p>
+        <BeatgridWeb.PassageScore.result id="dj-rehearsal-score" />
         <div class="mt-4 flex flex-wrap items-center gap-3">
           <button
             type="button"

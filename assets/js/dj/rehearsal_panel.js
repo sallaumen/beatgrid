@@ -1,3 +1,6 @@
+import {measurePassage, preparePassageMeter} from "./passage_meter.js"
+import {scorePassage} from "./passage_score.js"
+import {mountPassageScore} from "./passage_score_view.js"
 import {getDeckAudio} from "./waveform.js"
 import {syncedRate} from "./deck_mix.js"
 import {planRehearsal, recordTime, rehearsalGains} from "./rehearsal.js"
@@ -43,6 +46,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
   const passageState = root.querySelector("[data-passage-state]")
   const open = root.querySelector("[aria-haspopup=dialog]")
   const transport = engine.rehearsal
+  const score = mountPassageScore(dialog.querySelector("#dj-rehearsal-score"))
   const strips = [...dialog.querySelectorAll("[data-side]")]
   let lastChoice, lastPhase, lastEdit, mix, mixNote = ""
   let pair, plan, failure, pending = false, request = 0
@@ -52,6 +56,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
     request++
     pending = false
     transport.stop()
+    score.clear()
   }
 
   function draw() {
@@ -88,6 +93,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
 
   function editMix(next) {
     if (!plan) return
+    score.clear()
     engine.editPassageMix()
     mixNote = ""
     mix = next
@@ -205,6 +211,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
     open.focus()
   }
   open.onclick = () => {
+    preparePassageMeter(engine.ctx)
     pair = null
     dialog.showModal()
     update()
@@ -248,7 +255,15 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
       await engine.ctx.resume()
       update()
       if (id !== request || !dialog.open || !hasPhones()) return
-      transport.play(plan, kind(), Number(pan.value))
+      transport.play(plan, kind(), Number(pan.value), 0, (node, timing) => {
+        score.listening()
+        const bpm = engine.decks[pair.from].bpm * plan.mix.out.rate
+        const cancel = measurePassage(engine.ctx, node, {...timing, bpm}, data => {
+          if (dialog.open && id === request) score.show(data ? scorePassage(data) :
+            {score: null, metrics: [], summary: "Não foi possível medir esta reprodução inteira."})
+        })
+        return () => { cancel(); score.clear() }
+      })
     } catch {
       if (id === request) failure = "Não foi possível iniciar o ensaio. Tente novamente."
     } finally {
@@ -258,5 +273,5 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
   }
   const resize = new ResizeObserver(() => { if (dialog.open) draw() })
   resize.observe(lanes[0])
-  return {update, stop, destroy() { stop(); resize.disconnect(); if (dialog.open) dialog.close() }}
+  return {update, stop, destroy() { stop(); score.destroy(); resize.disconnect(); if (dialog.open) dialog.close() }}
 }

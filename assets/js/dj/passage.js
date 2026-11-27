@@ -46,7 +46,7 @@ export function createPassage(decks, available, start) {
       timer = setTimeout(check, Math.max(10, remaining / from.el.playbackRate))
       return
     }
-    if (from.el.seeking || from._seekQueued || !available(from, to)) return fail()
+    if (from.seeking() || !available(from, to)) return fail()
     const saved = choice
     saved.phase = "starting"
     // A late decoder must never fade the room after the rehearsed beat has gone by.

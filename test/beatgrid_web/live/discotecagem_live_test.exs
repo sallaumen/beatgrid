@@ -93,6 +93,11 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert has_element?(view, "#dj-rehearse-dialog canvas[data-wave=in]")
     assert has_element?(view, "#dj-rehearse-dialog [data-timing]")
 
+    assert has_element?(
+             view,
+             "#dj-rehearse-dialog #dj-rehearsal-score [data-score-panel][hidden]"
+           )
+
     for side <- ["out", "into"], key <- ["rate", "level", "tone", "filter"] do
       id = "rehearsal-#{side}-#{key}"
       assert has_element?(view, "#dj-rehearse-dialog label[for=#{id}]")

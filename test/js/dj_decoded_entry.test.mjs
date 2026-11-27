@@ -15,21 +15,22 @@ function entry(t, offset = 1.25) {
   return {ctx, media, source, gain: gain.gain, bridge, released, tick() { t.mock.timers.tick(25) }}
 }
 
-test("the exact cue supplies the missing media frames, then matched clocks return audio to the native deck", t => {
+test("aligned media clocks cannot replace the rehearsed sound when a decoder starts late", t => {
   const {ctx, media, source, gain, bridge, released, tick} = entry(t)
   assert.deepEqual(source.started, [5, 1.25])
-  ctx.currentTime += 0.18
-  tick()
-  assert.equal(gain.value, 0)
-  assert.ok(Math.abs(bridge.position() - 1.43) < 1e-7)
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 8; i++) {
     ctx.currentTime += 0.025
-    media.currentTime = bridge.position()
+    // A reported position can advance through silence, then stall or run behind.
+    if (i < 4) media.currentTime = bridge.position()
     tick()
+    assert.equal(gain.value, 0)
+    assert.equal(source.stopAt, undefined)
   }
+  const atGesture = bridge.position()
+  bridge.release(true)
+  assert.equal(media.currentTime, atGesture)
   assert.equal(gain.value, 1)
-  assert.ok(source.stopAt > ctx.currentTime)
-  source.onended()
+  bridge.release(true)
   assert.deepEqual(released, [false])
 })
 

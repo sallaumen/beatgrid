@@ -241,10 +241,14 @@ class Deck {
 
   playDecoded(buffer, offset, mix) {
     this.useMedia(false)
+    let progressTimer
     this.entry = startDecodedEntry(this.ctx, this.el, buffer, offset, this.hpf, this.mediaGain, ended => {
+      clearInterval(progressTimer)
       this.entry = null
       if (ended) this.recordEnded()
     }, mix)
+    // Muted media can stall without a timeupdate while the record reaches its AUTO point.
+    progressTimer = setInterval(this.recordProgress, 100)
   }
 
   useMedia(sync = true) {
@@ -262,6 +266,14 @@ class Deck {
 
   audible() {
     return (!!this.entry || (!this.el.paused && !this.el.ended)) && !this.el.error && this.trackId != null
+  }
+
+  seeking() {
+    return this._seekQueued || (!this.entry && this.el.seeking)
+  }
+
+  ended() {
+    return !this.entry && this.el.ended
   }
 
   positionMs() {
@@ -609,7 +621,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
   function watchOutgoing(deck) {
     const listen = (event, fn) => deck.el.addEventListener(event, fn, {signal: mediaEvents.signal})
-    listen("timeupdate", () => maybeFire(deck))
+    deck.recordProgress = () => maybeFire(deck)
+    listen("timeupdate", () => { if (!deck.entry) deck.recordProgress() })
     // A deck going silent is the moment a queued hint can claim it. Event-driven
     // on purpose: rAF loops don't run in background tabs, and re-arming the next
     // track must not depend on the page being visible.
@@ -626,7 +639,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       if (state.breatherGap) return state.breatherGap.beginGap()
       handleEnded(deck)
     }
-    listen("ended", () => { if (deck.el.ended && !deck.entry) deck.recordEnded() })
+    listen("ended", () => { if (deck.ended()) deck.recordEnded() })
     listen("seeking", () => { if (!deck.entry) passage.seek(deck, deck.positionMs()) })
     listen("canplay", () => retryReadyHint(deck))
     listen("durationchange", () => {
@@ -710,7 +723,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     if (passage.current()?.pair.from === deck.id) return passage.check()
     const hint = state.hint
     if (!state.autoOn || !hint || deck.id !== state.activeDeck) return
-    if (deck._seekQueued || deck.el.seeking) return
+    if (deck.seeking()) return
     // pause() and scrubbing both fire 'timeupdate' — a jog-held (or otherwise
     // silent) deck must never be the source of an automatic transition. Nor may
     // AUTO fire while a scratch is in the DJ's hands (it steers the crossfader).
@@ -856,7 +869,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     const caps = []
     const durS = from.el.duration
     if (durS && from.trackId != null) {
-      caps.push(Math.max(durS - from.el.currentTime - 0.3, 0.4))
+      caps.push(Math.max(durS - from.positionMs() / 1000 - 0.3, 0.4))
     }
     const introS = introWindowS(hint, toMs)
     if (introS != null) caps.push(Math.max(introS, 2))
@@ -1291,7 +1304,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       from.settleParam(from.feedback.gain)
       from.feedback.gain.linearRampToValueAtTime(0.72, now + 0.8)
     } else if (style === "fade") {
-      const restS = Math.max((from.el.duration || 0) - from.el.currentTime, 0.5)
+      const restS = Math.max((from.el.duration || 0) - from.positionMs() / 1000, 0.5)
       from.gain.gain.linearRampToValueAtTime(0, now + restS)
     }
     // qualquer outro estilo: a música simplesmente acaba, seca — também é lindo
@@ -1326,11 +1339,11 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     }
     state.breatherGap = gap
 
-    if (from.el.ended) {
+    if (from.ended()) {
       gap.beginGap()
-    } else if (event.mode === "manual" && from.el.duration - from.el.currentTime > RAMP.breatherMaxTailS + 1) {
+    } else if (event.mode === "manual" && from.el.duration - from.positionMs() / 1000 > RAMP.breatherMaxTailS + 1) {
       // An explicit early fire shortens the current phrase. AUTO always waits
-      // for the media's ended event, even if decoding stalls or the tempo changes.
+      // for the playing source to end, even if its tempo changes.
       gap.timer = setTimeout(() => {
         from.dry.gain.setTargetAtTime(0, ctx.currentTime, 0.08)
         gap.timer = setTimeout(() => {
@@ -1828,7 +1841,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   function armLoopChecker(deck) {
     if (loopTimers[deck.id]) return
     loopTimers[deck.id] = setInterval(() => {
-      if (deck.audible() && !deck.el.seeking) wrapLoop(deck)
+      if (deck.audible() && !deck.seeking()) wrapLoop(deck)
     }, 20)
   }
 
@@ -1852,7 +1865,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   function restartingLoop(deck) {
-    return deck.loop.on && deck.wantsPlayback && deck.el.ended
+    return deck.loop.on && deck.wantsPlayback && deck.ended()
   }
 
   function beatLoop(deckId, beats) {
@@ -2310,7 +2323,10 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     setVinylMode(deckId, on) {
       const deck = decks[deckId]
       deck.stopBrake?.()
-      if (deck.vinylMode !== on) passage.mixChanged()
+      if (deck.vinylMode !== on) {
+        passage.mixChanged()
+        deck.useMedia()
+      }
       deck.vinylMode = on
       deck.el.preservesPitch = !on
       applyRate(deck)
