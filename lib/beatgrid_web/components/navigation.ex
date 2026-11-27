@@ -7,6 +7,8 @@ defmodule BeatgridWeb.Navigation do
   def menu(assigns) do
     ~H"""
     <nav
+      id="app-navigation"
+      phx-hook=".NavigationMenu"
       aria-label="Navegação principal"
       class="group/nav flex w-full shrink-0 flex-col border-b border-white/6 bg-rail px-3 py-1 md:sticky md:top-0 md:h-dvh md:w-[216px] md:gap-3 md:border-r md:border-b-0 md:pt-4 md:pb-20 md:motion-safe:transition-[width] md:motion-safe:duration-200 md:motion-safe:ease-out md:nav-collapsed:w-[88px] md:nav-collapsed:px-2"
     >
@@ -26,10 +28,6 @@ defmodule BeatgridWeb.Navigation do
           type="button"
           aria-expanded="false"
           aria-controls="app-destinations"
-          phx-click={JS.toggle_attribute({"aria-expanded", "true", "false"})}
-          phx-window-keydown={JS.exec("data-dismiss", to: "#mobile-nav-toggle[aria-expanded=true]")}
-          phx-key="Escape"
-          data-dismiss={JS.set_attribute({"aria-expanded", "false"}) |> JS.focus()}
           class="flex min-h-11 items-center gap-2 rounded-md px-2 text-body font-medium text-ink-secondary hover:bg-white/5 md:hidden"
         >
           <span class="hero-bars-3 size-4" aria-hidden="true" /> Menu
@@ -73,6 +71,10 @@ defmodule BeatgridWeb.Navigation do
           <.nav_item :for={item <- section.items} item={item} active={@active == item.key} />
         </div>
       </div>
+      <script :type={Phoenix.LiveView.ColocatedHook} name=".NavigationMenu">
+        import NavigationMenu from "@/js/navigation.js"
+        export default NavigationMenu
+      </script>
     </nav>
     """
   end
@@ -200,9 +202,6 @@ defmodule BeatgridWeb.Navigation do
     ~H"""
     <.link
       navigate={@item.href}
-      phx-click={
-        JS.set_attribute({"aria-expanded", "false"}, to: "#mobile-nav-toggle[aria-expanded=true]")
-      }
       title={@item.label}
       aria-label={@item.label}
       aria-current={@active && "page"}
