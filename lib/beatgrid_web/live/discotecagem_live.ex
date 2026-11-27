@@ -1025,7 +1025,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
         </div>
         <p id="dj-rehearsal-timing" data-timing class="mt-1 font-mono text-body-sm text-ink-muted">
         </p>
-        <BeatgridWeb.PassageScore.result id="dj-rehearsal-score" />
+        <BeatgridWeb.PassageScore.result id="dj-rehearsal-score" identify />
         <div class="mt-4 flex flex-wrap items-center gap-3">
           <button
             type="button"

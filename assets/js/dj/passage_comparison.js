@@ -12,31 +12,34 @@ function scoreLabel(result, unavailable) {
   return result.score == null ? "Sem nota" : `${result.score}/100`
 }
 
-export function mountPassageComparison(details, labels, selected) {
+export function mountPassageComparison(details, labels, selected, name) {
   const heard = new Map()
   const unavailable = new Set()
-  let key = null, active = null
+  let key = null, active = null, pairSummary = ""
   let lastPair, lastPlan, lastBpm
 
-  function render(restored) {
+  function render(restored, showDetail = true) {
     for (const label of labels) {
       const kind = label.dataset.scoreFor
       label.hidden = !heard.size && !unavailable.size
       label.textContent = scoreLabel(heard.get(kind), unavailable.has(kind))
     }
+    if (!showDetail) return
     const kind = selected()
+    const reference = {pair: name(kind)}
     const current = heard.get(kind)
     if (unavailable.has(kind)) {
       const summary = current ? "Medição incompleta. A leitura é do ensaio anterior." :
         "Não foi possível medir esta reprodução inteira."
       const retained = {score: current?.score ?? null, metrics: current?.metrics ?? [], summary}
-      details.show(retained, {restored: true, announcement: restored ? "" : summary})
-    } else if (current) details.show(current, {restored})
+      details.show(retained, {reference, restored: true, announcement: restored ? "" : summary})
+    } else if (current) details.show(current, {reference, restored})
     else details.clear()
   }
 
   function select() {
     active = null
+    pairSummary = ""
     render(true)
   }
 
@@ -55,27 +58,35 @@ export function mountPassageComparison(details, labels, selected) {
   }
 
   function begin(kind) {
+    pairSummary = ""
     const take = {
       finish(result) {
         if (active !== take) return
         active = null
         heard.set(kind, result)
         unavailable.delete(kind)
-        render(false)
+        render(false, kind === selected())
       },
       unavailable() {
         if (active !== take) return
         active = null
         unavailable.add(kind)
-        render(false)
+        render(false, kind === selected())
       },
       cancel() {
         if (active === take) select()
       }
     }
     active = take
-    details.listening()
+    if (kind === selected()) details.listening()
     return take
+  }
+
+  function finishPair(kinds) {
+    pairSummary = kinds.map(kind => {
+      const value = unavailable.has(kind) ? "sem medição" : scoreLabel(heard.get(kind), false).toLowerCase()
+      return name(kind) + " " + value
+    }).join(" · ") + "."
   }
 
   function reading() {
@@ -83,5 +94,5 @@ export function mountPassageComparison(details, labels, selected) {
     return unavailable.has(kind) ? null : heard.get(kind) ?? null
   }
 
-  return {select, bind, begin, reading}
+  return {select, bind, begin, reading, finishPair, summary: () => pairSummary, clearSummary() { pairSummary = "" }}
 }

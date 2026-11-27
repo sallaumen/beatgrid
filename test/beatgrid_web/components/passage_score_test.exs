@@ -17,6 +17,13 @@ defmodule BeatgridWeb.PassageScoreTest do
 
     assert LazyHTML.text(LazyHTML.query(dom, "#sound-check-title")) == "Nota da passagem"
 
+    assert LazyHTML.attribute(LazyHTML.query(dom, "[data-score-total]"), "aria-hidden") == []
+    assert Enum.count(LazyHTML.query(dom, "[data-score-total] [data-score-readable]")) == 1
+
+    assert LazyHTML.attribute(LazyHTML.query(dom, "[data-score-number]"), "aria-hidden") == [
+             "true"
+           ]
+
     assert LazyHTML.attribute(LazyHTML.query(dom, "[data-score-announce]"), "aria-live") == [
              "polite"
            ]
