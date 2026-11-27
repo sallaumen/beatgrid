@@ -367,7 +367,12 @@ defmodule BeatgridWeb.LibraryLive do
     if MapSet.size(selected) == 0 do
       socket
     else
-      retained = MapSet.intersection(selected, MapSet.new(TrackQuery.library_ids(filters)))
+      retained =
+        filters
+        |> Map.put(:ids, MapSet.to_list(selected))
+        |> TrackQuery.library_ids()
+        |> MapSet.new()
+
       dropped = MapSet.size(selected) - MapSet.size(retained)
       socket |> assign(selected: retained) |> selection_notice(dropped)
     end
@@ -375,10 +380,19 @@ defmodule BeatgridWeb.LibraryLive do
 
   defp selection_notice(socket, 0), do: socket
 
-  defp selection_notice(socket, n) do
-    count = if n == 1, do: "1 faixa saiu", else: "#{n} faixas saíram"
-    put_flash(socket, :info, "#{count} da seleção por não estar mais nos resultados.")
-  end
+  defp selection_notice(socket, 1),
+    do: put_flash(socket, :info, "1 faixa saiu da seleção por não estar mais nos resultados.")
+
+  defp selection_notice(socket, n),
+    do:
+      put_flash(
+        socket,
+        :info,
+        "#{n} faixas saíram da seleção por não estarem mais nos resultados."
+      )
+
+  defp total_label(1), do: "1 faixa"
+  defp total_label(n), do: "#{n} faixas"
 
   # Replacing the list location keeps the current result shareable and restores
   # it after opening a track without putting every keystroke in browser history.
@@ -498,12 +512,9 @@ defmodule BeatgridWeb.LibraryLive do
         <header class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-3 border-b border-white/6 bg-rail px-3 py-3 lg:flex lg:flex-wrap lg:px-5">
           <div class="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
             <h1 class="text-[22px] font-semibold">Biblioteca</h1>
-            <span role="status" class="font-mono text-body-sm text-ink-muted tabular-nums">{@total} {if @total ==
-                                                                                                          1,
-                                                                                                        do:
-                                                                                                          "faixa",
-                                                                                                        else:
-                                                                                                          "faixas"}</span>
+            <span role="status" class="font-mono text-body-sm text-ink-muted tabular-nums">
+              {total_label(@total)}
+            </span>
           </div>
           <.link
             navigate={~p"/importados?origem=local"}

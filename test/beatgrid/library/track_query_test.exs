@@ -262,6 +262,21 @@ defmodule Beatgrid.Library.TrackQueryTest do
       assert Enum.sort(ids) == Enum.sort(Enum.map(tracks, & &1.id))
     end
 
+    test "library_ids can restrict an existing selection against all matching filters", %{
+      tracks: [unfiled | _]
+    } do
+      chosen = insert(:track, status: :present, genre_folder: "mpb")
+      insert(:track, status: :present, genre_folder: "mpb")
+      quarantined = insert(:track, status: :quarantined, genre_folder: "mpb")
+
+      assert TrackQuery.library_ids(%{
+               ids: [chosen.id, unfiled.id, quarantined.id],
+               genre_folder: "mpb"
+             }) == [chosen.id]
+
+      assert TrackQuery.library_ids(%{ids: []}) == []
+    end
+
     test "count_library/1 and library_ids/1 respect filters" do
       insert(:track, status: :present, genre_folder: "mpb", norm_artist: "z")
 

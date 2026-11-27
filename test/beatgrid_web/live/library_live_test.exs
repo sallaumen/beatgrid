@@ -779,7 +779,7 @@ defmodule BeatgridWeb.LibraryLiveTest do
     # The new exact result contains the initially off-page selection only.
     html = view |> form("#library-search", %{search: first.id}) |> render_change()
     assert html =~ "1 selecionada"
-    assert html =~ "100 faixas saíram da seleção"
+    assert html =~ "100 faixas saíram da seleção por não estarem mais nos resultados."
 
     assert has_element?(
              view,
