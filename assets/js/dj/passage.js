@@ -51,9 +51,15 @@ export function createPassage(decks, available, start) {
     saved.phase = "starting"
     // A late decoder must never fade the room after the rehearsed beat has gone by.
     timer = setTimeout(fail, MAX_LATE_MS)
-    abortStart = start(from, to, saved, ok => {
+    abortStart = start(from, to, saved, (ok, startAudio) => {
       if (choice !== saved || saved.phase !== "starting") return false
       if (!ok || !from.audible() || Math.abs(from.positionMs() - exitMs) > MAX_LATE_MS) {
+        fail()
+        return false
+      }
+      try {
+        startAudio()
+      } catch {
         fail()
         return false
       }

@@ -54,6 +54,7 @@ class Context extends EventTarget {
   createChannelSplitter() { return new AudioNodeStub() }
   createMediaElementSource() { return new AudioNodeStub() }
   createBiquadFilter() { return new AudioNodeStub() }
+  createBufferSource() { return Object.assign(new AudioNodeStub(), {playbackRate: new Param(), start() {}, stop() {}}) }
   createMediaStreamDestination() { return new AudioNodeStub() }
   createDynamicsCompressor() { return new AudioNodeStub() }
   createGain() { return new AudioNodeStub() }
@@ -1121,7 +1122,7 @@ function preparePassage(rig, kind = "blend") {
   const {engine, hint} = rig
   hint({type: "echo", from_ms: 42_000, to_ms: 0})
   const pair = {from: "a", to: "b", fromLoad: engine.decks.a.loadToken, toLoad: engine.decks.b.loadToken}
-  return engine.armPassage(pair, {outStart: 45, lead: 3, inStart: 2.5, blend: 2}, kind)
+  return engine.armPassage(pair, {incoming: {duration: 60}, outStart: 45, lead: 3, inStart: 2.5, blend: 2}, kind)
 }
 
 test("arming reserves the pair without touching either transport, even at the AUTO boundary", t => {
@@ -1217,7 +1218,7 @@ test("a rehearsed cut works from B to A and ignores the transition-length knob",
   engine.loadDeck("b", {id: "two", src: "two"}, {autoplay: true})
   engine.loadDeck("a", {id: "one", src: "one"})
   const pair = {from: "b", to: "a", fromLoad: engine.decks.b.loadToken, toLoad: engine.decks.a.loadToken}
-  assert.ok(engine.armPassage(pair, {outStart: 10, lead: 3, inStart: 1.25, blend: 2}, "cut").ok)
+  assert.ok(engine.armPassage(pair, {incoming: {duration: 60}, outStart: 10, lead: 3, inStart: 1.25, blend: 2}, "cut").ok)
   engine.setTransitionLength(15)
   engine.confirmPassage()
   b.at(13)
