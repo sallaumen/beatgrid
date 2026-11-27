@@ -178,6 +178,64 @@ defmodule BeatgridWeb.ReviewLiveTest do
     assert render(view) =~ "Aplicar 1 no disco"
   end
 
+  test "entry opens a queue with work while an explicit tab keeps past decisions visible", %{
+    conn: conn
+  } do
+    rename = pending_rename()
+    {:ok, _} = NameSync.set_status(rename, :rejected)
+
+    track = insert(:track)
+
+    {:ok, _} =
+      Organization.create_suggestion(%{
+        track_id: track.id,
+        from_rel_path: track.rel_path,
+        to_genre_folder: "mpb",
+        source: :claude,
+        confidence: 0.9
+      })
+
+    {:ok, view, _} = live(conn, ~p"/revisao")
+    assert has_element?(view, "a[aria-current=page]", "Classificação")
+    assert has_element?(view, "nav a[href='/revisao?aba=renames'] span", "0")
+    view |> element("nav a[href='/revisao?aba=renames']") |> render_click()
+    assert_patch(view, ~p"/revisao?aba=renames")
+    assert has_element?(view, "a[aria-current=page]", "Renomeações")
+    assert has_element?(view, "h2", "Sugestões rejeitadas")
+    assert has_element?(view, "##{rename.id} button[phx-click=reject]")
+    refute has_element?(view, select_btn(rename.id))
+  end
+
+  test "a queue with only rejected classifications stays reachable from the menu", %{conn: conn} do
+    track = insert(:track)
+
+    {:ok, move} =
+      Organization.create_suggestion(%{
+        track_id: track.id,
+        from_rel_path: track.rel_path,
+        to_genre_folder: "mpb",
+        source: :claude
+      })
+
+    {:ok, _} = Beatgrid.Review.reject(move)
+    {:ok, view, _} = live(conn, ~p"/revisao")
+    assert has_element?(view, "a[aria-current=page]", "Classificação")
+    assert has_element?(view, "##{move.id} button[phx-click=reject]")
+  end
+
+  test "a flagged decision still opens the audit queue when no suggestion awaits approval", %{
+    conn: conn
+  } do
+    rename = pending_rename()
+    {:ok, flagged} = NameSync.set_reason(rename, "[audit:verify/title] conferir gravação")
+    {:ok, _} = NameSync.set_status(flagged, :rejected)
+
+    {:ok, view, _} = live(conn, ~p"/revisao")
+    assert has_element?(view, "a[aria-current=page]", "Auditoria")
+    assert has_element?(view, "button[phx-click=dismiss_audit]")
+    refute has_element?(view, "h2", "Sugestões rejeitadas")
+  end
+
   test "review queues follow the URL and preserve selections when revisiting them", %{conn: conn} do
     rename = pending_rename()
 
@@ -198,7 +256,7 @@ defmodule BeatgridWeb.ReviewLiveTest do
 
     assert has_element?(
              view,
-             "nav[aria-label='Tipos de revisão'] a[href='/revisao'][aria-current=page]"
+             "nav[aria-label='Tipos de revisão'] a[href='/revisao?aba=renames'][aria-current=page]"
            )
 
     view |> element(select_btn(rename.id)) |> render_click()
