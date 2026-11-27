@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-08-13T12:59:45Z",
+  "generatedAt": "2026-11-27T01:08:18Z",
   "title": "Design System: Beatgrid",
   "extensions": {
     "colorMeta": {
@@ -28,7 +28,7 @@
         "canonical": "#ff5d6c",
         "tonalRamp": ["oklch(15% 0.09 15)", "oklch(26% 0.12 15)", "oklch(38% 0.15 15)", "oklch(49% 0.17 15)", "oklch(60% 0.19 15)", "oklch(72% 0.16 15)", "oklch(83% 0.11 15)", "oklch(95% 0.04 15)"]
       },
-      "blue": {
+      "info": {
         "role": "tertiary",
         "displayName": "Azul de Monitor",
         "canonical": "#2d9cff",
@@ -141,7 +141,7 @@
       "refersTo": "button-primary",
       "description": "The one loud control per view (Importar, Salvar, Aplicar): solid primary, white text.",
       "html": "<button class=\"ds-btn-primary\">Importar</button>",
-      "css": ".ds-btn-primary { background: #8b7bf0; color: #ffffff; padding: 6px 12px; border: none; border-radius: 9px; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 150ms cubic-bezier(0.4,0,0.2,1); } .ds-btn-primary:hover { background: #6c5ce7; } .ds-btn-primary:focus-visible { outline: 2px solid rgba(139,123,240,.5); outline-offset: 2px; }"
+      "css": ".ds-btn-primary { background: #8b7bf0; color: #ffffff; padding: 6px 12px; border: none; border-radius: 9px; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 150ms cubic-bezier(0.4,0,0.2,1); } .ds-btn-primary:hover { background: #6c5ce7; } .ds-btn-primary:focus-visible { outline: 2px solid #8b7bf0; outline-offset: 2px; }"
     },
     {
       "name": "Quiet Button",
@@ -149,7 +149,7 @@
       "refersTo": "button-quiet",
       "description": "The resting control: input-tone bg, hairline border; hover brightens the text, not the surface.",
       "html": "<button class=\"ds-btn-quiet\">Editar</button>",
-      "css": ".ds-btn-quiet { background: #15171f; color: #9498a6; padding: 6px 10px; border: 1px solid rgba(255,255,255,.08); border-radius: 9px; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 12px; font-weight: 500; cursor: pointer; transition: color 150ms cubic-bezier(0.4,0,0.2,1); } .ds-btn-quiet:hover { color: #eef0f5; } .ds-btn-quiet:focus-visible { outline: 2px solid rgba(139,123,240,.5); outline-offset: 2px; }"
+      "css": ".ds-btn-quiet { background: #15171f; color: #9498a6; padding: 6px 10px; border: 1px solid rgba(255,255,255,.08); border-radius: 9px; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 12px; font-weight: 500; cursor: pointer; transition: color 150ms cubic-bezier(0.4,0,0.2,1); } .ds-btn-quiet:hover { color: #eef0f5; } .ds-btn-quiet:focus-visible { outline: 2px solid #8b7bf0; outline-offset: 2px; }"
     },
     {
       "name": "Confirm Button (Marcar)",
@@ -165,7 +165,7 @@
       "refersTo": "input",
       "description": "Recessed field: input-tone bg, hairline border; focus shifts the border to primary/50.",
       "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"nomear (Enter salva)…\" />",
-      "css": ".ds-input { background: #15171f; color: #eef0f5; padding: 8px 12px; border: 1px solid rgba(255,255,255,.08); border-radius: 9px; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 12px; width: 100%; box-sizing: border-box; transition: border-color 150ms cubic-bezier(0.4,0,0.2,1); } .ds-input::placeholder { color: #5f636f; } .ds-input:focus { border-color: rgba(139,123,240,.5); outline: none; }"
+      "css": ".ds-input { background: #15171f; color: #eef0f5; padding: 8px 12px; border: 1px solid rgba(255,255,255,.08); border-radius: 9px; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 12px; width: 100%; box-sizing: border-box; transition: border-color 150ms cubic-bezier(0.4,0,0.2,1); } .ds-input::placeholder { color: #5f636f; } .ds-input:focus { border-color: rgba(139,123,240,.5); } .ds-input:focus-visible { outline: 2px solid #8b7bf0; outline-offset: 2px; }"
     },
     {
       "name": "Confidence Chip",
@@ -239,7 +239,7 @@
       { "name": "The Cockpit-Type Rule", "body": "Interface text lives in the 8–13px band. Sizes ≥15px are identity moments only: the wordmark (15px), headings (18px), page titles (22px), KPI numerals (25px), the track hero (24/28px). Nothing else earns them.", "section": "typography" },
       { "name": "The Reading-Distance Exception", "body": "One surface is not read at desk distance: Modo Viagem, the fullscreen overlay the DJ glances at from across the booth. It runs its own display tier — 48px now-playing title, 24px artist, 30px mono countdown, 20px next track, 18px action keys. That is deliberate, not drift: judge it by whether it reads at three metres. No other screen may borrow this tier.", "section": "typography" },
       { "name": "The Named-Step Rule", "body": "A semantic type class only exists if @theme defines it. Tailwind compiles an undefined token to nothing — no error, the element just inherits — which is how text-body*/text-caption shipped dead for ~313 uses and text-h2 for one. test/beatgrid_web/design_tokens_test.exs now fails on any text-* class that resolves to nothing.", "section": "typography" },
-      { "name": "The Keyboard-Leaves-a-Mark Rule", "body": "`:focus-visible` draws a 2px ring in focus-ring (rgba(139,123,240,.50)) at 2px offset, declared once in app.css. A mouse click stays silent; keyboard travel always shows. Never write focus:outline-none without putting something visible in its place — that class fires on mouse and keyboard, so it erases the only cue a keyboard user has.", "section": "elevation" },
+      { "name": "The Keyboard-Leaves-a-Mark Rule", "body": "`:focus-visible` draws a 2px ring in opaque focus-ring (#8b7bf0) at 2px offset, declared once in app.css. A mouse click stays silent; keyboard travel always shows. Never write focus:outline-none without putting something visible in its place — that class fires on mouse and keyboard, so it erases the only cue a keyboard user has.", "section": "elevation" },
       { "name": "The Hairline Rule", "body": "Separation is a hairline or a surface-tone step, never a drop shadow. A shadow appears only as elevation (modal), amplification (primary glow), or recess (console) — if it isn't one of those three, remove it.", "section": "elevation" },
       { "name": "The Title-Never-Yields Rule", "body": "In a data table, the flexible column is the one you actually read, so it gets a floor and the expendable columns leave first. The library grid keeps the track title at minmax(160px, 1fr) and drops the energy bar and gain hint below 1400px. Do not reach for overflow-x on a table wrapper: it forces overflow-y: auto on the same box and clips every row popover inside it.", "section": "layout" },
       { "name": "The Pill-or-Tight Rule", "body": "Rectangles stay ≤14px radius. If a shape wants to be rounder, it becomes a full pill or a circle — there is nothing in between.", "section": "shapes" },

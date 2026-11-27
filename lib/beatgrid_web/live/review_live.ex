@@ -566,7 +566,7 @@ defmodule BeatgridWeb.ReviewLive do
       patch={@path}
       aria-current={@active && "page"}
       class={[
-        "flex min-w-0 flex-col items-center justify-center gap-1 rounded-t-md border-b-2 px-2 py-2 text-body-sm font-medium transition-colors sm:flex-row sm:gap-2 sm:px-3",
+        "flex min-w-0 flex-col items-center justify-center gap-1 border-b-2 px-2 py-2 text-body-sm font-medium transition-colors sm:flex-row sm:gap-2 sm:px-3",
         @active && "border-primary bg-surface text-primary",
         !@active && "border-transparent text-ink-muted hover:text-ink"
       ]}
