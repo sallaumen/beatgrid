@@ -1270,6 +1270,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
       <script :type={Phoenix.LiveView.ColocatedHook} name=".DjConsole">
         import {createEngine} from "@/js/dj/engine.js"
+        import {separateOutputs} from "@/js/dj/outputs.js"
         import {paintDeckStatus} from "@/js/dj/deck_status.js"
         import {hotCues} from "@/js/dj/hot_cues.js"
         import {loadPeaks, drawWave} from "@/js/dj/waveform.js"
@@ -1323,6 +1324,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             this.pendingHint = null
             this.cueAudio = byId("dj-cue-audio")
             this.cueRouteVersion = 0
+            this.audioOutputs = []
             this.cursorTrackId = null
             this.railTab = this.el.dataset.railTab
             // Foco de seção da controladora: pads MANUAL escolhem ONDE o browse
@@ -1756,6 +1758,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
               } catch (_e) {
                 // fica vazio e avisamos abaixo
               }
+              this.audioOutputs = devs
+              this.checkHeadphoneOutput(this.engine.ctx.sinkId)
               if (!devs.length) {
                 this.log("nenhuma saída listável — permita o microfone para liberar a lista")
                 return
@@ -1783,8 +1787,11 @@ defmodule BeatgridWeb.DiscotecagemLive do
             byId("dj-out-device").addEventListener("change", async (e) => {
               const select = e.currentTarget
               if (select.disabled) return
+              const phones = byId("dj-cue-device")
               this.movingOutput = true
               select.disabled = true
+              phones.disabled = true
+              this.checkHeadphoneOutput(select.value)
               try {
                 const {mode} = await this.engine.setOutputDevice(select.value)
                 this.log(
@@ -1796,6 +1803,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 this.log("não consegui mover a mesa para essa saída")
               } finally {
                 this.movingOutput = false
+                phones.disabled = false
                 select.value = mainSink()
                 select.disabled = false
               }
@@ -2209,10 +2217,20 @@ defmodule BeatgridWeb.DiscotecagemLive do
             this.cueAudio.srcObject = null
           },
 
+          checkHeadphoneOutput(mainId) {
+            const select = byId("dj-cue-device")
+            if (!select.value || separateOutputs(mainId, select.value, this.audioOutputs)) return true
+            this.disconnectHeadphones()
+            select.value = ""
+            this.log("Fone avulso desligado. Escolha duas saídas de áudio distintas e identificadas.")
+            return false
+          },
+
           routeHeadphones(select) {
             this.disconnectHeadphones()
             const device = select.value
-            if (!device || this.cueModeNow === "quad") return
+            if (!device || this.movingOutput || this.cueModeNow === "quad") return
+            if (!this.checkHeadphoneOutput(this.engine.ctx.sinkId)) return
             const version = this.cueRouteVersion
             // Drivers may finish a sink switch after a second selection. Switch
             // in order, with the cue bus muted until the latest sink is ready.
