@@ -780,6 +780,62 @@ defmodule BeatgridWeb.TrackLiveTest do
     assert Repertoire.get_recommendation(rec.id).status == :new
   end
 
+  test "imported matches are history with the same options, not a link to the reference track", %{
+    conn: conn
+  } do
+    track = insert(:track, status: :present, tag_title: "Sina", tag_artist: "Djavan")
+
+    pending =
+      insert(:recommendation,
+        track_id: track.id,
+        genre_folder: nil,
+        source: :match,
+        status: :new,
+        song: "Faixa pendente"
+      )
+
+    imported =
+      insert(:recommendation,
+        track_id: track.id,
+        genre_folder: nil,
+        source: :match,
+        status: :imported,
+        song: "Faixa importada"
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
+    pending_row = "#track-matches-pending #recommendation-#{pending.id}"
+    history_row = "#track-matches-imported #recommendation-#{imported.id}"
+
+    assert has_element?(
+             view,
+             "#{pending_row} > [data-recommendation-actions] > a:first-child[href='/importados?recomendacao=#{pending.id}']",
+             "Conferir versões"
+           )
+
+    assert has_element?(view, "#track-matches-imported:not([open]) > summary", "Já importadas")
+    assert has_element?(view, history_row, "Importada")
+
+    assert has_element?(
+             view,
+             "#{history_row} details:not([open]) > summary",
+             "Opções da sugestão"
+           )
+
+    refute has_element?(view, "#{history_row} a[href='/track/#{track.id}']")
+    assert has_element?(view, "#{history_row} details a[target=_blank]", "Buscar no YouTube")
+
+    assert has_element?(
+             view,
+             "#{history_row} details a[href='/importados?recomendacao=#{imported.id}']"
+           )
+
+    view |> element("#{history_row} details button[phx-click=dismiss_rec]") |> render_click()
+    assert Repertoire.get_recommendation(imported.id).status == :dismissed
+    refute has_element?(view, history_row)
+    assert has_element?(view, pending_row)
+  end
+
   test "Dispensar on a match hides it and marks it dismissed", %{conn: conn} do
     track =
       insert(:track,

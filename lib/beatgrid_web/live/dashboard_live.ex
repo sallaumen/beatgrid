@@ -3,8 +3,9 @@ defmodule BeatgridWeb.DashboardLive do
   use BeatgridWeb, :live_view
 
   import BeatgridWeb.UI
+  import BeatgridWeb.RecommendationComponents, only: [rec_row: 1]
 
-  alias Beatgrid.{Dashboard, Repertoire}
+  alias Beatgrid.Dashboard
 
   @impl true
   def mount(_params, _session, socket) do
@@ -122,8 +123,15 @@ defmodule BeatgridWeb.DashboardLive do
   @impl true
   def render(assigns) do
     {imported, pending} = Enum.split_with(assigns.recs, &(&1.status == :imported))
-    selected = Enum.find(assigns.folders, &(&1.key == assigns.gaps_folder))
-    assigns = assign(assigns, pending: pending, imported: imported, selected_folder: selected)
+    folders_by_key = Map.new(assigns.folders, &{&1.key, &1})
+
+    assigns =
+      assign(assigns,
+        pending: pending,
+        imported: imported,
+        folders_by_key: folders_by_key,
+        selected_folder: folders_by_key[assigns.gaps_folder]
+      )
 
     ~H"""
     <.app_shell flash={@flash} active={:painel} socket={@socket}>
@@ -194,17 +202,18 @@ defmodule BeatgridWeb.DashboardLive do
                   :for={{key, n} <- @genres}
                   class="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-1"
                 >
+                  <% folder = @folders_by_key[key] %>
                   <.bar_row
-                    label={folder_label(key)}
+                    label={if folder, do: folder.display_name, else: key}
                     value={n}
                     max={max_count(@genres)}
-                    color={folder_color(key)}
+                    color={folder_color(folder || %{key: key})}
                     wide_label
                   />
                   <.link
-                    :if={Enum.any?(@folders, &(&1.key == key))}
+                    :if={folder}
                     patch={folder_path(key)}
-                    aria-label={"Lacunas de #{folder_label(key)}: #{saved_label(Map.get(@gap_counts, key, 0))}"}
+                    aria-label={"Lacunas de #{folder.display_name}: #{saved_label(Map.get(@gap_counts, key, 0))}"}
                     class="inline-flex min-h-8 shrink-0 items-center justify-end gap-1 rounded-md px-1.5 py-1 text-body-sm font-medium text-primary-soft hover:bg-input hover:underline"
                   >
                     Lacunas
@@ -283,7 +292,7 @@ defmodule BeatgridWeb.DashboardLive do
             >
               <span
                 class="size-2 rounded-full"
-                style={"background:#{folder_color(f.key)}"}
+                style={"background:#{folder_color(f)}"}
                 aria-hidden="true"
               />
               {f.display_name}
@@ -306,7 +315,7 @@ defmodule BeatgridWeb.DashboardLive do
               <h3 class="flex items-center gap-2 break-words text-body-lg font-semibold text-ink">
                 <span
                   class="size-2.5 shrink-0 rounded-full"
-                  style={"background:#{folder_color(@selected_folder.key)}"}
+                  style={"background:#{folder_color(@selected_folder)}"}
                   aria-hidden="true"
                 />
                 {@selected_folder.display_name}
@@ -419,70 +428,6 @@ defmodule BeatgridWeb.DashboardLive do
       <h2 class="mb-3 text-[18px] font-semibold">{@title}</h2>
       {render_slot(@inner_block)}
     </section>
-    """
-  end
-
-  @doc """
-  One persisted AI recommendation (a folder gap or a track match): `artist — song`,
-  the AI's reason, and the YouTube search / download / dismiss actions. Imported
-  rows wear a subtle "baixada" tag so the history reads at a glance.
-  """
-  attr :rec, :map, required: true
-
-  def rec_row(assigns) do
-    ~H"""
-    <div class={[
-      "group rounded-lg border px-3 py-2.5 transition-colors",
-      if(@rec.status == :imported,
-        do: "border-green/25 bg-green/5",
-        else: "border-white/6 bg-base hover:border-white/12"
-      )
-    ]}>
-      <div class="flex items-start justify-between gap-3">
-        <div class="min-w-0 flex-1">
-          <p class="break-words text-body font-medium">
-            {@rec.artist} <span class="text-ink-faint">—</span> {@rec.song}
-          </p>
-          <p :if={@rec.reason} class="mt-1 break-words text-body-sm text-ink-secondary">
-            {@rec.reason}
-          </p>
-        </div>
-        <span
-          :if={@rec.status == :imported}
-          class="bg-token-chip inline-flex shrink-0 items-center gap-1 rounded-xs px-[7px] py-[2px] text-[9.5px] font-bold uppercase tracking-wide"
-          style="--c:var(--color-green)"
-        >
-          <.icon name="hero-check-mini" class="size-3" /> Importada
-        </span>
-      </div>
-
-      <div class="mt-3 flex flex-wrap items-center gap-1.5">
-        <.link
-          navigate={~p"/importados?recomendacao=#{@rec.id}"}
-          aria-label={"Conferir versões de #{@rec.song}"}
-          class="inline-flex items-center rounded-md border border-primary/35 bg-primary/10 px-3 py-2 text-body font-semibold text-primary-soft hover:bg-primary/15"
-        >
-          Conferir versões <.icon name="hero-arrow-right-mini" class="ml-1 size-4" />
-        </.link>
-        <a
-          href={Repertoire.youtube_search_url(@rec)}
-          target="_blank"
-          rel="noopener"
-          class="inline-flex items-center gap-1 rounded-md border border-white/10 bg-input px-3 py-2 text-body-sm text-ink-secondary transition-colors hover:text-ink"
-        >
-          Buscar no YouTube <.icon name="hero-arrow-top-right-on-square" class="size-3.5" />
-        </a>
-        <button
-          type="button"
-          phx-click="dismiss_rec"
-          phx-value-id={@rec.id}
-          aria-label={"Dispensar #{@rec.song}"}
-          class="ml-auto rounded-md px-3 py-2 text-body-sm text-ink-muted transition-colors hover:text-coral"
-        >
-          Dispensar
-        </button>
-      </div>
-    </div>
     """
   end
 
