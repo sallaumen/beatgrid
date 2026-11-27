@@ -1278,3 +1278,65 @@ test("reopening a confirmed version only withdraws its authorization when the dr
   rig.tick(3000)
   assert.equal(rig.b.plays, 0)
 })
+
+for (const action of ["pitch", "vinyl", "jog", "loop", "pause", "destroy"]) {
+  test(action + " takes ownership from the rehearsed record at the audible position", async t => {
+    const rig = booth(t)
+    const {engine, a, b, tick} = rig
+    preparePassage(rig, "cut")
+    engine.confirmPassage()
+    a.at(48)
+    await Promise.resolve()
+    const deck = engine.decks.b
+    assert.ok(deck.entry)
+    engine.ctx.currentTime += 0.8
+    assert.equal(b.currentTime, 2.5)
+    const heard = deck.positionMs() / 1000
+    if (action === "pitch") engine.setRate("b", 1.06)
+    if (action === "vinyl") engine.setVinylMode("b", true)
+    if (action === "jog") engine.jogTouch("b", true)
+    if (action === "loop") {
+      engine.beatLoop("b", 1)
+      engine.ctx.currentTime += 0.52
+      tick(20)
+    }
+    if (action === "pause") engine.pauseAll()
+    if (action === "destroy") engine.destroy()
+    assert.equal(deck.entry, null)
+    assert.equal(deck.mediaGain.gain.value, 1)
+    assert.ok(Math.abs(b.currentTime - heard - (action === "loop" ? 0.02 : 0)) < 0.001)
+  })
+}
+
+test("the rehearsed record owns its natural end, even if the native ended event arrives twice", async t => {
+  const rig = booth(t)
+  const {engine, a, b, ends, tick} = rig
+  const create = engine.ctx.createBufferSource.bind(engine.ctx)
+  let incoming
+  t.mock.method(engine.ctx, "createBufferSource", () => (incoming = create()))
+  preparePassage(rig, "cut")
+  engine.confirmPassage()
+  a.at(48)
+  await Promise.resolve()
+  tick(20)
+  b.end()
+  assert.deepEqual(ends, [])
+  incoming.onended()
+  b.end()
+  assert.deepEqual(ends.map(event => event.trackId), ["two"])
+})
+
+test("the next AUTO window follows the audible recording when the muted media clock stalls", async t => {
+  const rig = booth(t)
+  const {engine, a, b, tick, hint, advances} = rig
+  preparePassage(rig, "cut")
+  engine.confirmPassage()
+  a.at(48)
+  await Promise.resolve()
+  tick(20)
+  hint({type: "cut", from_ms: 32_000, to_ms: 0}, "three")
+  b.seeking = true
+  engine.ctx.currentTime += 30
+  tick(250)
+  assert.deepEqual(advances.map(x => x.toTrackId), ["two", "three"])
+})
