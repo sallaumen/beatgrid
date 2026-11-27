@@ -60,9 +60,9 @@ Rotas extraídas pela própria tarefa do Phoenix com módulos já compilados: `M
 | Ficha da faixa — Metadados de origem e perfil de áudio | `/track/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
 | Ficha da faixa — Versões — vazias e cheias | `/track/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
 | Ficha da faixa — Próxima faixa compatível — vazia e cheia | `/track/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Ficha da faixa — Sugestões IA — vazias | `/track/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Ficha da faixa — Sugestões IA — carregando | `/track/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Ficha da faixa — Sugestões IA — lista cheia e histórico importado | `/track/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
+| Ficha da faixa — Sugestões IA — vazias | `/track/:id` | revisada-sem-mudança | 1 | Repertório (PR a abrir) | 375×812; 1280×800; 1536×960; 2560×1080 | Actual second fixture track with no recommendations, empty message and fetch button visible. |
+| Ficha da faixa — Sugestões IA — carregando | `/track/:id` | revisada-sem-mudança | 1 | Repertório (PR a abrir) | 375×812; 1280×800; 1536×960; 2560×1080 | Actual Fetch matches enqueued (workers disabled), disabled button and loading indicator/status across 4 widths; no provider invocation. |
+| Ficha da faixa — Sugestões IA — lista cheia e histórico importado | `/track/:id` | revisada-com-mudança | 1 | Repertório (PR a abrir) | 375×812; 1280×800; 1536×960; 2560×1080 | 2 pending + 1 imported fixture, actual disclosure/options expanded; shared action card alignment updated; no overflow, 32px targets. |
 | Ficha da faixa — Recuperação — arquivo indisponível | `/track/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
 | Ficha da faixa — Avisos de enriquecimento, erro e confirmação nativa | `/track/:id` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
 | Revisão de sugestões — Abas e contadores | `/revisao` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
@@ -91,17 +91,17 @@ Rotas extraídas pela própria tarefa do Phoenix com módulos já compilados: `M
 | Recuperação de arquivos — Quarentena — filtros e lista cheia | `/resgate` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
 | Recuperação de arquivos — Quarentena — vazia/sem resultados | `/resgate` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
 | Recuperação de arquivos — Confirmação de restauração — cancelar; erro | `/resgate` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Repertório — Indicadores e distribuição por gênero | `/painel` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Repertório — Artistas mais presentes | `/painel` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Repertório — Andamento BPM | `/painel` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Repertório — Décadas | `/painel` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Repertório — Painéis sem dados | `/painel` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Repertório — Lacunas — seletor de gênero | `/painel` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Repertório — Lacunas — carregamento | `/painel` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Repertório — Lacunas — lista cheia e variantes | `/painel` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Repertório — Lacunas — vazio | `/painel` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Repertório — Lacunas — histórico importado expandido | `/painel` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
-| Repertório — Lacunas — erro/aviso | `/painel` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
+| Repertório — Indicadores e distribuição por gênero | `/painel` | revisada-sem-mudança | 1 | Repertório (PR a abrir) | 375×812; 1280×800; 1536×960; 2560×1080 | Real catalog KPI and 7 genres, card padding 12 mobile/16 desktop, viewport375 panel351px with 12px gutter; desktop 1280 panel500px, 2560 width436 in 4-column dashboard. Header/actions clear. |
+| Repertório — Artistas mais presentes | `/painel` | revisada-sem-mudança | 1 | Repertório (PR a abrir) | 375×812; 1280×800; 1536×960; 2560×1080 | Real populated bar rows, readable names and numeric values; row gaps 8px, alignment stable across widths. |
+| Repertório — Andamento BPM | `/painel` | revisada-sem-mudança | 1 | Repertório (PR a abrir) | 375×812; 1280×800; 1536×960; 2560×1080 | Real bins, mobile single column 793px high, desktop two columns 437px; monospaced values clear, no overflow. |
+| Repertório — Décadas | `/painel` | revisada-sem-mudança | 1 | Repertório (PR a abrir) | 375×812; 1280×800; 1536×960; 2560×1080 | Real decades list, stable semantic bar and numeric axes. |
+| Repertório — Painéis sem dados | `/painel` | bloqueada | 1 | — | parcial: 375/1280/1536/2560 | Populated overview verified; empty catalog needs separate empty DB, parent to cover. |
+| Repertório — Lacunas — seletor de gênero | `/painel` | revisada-com-mudança | 1 | Repertório (PR a abrir) | 375×812; 1280×800; 1536×960; 2560×1080 | Actual genre patch including long custom genre; dot shrank 4.8125→8px, label wraps, counter preserved. |
+| Repertório — Lacunas — carregamento | `/painel` | revisada-com-mudança | 1 | Repertório (PR a abrir) | 375×812; 1280×800; 1536×960; 2560×1080 | Actual queue-disabled fetch; button disabled and loading copy/status/panel rendered through all four widths; selector alignment fixed. |
+| Repertório — Lacunas — lista cheia e variantes | `/painel` | revisada-com-mudança | 1 | Repertório (PR a abrir) | 375×812; 1280×800; 1536×960; 2560×1080 | 2 pending fixture cards with unequal title/rationale length; at 1280 action Y mismatch84→0, at 1536/2560 67.5→0; links/targets wrap on375 without overflow. |
+| Repertório — Lacunas — vazio | `/painel` | revisada-com-mudança | 1 | Repertório (PR a abrir) | 375×812; 1280×800; 1536×960; 2560×1080 | No recs in long genre, no-results text and no phantom cards; selector mark fixed. Other ordinary empty genre checked before queue. |
+| Repertório — Lacunas — histórico importado expandido | `/painel` | revisada-com-mudança | 1 | Repertório (PR a abrir) | 375×812; 1280×800; 1536×960; 2560×1080 | Imported fixture, actual disclosure and nested options expanded, check badge/32px targets and long rationale. Shared component corrected. |
+| Repertório — Lacunas — erro/aviso | `/painel` | bloqueada | 1 | — | parcial: 375/1280/1536/2560 | Error generated only by provider worker PubSub; no safe running node injection. Queued loading proven, error still needs controlled event fixture. |
 | Montagem de sets — Lista de sets — cheia, nomes longos | `/set` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
 | Montagem de sets — Lista de sets — vazia | `/set` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
 | Montagem de sets — Seletor mobile e painel recolhido | `/set` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
@@ -160,7 +160,7 @@ Rotas extraídas pela própria tarefa do Phoenix com módulos já compilados: `M
 | Manutenção — Importações YouTube | `/manutencao` | revisada-com-mudança | 1 | #223 | 375×812; 1280×800; 1536×960; 2560×1080 | Real pending count, link to imports, configured gate and disabled button; 16px card desktop padding and 12px mobile inset. |
 | Manutenção — Backup de curadoria — dados e instruções abertas | `/manutencao` | revisada-com-mudança | 1 | #223 | 375×812; 1280×800; 1536×960; 2560×1080 | Actual copy backup metadata and open disclosure with long restore command wrapping; no execution. |
 | Manutenção — Cobertura vazia e completa | `/manutencao` | bloqueada | 1 | — | parcial: 375/1280/1536/2560 | Complete and partial measured four widths; zero total cannot be asserted until no-tracks isolated fixture DB. Parent to render this in empty DB pass. |
-| Manutenção — Progresso de tarefas, bloqueio de integração/erro | `/manutencao` | bloqueada | 1 | — | parcial: 375/1280/1536/2560 | Queue progress/status and disabled integration observed four widths. Need nonzero in-flight progress and terminal error controlled fixture; no actual jobs/providers allowed while app isolated. |
+| Manutenção — Progresso de tarefas, bloqueio de integração/erro | `/manutencao` | bloqueada | 1 | — | parcial: 375/1280/1536/2560 | Prior queued status+disabled integration gate observed. Nonzero in-flight/terminal error cannot inject into unnamed Beatgrid node; controlled fixture needed. |
 | Manutenção — Confirmações nativas — cancelar | `/manutencao` | revisada-com-mudança | 1 | #223 | 375×812; 1280×800; 1536×960; 2560×1080 | Remap, apply gain, restore gain backup dialogs canceled four widths; no destructive action. |
 | Ajustes — Sets e discotecagem — 3 preferências | `/ajustes` | revisada-com-mudança | 1 | #223 | 375×812; 1280×800; 1536×960; 2560×1080 | 3 rows, labels/values/units aligned; mobile wraps; header corrected. |
 | Ajustes — Áudio e backup — 3 preferências | `/ajustes` | revisada-com-mudança | 1 | #223 | 375×812; 1280×800; 1536×960; 2560×1080 | 3 rows, 36px inputs, disabled/default states not conflated; header and toast corrected. |
@@ -174,7 +174,7 @@ Rotas extraídas pela própria tarefa do Phoenix com módulos já compilados: `M
 | Gêneros — Formulário de criação — aberto | `/generos` | revisada-com-mudança | 1 | #223 | 375×812; 1280×800; 1536×960; 2560×1080 | Actual opened form and focused name, padding16 gap12; color + buttons wrap/read on 375; underlying dot alignment fixed. |
 | Gêneros — Formulário de criação — inválido | `/generos` | revisada-com-mudança | 1 | #223 | 375×812; 1280×800; 1536×960; 2560×1080 | Duplicate seeded genre actual validation error rendered, input retained on all widths, no overflow. |
 | Gêneros — Editor de descrição — aberto | `/generos` | revisada-com-mudança | 1 | #223 | 375×812; 1280×800; 1536×960; 2560×1080 | Actual edit/cancel and custom description textarea long value across widths; dot alignment preserved. |
-| Gêneros — Sugestão IA — carregando e resultado | `/generos` | bloqueada | 1 | — | parcial: 375/1280/1536/2560 | Requires controlled provider stub and delay to render actual loading/result. Claude CLI not invoked. |
+| Gêneros — Sugestão IA — carregando e resultado | `/generos` | bloqueada | 1 | — | parcial: 375/1280/1536/2560 | Actual synchronous AI adapter in this dev server would invoke Claude CLI. No mocked adapter configured, no real call made; requires controlled fixture. |
 | Gêneros — Erro de edição e confirmação de exclusão | `/generos` | revisada-com-mudança | 1 | #223 | 375×812; 1280×800; 1536×960; 2560×1080 | Actual stale-edit error after removing **only created temporary genre fixture** from isolated DB, all widths; delete dialog on long-name fixture opened/dismissed. |
 | Importações — Abas de origem | `/importados` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
 | Importações — Origem online — campos de links e fonte recolhida | `/importados` | pendente | 1 | — | — | Aguardando inspeção dos estados desta rodada. |
