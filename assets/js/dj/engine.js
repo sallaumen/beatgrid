@@ -1830,6 +1830,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     rescued.el.playbackRate = rescued.baseRate
     if (rescued.el.paused) rescued.play()
     dropped.pause()
+    dropped.bass.gain.setValueAtTime(0, now)
     setCrossfader(keepFader ? xfade.pos : sideOf(rescued.id))
     rescued._seekGuard = true
     state.activeDeck = rescued.id
