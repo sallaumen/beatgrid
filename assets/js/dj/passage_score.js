@@ -84,9 +84,25 @@ function beatGrid(peaks, bpm) {
   return best
 }
 
+// A double-tempo lattice can match every subdivision while the strong accents
+// alternate on the opposite half of the nominal beat. Treat that as ambiguous.
+function strongSubdivision(peaks, grid, reference) {
+  const origin = grid.origin + Math.round((reference - grid.origin) / grid.period) * grid.period
+  const accents = [[], []]
+  for (const {time, strength} of peaks) {
+    const subdivision = (time - origin) / grid.period
+    const beat = Math.round(subdivision)
+    if (Math.abs(subdivision - beat) <= 0.12) accents[Math.abs(beat) % 2].push(strength)
+  }
+  if (accents.some(group => group.length < 3)) return null
+  const strong = quantile(accents[0], 0.5) > quantile(accents[1], 0.5) ? 0 : 1
+  const a = accents[strong], b = accents[1 - strong]
+  return quantile(a, 0.5) >= 1.5 * quantile(b, 0.5) && quantile(a, 0.25) > quantile(b, 0.75) ? strong : null
+}
+
 function pulseMetric(before, after, middle, start, end, dt, kind, bpm) {
-  const a = beatGrid(attacks(before, start - before.length, dt), bpm)
-  const b = beatGrid(attacks(after, end, dt), bpm)
+  const out = attacks(before, start - before.length, dt), into = attacks(after, end, dt)
+  const a = beatGrid(out, bpm), b = beatGrid(into, bpm)
   if (!a || !b) return unknown("pulse", "Batidas sem referência firme")
   let ratio = b.period / a.period
   if (ratio > Math.SQRT2) ratio /= 2
@@ -112,6 +128,11 @@ function pulseMetric(before, after, middle, start, end, dt, kind, bpm) {
   }
   if (phase > 0.10) return metric("pulse", "watch", "Ataques ligeiramente deslocados")
   if (drift > 0.035) return metric("pulse", "watch", kind === "cut" ? "O andamento mudou no corte" : "O andamento oscilou")
+  if (Number.isFinite(bpm) && [a, b].every(grid => Math.abs(2 * grid.period * bpm / 60 - 1) <= 0.06)) {
+    const reference = beatAt(a)
+    const first = strongSubdivision(out, a, reference), last = strongSubdivision(into, b, reference)
+    if (first != null && last != null && first !== last) return unknown("pulse", "Acentos alternados sem fase firme")
+  }
   return metric("pulse", "good", "Batidas alinhadas")
 }
 

@@ -120,3 +120,35 @@ test("sustained gain dips and surges are local to the overlap", () => {
     assert.equal(metric(scorePassage(data), "level").state, "poor")
   }
 })
+
+
+// Keep the subdivision attacks in place and change which ones carry the beat.
+function alternatingAccents(kind, shifted, {offset = 0.07, accent = 1.8, bpm = 93.75} = {}) {
+  const beat = 0.64, changeAt = 3.13, overlap = kind === "cut" ? 0.008 : 4 * beat
+  const frames = Array.from({length: Math.ceil((changeAt + overlap + 2.15) / dt)}, (_, i) => {
+    const time = i * dt
+    const mix = Math.min(1, Math.max(0, (time - changeAt) / overlap))
+    const tick = Math.round((time - offset) / (beat / 2))
+    const on = Math.abs(time - (offset + tick * beat / 2)) <= dt * 0.51
+    const level = beat => 0.1 * (Math.abs(beat) % 2 === 0 ? accent : 1)
+    const onset = on ? (1 - mix) * level(tick) + mix * level(tick + Number(shifted)) : 0
+    return {rms: 0.08 + onset, peak: 0.45, onset}
+  })
+  return {kind, bpm, frames, frameSeconds: dt, changeAt, overlap}
+}
+
+for (const kind of ["cut", "blend"]) {
+  test(kind + " distinguishes swapped accents on a common subdivision lattice", () => {
+    for (const offset of [0.07, 0.23, 0.30]) {
+      assert.equal(metric(scorePassage(alternatingAccents(kind, false, {offset})), "pulse").state, "good")
+      assert.equal(metric(scorePassage(alternatingAccents(kind, true, {offset})), "pulse").state, "unknown")
+    }
+  })
+
+  test(kind + " ignores equal subdivisions as evidence that the beat has switched", () => {
+    for (const accent of [1, 1.05]) {
+      assert.equal(metric(scorePassage(alternatingAccents(kind, true, {accent})), "pulse").state, "good")
+    }
+    assert.equal(metric(scorePassage(alternatingAccents(kind, false, {bpm: 70})), "pulse").state, "good")
+  })
+}
