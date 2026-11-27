@@ -2618,3 +2618,168 @@ for (const [type, from] of [["brake", "a"], ["scratch_cut", "b"]]) {
     })
   }
 }
+
+test("ordinary AUTO waits for the chosen room and skips a transition window crossed during the outage", async t => {
+  const {engine, a, b, hint, advances, ends} = booth(t)
+  hint({type: "crossfade", from_ms: 48_000, to_ms: 1250})
+  a.at(47)
+  engine.setRoomOutputAvailable(false)
+  a.at(48)
+  await Promise.resolve()
+  assert.equal(b.plays, 0)
+  engine.setRoomOutputAvailable(true)
+  a.at(48.1)
+  assert.equal(b.plays, 0, "a window already crossed must not surprise the room")
+  a.end()
+  await Promise.resolve()
+  assert.deepEqual(advances.map(e => [e.toTrackId, e.type]), [["two", "cut"]])
+  assert.deepEqual(ends, [])
+})
+
+test("an expired breather holds the same next cue through canplay and manual retries until the room returns", async t => {
+  const {engine, a, b, hint, breath, advances, ends, tick} = booth(t)
+  hint(breath)
+  a.end()
+  tick(500)
+  engine.setRoomOutputAvailable(false)
+  tick(5000)
+  b.ready()
+  assert.equal(engine.fireHint().ok, false)
+  assert.equal(b.plays, 0)
+  assert.equal(engine.sessionDeck(), "a")
+  engine.setRoomOutputAvailable(true)
+  b.ready()
+  engine.setRoomOutputAvailable(true)
+  await Promise.resolve()
+  assert.deepEqual(advances.map(e => [e.toTrackId, e.type]), [["two", "echo"]])
+  assert.equal(b.plays, 1)
+  assert.equal(b.currentTime, 0.5)
+  assert.deepEqual(ends, [])
+})
+
+for (const auto of [false, true]) {
+  test(`the room holds a native EOF and its queue owner with AUTO ${auto} until reselection`, async t => {
+    const {engine, a, b, hint, ends, advances} = booth(t)
+    hint(null)
+    engine.setAuto(auto)
+    engine.setRoomOutputAvailable(false)
+    a.end()
+    b.ready()
+    await Promise.resolve()
+    assert.deepEqual([ends.length, advances.length, b.plays], [0, 0, 0])
+    assert.equal(engine.sessionDeck(), "a")
+    engine.setRoomOutputAvailable(true)
+    engine.setRoomOutputAvailable(true)
+    b.ready()
+    await Promise.resolve()
+    assert.deepEqual(ends.map(e => e.trackId), auto ? [] : ["one"])
+    assert.deepEqual(advances.map(e => e.toTrackId), auto ? ["two"] : [])
+  })
+}
+
+test("a suspended missing room cannot be woken by transport, CUE or a failed sink change", async t => {
+  const {engine, b, hint, advances} = booth(t)
+  hint(null)
+  const ctx = engine.ctx
+  ctx.state = "suspended"
+  const wake = t.mock.fn(async () => { ctx.state = "running" })
+  ctx.resume = wake
+  ctx.sinkId = "lost"
+  engine.setRoomOutputAvailable(false)
+  engine.resume()
+  assert.equal(engine.fireHint().ok, false)
+  assert.equal(engine.fireManual("cut").ok, false)
+  engine.playPause("b")
+  assert.equal(b.plays, 0)
+  assert.equal(engine.togglePfl("b"), true)
+  engine.cueButton("b", true)
+  engine.cueButton("b", false)
+  assert.equal(b.paused, true)
+  assert.equal(engine.loadDeck("b", {id: "retry", src: "retry"}, {autoplay: true}), false)
+  assert.equal(engine.decks.b.trackId, "two")
+  ctx.state = "running"
+  ctx.setSinkId = async () => { ctx.state = "suspended"; throw Error("busy") }
+  await assert.rejects(engine.setOutputDevice("other"))
+  assert.equal(wake.mock.callCount(), 0)
+  engine.stopAll()
+  engine.setRoomOutputAvailable(true)
+  assert.deepEqual(advances, [])
+  assert.equal(engine.sessionDeck(), null)
+})
+
+test("choosing a room retries the pending EOF cut once, even when no new canplay arrives", async t => {
+  const {engine, a, b, hint, advances} = booth(t)
+  const gate = Promise.withResolvers()
+  const play = t.mock.method(b, "play", () => { b.paused = false; return Promise.resolve() })
+  play.mock.mockImplementationOnce(() => { b.paused = false; return gate.promise })
+  hint(null)
+  a.end()
+  engine.setRoomOutputAvailable(false)
+  gate.resolve()
+  await Promise.resolve()
+  assert.deepEqual(advances, [])
+  engine.setRoomOutputAvailable(true)
+  await Promise.resolve()
+  assert.equal(play.mock.callCount(), 2)
+  assert.deepEqual(advances.map(e => e.toTrackId), ["two"])
+})
+
+test("changing channel count while a running room is missing keeps the new device disconnected", t => {
+  const wired = new Set()
+  let destination
+  t.mock.method(AudioNodeStub.prototype, "connect", function(node) {
+    if (node === destination) wired.add(this)
+  })
+  t.mock.method(AudioNodeStub.prototype, "disconnect", function(node) {
+    if (node === destination || node === undefined) wired.delete(this)
+  })
+  const {engine} = booth(t)
+  destination = engine.ctx.destination
+  destination.maxChannelCount = 4
+  engine.ctx.dispatchEvent(new Event("sinkchange"))
+  assert.equal(wired.size, 1)
+  engine.setRoomOutputAvailable(false)
+  assert.equal(wired.size, 0)
+  destination.maxChannelCount = 2
+  engine.ctx.dispatchEvent(new Event("sinkchange"))
+  engine.setMasterLevel(0.8)
+  engine.togglePfl("b")
+  assert.equal(wired.size, 0)
+  assert.deepEqual(engine.pflState(), {a: false, b: true})
+  engine.setRoomOutputAvailable(true)
+  assert.equal(wired.size, 1)
+})
+
+test("restoring the room before a breather expires keeps its remaining time", async t => {
+  const {engine, a, b, hint, breath, advances, tick} = booth(t)
+  hint(breath)
+  a.end()
+  tick(500)
+  engine.setRoomOutputAvailable(false)
+  tick(500)
+  engine.setRoomOutputAvailable(true)
+  tick(1499)
+  assert.equal(b.plays, 0)
+  tick(1)
+  await Promise.resolve()
+  assert.deepEqual(advances.map(e => e.toTrackId), ["two"])
+})
+
+for (const stop of [true, false]) {
+  test(`an unheard expired breather follows the latest queue edit and honors STOP=${stop}`, async t => {
+    const {engine, a, b, hint, breath, advances, ends, tick} = booth(t)
+    hint(breath)
+    a.end()
+    engine.setRoomOutputAvailable(false)
+    tick(3000)
+    hint({...breath, to_ms: 875}, "new")
+    b.ready()
+    if (stop) engine.stopAll()
+    engine.setRoomOutputAvailable(true)
+    await Promise.resolve()
+    assert.equal(b.plays, stop ? 0 : 1)
+    assert.deepEqual(advances.map(e => e.toTrackId), stop ? [] : ["new"])
+    if (!stop) assert.equal(b.currentTime, 0.875)
+    assert.deepEqual(ends, [])
+  })
+}

@@ -55,6 +55,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
        auto?: true,
        pointer_id: nil,
        predecessors: nil,
+       room_available?: true,
        # Faixas que já foram ao ar nesta sessão do set (deck_started/transição).
        # Efêmero e por-set: zera ao trocar de set. Marca a Fila e a Biblioteca.
        played: MapSet.new(),
@@ -88,6 +89,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
   def handle_event("select_set", %{"set_id" => id}, socket),
     do: {:noreply, push_patch(socket, to: ~p"/discotecagem?set=#{id}")}
+
+  def handle_event("room_output", %{"available" => available}, socket) when is_boolean(available),
+    do: {:noreply, assign(socket, room_available?: available)}
+
+  def handle_event("play_set", _params, %{assigns: %{room_available?: false}} = socket),
+    do: {:noreply, socket}
 
   def handle_event("play_set", _params, %{assigns: %{set: %{} = set}} = socket) do
     case Sets.entries(set) do
@@ -325,7 +332,15 @@ defmodule BeatgridWeb.DiscotecagemLive do
   # CLIENTE é a fonte da verdade — adota set, AUTO e a faixa que segue tocando
   # (sem isso, o remount forçava AUTO ligado e o reabastecimento de dicas parava).
   def handle_event("console_resync", params, socket) do
-    socket = socket |> adopt_resync_set(params["set_id"]) |> assign(auto?: params["auto"] == true)
+    socket =
+      socket
+      |> adopt_resync_set(params["set_id"])
+      |> assign(
+        auto?: params["auto"] == true,
+        room_available?:
+          Map.get(params, "room_available", socket.assigns.room_available?) != false
+      )
+
     decks = params["decks"]
 
     case params do
@@ -1188,7 +1203,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
               :if={@set}
               type="button"
               phx-click="play_set"
-              disabled={@entries == []}
+              disabled={@entries == [] or !@room_available?}
+              aria-describedby={!@room_available? && "dj-out-recovery"}
               class="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary-deep px-3 text-body font-semibold text-white hover:bg-primary-deep/90 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <.icon name="hero-play-solid" class="size-3.5" /> Tocar set do início
@@ -1821,6 +1837,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           no_audible: "nada no ar — dê play primeiro",
           empty_target: "o outro deck está vazio",
           target_loading: "o outro deck ainda está carregando",
+          room_unavailable: "escolha a saída da pista para retomar",
           passage_reserved: "confirme ou desarme a passagem ensaiada",
           deck_held: "solte o CUE ou o jog antes da transição",
           target_error: "a faixa do outro deck falhou — carregue outra",
@@ -2318,11 +2335,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
             this.outputEvents = new AbortController()
             const {signal} = this.outputEvents
             this.roomOutput = watchRoomOutput(this.engine.ctx, available => {
+              this.pushEvent("room_output", {available})
               this.engine.setRoomOutputAvailable(available)
               if (!available) {
                 this.disconnectHeadphones(true)
                 this.notice("Saída da pista interrompida. Escolha onde retomar em Controladora & fone.")
-              }
+              } else this.retryPendingLoad()
             })
             signal.addEventListener("abort", () => this.roomOutput.choice(), {once: true})
             const paintRoom = (main, devs) => {
@@ -2568,6 +2586,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                  source_track_id: armed.source_track_id, set_id: armed.set_id}
               : null
             this.pushEvent("console_resync", {
+              room_available: !this.roomOutput?.missing,
               deck,
               decks: {a: snap.a.trackId, b: snap.b.trackId},
               paused_deck: pausedSource ? paused : null,

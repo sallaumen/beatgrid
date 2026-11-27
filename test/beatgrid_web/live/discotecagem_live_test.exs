@@ -597,6 +597,30 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     refute has_element?(view, "#dj-queue-list [data-queue-state=next]")
   end
 
+  test "a missing room preserves the set pointer across restart clicks and reconnects", %{
+    conn: conn
+  } do
+    {set, [one, two]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}])
+    view = open_console(conn, set)
+    render_click(view, "play_set")
+    render_hook(view, "deck_started", %{"deck" => "b", "track_id" => two.id})
+    render_hook(view, "room_output", %{"available" => false})
+    assert has_element?(view, "button[phx-click=play_set][disabled]")
+    render_click(view, "play_set")
+    assert has_element?(view, "#dj-queue-track-#{two.id} [data-queue-state=current]")
+
+    render_click(view, "stop_all")
+    refute has_element?(view, "#dj-queue-list [data-queue-state=current]")
+    view = open_console(conn, set)
+    render_hook(view, "console_resync", %{"room_available" => false, "set_id" => set.id})
+    assert has_element?(view, "button[phx-click=play_set][disabled]")
+    render_hook(view, "room_output", %{"available" => true})
+    refute has_element?(view, "button[phx-click=play_set][disabled]")
+    refute has_element?(view, "#dj-queue-list [data-queue-state=current]")
+    render_click(view, "play_set")
+    assert has_element?(view, "#dj-queue-track-#{one.id} [data-queue-state=current]")
+  end
+
   test "an empty selected queue and playback outside the set do not claim the last track is playing",
        %{conn: conn} do
     {:ok, empty} = Sets.create("Vazio")
