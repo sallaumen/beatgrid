@@ -1875,6 +1875,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
         import {tripVersionPath, tripTransportLabel, tripTransitionLabel} from "@/js/dj/trip_identity.js"
         import {hotCues} from "@/js/dj/hot_cues.js"
         import {mountRehearsal} from "@/js/dj/rehearsal_panel.js"
+        import {wireJogDrag} from "@/js/dj/jog_drag.js"
         import {mountPassageScore} from "@/js/dj/passage_score_view.js"
         import {scorePassage} from "@/js/dj/passage_score.js"
         import {passageClock} from "@/js/dj/passage_clock.js"
@@ -1925,6 +1926,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             this.setId = this.el.dataset.setId || null
             this.tracks = {a: null, b: null}
             this.waves = {a: null, b: null}
+            this.jogDrags = []
             this.reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)")
             this.mediaReadouts = {a: byId("dj-media-status-a"), b: byId("dj-media-status-b")}
             this.hint = null
@@ -2311,7 +2313,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 this.engine.setVinylMode(d, on)
                 this.log(on ? `vinil ligado no deck ${d.toUpperCase()}` : `vinil desligado no deck ${d.toUpperCase()}`)
               })
-              this.wireJogScratch(d)
+              this.jogDrags.push(wireJogDrag(byId(`dj-jog-${d}`), this.engine, d))
             }
             byId("dj-punch").addEventListener("input", (e) =>
               this.engine.setPunch(Number(e.target.value) / 100)
@@ -2665,7 +2667,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             document.removeEventListener("pointerup", this.onSliderDone)
             // End a scratch drag in flight and drop the pad's global listener so
             // neither leaks across a LiveView reconnect.
-            if (this._jogCleanup) this._jogCleanup()
+            for (const release of this.jogDrags) release()
             if (this._padWinUp) window.removeEventListener("mouseup", this._padWinUp)
             if (window.__djEngine === this.engine) window.__djEngine = null
             this.engine.destroy()
@@ -3422,45 +3424,6 @@ defmodule BeatgridWeb.DiscotecagemLive do
             return "b"
           },
 
-          wireJogScratch(d) {
-            const el = byId(`dj-jog-${d}`)
-            if (!el) return
-            // HORIZONTAL drag = move the record: right → forward, left → back.
-            // (An angle around the center goes erratic when you drag left-right
-            // THROUGH the middle — the natural scratch gesture — which turned the
-            // velocity to noise. Horizontal is smooth and intuitive for a mouse.)
-            // Keep the mouse throw at roughly 2.7 ms of music per pixel.
-            const PX = 0.36
-            let dragging = false
-            let lastX = 0
-            const onMove = (e) => {
-              if (!dragging) return
-              const dx = e.clientX - lastX
-              lastX = e.clientX
-              this.engine.jogTurn(d, dx * PX, e.timeStamp)
-            }
-            const onUp = () => {
-              dragging = false
-              el.classList.remove("dj-scratching")
-              this.engine.jogTouch(d, false)
-              window.removeEventListener("mousemove", onMove)
-              window.removeEventListener("mouseup", onUp)
-              this._jogCleanup = null
-            }
-            el.addEventListener("mousedown", (e) => {
-              if (this.engine.decks[d].trackId == null) return
-              dragging = true
-              lastX = e.clientX
-              this.engine.resume()
-              this.engine.jogTouch(d, true, e.timeStamp)
-              el.classList.add("dj-scratching")
-              window.addEventListener("mousemove", onMove)
-              window.addEventListener("mouseup", onUp)
-              this._jogCleanup = onUp // so destroyed() can end a drag mid-flight
-              e.preventDefault()
-            })
-          },
-
           wireScratchPanel() {
             for (const btn of document.querySelectorAll("[data-dj-scratch-pat]")) {
               btn.addEventListener("click", () => {
@@ -3986,7 +3949,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           <div class="flex min-w-0 flex-1 flex-col items-center gap-2">
             <div
               id={"dj-jog-#{@d}"}
-              class="relative size-20 cursor-grab select-none active:cursor-grabbing"
+              class="relative size-20 cursor-grab touch-none select-none active:cursor-grabbing"
             >
               <div
                 id={"dj-jogring-#{@d}"}
