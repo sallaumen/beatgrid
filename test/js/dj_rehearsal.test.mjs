@@ -21,6 +21,18 @@ test("short files, an opening cue at zero and unknown BPM produce a bounded prev
   assert.equal(planRehearsal({duration: 1}, {duration: 1}, 0, 1, 120), null)
 })
 
+test("a fractional BPM fits a full four-beat fallback, but a missing audio frame does not", () => {
+  const duration = 36, bpm = 105.73, fourBeats = 240 / bpm
+  const track = {duration}, frame = 1 / 96000
+  const mix = {out: {rate: 1.08}, into: {rate: .92}}
+  for (const speeds of [undefined, mix]) {
+    assert.equal(planRehearsal(track, track, null, 0, bpm, speeds).fullBlend, true)
+    assert.equal(planRehearsal(track, track, duration - fourBeats + frame, 0, bpm, speeds).fullBlend, false)
+    const requiredIncoming = fourBeats * (speeds?.into.rate ?? 1) / (speeds?.out.rate ?? 1)
+    assert.equal(planRehearsal(track, track, null, duration - requiredIncoming + frame, bpm, speeds).fullBlend, false)
+  }
+})
+
 test("auditions schedule independent sources only into phones and restore PFL on stop or completion", async () => {
   const sources = [], splitters = []
   const param = () => ({value: 1, setValueAtTime(v) { this.value = v }, linearRampToValueAtTime() {}, cancelScheduledValues() {}})
