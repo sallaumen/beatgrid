@@ -1,10 +1,23 @@
 export const neutralMix = Object.freeze({rate: 1, vinyl: false, filter: 0, tone: 0, level: 1})
 
+const MIN_SYNC_RATE = 0.92, MAX_SYNC_RATE = 1.08
+
 export function syncedRate(current, bpm, targetBpm) {
   if (!(bpm > 0 && targetBpm > 0) || current * bpm === targetBpm) return current
   const target = targetBpm / bpm
-  const limited = Math.min(1.08, Math.max(0.92, target))
+  const limited = Math.min(MAX_SYNC_RATE, Math.max(MIN_SYNC_RATE, target))
   return Math.abs(limited - target) < Math.abs(current - target) ? limited : current
+}
+
+// Two counts can share a pulse without sharing their displayed BPM. This
+// alternative is an explicit headphone choice; the live SYNC stays literal.
+export function pulseSync(current, bpm, referenceBpm) {
+  if (!(bpm > 0 && referenceBpm > 0)) return null
+  const factor = bpm > referenceBpm ? 2 : 0.5
+  const target = referenceBpm * factor
+  const rate = target / bpm
+  if (!(rate >= MIN_SYNC_RATE && rate <= MAX_SYNC_RATE)) return null
+  return {factor, bpm: target, rate: syncedRate(current, bpm, target)}
 }
 
 export function createEq(ctx) {

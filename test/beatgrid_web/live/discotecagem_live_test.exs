@@ -155,6 +155,13 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
              "#dj-rehearse-dialog #dj-rehearsal-score [data-score-panel][hidden]"
            )
 
+    for side <- ["out", "into"] do
+      assert has_element?(
+               view,
+               "#dj-rehearse-dialog [data-side=#{side}] button[data-pulse-sync][hidden][disabled]"
+             )
+    end
+
     for side <- ["out", "into"], key <- ["rate", "level", "tone", "filter"] do
       id = "rehearsal-#{side}-#{key}"
       assert has_element?(view, "#dj-rehearse-dialog label[for=#{id}]")

@@ -5,7 +5,7 @@ import {mountPassageComparison, rehearsalKey} from "./passage_comparison.js"
 import {scorePassage} from "./passage_score.js"
 import {mountPassageScore} from "./passage_score_view.js"
 import {getDeckAudio} from "./waveform.js"
-import {syncedRate} from "./deck_mix.js"
+import {pulseSync, syncedRate} from "./deck_mix.js"
 import {planRehearsal, rehearsalOverlap} from "./rehearsal.js"
 import {drawRehearsalWaves} from "./rehearsal_waves.js"
 
@@ -98,14 +98,28 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
     return {out: engine.deckMix(pair.from), into: engine.deckMix(pair.to)}
   }
 
+  function syncTarget(side) {
+    const out = side === "out", id = out ? pair.from : pair.to, reference = out ? pair.to : pair.from
+    const bpm = engine.decks[id].bpm
+    const target = engine.decks[reference].bpm * mix[out ? "into" : "out"].rate
+    return {id, reference, bpm, target, pulse: pulseSync(mix[side].rate, bpm, target)}
+  }
+
   function paintMix() {
     for (const strip of strips) {
       const side = strip.dataset.side, settings = mix[side]
-      const id = side === "out" ? pair.from : pair.to
-      const bpm = engine.decks[id].bpm
+      const {id, reference, bpm, pulse} = syncTarget(side)
       text(strip.querySelector("[data-mix-deck]"), "Deck " + id.toUpperCase())
       text(strip.querySelector("[data-tempo]"), bpm ? (bpm * settings.rate).toLocaleString("pt-BR", {maximumFractionDigits: 1}) + " BPM" : "BPM desconhecido")
       strip.querySelector("[data-sync]").disabled = !engine.decks[pair.from].bpm || !engine.decks[pair.to].bpm
+      const alternate = strip.querySelector("[data-pulse-sync]")
+      alternate.hidden = !pulse
+      if (pulse) {
+        const beats = pulse.factor === 2 ? "2 batidas" : "1 batida"
+        const other = pulse.factor === 2 ? "1" : "2"
+        const tempo = pulse.bpm.toLocaleString("pt-BR", {maximumFractionDigits: 1})
+        text(alternate, `Ouvir a ${tempo} BPM · ${beats} do ${id.toUpperCase()} por ${other} do ${reference.toUpperCase()}`)
+      }
       for (const control of strip.querySelectorAll("[data-mix]")) {
         const key = control.dataset.mix
         if (key === "vinyl") { control.checked = settings.vinyl; continue }
@@ -230,8 +244,11 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
     }
     lastDeckCue = deckCue
     comparison.bind(pair, plan, a.bpm)
-    for (const strip of strips) strip.disabled = !plan
     const phones = hasPhones()
+    for (const strip of strips) {
+      strip.disabled = !plan
+      strip.querySelector("[data-pulse-sync]").disabled = !plan || !phones || pending
+    }
     assist.update({plan, pair, kind: kind(), outBpm: a.bpm, intoBpm: b.bpm, deckCue, phones})
     const elapsed = transport.elapsed()
     let message = failure
@@ -320,16 +337,21 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
       editMix({...mix, [side]: {...mix[side], [key]: value}})
     }
     strip.querySelector("[data-sync]").onclick = () => {
-      const other = side === "out" ? "into" : "out"
-      const a = engine.decks[pair.from].bpm, b = engine.decks[pair.to].bpm
-      const bpm = side === "out" ? a : b
-      const target = (side === "out" ? b : a) * mix[other].rate
+      const {bpm, target} = syncTarget(side)
       const rate = syncedRate(mix[side].rate, bpm, target)
       if (rate !== mix[side].rate) editMix({...mix, [side]: {...mix[side], rate}})
       if (Math.abs(rate * bpm - target) > 0.01) {
         mixNote = "O alvo está fora do alcance de ±8% do SYNC."
         update()
       }
+    }
+    strip.querySelector("[data-pulse-sync]").onclick = () => {
+      if (!plan || !hasPhones() || pending) return
+      const {pulse} = syncTarget(side)
+      if (!pulse) return
+      stop()
+      if (pulse.rate !== mix[side].rate) editMix({...mix, [side]: {...mix[side], rate: pulse.rate}})
+      return play()
     }
   }
   dialog.querySelector("[data-copy-mix]").onclick = () => { if (plan) editMix(boothMix()) }
