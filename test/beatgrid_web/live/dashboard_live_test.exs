@@ -8,6 +8,17 @@ defmodule BeatgridWeb.DashboardLiveTest do
 
   setup :isolate_library_root
 
+  test "collection overview precedes recommendations and the page offers a direct jump", %{
+    conn: conn
+  } do
+    {:ok, view, html} = live(conn, ~p"/painel")
+    assert has_element?(view, "a[href='#dashboard-gaps']", "Lacunas")
+    assert has_element?(view, "#dashboard-kpis dl")
+    {insights, _} = :binary.match(html, ~s(id="dashboard-insights"))
+    {gaps, _} = :binary.match(html, ~s(id="dashboard-gaps"))
+    assert insights < gaps
+  end
+
   test "renders the repertoire overview and recommendations", %{conn: conn} do
     {:ok, _view, html} = live(conn, ~p"/painel")
 

@@ -78,6 +78,7 @@ defmodule BeatgridWeb.DashboardLive do
   defp apply_dashboard_result(socket, {:flash, level, message}),
     do: put_flash(socket, level, message)
 
+  defp pct(0, _max), do: 0
   defp pct(_value, 0), do: 0
   defp pct(value, max), do: max(round(value / max * 100), 2)
 
@@ -95,51 +96,113 @@ defmodule BeatgridWeb.DashboardLive do
       <header class="border-b border-white/6 bg-rail px-3 py-3 sm:px-6">
         <div class="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3">
           <h1 class="text-[22px] font-semibold">Repertório</h1>
-          <.link
-            id="repertoire-maintenance"
-            navigate={~p"/manutencao"}
-            class="inline-flex items-center gap-2 rounded-md border border-white/10 bg-input px-3 py-2 text-body-sm font-semibold text-ink-secondary hover:text-ink"
-          >
-            Manutenção da biblioteca <.icon name="hero-arrow-right-mini" class="size-4" />
-          </.link>
+          <div class="flex flex-wrap items-center gap-2">
+            <a
+              href="#dashboard-gaps"
+              class="inline-flex items-center gap-1.5 rounded-md border border-primary/35 bg-primary/10 px-3 py-2 text-body-sm font-semibold text-primary-soft"
+            >
+              Lacunas <.icon name="hero-arrow-down" class="size-3.5" />
+            </a>
+            <.link
+              id="repertoire-maintenance"
+              navigate={~p"/manutencao"}
+              class="inline-flex items-center gap-2 rounded-md border border-white/10 bg-input px-3 py-2 text-body-sm font-semibold text-ink-secondary hover:text-ink"
+            >
+              Manutenção da biblioteca <.icon name="hero-arrow-right-mini" class="size-4" />
+            </.link>
+          </div>
         </div>
       </header>
 
       <div class="mx-auto max-w-[1600px] space-y-5 px-3 py-5 sm:px-6">
         <section
           id="dashboard-kpis"
-          class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6"
+          aria-labelledby="dashboard-overview-title"
+          class="rounded-lg border border-white/8 bg-surface px-3 py-3 sm:px-4"
         >
-          <.kpi_card label="Total" value={@overview.total} color="var(--color-primary)" />
-          <.kpi_card
-            label="Resolvidas"
-            value={@overview.resolved}
-            sub="com metadados"
-            color="var(--color-green)"
-          />
-          <.kpi_card
-            label="Sem correspondência"
-            value={@overview.unresolved}
-            color="var(--color-amber)"
-          />
-          <.kpi_card
-            label="Truncadas"
-            value={@overview.truncated}
-            alert={@overview.truncated > 0}
-            color={if @overview.truncated > 0, do: "var(--color-coral)", else: "var(--color-ink)"}
-          />
-          <.kpi_card
-            label="Conf. alta"
-            value={conf(@overview.by_confidence, :high)}
-            color="var(--color-green)"
-          />
-          <.kpi_card
-            label="Conf. baixa"
-            value={conf(@overview.by_confidence, :low)}
-            color="var(--color-coral)"
-          />
+          <h2 id="dashboard-overview-title" class="mb-3 text-[18px] font-semibold">
+            Panorama do acervo
+          </h2>
+          <dl class="grid grid-cols-3 gap-x-3 gap-y-3 sm:gap-4 xl:grid-cols-6">
+            <.overview_stat label="Total" value={@overview.total} tone="text-primary" prominent />
+            <.overview_stat label="Resolvidas" value={@overview.resolved} tone="text-green" />
+            <.overview_stat
+              label="Sem correspondência"
+              value={@overview.unresolved}
+              tone="text-amber"
+            />
+            <.overview_stat
+              label="Truncadas"
+              value={@overview.truncated}
+              tone={if(@overview.truncated > 0, do: "text-coral", else: "text-ink")}
+            />
+            <.overview_stat
+              label="Conf. alta"
+              value={conf(@overview.by_confidence, :high)}
+              tone="text-green"
+            />
+            <.overview_stat
+              label="Conf. baixa"
+              value={conf(@overview.by_confidence, :low)}
+              tone="text-coral"
+            />
+          </dl>
         </section>
 
+        <div id="dashboard-insights" class="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-4">
+          <.panel title="Distribuição por gênero">
+            <div :if={@genres != []} class="space-y-2">
+              <.bar_row
+                :for={{key, n} <- @genres}
+                label={folder_label(key)}
+                value={n}
+                max={max_count(@genres)}
+                color={folder_color(key)}
+              />
+            </div>
+            <.empty :if={@genres == []} />
+          </.panel>
+
+          <.panel title="Artistas mais presentes">
+            <div :if={@artists != []} class="space-y-2">
+              <.bar_row
+                :for={{artist, n} <- @artists}
+                label={artist}
+                value={n}
+                max={max_count(@artists)}
+                color="var(--color-primary)"
+              />
+            </div>
+            <.empty :if={@artists == []} />
+          </.panel>
+
+          <.panel title="Andamento (BPM)">
+            <div :if={@bpm != []} class="space-y-2">
+              <.bar_row
+                :for={{bucket, count} <- @bpm}
+                label={"#{bucket}–#{bucket + 4}"}
+                value={count}
+                max={max_count(@bpm)}
+                color="var(--color-primary)"
+                mono
+              />
+            </div>
+            <.empty :if={@bpm == []} />
+          </.panel>
+
+          <.panel title="Décadas">
+            <div :if={@decades != []} class="space-y-2">
+              <.bar_row
+                :for={{d, n} <- @decades}
+                label={decade_label(d)}
+                value={n}
+                max={max_count(@decades)}
+                color="var(--color-info)"
+              />
+            </div>
+            <.empty :if={@decades == []} />
+          </.panel>
+        </div>
         <.panel id="dashboard-gaps" title="Lacunas no repertório (IA)">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div class="flex flex-wrap items-center gap-1.5">
@@ -194,10 +257,6 @@ defmodule BeatgridWeb.DashboardLive do
             role="status"
             class="mt-3 flex items-center gap-2 rounded-lg border border-primary/25 bg-primary/8 px-3 py-3 text-body-sm text-ink-secondary"
           >
-            <span
-              class="size-2.5 rounded-full bg-primary motion-safe:animate-pulse"
-              aria-hidden="true"
-            ></span>
             Gerando sugestões com a IA… isso pode levar alguns segundos.
           </div>
 
@@ -213,62 +272,28 @@ defmodule BeatgridWeb.DashboardLive do
             para buscar sugestões.
           </p>
         </.panel>
-        <div id="dashboard-insights" class="grid grid-cols-1 gap-5 lg:grid-cols-2 2xl:grid-cols-4">
-          <.panel title="Distribuição por gênero">
-            <div :if={@genres != []} class="space-y-2">
-              <.bar_row
-                :for={{key, n} <- @genres}
-                label={folder_label(key)}
-                value={n}
-                max={max_count(@genres)}
-                color={folder_color(key)}
-              />
-            </div>
-            <.empty :if={@genres == []} />
-          </.panel>
-
-          <.panel title="Artistas mais presentes">
-            <div :if={@artists != []} class="space-y-2">
-              <.bar_row
-                :for={{artist, n} <- @artists}
-                label={artist}
-                value={n}
-                max={max_count(@artists)}
-                color="var(--color-primary)"
-              />
-            </div>
-            <.empty :if={@artists == []} />
-          </.panel>
-
-          <.panel title="Andamento (BPM)">
-            <div :if={@bpm != []} class="space-y-2">
-              <.bar_row
-                :for={{bucket, count} <- @bpm}
-                label={"#{bucket}–#{bucket + 4}"}
-                value={count}
-                max={max_count(@bpm)}
-                color="var(--color-primary)"
-                mono
-              />
-            </div>
-            <.empty :if={@bpm == []} />
-          </.panel>
-
-          <.panel title="Décadas">
-            <div :if={@decades != []} class="space-y-2">
-              <.bar_row
-                :for={{d, n} <- @decades}
-                label={decade_label(d)}
-                value={n}
-                max={max_count(@decades)}
-                color="var(--color-info)"
-              />
-            </div>
-            <.empty :if={@decades == []} />
-          </.panel>
-        </div>
       </div>
     </.app_shell>
+    """
+  end
+
+  attr :label, :string, required: true
+  attr :value, :integer, required: true
+  attr :tone, :string, default: "text-ink"
+  attr :prominent, :boolean, default: false
+
+  defp overview_stat(assigns) do
+    ~H"""
+    <div class="flex min-w-0 flex-col justify-between gap-1 lg:border-white/8 lg:[&:not(:first-child)]:border-l lg:[&:not(:first-child)]:pl-4">
+      <dt class="text-caption font-semibold uppercase tracking-wider text-ink-muted">{@label}</dt>
+      <dd class={[
+        "font-mono font-semibold leading-tight tabular-nums",
+        @tone,
+        if(@prominent, do: "text-[25px]", else: "text-[18px]")
+      ]}>
+        {@value}
+      </dd>
+    </div>
     """
   end
 
@@ -278,7 +303,10 @@ defmodule BeatgridWeb.DashboardLive do
 
   defp panel(assigns) do
     ~H"""
-    <section id={@id} class="rounded-lg border border-white/6 bg-surface p-3 sm:p-4">
+    <section
+      id={@id}
+      class="min-w-0 scroll-mt-4 rounded-lg border border-white/6 bg-surface p-3 sm:p-4"
+    >
       <h2 class="mb-3 text-[18px] font-semibold">{@title}</h2>
       {render_slot(@inner_block)}
     </section>
@@ -303,7 +331,7 @@ defmodule BeatgridWeb.DashboardLive do
     ]}>
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0 flex-1">
-          <p class="truncate text-body font-medium">
+          <p class="break-words text-body font-medium">
             {@rec.artist} <span class="text-ink-faint">—</span> {@rec.song}
           </p>
           <p :if={@rec.reason} class="mt-0.5 text-caption text-ink-muted">{@rec.reason}</p>
@@ -354,17 +382,17 @@ defmodule BeatgridWeb.DashboardLive do
 
   defp bar_row(assigns) do
     ~H"""
-    <div class="flex items-center gap-2.5">
+    <div class="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)_auto] items-center gap-2.5">
       <span
         title={@label}
         class={[
-          "w-2/5 shrink-0 truncate text-body text-ink-secondary",
+          "min-w-0 break-words text-body text-ink-secondary",
           @mono && "font-mono"
         ]}
       >
         {@label}
       </span>
-      <div class="h-[7px] min-w-0 flex-1 rounded-full bg-white/5">
+      <div aria-hidden="true" class="h-[7px] min-w-0 rounded-full bg-white/5">
         <div class="h-full rounded-full" style={"width:#{pct(@value, @max)}%;background:#{@color}"}>
         </div>
       </div>

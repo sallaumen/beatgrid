@@ -118,6 +118,17 @@ defmodule BeatgridWeb.LibraryLiveTest do
     assert html =~ "Nenhuma faixa com esses filtros"
   end
 
+  test "empty collection offers import and row actions expose the track name", %{conn: conn} do
+    {:ok, empty_view, _} = live(conn, ~p"/")
+    assert has_element?(empty_view, "#library-rows a[href='/importados?origem=local']")
+
+    insert(:track, tag_title: "Sina", status: :present)
+    {:ok, view, _} = live(conn, ~p"/")
+    assert has_element?(view, "button[aria-label='Ações de Sina']")
+    view |> element("button[phx-click=toggle_select_mode]") |> render_click()
+    assert has_element?(view, "button[aria-label='Selecionar Sina']")
+  end
+
   describe "sortable headers" do
     test "clicking the BPM header sorts the rows by effective bpm", %{conn: conn} do
       fast_song = insert(:soundcharts_song, tempo_bpm: 150.0)
@@ -153,6 +164,39 @@ defmodule BeatgridWeb.LibraryLiveTest do
       desc = view |> element("#library-rows button[phx-value-by='bpm']") |> render_click()
       assert before?(desc, "Fast", "Slow")
     end
+  end
+
+  test "search and rating keep each other's criteria when either form changes", %{conn: conn} do
+    for {title, artist, rating} <- [
+          {"Sina", "Djavan", 8},
+          {"Oceano", "Djavan", 3},
+          {"Romaria", "Elis", 9}
+        ] do
+      insert(:track,
+        status: :present,
+        tag_title: title,
+        tag_artist: artist,
+        norm_artist: String.downcase(artist),
+        norm_title: String.downcase(title),
+        rating: rating
+      )
+    end
+
+    {:ok, view, _html} = live(conn, ~p"/")
+    view |> form("#library-search", %{search: "Djavan"}) |> render_change()
+    view |> form("#library-filters", %{rating_min: "7"}) |> render_change()
+
+    assert has_element?(view, "#library-rows", "Sina")
+    refute has_element?(view, "#library-rows", "Oceano")
+    refute has_element?(view, "#library-rows", "Romaria")
+    assert has_element?(view, "#library-search input[value=Djavan]")
+
+    view |> form("#library-search", %{search: ""}) |> render_submit()
+    assert has_element?(view, "#library-rows", "Romaria")
+    refute has_element?(view, "#library-rows", "Oceano")
+
+    view |> form("#library-filters", %{rating_min: ""}) |> render_change()
+    assert has_element?(view, "#library-rows", "Oceano")
   end
 
   describe "extended filter rail" do
@@ -439,11 +483,11 @@ defmodule BeatgridWeb.LibraryLiveTest do
     # Page 1 = first 100 by artist; the 101st only arrives on scroll.
     assert html =~ "A001"
     refute html =~ "A101"
-    assert html =~ "carregando mais…"
+    assert html =~ "Carregar mais faixas"
 
     html_2 = render_hook(view, "load_more", %{})
     assert html_2 =~ "A101"
-    refute html_2 =~ "carregando mais…"
+    refute html_2 =~ "Carregar mais faixas"
 
     # "Marcar todas" selects every matching id (across pages), not just loaded rows.
     view |> element("button[phx-click=toggle_select_mode]") |> render_click()

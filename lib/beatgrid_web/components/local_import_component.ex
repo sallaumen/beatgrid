@@ -301,7 +301,7 @@ defmodule BeatgridWeb.LocalImportComponent do
     ~H"""
     <section id="local-import-activity" class="mt-4" aria-labelledby="local-activity-title">
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <h2 id="local-activity-title" class="text-body font-semibold">Cópia de arquivos</h2>
+        <h2 id="local-activity-title" class="text-[18px] font-semibold">Cópia de arquivos</h2>
         <.link
           navigate={~p"/jobs?worker=ImportWorker"}
           class="text-body-sm text-primary-soft underline"
@@ -369,19 +369,25 @@ defmodule BeatgridWeb.LocalImportComponent do
     ~H"""
     <div id="import-browser" class="mt-3 rounded-lg border border-white/8">
       <div class="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 px-3 py-2">
-        <p class="min-w-0 truncate font-mono text-caption text-ink-muted" title={@browse.dir}>
-          {@browse.dir}
-        </p>
+        <div class="min-w-0">
+          <p class="text-caption font-semibold uppercase tracking-wider text-ink-muted">
+            Pasta atual
+          </p>
+          <p class="break-all font-mono text-body-sm text-ink-secondary">{@browse.dir}</p>
+        </div>
         <button
           phx-target={@target}
           phx-click="browse_import_here"
-          class="min-h-11 shrink-0 rounded-md bg-primary/15 sm:min-h-0 px-2.5 py-1 text-body-sm font-semibold text-primary hover:bg-primary/25"
+          disabled={not is_nil(@browse.error)}
+          class="min-h-11 shrink-0 rounded-md bg-primary/15 sm:min-h-0 px-2.5 py-1 text-body-sm font-semibold text-primary hover:bg-primary/25 disabled:opacity-40"
         >
           Pré-visualizar esta pasta
         </button>
       </div>
 
-      <p :if={@browse.error} class="px-3 py-2 text-body-sm text-ink-muted">{@browse.error}</p>
+      <p :if={@browse.error} role="alert" class="px-3 py-2 text-body-sm text-coral-soft">
+        {@browse.error}
+      </p>
 
       <div class="max-h-56 divide-y divide-white/5 overflow-y-auto">
         <button
@@ -391,7 +397,7 @@ defmodule BeatgridWeb.LocalImportComponent do
           phx-value-dir={@browse.parent}
           class="block min-h-11 w-full sm:min-h-0 px-3 py-1.5 text-left text-body-sm text-ink-muted hover:bg-white/5 hover:text-ink"
         >
-          Pasta acima
+          <.icon name="hero-arrow-up" class="mr-1.5 size-4 align-middle" /> Pasta acima
         </button>
         <button
           :for={dir <- @browse.dirs}
@@ -400,6 +406,7 @@ defmodule BeatgridWeb.LocalImportComponent do
           phx-value-dir={dir.path}
           class="block min-h-11 w-full sm:min-h-0 truncate px-3 py-1.5 text-left text-body-sm text-ink-secondary hover:bg-white/5 hover:text-ink"
         >
+          <.icon name="hero-folder" class="mr-1.5 size-4 align-middle text-ink-muted" />
           {dir.name}/
         </button>
         <button
@@ -409,6 +416,7 @@ defmodule BeatgridWeb.LocalImportComponent do
           phx-value-file={file.path}
           class="block min-h-11 w-full sm:min-h-0 truncate px-3 py-1.5 text-left text-body-sm text-ink hover:bg-primary/10"
         >
+          <.icon name="hero-musical-note" class="mr-1.5 size-4 align-middle text-primary-soft" />
           {file.name}
         </button>
         <p
@@ -434,17 +442,24 @@ defmodule BeatgridWeb.LocalImportComponent do
       |> assign(:dupes, Enum.count(assigns.rows, & &1.duplicate))
 
     ~H"""
-    <div class="mt-5">
-      <p class="mb-2 text-body-sm text-ink-muted" role="status">
+    <div class="mt-5 border-t border-white/8 pt-4" aria-labelledby="import-preview-title">
+      <h3 id="import-preview-title" class="text-[18px] font-semibold">Prévia das faixas</h3>
+      <p class="mt-1 mb-3 text-body-sm text-ink-muted" role="status">
         {length(@new_rows)} nova(s), {@dupes} duplicada(s)
       </p>
 
       <form id="import-run" phx-target={@target} phx-submit="run_import" class="space-y-1">
         <div
+          :if={@rows != []}
+          class="hidden grid-cols-[1fr_1fr_1.2fr_60px_60px] gap-2 px-2 text-caption font-semibold text-ink-muted lg:grid"
+        >
+          <span>Artista</span><span>Título</span><span>Arquivo</span><span class="text-right">Duração</span><span class="text-right">Formato</span>
+        </div>
+        <div
           :for={{row, i} <- Enum.with_index(@rows)}
           class={[
             "grid grid-cols-2 items-center gap-2 rounded-lg px-2 py-2 lg:grid-cols-[1fr_1fr_1.2fr_60px_60px]",
-            row.duplicate && "opacity-50",
+            row.duplicate && "border border-white/8",
             !row.duplicate && "bg-base"
           ]}
         >
@@ -459,7 +474,7 @@ defmodule BeatgridWeb.LocalImportComponent do
               value={row.artist}
               aria-label={"Artista de #{row.filename}"}
               placeholder="Artista"
-              class="w-full rounded-md border border-white/8 bg-input px-2 py-1 text-body-sm"
+              class="min-w-0 w-full rounded-md border border-white/8 bg-input px-2 py-1.5 text-body-sm"
             />
             <input
               type="text"
@@ -467,11 +482,11 @@ defmodule BeatgridWeb.LocalImportComponent do
               value={row.title}
               aria-label={"Título de #{row.filename}"}
               placeholder="Título"
-              class="w-full rounded-md border border-white/8 bg-input px-2 py-1 text-body-sm"
+              class="min-w-0 w-full rounded-md border border-white/8 bg-input px-2 py-1.5 text-body-sm"
             />
           <% end %>
           <span class="col-span-2 min-w-0 text-caption text-ink-faint lg:col-span-1">
-            <span class="block truncate" title={row.filename}>{row.filename}</span>
+            <span class="block break-words" title={row.filename}>{row.filename}</span>
             <span
               :if={row.duplicate}
               class="inline-block rounded bg-white/8 px-1.5 py-px text-[10px] text-ink-muted"
