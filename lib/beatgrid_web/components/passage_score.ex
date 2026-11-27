@@ -4,6 +4,7 @@ defmodule BeatgridWeb.PassageScore do
 
   attr :id, :string, required: true
   attr :compare, :boolean, default: false
+  attr :identify, :boolean, default: false
   attr :title, :string, default: "Nota da passagem"
 
   @doc "Renders the measurement panel and its persistent announcement target."
@@ -23,7 +24,12 @@ defmodule BeatgridWeb.PassageScore do
             <span data-score-scale class="text-body text-ink-muted">/100</span>
           </p>
         </div>
-        <p :if={@compare} data-score-pair hidden class="mt-1 break-words text-body text-ink-secondary">
+        <p
+          :if={@compare or @identify}
+          data-score-pair
+          hidden
+          class="mt-1 break-words text-body text-ink-secondary"
+        >
         </p>
         <p data-score-summary class="mt-1 text-body text-ink-secondary"></p>
         <dl data-score-metrics hidden class="mt-3 grid gap-x-3 gap-y-2 @md:grid-cols-3"></dl>

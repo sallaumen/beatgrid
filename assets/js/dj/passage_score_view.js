@@ -50,10 +50,12 @@ export function mountPassageScore(root) {
     summary.textContent = result.summary
     metrics.replaceChildren(...result.metrics.map(reading))
     metrics.hidden = result.metrics.length === 0
-    if (referencePanel) {
-      const hearing = reference?.hearing
+    if (pair) {
       pair.textContent = reference?.pair ?? ""
       pair.hidden = !pair.textContent
+    }
+    if (referencePanel) {
+      const hearing = reference?.hearing
       referencePanel.open = false
       referencePanel.hidden = !hearing
       part("reference-label").textContent = hearing ? "No fone · " + (hearing.score == null ? "sem nota" : hearing.score + "/100") : ""

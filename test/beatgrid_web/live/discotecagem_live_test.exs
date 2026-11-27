@@ -126,6 +126,15 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
 
     assert has_element?(view, "#dj-room-score details[data-score-reference][hidden] summary")
     refute has_element?(view, "#dj-rehearsal-score [data-score-reference]")
+
+    assert has_element?(
+             view,
+             "#dj-transitions + div #dj-program-score [data-score-panel][hidden]"
+           )
+
+    assert has_element?(view, "#dj-program-score [data-score-pair][hidden]")
+    refute has_element?(view, "#dj-program-score [data-score-reference]")
+
     assert has_element?(view, "#dj-rehearsal [data-reservation] + #dj-room-score")
     refute has_element?(view, "#dj-rehearse-dialog #dj-room-score")
 

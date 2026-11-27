@@ -30,7 +30,7 @@
 import {applyFilter, applyTone, createEq, neutralMix, setMixParam, syncedRate} from "./deck_mix.js"
 import {startDecodedEntry} from "./decoded_entry.js"
 import {createPassage} from "./passage.js"
-import {observeRoomPassage} from "./passage_meter.js"
+import {createProgramMeter, observeRoomPassage} from "./passage_meter.js"
 import {scheduleBlend} from "./blend_curve.js"
 import {createRehearsal, CUT_OVERLAP_S, rehearsalOverlap} from "./rehearsal.js"
 import {getDeckAudio, getScratchPcm, retainScratch} from "./waveform.js"
@@ -218,6 +218,7 @@ class Deck {
     this.cueMs = markers.length ? Math.min(...markers.map(m => m.ms)) : atMs
     const token = ++this.loadToken
     this.trackId = track.id
+    this.title = track.title
     this.bpm = Number.isFinite(track.bpm) && track.bpm > 0 ? track.bpm : null
     this.durationMs = track.duration_ms || null
     this.loop = {on: false, startMs: null, endMs: null, beats: null}
@@ -508,6 +509,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     const maxCh = ctx.destination.maxChannelCount || 2
     if (maxCh === routedChannels) return
     cancelRoomReading()
+    programMeter?.stop()
     rehearsal.stop()
     try {
       master.disconnect()
@@ -557,6 +559,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       cue.mode = "stereo"
     }
     routedChannels = maxCh
+    if (decks.a.audible() || decks.b.audible()) programMeter?.start()
     emit("cueMode", {mode: cue.mode, maxChannels: maxCh})
   }
 
@@ -609,6 +612,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     return null
   }
 
+  const programMeter = callbacks.programScore && createProgramMeter(ctx, masterAnalyser)
   let roomReading = null
   function cancelRoomReading() {
     roomReading?.cancel()
@@ -738,11 +742,13 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   function watchOutgoing(deck) {
     const listen = (event, fn) => deck.el.addEventListener(event, fn, {signal: mediaEvents.signal})
     deck.recordProgress = () => maybeFire(deck)
+    listen("playing", () => programMeter?.start())
     listen("timeupdate", () => { if (!deck.entry) deck.recordProgress() })
     // A deck going silent is the moment a queued hint can claim it. Event-driven
     // on purpose: rAF loops don't run in background tabs, and re-arming the next
     // track must not depend on the page being visible.
     listen("pause", () => {
+      if (!sessionDeck()) programMeter?.stop()
       if (!deckBusy(deck.id)) emit("deckFreed", {deck: deck.id})
     })
     deck.recordEnded = () => {
@@ -756,7 +762,10 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       if (state.breatherGap) return state.breatherGap.beginGap()
       handleEnded(deck)
     }
-    listen("ended", () => { if (deck.ended()) deck.recordEnded() })
+    listen("ended", () => {
+      if (deck.ended()) deck.recordEnded()
+      if (!sessionDeck()) programMeter?.stop()
+    })
     listen("seeking", () => { if (!deck.entry) passage.seek(deck, deck.positionMs()) })
     listen("canplay", () => retryReadyHint(deck))
     listen("durationchange", () => {
@@ -963,7 +972,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     receiveEntry(from, to, toMs, cue => {
       if (delayed && (from.ended() || (run === scratchDrop && !scratchArm(from.id)))) return fallback(cue)
       if (delayed && from.loop.on) clearLoop(from)
-      const land = () => handoff(from, to, {...event, atMs: from.positionMs()})
+      const land = overlap => handoff(from, to, {...event, atMs: from.positionMs()}, overlap)
       const position = xfade.pos
       if (delayed) {
         state.pendingEntry = to.id
@@ -981,9 +990,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       }
       state.fireScale = fitScale(from, mode === "auto" ? state.hint : null, entryMs)
       if (state.fireScale < 0.95) emit("transitionSqueezed", {type, factor: state.fireScale})
-      run(from, to, {token, type, wasPlaying, drop})
+      const overlap = run(from, to, {token, type, wasPlaying, drop})
       state.fireScale = 1
-      if (!delayed) land()
+      if (!delayed) land(overlap)
     })
   }
 
@@ -1005,13 +1014,19 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     }
   }
 
-  function handoff(from, to, event) {
+  function handoff(from, to, event, overlap) {
     state.activeDeck = to.id
     state.hint = null
     state.firedForTrack = null
     state.postponeMs = 0
     from._seekGuard = false
     to._seekGuard = false
+    if (overlap != null && programMeter) {
+      const kind = event.type === "cut" ? "cut" : "blend"
+      const names = {from: from.title, fromDeck: from.id, into: to.title, toDeck: to.id}
+      programMeter.read(kind, overlap, from.bpm * from.playbackRate,
+        data => emit("programScore", {data, kind, mode: event.mode, names}))
+    }
     emit("transitionStarted", {...event, toTrackId: to.trackId})
   }
 
@@ -1097,7 +1112,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     setXfadeTo(sideOf(to.id), overlap, CUT_OVERLAP_S)
     state.rescue.finishCut = finish
     after(overlap, finish)
-    handoff(from, to, {...event, atMs: from.positionMs()})
+    handoff(from, to, {...event, atMs: from.positionMs()}, event.type === "cut" ? overlap : null)
   }
 
   function receiveEntry(from, to, toMs, started) {
@@ -1165,6 +1180,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     after(xfS + 0.2, () => {
       if (ownsOutgoing(from, token) && from.cueState !== "preview") from.pause()
     })
+    return xfS
   }
 
   // Echo-out, reworked to BREATHE. Timeline (all scaled by the length knob):
@@ -1562,6 +1578,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   function interruptTransition({keepPassage = false, resumeOutgoing = true} = {}) {
+    programMeter?.cancel()
     state.cancelEntry?.(resumeOutgoing)
     if (roomReading?.arrived) cancelRoomReading()
     if (keepPassage) passage.mixChanged()
@@ -2738,6 +2755,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     },
 
     stopAll() {
+      programMeter?.stop()
       interruptTransition({resumeOutgoing: false}) // no in-flight cleanup may outlive a stop
       decks.a.pause()
       decks.b.pause()
@@ -2757,6 +2775,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // global) takes over; loads and the armed hint survive. Params settle at
     // their CURRENT values; resuming via playPause re-sanitizes the chain.
     pauseAll() {
+      programMeter?.stop()
       rehearsal.stop()
       interruptTransition({resumeOutgoing: false})
       decks.a.pause()
@@ -2805,6 +2824,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     },
 
     destroy() {
+      programMeter?.stop()
       rehearsal.stop()
       mediaEvents.abort()
       interruptTransition({resumeOutgoing: false})

@@ -2472,3 +2472,41 @@ for (const from of ["a", "b"]) {
     assert.equal(rig[to].playbackRate, 1)
   })
 }
+
+test("the PA meter releases its listener when the last playing deck pauses and opens fresh on resume", async t => {
+  const meters = []
+  globalThis.AudioWorkletNode = class extends AudioNodeStub {
+    constructor(_ctx, name) {
+      super()
+      this.commands = []
+      this.port = {postMessage: value => this.commands.push(value), close() {}}
+      if (name === "beatgrid-passage-meter") meters.push(this)
+    }
+  }
+  t.after(() => { delete globalThis.AudioWorkletNode })
+  const {engine, a} = booth(t, {programScore() {}})
+  a.dispatchEvent(new Event("playing"))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(meters.length, 1)
+  engine.playPause("a")
+  a.dispatchEvent(new Event("pause"))
+  assert.deepEqual(meters[0].commands, ["stop"])
+  engine.playPause("a")
+  a.dispatchEvent(new Event("playing"))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(meters.length, 2)
+})
+
+for (const type of ["cut", "crossfade"]) {
+  test(`the public reading identifies the actual ${type} only once the receiver accepts playback`, async t => {
+    const readings = []
+    const {engine, play, advances} = pendingCut(t, "a", {programScore: value => readings.push(value)}, type)
+    assert.deepEqual(readings, [])
+    play.resolve()
+    await Promise.resolve()
+    assert.equal(advances.at(-1)?.type, type)
+    assert.deepEqual(readings.map(({data, kind, mode, names}) => [data, kind, mode, names.fromDeck, names.toDeck]),
+      [[null, type === "cut" ? "cut" : "blend", "auto", "a", "b"]])
+    assert.equal(engine.sessionDeck(), "b")
+  })
+}

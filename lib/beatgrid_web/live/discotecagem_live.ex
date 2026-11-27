@@ -1534,6 +1534,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
                     />
                   </div>
                 </div>
+                <div class="px-3">
+                  <BeatgridWeb.PassageScore.result
+                    id="dj-program-score"
+                    title="Última troca medida na pista"
+                    identify
+                  />
+                </div>
               </details>
             </div>
 
@@ -1907,6 +1914,15 @@ defmodule BeatgridWeb.DiscotecagemLive do
                   } else this.toast(`${mode === "auto" ? "AUTO: " : "▶ "}${name} → deck ${deck.toUpperCase()}`)
                   window.dispatchEvent(new CustomEvent("beatgrid:playing", {detail: {source: "dj-console"}}))
                 },
+                programScore: ({data, kind, mode, names}) => {
+                  const type = kind === "cut" ? "Corte" : "Crossfade"
+                  const from = names.from || "Deck " + names.fromDeck.toUpperCase()
+                  const into = names.into || "Deck " + names.toDeck.toUpperCase()
+                  const pair = type + (mode === "auto" ? " em AUTO" : " manual") + " · " + from + " → " + into
+                  const result = data ? scorePassage(data) :
+                    {score: null, metrics: [], summary: "O trecho da pista não foi medido por inteiro."}
+                  this.programScore.show(result, {reference: {pair}})
+                },
                 roomScore: ({data, reference}) => this.roomScore.show(data ? scorePassage(data) :
                   {score: null, metrics: [], summary: "O trecho da pista não foi medido por inteiro."}, {reference}),
                 dropUnavailable: () => this.notice("O efeito não ficou pronto. A faixa entrou em corte."),
@@ -2086,6 +2102,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             }
 
             // Depuração no console do navegador (e testes sem controladora).
+            this.programScore = mountPassageScore(byId("dj-program-score"))
             this.roomScore = mountPassageScore(byId("dj-room-score"))
             this.rehearsal = mountRehearsal({
               root: byId("dj-rehearsal"), engine: this.engine, tracks: this.tracks, waves: this.waves,
@@ -2510,6 +2527,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
           destroyed() {
             cancelAnimationFrame(this.raf)
+            this.programScore.destroy()
             this.roomScore.destroy()
             this.rehearsal.destroy()
             this.outputEvents.abort()
