@@ -489,7 +489,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     postponeMs: 0,
     // Breather in progress. A null deadline means its outgoing phrase is still playing.
     breatherGap: null,
-    stopScratchDrop: null,
+    stopTransitionEffect: null,
     // User "comprimento" knob: scales every transition's timings around the
     // reference length (REF_LEN_S = the default crossfade). 1.0 = as designed.
     transitionScale: 1,
@@ -921,8 +921,14 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       })
     })
 
+    const turnOff = () => {
+      clearTimeout(lightTimer)
+      state.stopTransitionEffect = null
+      emit("echoState", {deck: from.id, on: false})
+    }
+    const lightTimer = after(total + dur(0.7), turnOff)
+    state.stopTransitionEffect = turnOff
     emit("echoState", {deck: from.id, on: true, delayMs: Math.round(delayS * 1000)})
-    after(total + dur(0.7), () => emit("echoState", {deck: from.id, on: false}))
   }
 
   // High-pass sweep: the outgoing track loses its body, thins into air while the
@@ -1132,7 +1138,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
     const stop = () => {
       clearInterval(iv)
-      state.stopScratchDrop = null
+      state.stopTransitionEffect = null
       if (s.active) {
         s.active = false
         if (s.node) s.node.port.postMessage({type: "stop"})
@@ -1164,7 +1170,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         // the room gets dead air with a stuck crossfader. Never touch `from`
         // here — its new owner drives it now.
         clearInterval(iv)
-        state.stopScratchDrop = null
+        state.stopTransitionEffect = null
         riseIncoming(to, 0.03)
         startIncoming(to, toMs)
         setXfadeTo(sideOf(to.id), 0.06)
@@ -1183,7 +1189,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       }
       if (p >= 1) drop()
     }, 16)
-    state.stopScratchDrop = stop
+    state.stopTransitionEffect = stop
   }
 
   // Respiro do salão: a música que sai toca até o FIM DE VERDADE — o eco
@@ -1257,7 +1263,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   function interruptTransition() {
-    state.stopScratchDrop?.()
+    state.stopTransitionEffect?.()
     decks.a.stopBrake?.()
     decks.b.stopBrake?.()
     if (state.breatherGap) clearTimeout(state.breatherGap.timer)
@@ -2371,6 +2377,6 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   function after(seconds, fn) {
-    setTimeout(fn, seconds * 1000)
+    return setTimeout(fn, seconds * 1000)
   }
 }
