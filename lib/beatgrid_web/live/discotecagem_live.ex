@@ -727,6 +727,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
       |> push_event("dj_hint", %{
         track: track_payload(hint.track),
         transition: hint.transition,
+        transition_label: transition_label(hint.transition && hint.transition["type"]),
         position: hint.position,
         planned_track_id: hint.planned_track_id,
         source_track_id: hint.source_track_id,
@@ -1041,7 +1042,6 @@ defmodule BeatgridWeb.DiscotecagemLive do
             class="fixed inset-0 m-0 hidden h-dvh max-h-none w-screen max-w-none flex-col items-center justify-start gap-4 overflow-y-auto border-0 bg-base p-4 text-ink open:flex sm:justify-center sm:gap-6 sm:p-8"
           >
             <div class="w-full min-w-0 max-w-4xl text-center">
-              <p class="text-caption uppercase tracking-[0.2em] text-ink-faint">tocando agora</p>
               <div
                 id="trip-now-live"
                 role="status"
@@ -1049,6 +1049,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 aria-atomic="true"
                 aria-label="Faixa atual"
               >
+                <p
+                  id="trip-transport-label"
+                  class="text-caption uppercase tracking-[0.2em] text-ink-faint"
+                >
+                  Sem reprodução
+                </p>
                 <p
                   id="trip-title"
                   class="mt-2 break-words text-3xl font-bold leading-tight [overflow-wrap:anywhere] sm:text-5xl"
@@ -1544,7 +1550,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
         import {createEngine} from "@/js/dj/engine.js"
         import {separateOutputs, unlockOutputNames} from "@/js/dj/outputs.js"
         import {paintDeckStatus, paintLoopRegion} from "@/js/dj/deck_status.js"
-        import {tripVersionPath} from "@/js/dj/trip_identity.js"
+        import {tripVersionPath, tripTransportLabel, tripTransitionLabel} from "@/js/dj/trip_identity.js"
         import {hotCues} from "@/js/dj/hot_cues.js"
         import {loadPeaks, drawWave} from "@/js/dj/waveform.js"
 
@@ -2742,6 +2748,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             const track = active && this.tracks[active]
             const next = this.hint && this.hint.track
             const candidates = [this.tracks.a, this.tracks.b, next]
+            this.setTripText("trip-transport-label", tripTransportLabel(snap, active && this.engine.decks[active]))
             this.setTripText("trip-title", track ? track.title : "—")
             this.setTripText("trip-artist", (track && track.artist) || "")
             this.setTripText("trip-version", tripVersionPath(track, candidates))
@@ -2754,9 +2761,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             this.setTripText("trip-next", next ? next.title : "Sem próxima armada")
             this.setTripText("trip-next-artist", (next && next.artist) || "")
             this.setTripText("trip-next-version", tripVersionPath(next, candidates))
-            const transition = next && this.hint.transition
-            const type = transition ? (transition["type"] || "").toUpperCase() : "Direto (fim seco)"
-            this.setTripText("trip-next-transition", next ? `${transition?.breather ? "Respiro · " : ""}${type}` : "")
+            this.setTripText("trip-next-transition", tripTransitionLabel(this.hint))
             const auto = byId("trip-auto")
             if (auto) {
               const text = snap.auto ? "AUTO: ligado" : "AUTO: desligado"

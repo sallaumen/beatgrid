@@ -9,3 +9,18 @@ export function tripVersionPath(track, candidates) {
   )
   return ambiguous ? track.rel_path : ""
 }
+
+// Transport state comes from the engine's logical active deck and media state,
+// not from merely having a track loaded (or a preview held in headphones).
+export function tripTransportLabel(snapshot, deck) {
+  if (snapshot.breather) return "Respiro"
+  const active = snapshot.activeDeck && snapshot[snapshot.activeDeck]
+  if (!active?.trackId || deck?.el?.ended || deck?.el?.error) return "Sem reprodução"
+  if (active.playing && !deck?.cueState) return "Tocando agora"
+  return snapshot.waitingForNext ? "Sem reprodução" : "Faixa pausada"
+}
+
+export function tripTransitionLabel(hint) {
+  if (!hint?.track) return ""
+  return `${hint.transition?.breather ? "Respiro · " : ""}${hint.transition_label || "SEQ"}`
+}

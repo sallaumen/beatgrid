@@ -308,6 +308,20 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert_push_event(view, "dj_hint", %{track: %{title: "Segunda"}})
   end
 
+  test "travel mode receives the same transition label as the booth and starts without playback",
+       %{conn: conn} do
+    {set, [_a, b]} = set_with_tracks([{"Um", 100.0}, {"Dois", 104.0}])
+    {:ok, _} = Sets.connect(set, b, %{"type" => "cut"})
+    view = open_console(conn, set)
+    assert has_element?(view, "#trip-now-live #trip-transport-label", "Sem reprodução")
+    render_click(view, "play_set", %{})
+
+    assert_push_event(view, "dj_hint", %{
+      transition: %{"type" => "cut"},
+      transition_label: "CORTE"
+    })
+  end
+
   test "homonymous recordings remain identifiable in both decks, the queue, library and next card",
        %{conn: conn} do
     {:ok, set} = Sets.create("Duas versões")
