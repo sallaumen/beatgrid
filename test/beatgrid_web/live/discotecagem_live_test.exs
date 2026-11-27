@@ -163,6 +163,7 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
              "Ouvir no fone"
            )
 
+    assert has_element?(view, "#dj-rehearse-dialog [data-listen-both][disabled]", "Ouvir as duas")
     assert has_element?(view, "#dj-rehearse-dialog [data-arm][disabled]", "Armar esta passagem")
 
     assert has_element?(

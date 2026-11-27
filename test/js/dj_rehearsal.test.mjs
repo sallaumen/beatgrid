@@ -21,7 +21,7 @@ test("short files, an opening cue at zero and unknown BPM produce a bounded prev
   assert.equal(planRehearsal({duration: 1}, {duration: 1}, 0, 1, 120), null)
 })
 
-test("auditions schedule independent sources only into phones and restore PFL on stop or completion", () => {
+test("auditions schedule independent sources only into phones and restore PFL on stop or completion", async () => {
   const sources = [], splitters = []
   const param = () => ({value: 1, setValueAtTime(v) { this.value = v }, linearRampToValueAtTime() {}, cancelScheduledValues() {}})
   const node = () => ({
@@ -59,7 +59,7 @@ test("auditions schedule independent sources only into phones and restore PFL on
     clock = times
     return () => { canceled++ }
   }
-  preview.play(plan, "blend", -1, 0, observe)
+  const interrupted = preview.play(plan, "blend", -1, 0, observe)
   assert.equal(clock.change, 13)
   assert.equal(clock.end, 16)
   assert.equal(stereoTap.connections.length, 0)
@@ -84,18 +84,27 @@ test("auditions schedule independent sources only into phones and restore PFL on
   }
   assert.equal(pfl.gain.value, 0)
   const staleEnd = b.onended
-  preview.play(plan, "cut", 1, 0, observe)
+  const completed = preview.play(plan, "cut", 1, 0, observe)
+  assert.equal(await interrupted, false)
   assert.equal(canceled, 1)
   assert.ok(a.stopped && b.stopped)
   staleEnd()
   assert.equal(preview.elapsed(), 0)
   sources.at(-1).onended()
+  assert.equal(await completed, true)
   assert.equal(pfl.gain.value, 1)
   assert.equal(preview.elapsed(), null)
   assert.ok(sources.every(s => s.stopped && !s.connections.length))
   assert.equal(canceled, 1, "natural completion lets the last meter window arrive")
   preview.stop()
   assert.equal(canceled, 2)
+  const compared = preview.play(plan, "cut", 1, 0, observe, true)
+  sources.at(-1).onended()
+  assert.equal(await compared, true)
+  assert.equal(pfl.gain.value, 0, "keep PFL private while the first reading arrives")
+  preview.stop()
+  assert.equal(pfl.gain.value, 1, "stopping between the auditions restores the live cue")
+
   const splittersBeforeStereo = splitters.length
   preview.play(plan, "cut", 0, 0, () => { throw new Error("observer unavailable") })
   assert.equal(splitters.length, splittersBeforeStereo)
