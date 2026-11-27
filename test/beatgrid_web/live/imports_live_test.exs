@@ -6,11 +6,19 @@ defmodule BeatgridWeb.ImportsLiveTest do
 
   alias Beatgrid.Library.Tracks
   alias Beatgrid.Sets
+  alias Beatgrid.Workers.{DedupWorker, DownloadWorker}
 
   import Mox
   setup :set_mox_global
   setup :verify_on_exit!
   setup :isolate_library_root
+
+  defp download_job(title, state, batch \\ nil) do
+    url = "https://www.youtube.com/watch?v=" <> Ecto.UUID.generate()
+
+    {:ok, job} = DownloadWorker.enqueue(url, title: title, batch_id: batch)
+    job |> Ecto.Changeset.change(state: state) |> Beatgrid.Repo.update!()
+  end
 
   defp playlist_track(title, playlist_url, index, playlist_title) do
     insert(:track,
@@ -138,6 +146,85 @@ defmodule BeatgridWeb.ImportsLiveTest do
     assert Enum.map(Sets.entries(set), & &1.track.tag_title) == ~w(A B)
     # consecutive pairs auto-connected (the opener has no incoming transition)
     assert [%{transition: nil}, %{transition: %{"enabled" => true}}] = Sets.entries(set)
+  end
+
+  test "recent download activity exposes older terminal failures and updates after retry", %{
+    conn: conn
+  } do
+    failed = download_job("Antiga com falha", "discarded")
+    cancelled = download_job("Antiga cancelada", "cancelled")
+
+    for i <- 1..8, do: download_job("Importada #{i}", "completed")
+    download_job("Tentativa pendente", "retryable")
+
+    %{}
+    |> DedupWorker.new()
+    |> Oban.insert!()
+    |> Ecto.Changeset.change(state: "discarded")
+    |> Beatgrid.Repo.update!()
+
+    {:ok, view, _html} = live(conn, ~p"/importados")
+    refute has_element?(view, "#download-activity li", "Antiga com falha")
+    refute has_element?(view, "#download-activity li", "Antiga cancelada")
+    assert has_element?(view, "#download-failures", "Falhas e cancelamentos no histórico: 2")
+
+    assert has_element?(
+             view,
+             "#download-queue-link[href='/jobs?state=failed&worker=DownloadWorker']"
+           )
+
+    refute has_element?(view, "#download-activity a[href='/jobs?worker=DownloadWorker']")
+
+    :ok = Beatgrid.Jobs.retry(failed.id)
+    send(view.pid, :refresh_downloads)
+    assert has_element?(view, "#download-failures", "Falhas e cancelamentos no histórico: 1")
+
+    :ok = Beatgrid.Jobs.retry(cancelled.id)
+    send(view.pid, {:youtube_tick})
+    refute has_element?(view, "#download-failures")
+    assert has_element?(view, "#download-queue-link[href='/jobs?worker=DownloadWorker']")
+  end
+
+  test "a batch counts only its own terminal failures and labels the global queue destination", %{
+    conn: conn
+  } do
+    batch = Ecto.UUID.generate()
+    other_batch = Ecto.UUID.generate()
+    download_job("Falha de outro lote", "discarded", other_batch)
+    download_job("Faixa deste lote", "completed", batch)
+    retryable = download_job("Tentativa deste lote", "retryable", batch)
+
+    {:ok, view, _} = live(conn, ~p"/importados?lote=#{batch}")
+    assert has_element?(view, "#download-activity", "Lote de downloads")
+    assert has_element?(view, "#download-activity li", "Faixa deste lote")
+    refute has_element?(view, "#download-activity li", "Falha de outro lote")
+    refute has_element?(view, "#download-failures")
+    assert has_element?(view, "#download-queue-link[href='/jobs?worker=DownloadWorker']")
+
+    retryable |> Ecto.Changeset.change(state: "discarded") |> Beatgrid.Repo.update!()
+    send(view.pid, :refresh_downloads)
+    assert has_element?(view, "#download-failures", "Falhas e cancelamentos neste lote: 1")
+
+    assert has_element?(
+             view,
+             "#download-queue-link[href='/jobs?state=failed&worker=DownloadWorker']",
+             "Ver falhas de todos os downloads"
+           )
+
+    view |> element("#download-recent-link") |> render_click()
+    assert_patch(view, ~p"/importados")
+    assert has_element?(view, "#download-failures", "Falhas e cancelamentos no histórico: 2")
+  end
+
+  test "an empty batch keeps a way back to recent downloads", %{conn: conn} do
+    batch = Ecto.UUID.generate()
+    download_job("Falha de outro lote", "discarded")
+    {:ok, view, _} = live(conn, ~p"/importados?lote=#{batch}")
+    assert has_element?(view, "#download-activity", "Nenhum download encontrado neste lote")
+    refute has_element?(view, "#download-failures")
+    view |> element("#download-recent-link") |> render_click()
+    assert_patch(view, ~p"/importados")
+    assert has_element?(view, "#download-failures", "Falhas e cancelamentos no histórico: 1")
   end
 
   test "reviewing a watch link with a radio only queues the confirmed video", %{conn: conn} do

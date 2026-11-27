@@ -237,14 +237,6 @@ defmodule BeatgridWeb.MaintenanceLive do
               >
                 Conferir links e importações
               </.link>
-              <.link
-                :if={@youtube_failed > 0}
-                navigate={~p"/jobs?state=failed&worker=DownloadWorker"}
-                class="text-coral underline-offset-2 hover:underline"
-              >
-                Ver <span class="font-mono tabular-nums">{@youtube_failed}</span>
-                download(s) com falha
-              </.link>
             </div>
           </div>
         </.group>

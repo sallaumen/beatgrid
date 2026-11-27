@@ -10,6 +10,7 @@ defmodule BeatgridWeb.MaintenanceLiveTest do
 
   alias Beatgrid.Workers.{
     DbBackupWorker,
+    DownloadWorker,
     EnrichWorker,
     GainApplyWorker,
     LoudnessWorker,
@@ -160,9 +161,16 @@ defmodule BeatgridWeb.MaintenanceLiveTest do
     assert File.read!(Path.join(root, rel_path)) == "original-audio"
   end
 
-  test "the YouTube panel opens the shared import review", %{conn: conn} do
+  test "the YouTube panel delegates download history to import review", %{conn: conn} do
+    {:ok, job} = DownloadWorker.enqueue("https://youtu.be/ZvODpklNB2c")
+    job |> Ecto.Changeset.change(state: "discarded") |> Beatgrid.Repo.update!()
+
     {:ok, view, _html} = live(conn, ~p"/manutencao")
     assert has_element?(view, "#maintenance-enrichment a[href='/importados']", "Conferir links")
+    refute has_element?(view, "#maintenance-enrichment a[href^='/jobs']")
+    refute Map.has_key?(Beatgrid.Dashboard.maintenance_snapshot(), :youtube_failed)
+    assert {:ok, %{youtube_pending: _} = assigns} = Beatgrid.Dashboard.refresh(:youtube_tick)
+    refute Map.has_key?(assigns, :youtube_failed)
   end
 
   test "enriching pending YouTube imports enqueues an EnrichWorker batch job", %{conn: conn} do
