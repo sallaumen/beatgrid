@@ -66,3 +66,58 @@ test("the scratch recording keeps opposite-polarity and one-sided instruments at
     }
   }
 })
+
+test("quick changes on the idle deck release downloads after its last owner moves on", async t => {
+  const live = {}, idle = {}
+  t.after(() => { retainScratch(live, null); retainScratch(idle, null) })
+  const gate = Promise.withResolvers()
+  let decodes = 0
+  const ctx = {decodeAudioData: async () => {
+    decodes++
+    return {duration: .001, sampleRate: 8000, numberOfChannels: 1, getChannelData: () => new Float32Array(8)}
+  }}
+  const requests = []
+  t.mock.method(globalThis, "fetch", async (url, {signal} = {}) => {
+    requests.push({url, signal})
+    await gate.promise
+    signal?.throwIfAborted()
+    return new Response(new ArrayBuffer(1))
+  })
+  retainScratch(live, "quick-live")
+  const liveAudio = loadPeaks("quick-live", "quick-live", ctx)
+  retainScratch(idle, "quick-live")
+  const shared = loadPeaks("quick-live", "quick-live", ctx)
+  const pending = []
+  for (let i = 0; i < 12; i++) {
+    const id = "quick-idle-" + i
+    retainScratch(idle, id)
+    pending.push(loadPeaks(id, id, ctx).then(() => "ready", error => error.name))
+  }
+  gate.resolve()
+  const results = await Promise.all(pending)
+  assert.deepEqual(results, [...Array(11).fill("AbortError"), "ready"])
+  assert.equal(await liveAudio, await shared)
+  assert.equal(decodes, 2)
+  assert.equal(requests.filter(request => request.signal.aborted).length, 11)
+})
+
+test("an abandoned decode cannot touch its audio buffer or evict a newly loaded copy", async t => {
+  const owner = {}
+  t.after(() => retainScratch(owner, null))
+  const begun = Promise.withResolvers(), result = Promise.withResolvers()
+  t.mock.method(globalThis, "fetch", async () => new Response(new ArrayBuffer(0)))
+  retainScratch(owner, "revisited-during-decode")
+  const old = loadPeaks("revisited-during-decode", "old", {decodeAudioData() { begun.resolve(); return result.promise }})
+    .then(() => "ready", error => error.name)
+  await begun.promise
+  retainScratch(owner, null)
+  retainScratch(owner, "revisited-during-decode")
+  const fresh = {duration: .001, sampleRate: 8000, numberOfChannels: 1, getChannelData: () => new Float32Array(8)}
+  const replacement = loadPeaks("revisited-during-decode", "new", {decodeAudioData: async () => fresh})
+  let abandonedReads = 0
+  result.resolve({...fresh, getChannelData() { abandonedReads++; return new Float32Array(8) }})
+  assert.equal(await old, "AbortError")
+  await replacement
+  assert.equal(abandonedReads, 0)
+  assert.ok(getScratchPcm("revisited-during-decode"))
+})
