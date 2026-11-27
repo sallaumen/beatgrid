@@ -1,5 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
+import {execFileSync} from "node:child_process"
+import {fileURLToPath} from "node:url"
 import {mountPassageComparison} from "../../assets/js/dj/passage_comparison.js"
 import {neutralMix} from "../../assets/js/dj/deck_mix.js"
 
@@ -168,4 +170,9 @@ test("monitoring the alternative keeps the chosen score in view and identifies b
   assert.equal(view.summary(), "Mistura de quatro tempos 65/100 · Corte na entrada sem medição.")
   view.bind(pair, {...plan, inStart: 3}, 120)
   assert.equal(view.summary(), "")
+})
+
+test("a finished comparison can keep its score without pinning either decoded track", () => {
+  const fixture = fileURLToPath(new URL("./fixtures/collected_passage_audio.mjs", import.meta.url))
+  execFileSync(process.execPath, ["--expose-gc", fixture])
 })
