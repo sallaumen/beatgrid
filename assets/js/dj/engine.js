@@ -1136,6 +1136,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     receiveEntry(from, to, toMs, cue => {
       if (delayed && (from.ended() || (run === scratchDrop && !scratchArm(from.id)))) return fallback(cue)
       if (delayed && from.loop.on) clearLoop(from)
+      if (run === bassSwap || run === crossfade) syncTempo(to, from)
+      if (!delayed) playCachedCue(to, cue)
       const effectStart = ctx.currentTime
       const land = (overlap, change) => handoff(from, to, {...event, atMs: from.positionMs()}, overlap, change)
       const position = xfade.pos
@@ -1269,10 +1271,20 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     to.gain.gain.linearRampToValueAtTime(1, now + riseEndS)
   }
 
-  function cut(from, to, cue, event) {
+  function playCachedCue(to, cue) {
     const audio = cue == null ? null : getDeckAudio(to.trackId)
-    const decoded = audio != null && cue < audio.duration
-    if (decoded) to.playDecoded(audio, cue)
+    if (!audio || cue >= audio.duration) return false
+    try {
+      to.playDecoded(audio, cue)
+      return true
+    } catch {
+      // The receiver already accepted play(); keep its media path if PCM allocation fails.
+      return false
+    }
+  }
+
+  function cut(from, to, cue, event) {
+    const decoded = playCachedCue(to, cue)
     const overlap = decoded || cue == null ? CUT_OVERLAP_S : RAMP.nativeCutS
     const token = state.transitionToken, outgoingPlay = from.playToken
     const finish = () => {
@@ -1342,9 +1354,6 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   function crossfade(from, to, {token}) {
-    // baseRate, not playbackRate: a transient jog bend (or mid-brake rate)
-    // must never become the incoming track's permanent tempo.
-    syncTempo(to, from)
     const xfS = dur(RAMP.crossfadeS)
     setXfadeTo(sideOf(to.id), xfS)
 
@@ -1459,7 +1468,6 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // the low end changes hands in one fast move — the forró/house handover.
   function bassSwap(from, to, {token, wasPlaying}) {
     const now = ctx.currentTime
-    syncTempo(to, from)
 
     // Bodiless entry: instant when the deck is idle, a fast dip when the DJ
     // already has it playing (never a hard jump on something audible).
@@ -1722,6 +1730,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         receiveEntry(from, to, state.hint.transition?.to_ms ?? 0, cue => {
           state.breatherGap = null
           if (ownsOutgoing(from, token)) resetChain(from)
+          playCachedCue(to, cue)
           riseIncoming(to, 0.4, cue === null)
           setXfadeTo(sideOf(to.id), 0.3)
           handoff(from, to, event)
