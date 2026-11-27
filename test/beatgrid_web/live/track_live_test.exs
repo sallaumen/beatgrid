@@ -112,6 +112,24 @@ defmodule BeatgridWeb.TrackLiveTest do
     assert html =~ "Backup original completo disponível"
   end
 
+  test "the ficha titles identify the editing and marker sections and explain the disabled marker control",
+       %{conn: conn} do
+    track =
+      insert(:track,
+        status: :present,
+        tag_title: "Uma faixa com nome longo que precisa caber inteiro",
+        analyzed_at: ~U[2026-01-01 00:00:00Z]
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
+
+    assert has_element?(view, "h1", track.tag_title)
+    assert has_element?(view, "h2", "Editar faixa")
+    assert has_element?(view, "h2", "Marcadores")
+    assert has_element?(view, "#track-markers", "Toque esta faixa para adicionar")
+    assert has_element?(view, "#track-versions", "Nenhuma outra versão encontrada.")
+  end
+
   test "inline-edits a metadata field and a manual BPM override", %{conn: conn} do
     track =
       insert(:track,
