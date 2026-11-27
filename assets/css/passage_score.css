@@ -1,0 +1,20 @@
+/* The actual result settles on its baseline once. Both digits remain readable throughout. */
+@media (prefers-reduced-motion: no-preference) {
+  [data-score-digit] {
+    --score-offset: -0.18em;
+    --score-tilt: -3deg;
+    display: inline-block;
+    animation: passage-score-arrive 240ms cubic-bezier(.22,.8,.25,1) both;
+  }
+
+  [data-score-digit]:nth-child(even) {
+    --score-offset: 0.18em;
+    --score-tilt: 3deg;
+    animation-delay: 35ms;
+  }
+
+  @keyframes passage-score-arrive {
+    from { transform: translate(var(--score-offset), -0.26em) rotate(var(--score-tilt)); }
+    to { transform: none; }
+  }
+}
