@@ -727,6 +727,11 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     handoff(from, to, event)
   }
 
+  function ownsOutgoing(deck, token) {
+    const outgoing = state.rescue
+    return token === state.transitionToken && outgoing?.deck === deck.id && outgoing.load === deck.loadToken
+  }
+
   function handoff(from, to, event) {
     state.activeDeck = to.id
     state.hint = null
@@ -835,7 +840,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     setXfadeTo(sideOf(to.id), outS)
 
     after(outS + 0.1, () => {
-      if (token !== state.transitionToken) return
+      if (!ownsOutgoing(from, token)) return
       from.pause()
       resetChain(from)
     })
@@ -850,7 +855,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     setXfadeTo(sideOf(to.id), xfS)
 
     after(xfS + 0.2, () => {
-      if (token !== state.transitionToken) return
+      if (!ownsOutgoing(from, token)) return
       from.pause()
     })
   }
@@ -904,12 +909,12 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     setXfadeTo(sideOf(to.id), inStart + inRise * 0.8)
 
     after(total, () => {
-      if (token !== state.transitionToken) return
+      if (!ownsOutgoing(from, token)) return
       const end = ctx.currentTime
       from.settleGain(from.echoSend)
       from.echoSend.gain.linearRampToValueAtTime(0, end + dur(0.6))
       after(dur(0.7), () => {
-        if (token !== state.transitionToken) return
+        if (!ownsOutgoing(from, token)) return
         from.pause()
         resetChain(from)
       })
@@ -934,7 +939,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     setXfadeTo(sideOf(to.id), s * 0.8)
 
     after(s + 0.2, () => {
-      if (token !== state.transitionToken) return
+      if (!ownsOutgoing(from, token)) return
       from.pause()
       resetChain(from)
     })
@@ -955,7 +960,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     setXfadeTo(sideOf(to.id), s * 0.8)
 
     after(s + 0.2, () => {
-      if (token !== state.transitionToken) return
+      if (!ownsOutgoing(from, token)) return
       from.pause()
       resetChain(from)
     })
@@ -989,8 +994,10 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     })
     after(overlapS + dur(2.4), () => {
       if (token !== state.transitionToken) return
-      from.pause()
-      resetChain(from)
+      if (ownsOutgoing(from, token)) {
+        from.pause()
+        resetChain(from)
+      }
       // The incoming deck keeps playing — only make sure its shelf sits flat.
       // (No resetChain: that would snap the SYNCed tempo back audibly.)
       to.settleParam(to.bass.gain)
@@ -1026,7 +1033,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       setXfadeTo(sideOf(to.id), 0.3)
     })
     after(brakeS + 0.05, () => {
-      if (token !== state.transitionToken) return
+      if (!ownsOutgoing(from, token)) return
       from.pause()
       resetChain(from)
     })
@@ -1135,7 +1142,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       // Echo kinds let the last chop's tail bleed under the incoming for a
       // breath; the dry kinds slam. Either way the incoming is already at full.
       setXfadeTo(sideOf(to.id), spec.echoTail ? RAMP.dropTailFadeS : 0.06)
-      after(0.2, () => token === state.transitionToken && resetChain(from))
+      after(0.2, () => ownsOutgoing(from, token) && resetChain(from))
       // The outgoing deck is free the moment the drop lands — announce it, so
       // a hint parked during the run re-arms EVENT-driven. drop() pauses an
       // already-paused element (no `pause` event fires), and the rAF retry
@@ -1217,7 +1224,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         const toMs = state.hint.transition?.to_ms ?? 0
         clearTimeout(gap.timer)
         state.breatherGap = null
-        resetChain(from)
+        if (ownsOutgoing(from, token)) resetChain(from)
         riseIncoming(to, 0.4)
         startIncoming(to, toMs)
         setXfadeTo(sideOf(to.id), 0.3)
