@@ -489,6 +489,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     postponeMs: 0,
     // Breather in progress. A null deadline means its outgoing phrase is still playing.
     breatherGap: null,
+    stopScratchDrop: null,
     // User "comprimento" knob: scales every transition's timings around the
     // reference length (REF_LEN_S = the default crossfade). 1.0 = as designed.
     transitionScale: 1,
@@ -1129,13 +1130,17 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       from.echoSend.gain.setValueAtTime(RAMP.dropEchoSend, now)
     }
 
-    const drop = () => {
+    const stop = () => {
       clearInterval(iv)
+      state.stopScratchDrop = null
       if (s.active) {
         s.active = false
         if (s.node) s.node.port.postMessage({type: "stop"})
       }
-      if (token !== state.transitionToken) return // aborted — a new fire owns it
+    }
+
+    const drop = () => {
+      stop()
       from.pause()
       riseIncoming(to, 0.03) // hard drop — near-instant, just declicked
       startIncoming(to, toMs)
@@ -1151,6 +1156,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     }
 
     const iv = setInterval(() => {
+      if (token !== state.transitionToken) return
       if (s.token !== from.loadToken) {
         // Something loaded over the outgoing deck mid-run (the load's
         // resetScratch already silenced the worklet). The scratch is gone, but
@@ -1158,15 +1164,10 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         // the room gets dead air with a stuck crossfader. Never touch `from`
         // here — its new owner drives it now.
         clearInterval(iv)
-        if (token === state.transitionToken) {
-          riseIncoming(to, 0.03)
-          startIncoming(to, toMs)
-          setXfadeTo(sideOf(to.id), 0.06)
-        }
-        return
-      }
-      if (token !== state.transitionToken) {
-        drop()
+        state.stopScratchDrop = null
+        riseIncoming(to, 0.03)
+        startIncoming(to, toMs)
+        setXfadeTo(sideOf(to.id), 0.06)
         return
       }
       const elapsed = (performance.now() - t0) / 1000
@@ -1182,6 +1183,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       }
       if (p >= 1) drop()
     }, 16)
+    state.stopScratchDrop = stop
   }
 
   // Respiro do salão: a música que sai toca até o FIM DE VERDADE — o eco
@@ -1255,6 +1257,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   function interruptTransition() {
+    state.stopScratchDrop?.()
     decks.a.stopBrake?.()
     decks.b.stopBrake?.()
     if (state.breatherGap) clearTimeout(state.breatherGap.timer)
