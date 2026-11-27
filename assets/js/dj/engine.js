@@ -418,11 +418,14 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   const cueStreamDest = ctx.createMediaStreamDestination()
 
   let outputNodes = []
+  let routedChannels = 0
 
   // Wire master (and, on 4-channel interfaces, the cue bus) to the device.
   // DJ2GO2 Touch is a 4-out card: main = channels 1/2, phones = 3/4 — with it
   // as the output device, the browser can feed the room AND the headphones.
   function wireOutputs() {
+    const maxCh = ctx.destination.maxChannelCount || 2
+    if (maxCh === routedChannels) return
     try {
       master.disconnect()
     } catch (_e) {
@@ -443,7 +446,6 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     outputNodes = []
     master.connect(masterAnalyser)
 
-    const maxCh = ctx.destination.maxChannelCount || 2
     if (maxCh >= 4) {
       ctx.destination.channelCount = 4
       ctx.destination.channelCountMode = "explicit"
@@ -471,6 +473,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       cue.bus.connect(cueStreamDest)
       cue.mode = "stereo"
     }
+    routedChannels = maxCh
     emit("cueMode", {mode: cue.mode, maxChannels: maxCh})
   }
 
@@ -1856,6 +1859,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
   watchOutgoing(decks.a)
   watchOutgoing(decks.b)
+  ctx.addEventListener("sinkchange", wireOutputs, {signal: mediaEvents.signal})
+  globalThis.navigator?.mediaDevices?.addEventListener("devicechange", wireOutputs, {signal: mediaEvents.signal})
   wireOutputs()
 
   return {
@@ -2256,7 +2261,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     },
 
     cueMode() {
-      return {mode: cue.mode, maxChannels: ctx.destination.maxChannelCount || 2}
+      return {mode: cue.mode, maxChannels: routedChannels}
     },
 
     // Point the WHOLE context at another output device (e.g. the controller's

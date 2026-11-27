@@ -45,11 +45,13 @@ class AudioNodeStub {
   disconnect() {}
 }
 
-class Context {
+class Context extends EventTarget {
   currentTime = 0
   destination = {maxChannelCount: 2}
   sampleRate = 8000
   audioWorklet = {addModule: async () => {}}
+  createChannelMerger() { return new AudioNodeStub() }
+  createChannelSplitter() { return new AudioNodeStub() }
   createMediaElementSource() { return new AudioNodeStub() }
   createBiquadFilter() { return new AudioNodeStub() }
   createMediaStreamDestination() { return new AudioNodeStub() }
@@ -1027,4 +1029,25 @@ for (const method of ["LOAD", "set preload"]) {
 test("a browser without output selection cannot confirm a switch to the controller", async t => {
   const {engine} = booth(t)
   await assert.rejects(engine.setOutputDevice("numark"))
+})
+
+test("unplugging and reconnecting the four-channel output rewires the PFL during playback", t => {
+  const modes = []
+  const {a, engine} = booth(t, {cueMode: ({mode}) => modes.push(mode)})
+  const {ctx} = engine
+  engine.togglePfl("b")
+  const changeChannels = count => {
+    ctx.destination.maxChannelCount = count
+    ctx.dispatchEvent(new Event("sinkchange"))
+  }
+  t.after(() => { ctx.destination.maxChannelCount = 2 })
+  changeChannels(4)
+  assert.equal(ctx.destination.channelCount, 4)
+  changeChannels(2)
+  assert.equal(ctx.destination.channelCount, 2)
+  changeChannels(4)
+  assert.equal(ctx.destination.channelCount, 4)
+  assert.deepEqual(modes, ["stereo", "quad", "stereo", "quad"])
+  assert.deepEqual(engine.pflState(), {a: false, b: true})
+  assert.equal(a.paused, false)
 })
