@@ -321,7 +321,12 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
 
     for {deck, track} <- [{"a", a}, {"b", b}] do
       assert has_element?(view, "#dj-deck-#{deck} [data-version-path]", track.rel_path)
-      assert has_element?(view, "#dj-deck-#{deck} a[href='/track/#{track.id}'][target='_blank']")
+
+      assert has_element?(
+               view,
+               "#dj-deck-#{deck} a[href='/track/#{track.id}?set_id=#{set.id}'][target='_blank']"
+             )
+
       assert has_element?(view, "#dj-queue-track-#{track.id} [data-version-path]", track.rel_path)
 
       assert has_element?(
@@ -342,6 +347,13 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
              )
     end
 
+    for track <- [a, b], rail <- ["queue", "library"] do
+      assert has_element?(
+               view,
+               "#dj-#{rail}-track-#{track.id} a[href='/track/#{track.id}?set_id=#{set.id}'][target='_blank']"
+             )
+    end
+
     assert has_element?(view, "#dj-next-card [data-version-path]", b.rel_path)
     assert has_element?(view, "#trip-now-live[role=status][aria-live=polite] #trip-version")
     assert has_element?(view, "#trip-next-live[role=status][aria-live=polite] #trip-next-artist")
@@ -351,6 +363,38 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert has_element?(view, "#dj-next-card", "Fila #2")
     assert has_element?(view, "#dj-queue-list a[target='_blank']", "Sina")
     assert has_element?(view, "a[href='/set/#{set.id}'][target='_blank']", "Editar set")
+  end
+
+  test "a booth track consultation retains the active set context without disconnecting the booth",
+       %{conn: conn} do
+    {set, [_member]} = set_with_tracks([{"Membro", 100.0}])
+
+    avulsa =
+      insert(:track,
+        status: :present,
+        tag_title: "Avulsa",
+        bpm_detected: 100.0,
+        duration_ms: 180_000
+      )
+
+    view = open_console(conn, set)
+    render_hook(view, "deck_loaded", %{"deck" => "b", "track_id" => avulsa.id})
+    path = ~p"/track/#{avulsa.id}?#{%{set_id: set.id}}"
+    assert has_element?(view, "#dj-deck-b a[href='#{path}'][target='_blank']")
+    assert has_element?(view, "#dj-library-track-#{avulsa.id} a[href='#{path}'][target='_blank']")
+
+    {:ok, ficha, _html} = live(conn, path)
+    assert has_element?(ficha, "a[href='/set/#{set.id}']", "Voltar ao set · #{set.name}")
+    assert has_element?(ficha, "a[href='/set/#{set.id}?track_id=#{avulsa.id}']", "Usar neste set")
+    assert has_element?(view, "#dj-deck-b [data-version-path]", avulsa.rel_path)
+
+    render_change(view, "select_set", %{"set_id" => ""})
+    assert has_element?(view, "#dj-deck-b a[href='/track/#{avulsa.id}'][target='_blank']")
+
+    assert has_element?(
+             view,
+             "#dj-library-track-#{avulsa.id} a[href='/track/#{avulsa.id}'][target='_blank']"
+           )
   end
 
   test "queue status and position follow track identity after a live reorder and stop", %{
@@ -595,7 +639,7 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     for {deck, track} <- [{"a", a}, {"b", b}] do
       assert has_element?(
                view,
-               "section:has(button[phx-click=eject_deck][phx-value-deck=#{deck}]) a[href='/track/#{track.id}']"
+               "section:has(button[phx-click=eject_deck][phx-value-deck=#{deck}]) a[href='/track/#{track.id}?set_id=#{set.id}']"
              )
     end
   end
@@ -726,14 +770,14 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
 
     assert has_element?(
              view,
-             "section:has(button[phx-click=eject_deck][phx-value-deck=a]) a[href='/track/#{first.id}']"
+             "section:has(button[phx-click=eject_deck][phx-value-deck=a]) a[href='/track/#{first.id}?set_id=#{set.id}']"
            )
 
     render_hook(view, "deck_loaded", %{"deck" => "a", "track_id" => id})
 
     assert has_element?(
              view,
-             "section:has(button[phx-click=eject_deck][phx-value-deck=a]) a[href='/track/#{id}']"
+             "section:has(button[phx-click=eject_deck][phx-value-deck=a]) a[href='/track/#{id}?set_id=#{set.id}']"
            )
 
     render_hook(view, "deck_error", %{"deck" => "a", "track_id" => id})
@@ -760,7 +804,7 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
 
     assert has_element?(
              view,
-             "section:has(button[phx-click=eject_deck][phx-value-deck=a]) a[href='/track/#{third.id}']"
+             "section:has(button[phx-click=eject_deck][phx-value-deck=a]) a[href='/track/#{third.id}?set_id=#{set.id}']"
            )
 
     assert Playback.now_playing() == %{track_id: first.id, set_id: set.id}

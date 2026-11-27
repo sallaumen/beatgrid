@@ -1022,6 +1022,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             <.deck_panel
               d="a"
               track={@deck_a}
+              set_id={@set && @set.id}
               active={@playing? and @active_deck == "a"}
               accent="#8b7bf0"
             />
@@ -1034,6 +1035,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             <.deck_panel
               d="b"
               track={@deck_b}
+              set_id={@set && @set.id}
               active={@playing? and @active_deck == "b"}
               accent="#2d9cff"
             />
@@ -1139,6 +1141,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               played={@played}
             />
             <.library_panel
+              set_id={@set && @set.id}
               rail_tab={@rail_tab}
               lib_query={@lib_query}
               lib_tracks={@lib_tracks}
@@ -3210,10 +3213,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
   attr :track, :map, required: true
 
+  attr :set_id, :string, default: nil
+
   defp booth_track_link(assigns) do
     ~H"""
     <.link
-      href={~p"/track/#{@track.id}"}
+      href={booth_track_path(@track.id, @set_id)}
       target="_blank"
       rel="noopener"
       aria-label={"Abrir ficha de #{@track.tag_title || @track.filename} — #{@track.rel_path} em outra aba"}
@@ -3224,6 +3229,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
     </.link>
     """
   end
+
+  defp booth_track_path(id, nil), do: ~p"/track/#{id}"
+  defp booth_track_path(id, set_id), do: ~p"/track/#{id}?#{%{set_id: set_id}}"
 
   attr :track_id, :string, required: true
   attr :deck_ids, :list, default: []
@@ -3246,6 +3254,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
   attr :d, :string, required: true
   attr :track, :map, default: nil
+  attr :set_id, :string, default: nil
   attr :active, :boolean, default: false
   attr :accent, :string, required: true
 
@@ -3291,7 +3300,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
       <div class="mt-2 flex min-h-[36px] items-center gap-2">
         <.cover :if={@track} src={cover_src(@track)} artist={@track.tag_artist} size={32} />
         <div :if={@track} class="min-w-0 flex-1">
-          <.booth_track_link track={@track} />
+          <.booth_track_link track={@track} set_id={@set_id} />
           <p class="break-words text-body-sm text-ink-muted">{@track.tag_artist || "—"}</p>
           <.version_path track={@track} class="mt-0.5" />
         </div>
@@ -3777,7 +3786,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           <span class="text-right font-mono text-body-sm text-ink-muted">{e.position}</span>
           <.cover src={cover_src(e.track)} artist={e.track.tag_artist} size={28} />
           <div class="min-w-0">
-            <.booth_track_link track={e.track} />
+            <.booth_track_link track={e.track} set_id={@set && @set.id} />
             <p class="break-words text-body-sm text-ink-secondary">{e.track.tag_artist || "—"}</p>
           </div>
           <.load_buttons track={e.track} />
@@ -3822,6 +3831,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
     """
   end
 
+  attr :set_id, :string, default: nil
   attr :rail_tab, :string, default: "fila"
   attr :lib_query, :string, default: ""
   attr :lib_tracks, :list, default: []
@@ -3885,7 +3895,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
         >
           <.cover src={cover_src(t)} artist={t.tag_artist} size={28} />
           <div class="min-w-0">
-            <.booth_track_link track={t} />
+            <.booth_track_link track={t} set_id={@set_id} />
             <p class="break-words text-body-sm text-ink-secondary">{t.tag_artist || "—"}</p>
           </div>
           <.load_buttons track={t} />
