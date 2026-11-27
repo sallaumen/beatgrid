@@ -1,13 +1,13 @@
+import {createRecordSource} from "./record_source.js"
+
 // The media element can report "playing" before it delivers any samples. Start
 // with the already decoded record, then give the same passage back to the deck.
-export function startDecodedEntry(ctx, media, buffer, offset, input, mediaGain, onRelease) {
-  const source = ctx.createBufferSource()
+export function startDecodedEntry(ctx, media, buffer, offset, input, mediaGain, onRelease, mix = {rate: media.playbackRate, vinyl: !media.preservesPitch}) {
+  const source = createRecordSource(ctx, buffer, mix)
   const level = ctx.createGain()
   const start = ctx.currentTime
-  const rate = media.playbackRate
+  const rate = mix.rate
   const position = () => Math.min(buffer.duration, offset + (ctx.currentTime - start) * rate)
-  source.buffer = buffer
-  source.playbackRate.value = rate
   source.connect(level)
   level.connect(input)
   source.start(start, offset)

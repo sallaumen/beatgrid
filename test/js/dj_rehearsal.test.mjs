@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import {createRehearsal, planRehearsal, rehearsalGains} from "../../assets/js/dj/rehearsal.js"
+import {createRehearsal, planRehearsal, recordTime, rehearsalGains} from "../../assets/js/dj/rehearsal.js"
 
 test("the two choices compare the same entry and fit both real audio files", () => {
   const plan = planRehearsal({duration: 14}, {duration: 8}, 12, 5, 120)
@@ -23,17 +23,18 @@ test("short files, an opening cue at zero and unknown BPM produce a bounded prev
 
 test("auditions schedule independent sources only into phones and restore PFL on stop or completion", () => {
   const sources = []
+  const param = () => ({value: 1, setValueAtTime(v) { this.value = v }, linearRampToValueAtTime() {}, cancelScheduledValues() {}})
   const node = () => ({
     connect(next) { this.next = next },
     disconnect() { this.next = null },
-    gain: {value: 1, setValueAtTime() {}, linearRampToValueAtTime() {}}
+    frequency: param(), gain: param()
   })
   const ctx = {
     currentTime: 10,
     createStereoPanner: () => ({...node(), pan: {value: 0}}),
-    createGain: node,
+    createGain: node, createBiquadFilter: node,
     createBufferSource() {
-      const source = {...node(), start(...args) { this.args = args }, stop() { this.stopped = true }}
+      const source = {...node(), playbackRate: param(), start(...args) { this.args = args }, stop() { this.stopped = true }}
       sources.push(source)
       return source
     }
@@ -47,9 +48,12 @@ test("auditions schedule independent sources only into phones and restore PFL on
   assert.equal(b.buffer, plan.incoming)
   assert.deepEqual(a.args, [10, 9, 5])
   assert.deepEqual(b.args, [13, 5, 3])
-  assert.equal(a.next.next.next.next, phones)
-  assert.equal(b.next.next.next.next, phones)
-  assert.equal(a.next.next.next.pan.value, -1)
+  for (const source of [a, b]) {
+    let bus = source
+    while (bus.next && !bus.pan) bus = bus.next
+    assert.equal(bus.next, phones)
+    assert.equal(bus.pan.value, -1)
+  }
   assert.equal(pfl.gain.value, 0)
   const staleEnd = b.onended
   preview.play(plan, "cut", 1)
@@ -60,4 +64,15 @@ test("auditions schedule independent sources only into phones and restore PFL on
   assert.equal(pfl.gain.value, 1)
   assert.equal(preview.elapsed(), null)
   assert.ok(sources.every(s => s.stopped && !s.next))
+})
+
+
+test("source cues, wave positions and the four-beat blend account for both effective tempos", () => {
+  const plan = planRehearsal({duration: 60}, {duration: 10}, 45, 8.75, 100,
+    {out: {rate: 1.2}, into: {rate: 0.8}})
+  assert.equal(plan.exit, 45)
+  assert.equal(recordTime(plan, "out", 3), 45)
+  assert.equal(recordTime(plan, "into", 3), 8.75)
+  assert.equal(plan.blend, 1.25 / 0.8)
+  assert.equal(recordTime(plan, "into", plan.duration), 10)
 })

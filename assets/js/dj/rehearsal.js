@@ -1,14 +1,19 @@
-// Source positions are in record seconds. Both choices use the same two excerpts.
-export function planRehearsal(outgoing, incoming, exit, entry, bpm) {
+import {applyFilter, applyTone, createEq, neutralMix, setMixParam} from "./deck_mix.js"
+import {createRecordSource} from "./record_source.js"
+
+// Cue points are record seconds. Durations and automation use the audio clock.
+export function planRehearsal(outgoing, incoming, exit, entry, bpm, mix = {out: neutralMix, into: neutralMix}) {
+  const outRate = mix.out.rate, inRate = mix.into.rate
   const fourBeats = 240 / (bpm > 0 ? bpm : 120)
   const inStart = Math.max(0, entry ?? 0)
-  const outPoint = exit != null && exit >= 0 && exit < outgoing.duration
+  const point = exit != null && exit >= 0 && exit < outgoing.duration
     ? exit : Math.max(0, outgoing.duration - fourBeats)
-  const blend = Math.min(fourBeats, outgoing.duration - outPoint, incoming.duration - inStart)
+  const inTime = (incoming.duration - inStart) / inRate
+  const blend = Math.min(fourBeats / outRate, (outgoing.duration - point) / outRate, inTime)
   if (!(blend > 0)) return null
-  const lead = Math.min(3, outPoint)
-  const duration = lead + Math.min(blend + 2, incoming.duration - inStart)
-  return {outgoing, incoming, outStart: outPoint - lead, inStart, lead, blend, duration}
+  const lead = Math.min(3, point / outRate)
+  const duration = lead + Math.min(blend + 2, inTime)
+  return {outgoing, incoming, exit: point, outStart: point - lead * outRate, inStart, lead, blend, duration, mix}
 }
 
 export function rehearsalOverlap(plan, kind) {
@@ -23,6 +28,11 @@ export function rampRehearsalGain(param, change, fade, start, end) {
 export function rehearsalGains(plan, kind, time) {
   const p = Math.min(1, Math.max(0, (time - plan.lead) / rehearsalOverlap(plan, kind)))
   return [1 - p, p]
+}
+
+export function recordTime(plan, side, time) {
+  return side === "out" ? plan.outStart + time * plan.mix.out.rate :
+    plan.inStart + (time - plan.lead) * plan.mix.into.rate
 }
 
 // This transport has no references to live media elements or the master output.
@@ -41,40 +51,59 @@ export function createRehearsal(ctx, phones, pfl) {
     pfl.gain.value = 1
   }
 
-  function play(plan, kind, pan) {
+  function applyMix(channels, mix, smooth) {
+    for (const [side, channel] of Object.entries(channels)) {
+      applyFilter(channel.eq, mix[side].filter, ctx.currentTime, smooth)
+      applyTone(channel.eq, mix[side].tone, ctx.currentTime, smooth)
+      setMixParam(channel.level.gain, mix[side].level, ctx.currentTime, smooth)
+    }
+  }
+
+  function play(plan, kind, pan, skip = 0) {
     stop()
+    if (skip >= plan.duration) return
     const now = ctx.currentTime
-    const change = now + plan.lead
+    const start = now - Math.max(0, skip)
+    const change = start + plan.lead
     const fade = rehearsalOverlap(plan, kind)
+    const finish = start + plan.duration
     const output = ctx.createStereoPanner()
     output.pan.value = pan
     const level = ctx.createGain()
-    const finish = now + plan.duration
-    const edge = Math.min(0.006, plan.duration / 3)
+    const edge = Math.min(0.006, (finish - now) / 3)
     level.gain.setValueAtTime(0, now)
     level.gain.linearRampToValueAtTime(1, now + edge)
     level.gain.setValueAtTime(1, finish - edge)
     level.gain.linearRampToValueAtTime(0, finish)
     level.connect(output)
     output.connect(phones)
-    current = {start: now, sources: [], nodes: [level, output]}
+    current = {start, plan, channels: {}, sources: [], nodes: [level, output]}
     try {
-      const add = (buffer, at, offset, seconds, a, b) => {
-        const source = ctx.createBufferSource()
-        const fader = ctx.createGain()
-        source.buffer = buffer
-        source.connect(fader)
+      const add = (side, buffer, at, end, a, b) => {
+        if (end <= at) return null
+        const mix = plan.mix[side]
+        const source = createRecordSource(ctx, buffer, mix)
+        const eq = createEq(ctx), channel = ctx.createGain(), fader = ctx.createGain()
+        source.connect(eq.hpf)
+        eq.toneTreble.connect(channel)
+        channel.connect(fader)
         fader.connect(level)
-        fader.gain.setValueAtTime(a, at)
-        rampRehearsalGain(fader.gain, change, fade, a, b)
-        current.nodes.push(source, fader)
-        source.start(at, offset, seconds)
+        current.channels[side] = {eq, level: channel}
+        const gain = rehearsalGains(plan, kind, at - start)[side === "out" ? 0 : 1]
+        fader.gain.setValueAtTime(gain, at)
+        if (change + fade > at) {
+          const ramp = Math.max(at, change)
+          rampRehearsalGain(fader.gain, ramp, change + fade - ramp, at < change ? a : gain, b)
+        }
+        current.nodes.push(source, ...Object.values(eq), channel, fader)
+        source.start(at, Math.max(0, recordTime(plan, side, at - start)), (end - at) * mix.rate)
         current.sources.push(source)
         return source
       }
       pfl.gain.value = 0
-      add(plan.outgoing, now, plan.outStart, plan.lead + fade, 1, 0)
-      const last = add(plan.incoming, change, plan.inStart, plan.duration - plan.lead, 0, 1)
+      add("out", plan.outgoing, now, change + fade, 1, 0)
+      const last = add("into", plan.incoming, Math.max(now, change), finish, 0, 1)
+      applyMix(current.channels, plan.mix, false)
       last.onended = () => { if (current?.sources.includes(last)) stop() }
     } catch (error) {
       stop()
@@ -82,5 +111,20 @@ export function createRehearsal(ctx, phones, pfl) {
     }
   }
 
-  return {play, stop, elapsed: () => current ? ctx.currentTime - current.start : null}
+  function edit(plan, kind, pan) {
+    if (!current) return
+    const before = current.plan
+    if (["out", "into"].some(s => before.mix[s].rate !== plan.mix[s].rate || before.mix[s].vinyl !== plan.mix[s].vinyl)) {
+      const elapsed = ctx.currentTime - current.start
+      const skip = elapsed < before.lead
+        ? (recordTime(before, "out", elapsed) - plan.outStart) / plan.mix.out.rate
+        : plan.lead + (recordTime(before, "into", elapsed) - plan.inStart) / plan.mix.into.rate
+      play(plan, kind, pan, Math.max(0, skip))
+    } else {
+      applyMix(current.channels, plan.mix, true)
+      current.plan = plan
+    }
+  }
+
+  return {play, edit, stop, elapsed: () => current ? ctx.currentTime - current.start : null}
 }

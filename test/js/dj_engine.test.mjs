@@ -1122,7 +1122,7 @@ function preparePassage(rig, kind = "blend") {
   const {engine, hint} = rig
   hint({type: "echo", from_ms: 42_000, to_ms: 0})
   const pair = {from: "a", to: "b", fromLoad: engine.decks.a.loadToken, toLoad: engine.decks.b.loadToken}
-  return engine.armPassage(pair, {incoming: {duration: 60}, outStart: 45, lead: 3, inStart: 2.5, blend: 2}, kind)
+  return engine.armPassage(pair, {outgoing: {duration: 60}, incoming: {duration: 60}, outStart: 45, lead: 3, inStart: 2.5, blend: 2}, kind)
 }
 
 test("arming reserves the pair without touching either transport, even at the AUTO boundary", t => {
@@ -1218,7 +1218,7 @@ test("a rehearsed cut works from B to A and ignores the transition-length knob",
   engine.loadDeck("b", {id: "two", src: "two"}, {autoplay: true})
   engine.loadDeck("a", {id: "one", src: "one"})
   const pair = {from: "b", to: "a", fromLoad: engine.decks.b.loadToken, toLoad: engine.decks.a.loadToken}
-  assert.ok(engine.armPassage(pair, {incoming: {duration: 60}, outStart: 10, lead: 3, inStart: 1.25, blend: 2}, "cut").ok)
+  assert.ok(engine.armPassage(pair, {outgoing: {duration: 60}, incoming: {duration: 60}, outStart: 10, lead: 3, inStart: 1.25, blend: 2}, "cut").ok)
   engine.setTransitionLength(15)
   engine.confirmPassage()
   b.at(13)
@@ -1230,4 +1230,51 @@ test("a rehearsed cut works from B to A and ignores the transition-length knob",
   tick(1)
   assert.equal(b.paused, true)
   assert.deepEqual(advances.map(e => [e.deck, e.type]), [["a", "cut"]])
+})
+
+
+test("live edits withdraw the confirmation without losing either saved deck mix", async t => {
+  const rig = booth(t)
+  const {engine, a, b, tick, advances} = rig
+  preparePassage(rig)
+  const {pair, plan} = engine.passage()
+  const out = {...engine.deckMix("a"), vinyl: true, rate: 1.1, level: 0.6, tone: 0.4}
+  const into = {...engine.deckMix("b"), vinyl: true, rate: 0.9, level: 0.25, filter: -0.5}
+  assert.ok(engine.armPassage(pair, {...plan, mix: {out, into}}, "cut").ok)
+  assert.equal(a.playbackRate, 1)
+  assert.equal(engine.decks.b.gain.gain.value, 1)
+  assert.ok(engine.confirmPassage().ok)
+  engine.setDeckLevel("b", 0.8)
+  assert.equal(engine.passage().phase, "armed")
+  assert.equal(engine.passage().plan.mix.into.level, 0.25)
+  tick(49_000)
+  assert.equal(b.plays, 0)
+  assert.ok(engine.confirmPassage().ok)
+  a.at(48)
+  await Promise.resolve()
+  assert.equal(advances.length, 1)
+  assert.equal(a.playbackRate, 1.1)
+  assert.equal(b.playbackRate, 0.9)
+  assert.equal(b.preservesPitch, false)
+  assert.equal(engine.decks.a.toneBass.gain.value, -3.6)
+  assert.equal(engine.decks.b.gain.gain.value, 0.25)
+  assert.deepEqual(engine.deckMix("b"), into)
+  engine.setTone("b", -1)
+  assert.equal(engine.deckMix("b").tone, -1)
+})
+
+
+test("reopening a confirmed version only withdraws its authorization when the draft is edited", t => {
+  const rig = booth(t)
+  preparePassage(rig)
+  const saved = rig.engine.passage()
+  rig.engine.confirmPassage()
+  assert.equal(saved.phase, "confirmed")
+  rig.engine.editPassageMix()
+  assert.equal(rig.engine.passage(), saved)
+  assert.equal(saved.phase, "armed")
+  assert.equal(saved.review, "draft")
+  rig.a.at(48)
+  rig.tick(3000)
+  assert.equal(rig.b.plays, 0)
 })

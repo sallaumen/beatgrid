@@ -958,6 +958,60 @@ defmodule BeatgridWeb.DiscotecagemLive do
             </select>
           </label>
         </div>
+        <details class="mt-3 border-y border-white/10 py-2">
+          <summary class="cursor-pointer text-body font-semibold text-ink">Ajustar no fone</summary>
+          <p class="mt-2 text-body text-ink-muted">
+            Edite a cópia no fone. Ao confirmar, os dois decks usam os ajustes salvos no ponto da passagem.
+          </p>
+          <div class="mt-3 grid gap-4 sm:grid-cols-2">
+            <fieldset :for={{side, label} <- [{"out", "Saída"}, {"into", "Entrada"}]} data-side={side}>
+              <legend class="text-body font-semibold text-ink">
+                {label} · <span data-mix-deck></span>
+              </legend>
+              <div class="my-2 flex items-center justify-between gap-2">
+                <span data-tempo class="font-mono text-body text-ink-secondary"></span>
+                <button
+                  type="button"
+                  data-sync
+                  class="min-h-9 rounded-md border border-white/10 px-2 text-body"
+                >SYNC</button>
+              </div>
+              <label
+                :for={
+                  {key, name, low, high} <- [
+                    {"rate", "Pitch", -20, 20},
+                    {"filter", "Filtro", -100, 100},
+                    {"tone", "Tom (EQ)", -100, 100},
+                    {"level", "Volume", 0, 100}
+                  ]
+                }
+                for={"rehearsal-#{side}-#{key}"}
+                class="grid grid-cols-[1fr_auto] items-center gap-x-2 py-1 text-body"
+              >
+                <span>{name}</span><output data-readout={key} class="font-mono text-ink-secondary"></output>
+                <input
+                  type="range"
+                  id={"rehearsal-#{side}-#{key}"}
+                  data-mix={key}
+                  min={low}
+                  max={high}
+                  step={if key == "rate", do: "0.1", else: "1"}
+                  class="col-span-2 w-full accent-primary"
+                />
+              </label>
+              <label class="mt-2 flex items-center gap-2 text-body">
+                <input type="checkbox" data-mix="vinyl" /> Vinil (muda a afinação)
+              </label>
+            </fieldset>
+          </div>
+          <button
+            type="button"
+            data-copy-mix
+            class="mt-3 min-h-9 rounded-md border border-white/10 px-3 text-body"
+          >
+            Copiar ajustes atuais da cabine
+          </button>
+        </details>
         <button
           type="button"
           data-arm
@@ -1842,6 +1896,16 @@ defmodule BeatgridWeb.DiscotecagemLive do
                     this.log(
                       `loop ${beats ? beats + (beats === 1 ? " tempo" : " tempos") : "manual"} no deck ${deck.toUpperCase()}`
                     )
+                  }
+                },
+                mixApplied: ({deck, mix}) => {
+                  byId(`dj-level-${deck}`).value = Math.round(mix.level * 100)
+                  byId(`dj-vinil-${deck}`).dataset.on = String(mix.vinyl)
+                  byId(`dj-pitch-${deck}`).value = (mix.rate - 0.8) * 250
+                  for (const [key, value] of [["filter", mix.filter], ["tom", mix.tone]]) {
+                    const id = `dj-${key}-${deck}`
+                    byId(id).value = Math.round(value * 100)
+                    this.renderKnobById(id)
                   }
                 },
                 fxReset: ({deck}) => {
