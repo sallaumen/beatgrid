@@ -3098,3 +3098,178 @@ test("jog strokes retain the input timestamps when several controller events arr
     engine.jogTouch(deck, false, 140)
   }
 })
+
+function reserveDecoded(rig, exit = 48, outgoing) {
+  const {engine} = rig
+  preparePassage(rig, "cut")
+  engine.setAuto(false)
+  const {pair, plan} = engine.passage()
+  engine.cueTo("b", 7000)
+  engine.decks.a.playDecoded(plan.outgoing, 47.8, engine.deckMix("a"))
+  const mix = {out: outgoing ?? engine.deckMix("a"), into: engine.deckMix("b")}
+  assert.ok(engine.armPassage(pair, {...plan, exit, mix}, "cut").ok)
+  return plan
+}
+
+test("a confirmed decoded record schedules the other deck on the fractional cue before a busy callback", async t => {
+  const rig = booth(t), {engine, b, advances, tick} = rig
+  const now = engine.ctx.currentTime
+  const plan = reserveDecoded(rig, 48.000007)
+  const starts = [], make = engine.ctx.createBufferSource.bind(engine.ctx)
+  t.mock.method(engine.ctx, "createBufferSource", () => {
+    const voice = make()
+    voice.start = (when, offset) => starts.push({when, offset})
+    return voice
+  })
+  assert.ok(engine.confirmPassage().ok)
+  engine.ctx.currentTime = now + .16
+  tick(160)
+  await Promise.resolve()
+  assert.equal(b.plays, 1)
+  assert.deepEqual(advances, [])
+  assert.equal(engine.sessionDeck(), "a")
+  assert.equal(starts.length, 1)
+  assert.ok(Math.abs(starts[0].when - now - .200007) < 1e-9)
+  assert.equal(starts[0].offset, plan.inStart)
+  engine.ctx.currentTime = now + .23
+  tick(70)
+  assert.deepEqual(advances.map(e => e.atMs), [48000])
+  assert.equal(engine.sessionDeck(), "b")
+})
+
+for (const action of ["disarm", "pause", "pitch", "load", "output", "reject"]) {
+  test(`an accepted or pending decoded cue remains revocable before the beat: ${action}`, async t => {
+    const rig = booth(t), {engine, a, b, advances, tick} = rig
+    const now = engine.ctx.currentTime
+    reserveDecoded(rig)
+    const gate = Promise.withResolvers()
+    if (action === "reject") t.mock.method(b, "play", () => { b.paused = false; return gate.promise })
+    engine.confirmPassage()
+    engine.ctx.currentTime = now + .16
+    tick(160)
+    await Promise.resolve()
+    assert.equal(engine.decks.b.platterTime(), 7)
+    if (action === "disarm") engine.disarmPassage()
+    if (action === "pause") engine.playPause("a")
+    if (action === "pitch") engine.setRate("a", 1.015)
+    if (action === "load") assert.ok(engine.loadDeck("b", {id: "fresh-queued", src: "new"}, {atMs: 9000}))
+    if (action === "output") engine.setRoomOutputAvailable(false)
+    if (action === "reject") gate.reject(Error("refused"))
+    await Promise.resolve()
+    engine.ctx.currentTime = now + .35
+    tick(190)
+    assert.deepEqual(advances, [])
+    assert.equal(b.paused, true)
+    if (action !== "load") assert.equal(engine.decks.b.platterTime(), 7)
+    else {
+      b.dispatchEvent(new Event("canplay"))
+      assert.equal(engine.decks.b.dropCue, null)
+      assert.equal(engine.decks.b.platterTime(), 9)
+    }
+    assert.equal(a.paused, action === "pause")
+  })
+}
+
+test("a future pitch change can be withdrawn without scheduling a stop on the live source", async t => {
+  const rig = booth(t), {engine, tick, advances, b} = rig
+  const voices = [], make = engine.ctx.createBufferSource.bind(engine.ctx)
+  t.mock.method(engine.ctx, "createBufferSource", () => {
+    const node = make(), stops = [], starts = []
+    node.start = (...args) => starts.push(args)
+    node.stop = (...args) => stops.push(args)
+    voices.push({stops, starts})
+    return node
+  })
+  const now = engine.ctx.currentTime, from = engine.decks.a
+  reserveDecoded(rig, 48, {...engine.deckMix("a"), vinyl: true, rate: 1.05})
+  assert.ok(engine.confirmPassage().ok)
+  engine.ctx.currentTime = now + .16
+  tick(160)
+  await Promise.resolve()
+  assert.equal(voices.filter(v => v.starts.length).length, 3)
+  assert.deepEqual(voices[0].stops, [])
+  assert.equal(from.playbackRate, 1)
+  engine.disarmPassage()
+  assert.deepEqual(voices[0].stops, [])
+  assert.equal(b.paused, true)
+  assert.deepEqual(advances, [])
+  assert.ok(from.audible())
+})
+
+test("rescue sees the actual room handoff even before the delayed confirmation callback runs", async t => {
+  const rig = booth(t), {engine, tick, advances} = rig
+  reserveDecoded(rig)
+  const now = engine.ctx.currentTime
+  engine.confirmPassage()
+  engine.ctx.currentTime = now + .16
+  tick(160)
+  await Promise.resolve()
+  engine.ctx.currentTime = now + .214
+  assert.ok(engine.cancelTransition().ok)
+  assert.equal(advances.length, 1)
+  assert.equal(engine.sessionDeck(), "a")
+  tick(100)
+  assert.equal(advances.length, 1)
+})
+
+test("returning the PA before the beat schedules the cue once after an abandoned PLAY", async t => {
+  const rig = booth(t), {engine, tick, b, advances} = rig
+  reserveDecoded(rig)
+  const now = engine.ctx.currentTime, blocked = Promise.withResolvers()
+  t.mock.method(b, "play", () => { b.paused = false; return blocked.promise }, {times: 1})
+  engine.confirmPassage()
+  engine.ctx.currentTime = now + .15
+  tick(150)
+  engine.setRoomOutputAvailable(false)
+  blocked.resolve()
+  await Promise.resolve()
+  assert.equal(b.paused, true)
+  engine.ctx.currentTime = now + .18
+  engine.setRoomOutputAvailable(true)
+  await Promise.resolve()
+  assert.deepEqual(advances, [])
+  assert.equal(b.paused, false)
+  engine.ctx.currentTime = now + .23
+  tick(80)
+  assert.deepEqual(advances.map(e => e.toTrackId), ["two"])
+})
+
+test("an incoming PCM near its end owns the beat even if its end callback runs before the room timer", async t => {
+  const rig = booth(t), {engine, tick, advances} = rig
+  reserveDecoded(rig)
+  const {plan, pair} = engine.passage()
+  const lastFrames = 0.006
+  assert.ok(engine.armPassage(pair, {...plan, inStart: plan.incoming.duration - lastFrames, blend: lastFrames}, "cut").ok)
+  const voices = [], make = engine.ctx.createBufferSource.bind(engine.ctx)
+  t.mock.method(engine.ctx, "createBufferSource", () => {
+    const node = make()
+    voices.push(node)
+    return node
+  })
+  const now = engine.ctx.currentTime
+  engine.confirmPassage()
+  engine.ctx.currentTime = now + .16
+  tick(160)
+  await Promise.resolve()
+  engine.ctx.currentTime = now + .23
+  voices[0].onended()
+  assert.deepEqual(advances.map(e => e.toTrackId), ["two"])
+  tick(150)
+  assert.equal(advances.length, 1)
+})
+
+test("a fresh queue hint that lands after the audio beat cannot reset the incoming deck", async t => {
+  const rig = booth(t), {engine, tick, advances, hint} = rig
+  reserveDecoded(rig)
+  const now = engine.ctx.currentTime
+  engine.confirmPassage()
+  engine.ctx.currentTime = now + .16
+  tick(160)
+  await Promise.resolve()
+  engine.ctx.currentTime = now + .214
+  assert.equal(hint({type: "cut"}, "third"), false) // the previous deck still owns its tail
+  assert.deepEqual(advances.map(e => e.toTrackId), ["two"])
+  assert.equal(engine.decks.b.trackId, "two")
+  tick(100)
+  assert.equal(hint({type: "cut"}, "third"), "a")
+})

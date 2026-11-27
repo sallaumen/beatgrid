@@ -187,6 +187,21 @@ export function startLiveRecord(ctx, input, buffer, offset, mix, onEnd, onFailur
     fadeFrom(when)
   }
 
+  function fadeOut(when, fade) {
+    const level = fadeIn ? Math.max(0, Math.min(1, (when - fadeAt) / fadeIn)) : 1
+    output.gain.cancelScheduledValues(when)
+    output.gain.setValueAtTime(level, when)
+    output.gain.linearRampToValueAtTime(0, when + fade)
+    return () => {
+      if (closed) return
+      output.gain.cancelScheduledValues(when)
+      if (level < 1) {
+        output.gain.setValueAtTime(level, when)
+        output.gain.linearRampToValueAtTime(1, fadeAt + fadeIn)
+      }
+    }
+  }
+
   function stop(fade = 0, finished, when = ctx.currentTime) {
     if (closed) {
       if (!fade) silenceTail?.()
@@ -210,10 +225,7 @@ export function startLiveRecord(ctx, input, buffer, offset, mix, onEnd, onFailur
     if (!fade) return silence()
 
     const until = when + fade
-    const level = fadeIn ? Math.max(0, Math.min(1, (when - fadeAt) / fadeIn)) : 1
-    output.gain.cancelScheduledValues(when)
-    output.gain.setValueAtTime(level, when)
-    output.gain.linearRampToValueAtTime(0, until)
+    fadeOut(when, fade)
     silenceTail = silence
     for (const voice of voices) {
       voice.onended = () => detach(voice, false)
@@ -221,5 +233,5 @@ export function startLiveRecord(ctx, input, buffer, offset, mix, onEnd, onFailur
     }
   }
   return {position, rate: () => audibleSegment(ctx.currentTime)?.rate ?? next.rate,
-    setRate, stop, launch, get fadeAt() { return fadeAt }}
+    setRate, stop, launch, fadeOut, get fadeAt() { return fadeAt }}
 }
