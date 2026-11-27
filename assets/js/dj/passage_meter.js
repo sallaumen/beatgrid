@@ -187,13 +187,12 @@ export function createProgramMeter(ctx, input) {
     return scheduled
   }
 
-  function read(kind, overlap, bpm, report) {
+  function read(kind, overlap, bpm, report, change = ctx.currentTime) {
     cancel()
-    const change = ctx.currentTime
     if (!node || change < 4) return report(null)
     const id = ++serial
     const window = {kind, change, overlap, bpm, start: change - 4, end: change + overlap + 4}
-    pending = {id, window, report, timer: setTimeout(() => finish(null), (overlap + 6) * 1000)}
+    pending = {id, window, report, timer: setTimeout(() => finish(null), (window.end - ctx.currentTime + 2) * 1000)}
     node.port.postMessage({id, start: window.start, end: window.end})
   }
 

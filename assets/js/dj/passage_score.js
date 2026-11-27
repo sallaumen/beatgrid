@@ -201,10 +201,12 @@ function headroomMetric(frames) {
 }
 
 export function scorePassage({frames, frameSeconds: dt, changeAt, overlap, kind, bpm, descriptive = false} = {}) {
+  const gesture = descriptive && ["brake", "scratch_cut", "spinback", "chirp", "transform", "scribble"].includes(kind)
   const supported = descriptive ? ["fade", "echo", "filter", "lowpass", "bass_swap"] : ["cut", "blend", "bass_swap"]
-  const incomplete = () => ({score: null, descriptive, metrics: Object.keys(names).map(id => unknown(id)), summary: "É preciso ouvir os dois lados da troca."})
+  const ids = gesture ? ["level", "headroom"] : Object.keys(names)
+  const incomplete = () => ({score: null, descriptive, metrics: ids.map(id => unknown(id)), summary: "É preciso ouvir os dois lados da troca."})
   if (!Array.isArray(frames) || !(Number.isFinite(dt) && dt > 0) || !Number.isFinite(changeAt) ||
-      !Number.isFinite(overlap) || overlap < 0 || !supported.includes(kind)) return incomplete()
+      !Number.isFinite(overlap) || overlap < 0 || (!gesture && !supported.includes(kind))) return incomplete()
   const start = Math.round(changeAt / dt), end = Math.round((changeAt + overlap) / dt)
   if (start * dt < 0.35 || (frames.length - end) * dt < 0.35) return incomplete()
   const span = Math.ceil(4 / dt)
@@ -215,13 +217,15 @@ export function scorePassage({frames, frameSeconds: dt, changeAt, overlap, kind,
     if (!f || !Number.isFinite(f.rms) || f.rms < 0 || !Number.isFinite(f.peak) || f.peak < 0 ||
         (f.onset != null && (!Number.isFinite(f.onset) || f.onset < 0))) return incomplete()
   }
-  const pulse = pulseMetric(before, after, middle, start, end, dt, kind, bpm, descriptive)
+  const pulse = gesture ? null : pulseMetric(before, after, middle, start, end, dt, kind, bpm, descriptive)
   const level = levelMetric(before, middle, after, dt, kind, descriptive)
-  const headroom = headroomMetric([...before.slice(-Math.ceil(0.25 / dt)), ...middle, ...after.slice(0, Math.ceil(0.75 / dt))])
-  const metrics = [pulse, level, headroom]
+  const headroom = headroomMetric(gesture ? middle : [...before.slice(-Math.ceil(0.25 / dt)), ...middle, ...after.slice(0, Math.ceil(0.75 / dt))])
+  if (gesture) headroom.label = "Pico do efeito"
+  const metrics = pulse ? [pulse, level, headroom] : [level, headroom]
   const issue = metrics.find(m => m.state === "poor") ?? metrics.find(m => m.state === "watch")
   if (descriptive) {
-    const summary = headroom.state === "poor" ? headroom.value : issue?.value ?? (pulse.state === "unknown" ? pulse.value : "O pulso e o nível entre as faixas se mantiveram.")
+    const reading = gesture ? level.value : pulse.state === "unknown" ? pulse.value : "O pulso e o nível entre as faixas se mantiveram."
+    const summary = headroom.state === "poor" ? headroom.value : issue?.value ?? reading
     return {score: null, descriptive, metrics, summary}
   }
   if (metrics.some(m => m.state === "unknown")) {

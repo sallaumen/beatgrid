@@ -175,3 +175,21 @@ test("the bass exchange uses the pulse and level evidence of a continuous four-b
   assert.equal(metric(score, "pulse").state, "poor")
   assert.deepEqual(scorePassage({...sound, kind: "bass_swap"}), score)
 })
+
+for (const kind of ["brake", "scratch_cut", "spinback", "chirp", "transform", "scribble"]) {
+  test(`${kind} describes the two records and the peak inside the gesture`, () => {
+    const take = {...passage({shift: .23, pause: 1.5, nextLevel: .25}), kind, descriptive: true}
+    take.frames[295].peak = 1.1 // pre-existing peak just before the gesture
+    take.frames[510].peak = 1.1 // new record after the fader opened
+    const result = scorePassage(take)
+    assert.equal(result.score, null)
+    assert.deepEqual(result.metrics.map(m => m.id), ["level", "headroom"])
+    assert.match(metric(result, "level").value, /12.*dB abaixo/)
+    assert.equal(metric(result, "headroom").state, "good")
+    take.frames[410].peak = 1.1
+    assert.equal(metric(scorePassage(take), "headroom").state, "poor")
+    assert.match(scorePassage(take).summary, /dBFS/)
+    const partial = scorePassage({...take, frames: take.frames.slice(0, 490)})
+    assert.deepEqual(partial.metrics.map(m => m.state), ["unknown", "unknown"])
+  })
+}
