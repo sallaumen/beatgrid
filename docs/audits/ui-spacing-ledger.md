@@ -142,6 +142,7 @@ Rotas extraídas pela própria tarefa do Phoenix com módulos já compilados: `M
 | Discotecagem — MIDI — desconectado | `/discotecagem` | revisada-com-mudança | 5 | #225 | 375×812; 1280×800; 1536×960; 2560×1080 | WebKit sem MIDI, diagnóstico real. |
 | Discotecagem — MIDI — conectado e nome de dispositivo | `/discotecagem` | revisada-com-mudança | 5 | #225 | 375×812; 1280×800; 1536×960; 2560×1080 | Web MIDI API fixture com porta DJ2GO2 virtual e nome longo, hook real; não comprova hardware físico. |
 | Discotecagem — Roteamento de áudio — saídas disponíveis e nomes longos | `/discotecagem` | revisada-com-mudança | 5 | #228 | 375×812; 1280×800; 1536×960; 2560×1080 | Fixture enumerateDevices com 2 saídas longas; hook real abriu os seletores; ambos 18→32px nos 4 viewports, docWidth igual ao viewport. Sem acesso a microfone, saída real ou dispositivo físico; validação visual. |
+| Discotecagem — Roteamento de áudio — aviso de saída inválida (#245) | `/discotecagem` | revisada-sem-mudança | 5 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Main bb28d65: 4 saídas virtuais enumeradas; seleção inválida default dispara handler e notice reais, limpa seletor, cue pausado/sem stream/sinkCalls0. Pill187,5×72 mobile,377,5×36 desktop, pad8×16; log + auto-dismiss, 4/4 sem overflow. |
 | Discotecagem — Roteamento de áudio — sem saídas listáveis | `/discotecagem` | revisada-sem-mudança | 5 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Fixture com lista vazia no hook real: controles ocultos com 0px; instrução legível e sem overflow nos quatro tamanhos. |
 | Discotecagem — Modo Viagem — sem faixa | `/discotecagem` | revisada-sem-mudança | 5 | — | 375×812; 1280×800; 1536×960; 2560×1080; 320×568 (stress) | Overlay real aberto sem faixa.; stress 320px também medido sem overflow. |
 | Discotecagem — Modo Viagem — faixa atual e próxima | `/discotecagem` | revisada-sem-mudança | 5 | — | 375×812; 1280×800; 1536×960; 2560×1080 | Set real copiado de 76 faixas, fluxo Tocar set do início; TOCANDO AGORA + duas faixas reais e countdown; master silenciado por gate de WebAudio de fixture. 375 padding16 gap16 CTAs343×64; desktops padding32 gap24 CTAs≈248×64; 4 viewports sem overflow. |
@@ -264,35 +265,35 @@ Rotas extraídas pela própria tarefa do Phoenix com módulos já compilados: `M
 | Transporte LiveView — WebSocket | `/live/websocket` | revisada-sem-mudança | 5 | — | não visual / consumidor real | Browser observed actual `/live/websocket` and `.phx-connected` after navigating library; no payload/credentials recorded. |
 | Transporte LiveView — Longpoll GET/POST | `/live/longpoll` | revisada-sem-mudança | 5 | — | não visual / consumidor real | In disposable test page only, interrupted WebSocket via Playwright to exercise configured fallback. Real repeated GET and POST `/live/longpoll` each HTTP200, connected LiveView, typed normal library search and no-result UI updated from server. No manual crafted requests/probing. |
 
-## Fechamento — snapshot de aplicação `8170b3e` (27/11/2026)
+## Fechamento — snapshot visual de fechamento `bb28d65` (27/11/2026)
 
 **Rodada 5 conferida integralmente nas superfícies de produto; fechamento global aguarda aprovação das sete exceções do painel técnico.**
 
 | Status | Linhas |
 |---|---:|
 | revisada-com-mudança | 81 |
-| revisada-sem-mudança | 149 |
+| revisada-sem-mudança | 150 |
 | pendente | 0 |
 | bloqueada | 7 |
-| Total | 237 |
+| Total | 238 |
 
-- **Produto: 216/216 linhas revisadas**, incluindo estados sem dados, com dados, carregamento, erro, textos longos, diálogos, controles de teclado e superfícies adicionadas nas frentes concorrentes. A rodada de conferência de produto não gerou novos ajustes após as correções de RoomScore/encaixe; a integração concorrente #243 exigiu estender a mesma responsividade às novas métricas de referência, medidas novamente após resolver o conflito. As sete linhas bloqueadas são exclusivamente de infraestrutura dev; não foram reclassificadas para aumentar a cobertura.
+- **Produto: 217/217 linhas revisadas**, incluindo estados sem dados, com dados, carregamento, erro, textos longos, diálogos, controles de teclado e superfícies adicionadas nas frentes concorrentes. A rodada de conferência de produto não gerou novos ajustes após as correções de RoomScore/encaixe; a integração concorrente #243 exigiu estender a mesma responsividade às novas métricas de referência, medidas novamente após resolver o conflito. As sete linhas bloqueadas são exclusivamente de infraestrutura dev; não foram reclassificadas para aumentar a cobertura.
 - `mix phx.routes` reexecutado no snapshot acima: 28 entradas HTTP/WS (27 caminhos distintos), nenhum caminho sem correspondente no ledger. Inclui os 16 caminhos de produto, três de dashboard dev, seis endpoints não visuais e dois transportes distintos. Superfícies sem rota própria foram incluídas pela inspeção e navegação do app.
 - Viewports principais efetivamente executados: 375×812, 1280×800, 1536×960, 2560×1080. Mais 320×568 para os cinco overlays/avisos indicados e 768 para a infraestrutura. Medições incluem `getBoundingClientRect`, computed styles, scroll/client width, foco, conteúdo real dos estados e capturas WebKit; diálogos nativos foram observados pelo evento do navegador, não confundidos com modais HTML.
-- A revisão acompanhou as mudanças concorrentes até #243: comparação, RoomScore, assistente de encaixe, invalidação e reconfirmação de passagem, ondas/volume e recusa de corte. #237, #238, #241 e #242 não acrescentaram superfícies; código JS integrado e verificado. #243 acrescentou comparação pista/fone e details de referência, conflito resolvido preservando ambas as mudanças, 68 capturas adicionais sem defeito. O snapshot delimita as páginas existentes no fechamento; mudanças posteriores requerem inclusão no inventário, não uma falsa declaração de cobertura de código ainda não existente.
+- A revisão acompanhou as mudanças concorrentes até #247: comparação, RoomScore, assistente de encaixe, invalidação e reconfirmação de passagem, ondas/volume e recusa de corte. #237, #238, #241 e #242 não acrescentaram superfícies; código JS integrado e verificado. #243 acrescentou comparação pista/fone e details de referência, conflito resolvido preservando ambas as mudanças, 68 capturas adicionais sem defeito. Depois do merge #232, #244/#246/#247 tiveram alterações de transporte/áudio sem novas superfícies no diff; #245 introduziu novo aviso, novamente renderizado em quatro larguras no main bb28d65. O snapshot delimita as páginas existentes no fechamento; mudanças posteriores requerem inclusão no inventário, não uma falsa declaração de cobertura de código ainda não existente.
 
 ### Rodadas e PRs
 
 - #221: inventário versionado. #223: cabeçalhos/ícones e ações das telas de sistema. #224: badges e alinhamento das recomendações. #225: controles da biblioteca, ficha, montagem e discotecagem; cabeçalho de sets gravados. #226: flex dos avisos de reconexão. #228: proporções de selects nativos. #232: feedback de busca, nomes longos dos Hot Cues, painel de notas na pista com container queries e foco do assistente de encaixe.
 - Rodadas 2–5: revisão completa repetida com estados reais; as correções descobertas nas novas passagens foram reabertas e medidas após o ajuste. Parte das superfícies novas foi incorporada quando os respectivos PRs concorrentes chegaram à main, com reabertura dos estados afetados. Nenhum deploy.
-- Repetição final: 352 registros de UI não-DJ + 52 DJ (um seletor de preflight flutuou, repetido corretamente em 4 viewports), 68 navegações de rotas, 20 eventos de revisão/lote, 48 capturas de acervo vazio e 8 do acervo de uma única faixa. As variantes de alerta/recibo, edição e desfazer foram exercitadas novamente. A frente de sistema registrou 488 capturas em rodada 5, além de 32 de #235/#236, 24 de #239, 4 da recusa #240 e 68 da comparação #243. Registros são capturas de estados/viewport, não contagem de páginas distintas.
+- Repetição final: 352 registros de UI não-DJ + 52 DJ (um seletor de preflight flutuou, repetido corretamente em 4 viewports), 68 navegações de rotas, 20 eventos de revisão/lote, 48 capturas de acervo vazio e 8 do acervo de uma única faixa. As variantes de alerta/recibo, edição e desfazer foram exercitadas novamente. A frente de sistema registrou 488 capturas em rodada 5, além de 32 de #235/#236, 24 de #239, 4 da recusa #240 e 68 da comparação #243 e quatro da nova mensagem #245. Registros são capturas de estados/viewport, não contagem de páginas distintas.
 
 ### Evidências e qualidade
 
-- Evidências locais (não incluem compromisso de publicar dados do acervo): `/tmp/beatgrid-spacing-20261127/`, em especial `round5-states-direct.json`, `round5-states-dj.json`, `round5-baseline.json`, `round5-empty-all.json`, `round5-single.json`, `system-round5.md`, `room-score-cue-round5.md`, `rehearsal-waveforms-final.md`, `cut-refused-final.md`, `room-reference-final.md`, `manual-handoff-final/`, `blend-status-final/`. As capturas e JSON foram produzidos no servidor real conectado, não por leitura estática.
+- Evidências locais (não incluem compromisso de publicar dados do acervo): `/tmp/beatgrid-spacing-20261127/`, em especial `round5-states-direct.json`, `round5-states-dj.json`, `round5-baseline.json`, `round5-empty-all.json`, `round5-single.json`, `system-round5.md`, `room-score-cue-round5.md`, `rehearsal-waveforms-final.md`, `cut-refused-final.md`, `room-reference-final.md`, `headphone-invalid-final.md`, `manual-handoff-final/`, `blend-status-final/`. As capturas e JSON foram produzidos no servidor real conectado, não por leitura estática.
 - Cópias isoladas do PostgreSQL e da biblioteca, sem mover/deletar áudio original, jobs de fundo desligados e integrações pagas desativadas. Estados de serviço/erro e Web MIDI/saídas de áudio usaram fixtures declaradas; a inspeção é visual, não certifica controlador físico. Saída de áudio silenciada por gate/elementos nos ensaios de reprodução.
 - A edição local preexistente em `root.html.heex` e os artefatos locais de outras frentes foram preservados e excluídos dos PRs. O Deck testa snapshots de checkout; o CI valida a árvore do PR sem a edição local.
-- Deck (testes e lint): suíte pré-#243 `cb5bf7471038` — 1.272 testes, 0 falhas (8 excluídos), exit 0. Lint integral `99be1ce18a96` — exit 0; validação consolidada após #243: suíte `89e20f3e5c1a` — 1.272 testes, 0 falhas (8 excluídos), exit 0. Lint do snapshot anterior `c03a4db85f05` — exit 0. Recibo do lint final `4ed4a9563a2a` (merge condicionado a exit 0). Suíte JavaScript do snapshot no Mac: 242 testes, 0 falhas (`node --test test/js/*.test.mjs`); o perfil do Deck rejeitou Node por não ser `mix test`. Builds de assets e CI do PR também executados.
+- Deck (testes e lint): suíte pré-#243 `cb5bf7471038` — 1.272 testes, 0 falhas (8 excluídos), exit 0. Lint integral `99be1ce18a96` — exit 0; validação consolidada após #243: suíte `89e20f3e5c1a` — 1.272 testes, 0 falhas (8 excluídos), exit 0. Lint do snapshot anterior `c03a4db85f05` — exit 0. Lint final `4ed4a9563a2a` — exit 0; PR #232 com CI verde e merge confirmado. Suíte JavaScript no Mac no snapshot #243: 242 testes, 0 falhas; no main bb28d65: 249 testes, 0 falhas (`node --test test/js/*.test.mjs`); o perfil do Deck rejeitou Node por não ser `mix test`. Builds de assets e CI do PR também executados.
 
 ### Bloqueio técnico que ainda exige decisão explícita
 
@@ -310,7 +311,7 @@ Phoenix LiveDashboard 0.8.7 em `/dev/dashboard`: 95 renderizações por conferê
 | Recuperação de arquivos | 8 | 1 | 7 | 0 | 0 |
 | Repertório | 11 | 5 | 6 | 0 | 0 |
 | Montagem de sets | 21 | 12 | 9 | 0 | 0 |
-| Discotecagem | 50 | 14 | 36 | 0 | 0 |
+| Discotecagem | 51 | 14 | 37 | 0 | 0 |
 | Fila de tarefas | 7 | 7 | 0 | 0 | 0 |
 | Manutenção | 10 | 10 | 0 | 0 | 0 |
 | Ajustes | 7 | 7 | 0 | 0 | 0 |
