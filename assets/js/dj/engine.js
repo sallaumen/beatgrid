@@ -2595,7 +2595,18 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // 4-channel interface) and rewire main/phones for what it offers.
     async setOutputDevice(deviceId) {
       rehearsal.stop()
-      await ctx.setSinkId(deviceId)
+      const previous = ctx.sinkId, wasRunning = ctx.state === "running"
+      try {
+        await ctx.setSinkId(deviceId)
+      } catch (error) {
+        const needsResume = () => !mediaEvents.signal.aborted && ctx.state === "suspended" && ctx.sinkId === previous
+        // A driver can fail after suspending the renderer. Keep output controls
+        // available even if resuming the original room needs another gesture.
+        if (wasRunning && needsResume()) {
+          ctx.resume().catch(() => { if (needsResume()) emit("roomOutputSuspended") })
+        }
+        throw error
+      }
       if (!mediaEvents.signal.aborted) wireOutputs()
       return this.cueMode()
     },

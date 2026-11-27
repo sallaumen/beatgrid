@@ -1991,6 +1991,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                   window.dispatchEvent(new CustomEvent("dj:pfl-led", {detail: {a, b}}))
                   this.log(`fone: deck A ${a ? "ligado" : "desligado"} · deck B ${b ? "ligado" : "desligado"}`)
                 },
+                roomOutputSuspended: () => this.notice("Áudio da pista suspenso. Confira a saída principal da mesa."),
                 cueMode: ({mode, maxChannels}) => {
                   this.cueModeNow = mode
                   const el = byId("dj-cue-mode")
