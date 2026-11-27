@@ -582,7 +582,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         cancelRoomReading()
         roomReading = observeRoomPassage(ctx, masterAnalyser, choice, decks[choice.pair.from], data => {
           roomReading = null
-          emit("roomScore", data)
+          emit("roomScore", {data, reference: choice.reference})
         })
       },
       abandoned(choice) {

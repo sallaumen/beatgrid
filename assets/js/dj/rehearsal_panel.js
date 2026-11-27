@@ -258,7 +258,10 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
       update()
       return
     }
-    if (engine.armPassage(pair, plan, kind()).ok) {
+    const name = kind() === "cut" ? "Corte" : "Mistura"
+    const title = id => tracks[id]?.title || "Deck " + id.toUpperCase()
+    const reference = {pair: name + " · " + title(pair.from) + " → " + title(pair.to), hearing: comparison.reading()}
+    if (engine.armPassage(pair, plan, kind(), reference).ok) {
       dialog.close()
       update()
       passageState.focus()
