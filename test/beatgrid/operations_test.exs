@@ -37,6 +37,35 @@ defmodule Beatgrid.OperationsTest do
       assert Operations.list_by(batch_id: batch, status: :undone) == []
     end
 
+    test "list_by accepts compound ordering and breaks timestamp ties before applying the limit" do
+      track = insert(:track)
+      timestamp = ~U[2026-11-27 12:00:00Z]
+
+      operations =
+        for _ <- 1..2 do
+          {:ok, op} =
+            Operations.record(%{
+              track_id: track.id,
+              kind: :quarantine,
+              batch_id: Uniq.UUID.uuid7()
+            })
+
+          op |> Ecto.Changeset.change(inserted_at: timestamp) |> Repo.update!()
+        end
+
+      expected = Enum.max_by(operations, & &1.id)
+
+      assert [%{id: id}] =
+               Operations.list_by(
+                 track_id: track.id,
+                 kind: :quarantine,
+                 order_by: [desc: :inserted_at, desc: :id],
+                 limit: 1
+               )
+
+      assert id == expected.id
+    end
+
     test "requires kind, batch_id and track_id" do
       assert {:error, changeset} = Operations.record(%{from: "x"})
       assert %{kind: _, batch_id: _, track_id: _} = errors_on(changeset)
@@ -142,6 +171,9 @@ defmodule Beatgrid.OperationsTest do
           to: path,
           batch_id: Uniq.UUID.uuid7()
         })
+
+      # The operation IDs are UUID v7, but two test inserts can share a millisecond.
+      age_batch(old.batch_id, -60)
 
       assert {:ok, %{undone: 0, failed: 1}} = Operations.undo_batch(old.batch_id)
       assert Tracks.get(track.id).rel_path == path
