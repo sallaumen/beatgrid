@@ -623,6 +623,7 @@ defmodule BeatgridWeb.MixLiveTest do
 
       view |> element(opener) |> render_click()
       assert has_element?(view, "#recorte-title[tabindex='-1']")
+      refute has_element?(view, "#recorte-range[phx-mounted]")
       assert has_element?(view, "#{opener}[aria-expanded=true]")
 
       assert has_element?(

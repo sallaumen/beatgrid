@@ -709,7 +709,6 @@ defmodule BeatgridWeb.MixLive do
                 <input
                   id="recorte-range"
                   form="recorte-form"
-                  phx-mounted={JS.focus()}
                   name="range"
                   value={@recorte.range}
                   aria-label="Trecho do recorte (início-fim)"
