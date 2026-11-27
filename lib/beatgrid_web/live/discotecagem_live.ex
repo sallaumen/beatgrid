@@ -711,6 +711,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
             <button
               id="dj-trip-toggle"
               type="button"
+              aria-haspopup="dialog"
+              aria-controls="dj-trip"
               title="Modo viagem em tela cheia"
               class="inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-body-sm font-medium text-ink-muted hover:bg-white/5 hover:text-ink"
             >
@@ -764,11 +766,11 @@ defmodule BeatgridWeb.DiscotecagemLive do
         >
           <%!-- Modo Viagem: overlay em tela cheia com o essencial GIGANTE,
           dirigido pelo mesmo engine (o hook pinta; o servidor nunca toca). --%>
-          <div
+          <dialog
             id="dj-trip"
+            aria-label="Modo viagem"
             phx-update="ignore"
-            data-on="false"
-            class="fixed inset-0 z-40 hidden flex-col items-center justify-center gap-6 bg-base px-8 data-[on=true]:flex"
+            class="fixed inset-0 m-0 hidden h-dvh max-h-none w-screen max-w-none flex-col items-center justify-center gap-4 overflow-y-auto border-0 bg-base p-4 text-ink open:flex sm:gap-6 sm:p-8"
           >
             <div class="text-center">
               <p class="text-caption uppercase tracking-[0.2em] text-ink-faint">tocando agora</p>
@@ -787,21 +789,21 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 data-trip="postpone"
                 class="h-16 flex-1 rounded-xl border border-white/15 text-lg font-bold text-ink hover:border-primary/50"
               >
-                ⏳ Adiar +15s <span class="text-ink-faint">(W)</span>
+                Adiar 15 s
               </button>
               <button
                 type="button"
                 data-trip="fire"
                 class="h-16 flex-1 rounded-xl bg-primary-deep text-lg font-bold text-white hover:bg-primary-deep/90"
               >
-                ▶ Disparar <span class="opacity-60">(T)</span>
+                Disparar <kbd class="font-mono text-body">(T)</kbd>
               </button>
               <button
                 type="button"
                 data-trip="cancel"
                 class="h-16 flex-1 rounded-xl border border-coral/40 text-lg font-bold text-coral hover:bg-coral/10"
               >
-                ✕ Cancelar <span class="opacity-60">(X)</span>
+                Cancelar <kbd class="font-mono text-body">(X)</kbd>
               </button>
             </div>
             <div class="flex items-center gap-4">
@@ -816,12 +818,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
               <button
                 type="button"
                 data-trip="off"
+                autofocus
                 class="rounded-lg border border-white/15 px-4 py-2 text-body-sm font-semibold text-ink-secondary hover:text-ink"
               >
                 Sair do modo viagem
               </button>
             </div>
-          </div>
+          </dialog>
 
           <%!-- Resposta visual dos atalhos: pílula temporária sobre o console
           (o hook escreve e esconde sozinho — o servidor nunca toca aqui). --%>
@@ -1763,13 +1766,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
               const trip = byId("dj-trip")
               if (!trip) return
               if (e.target.closest("#dj-trip-toggle")) {
-                trip.dataset.on = "true"
+                if (!trip.open) trip.showModal()
                 return
               }
               const btn = e.target.closest("[data-trip]")
               if (!btn) return
               const act = btn.dataset.trip
-              if (act === "off") trip.dataset.on = "false"
+              if (act === "off") trip.close()
               else if (act === "fire") this.actFire()
               else if (act === "postpone") this.actPostpone(15_000)
               else if (act === "cancel") this.actCancel()
@@ -2239,7 +2242,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
           paintTrip() {
             const trip = byId("dj-trip")
-            if (!trip || trip.dataset.on !== "true") return
+            if (!trip?.open) return
             const snap = this.engine.snapshot()
             const active = snap.activeDeck
             const track = active && this.tracks[active]

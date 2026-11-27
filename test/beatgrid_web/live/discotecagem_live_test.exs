@@ -97,6 +97,9 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert html =~ ~s(id="dj-xfader-curve"), "missing the crossfader curve toggle"
 
     # trip-mode overlay + toggle: the hook paints and drives these by id
+    assert html =~ ~s(aria-haspopup="dialog")
+    assert html =~ ~s(<dialog)
+
     for id <- ~w(dj-trip dj-trip-toggle trip-title trip-next trip-countdown trip-auto) do
       assert html =~ ~s(id="#{id}"), "missing trip element ##{id} — the DjConsole hook drives it"
     end
