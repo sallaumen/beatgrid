@@ -320,18 +320,18 @@ defmodule BeatgridWeb.GenresLive do
               id={"genre-#{f.key}"}
               class="flex min-w-0 flex-col rounded-xl border border-white/8 bg-surface p-4"
             >
-              <header class="flex flex-wrap items-center gap-2">
+              <header class="flex items-start gap-2">
                 <span
-                  class="size-3 shrink-0 rounded-full"
+                  class="mt-1 size-3 shrink-0 rounded-full"
                   style={"background:#{folder_color(f.key)}"}
                   aria-hidden="true"
                 />
-                <h3 class="min-w-0 break-words text-body-lg font-semibold text-ink">
+                <h3 class="min-w-0 flex-1 break-words text-body-lg font-semibold text-ink">
                   {f.display_name}
                 </h3>
                 <span
                   :if={f.key in @in_use}
-                  class="ml-auto text-body-sm text-ink-muted"
+                  class="shrink-0 pt-0.5 text-body-sm text-ink-muted"
                   title="Mova as faixas antes de excluir."
                 >
                   Em uso
