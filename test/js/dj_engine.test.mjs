@@ -2309,6 +2309,51 @@ test("reopening a confirmed version only withdraws its authorization when the dr
   assert.equal(rig.b.plays, 0)
 })
 
+for (const id of ["a", "b"]) {
+  test("a playing media deck jumps to the requested sample of the decoded track on " + id, async t => {
+    const track = "cached-cue-" + id
+    const {engine, advances} = await scratchBooth(t, [track], 2)
+    engine.stopAll()
+    engine.loadDeck(id, {id: track, src: track, duration_ms: 60_000, bpm: 120}, {autoplay: true})
+    const deck = engine.decks[id], starts = []
+    const create = engine.ctx.createBufferSource.bind(engine.ctx)
+    t.mock.method(engine.ctx, "createBufferSource", () => {
+      const voice = create()
+      voice.start = (at, offset) => starts.push({at, offset})
+      return voice
+    })
+    engine.cueTo(id, deck.positionMs())
+    assert.deepEqual(starts, [], "recalling the current point leaves the playing voice alone")
+    engine.cueTo(id, 4345)
+    assert.ok(starts.some(({offset}) => Math.abs(offset - 4.345) < 1 / engine.ctx.sampleRate))
+    deck.el.currentTime = 3.905
+    engine.ctx.currentTime += .2
+    assert.ok(Math.abs(deck.platterTime() - 4.545) < .001)
+    assert.equal(engine.sessionDeck(), id)
+    assert.deepEqual(advances, [])
+    engine.pauseAll()
+    assert.equal(deck.audible(), false)
+    assert.equal(deck.entry, null)
+    starts.length = 0
+    engine.cueTo(id, 2200)
+    assert.deepEqual(starts, [])
+    assert.equal(deck.el.currentTime, 2.2)
+  })
+}
+
+test("a live media cue still lands when the browser cannot prepare a decoded voice", async t => {
+  const track = "native-seek-fallback"
+  const {engine, a} = await scratchBooth(t, [track])
+  engine.loadDeck("a", {id: track, src: track, duration_ms: 60_000}, {autoplay: true})
+  t.mock.method(engine.ctx, "createBufferSource", () => { throw new Error("device unavailable") })
+  engine.cueTo("a", 3400)
+  const deck = engine.decks.a
+  assert.equal(deck.entry, null)
+  assert.equal(deck.mediaGain.gain.value, 1)
+  assert.equal(a.currentTime, 3.4)
+  assert.ok(deck.audible())
+})
+
 test("a loop and hot cues on the playing record reach their target before the native decoder delivers it", async t => {
   const rig = booth(t)
   const {engine, a, b, tick} = rig
