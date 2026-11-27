@@ -9,6 +9,7 @@ defmodule BeatgridWeb.RecSetLive do
   alias Beatgrid.Mixing.StyleAffinity
   alias Beatgrid.Playback
   alias Beatgrid.Sets
+  alias BeatgridWeb.TrackIdentity
   alias Phoenix.LiveView.JS
 
   @impl true
@@ -40,7 +41,8 @@ defmodule BeatgridWeb.RecSetLive do
        max_plan_tracks: Sets.max_plan_tracks(),
        plan_preset: "custom",
        plan_prefill: Sets.preset_fields("custom"),
-       planning_sets: MapSet.new()
+       planning_sets: MapSet.new(),
+       subscribed_sets: MapSet.new()
      )}
   end
 
@@ -102,12 +104,51 @@ defmodule BeatgridWeb.RecSetLive do
   defp load_selection(socket, set) do
     socket
     |> assign(search_query: "", search_results: [], name_input: nil, name_error: nil, toast: nil)
+    |> subscribe_selection(set)
     |> load_set(set)
+  end
+
+  defp subscribe_selection(socket, nil), do: socket
+
+  defp subscribe_selection(socket, set) do
+    if connected?(socket) and not MapSet.member?(socket.assigns.subscribed_sets, set.id) do
+      Sets.subscribe_set(set.id)
+      update(socket, :subscribed_sets, &MapSet.put(&1, set.id))
+    else
+      socket
+    end
   end
 
   @impl true
   def handle_info({:now_playing, np}, socket) do
     {:noreply, assign(socket, playing_track_id: np.track_id, playing_set_id: np.set_id)}
+  end
+
+  def handle_info({:set_changed, id}, %{assigns: %{set: %{id: id}}} = socket) do
+    case Sets.get(id) do
+      nil -> {:noreply, externally_deleted_set(socket)}
+      set -> {:noreply, refresh_order(socket, set)}
+    end
+  end
+
+  def handle_info({:set_changed, _id}, socket), do: {:noreply, socket}
+
+  defp refresh_order(socket, set) do
+    entries = Sets.entries(set)
+    if entries == socket.assigns.entries, do: socket, else: load_set(socket, set, entries)
+  end
+
+  defp externally_deleted_set(socket) do
+    socket = refresh_sets(socket)
+
+    # A remount prevents a pending control from the deleted editor being applied
+    # to the replacement set in the same LiveView process.
+    socket
+    |> put_flash(:error, "Esse set já foi excluído.")
+    |> push_navigate(
+      to: set_path(initial_set(socket), socket.assigns.proposed_track),
+      replace: true
+    )
   end
 
   defp load_set(socket, nil) do
@@ -121,9 +162,9 @@ defmodule BeatgridWeb.RecSetLive do
     )
   end
 
-  defp load_set(socket, set) do
-    entries = Sets.entries(set)
+  defp load_set(socket, set), do: load_set(socket, set, Sets.entries(set))
 
+  defp load_set(socket, set, entries) do
     socket
     |> assign(
       set: set,
@@ -165,9 +206,11 @@ defmodule BeatgridWeb.RecSetLive do
   end
 
   defp with_track(socket, track_id, fun) do
-    case Tracks.get(track_id) do
-      nil -> stale_reference(socket)
-      track -> fun.(track)
+    with {:ok, uuid} <- Ecto.UUID.cast(track_id),
+         %{} = track <- Tracks.get(uuid) do
+      fun.(track)
+    else
+      _ -> stale_reference(socket)
     end
   end
 
@@ -300,18 +343,26 @@ defmodule BeatgridWeb.RecSetLive do
 
   def handle_event(
         "append",
-        %{"track" => id},
-        %{assigns: %{set: %{}, proposed_track: %{id: id}}} = socket
+        %{"track" => id, "set_id" => set_id},
+        %{assigns: %{set: %{id: set_id}, proposed_track: %{id: id}}} = socket
       ),
       do: {:noreply, append_proposal(socket, id)}
 
-  def handle_event("append", %{"track" => track_id}, %{assigns: %{set: %{}}} = socket) do
+  def handle_event(
+        "append",
+        %{"track" => track_id, "set_id" => set_id},
+        %{assigns: %{set: %{id: set_id}}} = socket
+      ) do
     {:noreply, with_track(socket, track_id, &append_track(socket, &1))}
   end
 
   def handle_event("append", _params, socket), do: {:noreply, socket}
 
-  def handle_event("remove", %{"track" => track_id}, socket) do
+  def handle_event(
+        "remove",
+        %{"track" => track_id, "set_id" => set_id},
+        %{assigns: %{set: %{id: set_id}}} = socket
+      ) do
     {:noreply,
      with_track(socket, track_id, fn track ->
        :ok = Sets.remove(socket.assigns.set, track)
@@ -319,7 +370,13 @@ defmodule BeatgridWeb.RecSetLive do
      end)}
   end
 
-  def handle_event("move", %{"track" => track_id, "dir" => dir}, socket)
+  def handle_event("remove", _params, socket), do: {:noreply, socket}
+
+  def handle_event(
+        "move",
+        %{"track" => track_id, "set_id" => set_id, "dir" => dir},
+        %{assigns: %{set: %{id: set_id}}} = socket
+      )
       when dir in ~w(top up down bottom) do
     {:noreply,
      with_track(socket, track_id, fn track ->
@@ -721,17 +778,19 @@ defmodule BeatgridWeb.RecSetLive do
   defp first_track_id([%{track: %{id: id}} | _]), do: id
   defp first_track_id(_), do: nil
 
-  # Loudness jumps (LU) between consecutive entries, keyed by the 1-based index of
-  # the LOWER row — one pass at load time, so the render reads @loudness_jumps[i]
+  # Loudness jumps (LU) between consecutive entries, keyed by the displayed
+  # ordinal of the LOWER row — one pass at load time, so the render reads that key
   # instead of re-scanning the list per row. Unmeasured pairs get no key.
   defp loudness_jumps(entries) do
     entries
     |> Enum.chunk_every(2, 1, :discard)
-    |> Enum.with_index(2)
-    |> Enum.reduce(%{}, fn {[prev, cur], i}, acc ->
+    |> Enum.reduce(%{}, fn [prev, cur], acc ->
       case {prev.track.loudness_lufs, cur.track.loudness_lufs} do
-        {p, c} when is_number(p) and is_number(c) -> Map.put(acc, i, Float.round(c - p, 1))
-        _ -> acc
+        {p, c} when is_number(p) and is_number(c) ->
+          Map.put(acc, cur.position, Float.round(c - p, 1))
+
+        _ ->
+          acc
       end
     end)
   end
@@ -813,6 +872,17 @@ defmodule BeatgridWeb.RecSetLive do
 
   @impl true
   def render(assigns) do
+    displayed_tracks =
+      Enum.map(assigns.entries, & &1.track) ++
+        Enum.map(assigns.candidates, & &1.track) ++
+        assigns.search_results ++ List.wrap(assigns.proposed_track)
+
+    assigns =
+      assign(assigns,
+        ambiguous_ids: TrackIdentity.ambiguous_ids(displayed_tracks),
+        entry_count: length(assigns.entries)
+      )
+
     ~H"""
     <.app_shell flash={@flash} active={:sets} socket={@socket}>
       <h1 class="border-b border-white/6 bg-rail px-4 py-2 text-title font-semibold">
@@ -1057,17 +1127,22 @@ defmodule BeatgridWeb.RecSetLive do
               </button>
             </div>
             <ol aria-label="Ordem das faixas" class="mt-2 space-y-0.5">
-              <li :for={{e, i} <- Enum.with_index(@entries, 1)} class="space-y-0.5">
-                <div :if={@loudness_jumps[i]} class="flex justify-center">
+              <li
+                :for={e <- @entries}
+                id={"set-track-#{e.track.id}"}
+                data-position={e.position}
+                class="space-y-0.5"
+              >
+                <div :if={@loudness_jumps[e.position]} class="flex justify-center">
                   <span class={[
                     "font-mono text-[10px]",
-                    loudness_delta_class(@loudness_jumps[i])
+                    loudness_delta_class(@loudness_jumps[e.position])
                   ]}>
-                    {loudness_jump_label(@loudness_jumps[i])}
+                    {loudness_jump_label(@loudness_jumps[e.position])}
                   </span>
                 </div>
                 <div
-                  :if={i > 1}
+                  :if={e.position > 1}
                   class="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 py-0"
                 >
                   <button
@@ -1143,7 +1218,7 @@ defmodule BeatgridWeb.RecSetLive do
                   (e.track.id == @playing_track_id && "bg-primary/15 ring-1 ring-primary/40") ||
                     "bg-surface"
                 ]}>
-                  <span class="w-5 shrink-0 text-right font-mono text-[12px] text-ink-faint">{i}</span>
+                  <span class="w-5 shrink-0 text-right font-mono text-[12px] text-ink-faint">{e.position}</span>
                   <.play_button
                     src={~p"/audio/#{e.track.id}"}
                     track_id={e.track.id}
@@ -1157,13 +1232,14 @@ defmodule BeatgridWeb.RecSetLive do
                     <div class="flex min-w-0 items-center gap-1.5">
                       <.link
                         navigate={track_detail_path(e.track.id, @set.id)}
-                        class="truncate text-body font-medium text-ink hover:text-primary hover:underline"
+                        class="min-w-0 break-words text-body font-medium text-ink hover:text-primary hover:underline [overflow-wrap:anywhere]"
                       >
                         {title(e.track)}
                       </.link>
                       <.ouro_badge track={e.track} />
                     </div>
-                    <p class="truncate text-caption text-ink-muted">{e.track.tag_artist || "—"}</p>
+                    <p class="break-words text-caption text-ink-muted">{e.track.tag_artist || "—"}</p>
+                    <.recording_path track={e.track} ambiguous_ids={@ambiguous_ids} />
                   </div>
                   <div class="flex w-full flex-wrap items-center gap-2 border-t border-white/6 pt-1 @min-[40rem]:w-auto @min-[40rem]:border-0 @min-[40rem]:pt-0">
                     <span
@@ -1179,42 +1255,51 @@ defmodule BeatgridWeb.RecSetLive do
                     <div class="ml-auto flex shrink-0 items-center gap-1 text-body [&>button]:inline-grid [&>button]:min-h-7 [&>button]:min-w-7 [&>button]:place-items-center">
                       <button
                         phx-click="move"
+                        phx-value-set_id={@set.id}
                         phx-value-track={e.track.id}
                         phx-value-dir="top"
-                        class="text-ink-faint hover:text-ink"
+                        disabled={e.position == 1}
+                        class="text-ink-faint hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
                         title="Para o topo"
-                        aria-label="Para o topo"
+                        aria-label={"Para o topo: faixa #{e.position}, #{title(e.track)}"}
                       >⤒</button>
                       <button
                         phx-click="move"
+                        phx-value-set_id={@set.id}
                         phx-value-track={e.track.id}
                         phx-value-dir="up"
-                        class="text-ink-faint hover:text-ink"
+                        disabled={e.position == 1}
+                        class="text-ink-faint hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
                         title="Subir"
-                        aria-label="Subir"
+                        aria-label={"Subir: faixa #{e.position}, #{title(e.track)}"}
                       >▲</button>
                       <button
                         phx-click="move"
+                        phx-value-set_id={@set.id}
                         phx-value-track={e.track.id}
                         phx-value-dir="down"
-                        class="text-ink-faint hover:text-ink"
+                        disabled={e.position == @entry_count}
+                        class="text-ink-faint hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
                         title="Descer"
-                        aria-label="Descer"
+                        aria-label={"Descer: faixa #{e.position}, #{title(e.track)}"}
                       >▼</button>
                       <button
                         phx-click="move"
+                        phx-value-set_id={@set.id}
                         phx-value-track={e.track.id}
                         phx-value-dir="bottom"
-                        class="text-ink-faint hover:text-ink"
+                        disabled={e.position == @entry_count}
+                        class="text-ink-faint hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
                         title="Para o fim"
-                        aria-label="Para o fim"
+                        aria-label={"Para o fim: faixa #{e.position}, #{title(e.track)}"}
                       >⤓</button>
                       <button
                         phx-click="remove"
+                        phx-value-set_id={@set.id}
                         phx-value-track={e.track.id}
                         class="ml-1 text-ink-muted hover:text-coral"
                         title="Remover"
-                        aria-label="Remover do set"
+                        aria-label={"Remover do set: faixa #{e.position}, #{title(e.track)}"}
                       >✕</button>
                     </div>
                   </div>
@@ -1271,6 +1356,7 @@ defmodule BeatgridWeb.RecSetLive do
                 <.candidate_list
                   :if={@entries != []}
                   candidates={@candidates}
+                  ambiguous_ids={@ambiguous_ids}
                   set_id={@set.id}
                   weights={@weights}
                   empty?={false}
@@ -1280,6 +1366,7 @@ defmodule BeatgridWeb.RecSetLive do
                 <.candidate_list
                   :if={@entries == []}
                   candidates={@candidates}
+                  ambiguous_ids={@ambiguous_ids}
                   set_id={@set.id}
                   weights={@weights}
                   empty?={true}
@@ -1290,6 +1377,7 @@ defmodule BeatgridWeb.RecSetLive do
               <.collapsible id="search" title="Buscar faixa" open_panels={@open_panels}>
                 <.search_box
                   query={@search_query}
+                  ambiguous_ids={@ambiguous_ids}
                   set_id={@set.id}
                   results={@search_results}
                   in_set={MapSet.new(@entries, & &1.track.id)}
@@ -1344,6 +1432,7 @@ defmodule BeatgridWeb.RecSetLive do
           id="set-add-proposed-track"
           type="button"
           phx-click="append"
+          phx-value-set_id={@set.id}
           phx-value-track={@track.id}
           class="rounded-md bg-primary-deep px-3 py-2 text-body-sm font-semibold text-white"
         >Adicionar ao final de “{@set.name}”</button>
@@ -1957,7 +2046,28 @@ defmodule BeatgridWeb.RecSetLive do
     """
   end
 
+  attr :track, :map, required: true
+  attr :ambiguous_ids, :any, required: true
+
+  defp recording_path(assigns) do
+    ~H"""
+    <p
+      :if={MapSet.member?(@ambiguous_ids, @track.id)}
+      class="recording-path mt-0.5 break-words font-mono text-caption text-ink-muted [overflow-wrap:anywhere]"
+    >
+      {@track.rel_path}
+    </p>
+    """
+  end
+
+  defp add_label(track, ambiguous_ids) do
+    if MapSet.member?(ambiguous_ids, track.id),
+      do: "Adicionar #{title(track)} — #{track.rel_path}",
+      else: "Adicionar #{title(track)}"
+  end
+
   attr :candidates, :list, required: true
+  attr :ambiguous_ids, :any, required: true
   attr :set_id, :string, required: true
   attr :weights, :map, required: true
   attr :empty?, :boolean, required: true
@@ -1975,8 +2085,9 @@ defmodule BeatgridWeb.RecSetLive do
       <div :if={@candidates != []} class="space-y-1">
         <div
           :for={c <- @candidates}
+          id={"set-candidate-#{c.track.id}"}
           class={[
-            "flex items-center gap-3 rounded-lg border px-2.5 py-2",
+            "grid grid-cols-[auto_auto_minmax(0,1fr)] items-center gap-x-2 gap-y-1.5 rounded-lg border px-2.5 py-2",
             (c.track.id == @playing_id && "border-primary/40 bg-primary/15") || "border-white/6"
           ]}
         >
@@ -1988,34 +2099,38 @@ defmodule BeatgridWeb.RecSetLive do
             playing?={c.track.id == @playing_id}
           />
           <.cover src={cover_src(c.track)} artist={c.track.tag_artist} size={30} />
-          <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-2">
-              <.link
-                navigate={track_detail_path(c.track.id, @set_id)}
-                class="min-w-0 flex-1 truncate text-body-sm font-medium text-ink hover:text-primary hover:underline"
-              >
-                {title(c.track)}
-              </.link>
-              <.folder_badge :if={c.track.genre_folder} folder={c.track.genre_folder} />
-            </div>
-            <p class="truncate text-caption text-ink-muted">{c.track.tag_artist || "—"}</p>
+          <div class="min-w-0">
+            <.link
+              navigate={track_detail_path(c.track.id, @set_id)}
+              class="block break-words text-body-sm font-medium text-ink hover:text-primary hover:underline [overflow-wrap:anywhere]"
+            >
+              {title(c.track)}
+            </.link>
+            <p class="break-words text-caption text-ink-muted">{c.track.tag_artist || "—"}</p>
+            <.recording_path track={c.track} ambiguous_ids={@ambiguous_ids} />
             <.composition_bar breakdown={c.breakdown} weights={@weights} />
           </div>
-          <span
-            class="w-8 shrink-0 text-right font-mono text-body-sm font-semibold text-ink-secondary"
-            title="Pontuação de compatibilidade"
-          >
-            {round(c.score)}
-          </span>
-          <.camelot_seal value={c.camelot} />
-          <span class="w-10 text-right font-mono text-body-sm text-primary">{round(c.bpm || 0)}</span>
-          <button
-            phx-click="append"
-            phx-value-track={c.track.id}
-            class="shrink-0 rounded-md bg-primary/15 px-2.5 py-1 text-[12px] font-semibold text-primary hover:bg-primary/25"
-          >
-            Adicionar
-          </button>
+          <div class="col-span-3 flex flex-wrap items-center gap-2 border-t border-white/6 pt-1.5">
+            <.folder_badge :if={c.track.genre_folder} folder={c.track.genre_folder} />
+            <span
+              class="font-mono text-body-sm font-semibold text-ink-secondary"
+              title="Pontuação de compatibilidade"
+            >
+              {round(c.score)}
+            </span>
+            <.camelot_seal value={c.camelot} />
+            <span class="font-mono text-body-sm text-primary">{round(c.bpm || 0)}
+            <span class="sr-only">BPM</span></span>
+            <button
+              phx-click="append"
+              phx-value-set_id={@set_id}
+              phx-value-track={c.track.id}
+              aria-label={add_label(c.track, @ambiguous_ids)}
+              class="ml-auto shrink-0 rounded-md bg-primary/15 px-2.5 py-1 text-[12px] font-semibold text-primary hover:bg-primary/25"
+            >
+              Adicionar
+            </button>
+          </div>
         </div>
       </div>
       <p :if={@candidates == [] and @empty?} class="text-body-sm text-ink-faint">
@@ -2029,6 +2144,7 @@ defmodule BeatgridWeb.RecSetLive do
   end
 
   attr :query, :string, required: true
+  attr :ambiguous_ids, :any, required: true
   attr :set_id, :string, required: true
   attr :results, :list, required: true
   attr :in_set, :any, default: %MapSet{}
@@ -2056,7 +2172,8 @@ defmodule BeatgridWeb.RecSetLive do
       <div :if={@results != []} id="search-results" class="mt-2 space-y-1">
         <div
           :for={t <- @results}
-          class="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-surface-2"
+          id={"set-search-#{t.id}"}
+          class="grid grid-cols-[auto_auto_minmax(0,1fr)] items-center gap-x-2 gap-y-1.5 rounded-lg px-2 py-1.5 hover:bg-surface-2"
         >
           <.play_button
             src={~p"/audio/#{t.id}"}
@@ -2066,31 +2183,36 @@ defmodule BeatgridWeb.RecSetLive do
             playing?={t.id == @playing_id}
           />
           <.cover src={cover_src(t)} artist={t.tag_artist} size={30} />
-          <div class="min-w-0 flex-1">
+          <div class="min-w-0">
             <.link
               navigate={track_detail_path(t.id, @set_id)}
-              class="block truncate text-body-sm font-medium text-ink hover:text-primary hover:underline"
+              class="block break-words text-body-sm font-medium text-ink hover:text-primary hover:underline [overflow-wrap:anywhere]"
             >
               {title(t)}
             </.link>
-            <p class="truncate text-caption text-ink-muted">{t.tag_artist || "—"}</p>
+            <p class="break-words text-caption text-ink-muted">{t.tag_artist || "—"}</p>
+            <.recording_path track={t} ambiguous_ids={@ambiguous_ids} />
           </div>
-          <.camelot_seal value={camelot(t)} />
-          <span
-            :if={MapSet.member?(@in_set, t.id)}
-            class="shrink-0 rounded-md bg-white/5 px-2.5 py-1 text-[12px] font-medium text-ink-faint"
-            title="Esta faixa já está no set"
-          >
-            ✓ no set
-          </span>
-          <button
-            :if={!MapSet.member?(@in_set, t.id)}
-            phx-click="append"
-            phx-value-track={t.id}
-            class="shrink-0 rounded-md bg-primary/15 px-2.5 py-1 text-[12px] font-semibold text-primary hover:bg-primary/25"
-          >
-            Adicionar
-          </button>
+          <div class="col-span-3 flex flex-wrap items-center gap-2 border-t border-white/6 pt-1.5">
+            <.camelot_seal value={camelot(t)} />
+            <span
+              :if={MapSet.member?(@in_set, t.id)}
+              class="ml-auto shrink-0 rounded-md bg-white/5 px-2.5 py-1 text-[12px] font-medium text-ink-faint"
+              title="Esta faixa já está no set"
+            >
+              ✓ no set
+            </span>
+            <button
+              :if={!MapSet.member?(@in_set, t.id)}
+              phx-click="append"
+              phx-value-set_id={@set_id}
+              phx-value-track={t.id}
+              aria-label={add_label(t, @ambiguous_ids)}
+              class="ml-auto shrink-0 rounded-md bg-primary/15 px-2.5 py-1 text-[12px] font-semibold text-primary hover:bg-primary/25"
+            >
+              Adicionar
+            </button>
+          </div>
         </div>
       </div>
     </div>

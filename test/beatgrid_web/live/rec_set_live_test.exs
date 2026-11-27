@@ -6,7 +6,9 @@ defmodule BeatgridWeb.RecSetLiveTest do
   import Beatgrid.Factory
 
   alias Beatgrid.Library.Tracks
+  alias Beatgrid.Repo
   alias Beatgrid.Sets
+  alias Beatgrid.Sets.RecSetQuery
 
   setup :isolate_library_root
 
@@ -109,6 +111,145 @@ defmodule BeatgridWeb.RecSetLiveTest do
     assert has_element?(view, "a[href='/discotecagem?set=#{second.id}']", "Abrir na discotecagem")
   end
 
+  test "homonymous recordings retain their exact path in order, catalogue and candidates", %{
+    conn: conn
+  } do
+    live_version =
+      track_with("8A", 112.0,
+        tag_title: "Asa Branca",
+        tag_artist: "Luiz",
+        rel_path: "Forró/Asa Branca - ao vivo.mp3"
+      )
+
+    studio_version =
+      track_with("8A", 113.0,
+        tag_title: "Asa Branca",
+        tag_artist: "Luiz",
+        rel_path: "Forró/Asa Branca - estúdio.mp3"
+      )
+
+    other_artist =
+      track_with("8A", 114.0,
+        tag_title: "Asa Branca",
+        tag_artist: "Maria",
+        rel_path: "Forró/Maria.mp3"
+      )
+
+    {:ok, set} = Sets.create_filled("Baile", [live_version])
+    {:ok, view, _html} = live(conn, ~p"/set/#{set.id}")
+
+    assert has_element?(
+             view,
+             "#set-track-#{live_version.id} .recording-path",
+             live_version.rel_path
+           )
+
+    open_panel(view, "candidates")
+
+    assert has_element?(
+             view,
+             "#set-candidate-#{studio_version.id} .recording-path",
+             studio_version.rel_path
+           )
+
+    refute has_element?(view, "#set-candidate-#{other_artist.id} .recording-path")
+
+    open_panel(view, "search")
+    view |> form("#track-search", %{q: "Asa Branca"}) |> render_change()
+
+    for recording <- [live_version, studio_version] do
+      assert has_element?(view, "#set-search-#{recording.id} .recording-path", recording.rel_path)
+      assert has_element?(view, "#set-search-#{recording.id} a", "Asa Branca")
+    end
+
+    refute has_element?(view, "#set-search-#{other_artist.id} .recording-path")
+
+    assert has_element?(
+             view,
+             "#set-search-#{studio_version.id} button[aria-label*='#{studio_version.rel_path}']"
+           )
+
+    view |> element("#set-search-#{studio_version.id} button[phx-click=append]") |> render_click()
+
+    assert has_element?(
+             view,
+             "#set-track-#{studio_version.id} .recording-path",
+             studio_version.rel_path
+           )
+
+    assert Enum.map(Sets.tracks(set), & &1.id) == [live_version.id, studio_version.id]
+  end
+
+  test "positions stay contiguous after a membership hole and update from another tab", %{
+    conn: conn
+  } do
+    first = track_with("8A", 112.0, tag_title: "Primeira")
+    removed = track_with("8A", 113.0, tag_title: "Saiu")
+    last = track_with("8A", 114.0, tag_title: "Última")
+    {:ok, set} = Sets.create_filled("Baile", [first, removed, last])
+    {:ok, _} = Tracks.delete(removed)
+
+    {:ok, view, _html} = live(conn, ~p"/set/#{set.id}")
+
+    assert has_element?(
+             view,
+             "#set-track-#{first.id}[data-position='1'] button[phx-value-dir=up][disabled]"
+           )
+
+    assert has_element?(
+             view,
+             "#set-track-#{last.id}[data-position='2'] button[phx-value-dir=down][disabled]"
+           )
+
+    refute has_element?(view, "#set-track-#{last.id} button[phx-value-dir=up][disabled]")
+
+    open_panel(view, "search")
+    view |> form("#track-search", %{q: "Última"}) |> render_change()
+    :ok = Sets.move(set, last, :top)
+
+    assert has_element?(
+             view,
+             "#set-track-#{last.id}[data-position='1'] button[phx-value-dir=up][disabled]"
+           )
+
+    assert has_element?(
+             view,
+             "#set-track-#{first.id}[data-position='2'] button[phx-value-dir=down][disabled]"
+           )
+
+    assert has_element?(view, "#track-search-input[value='Última']")
+
+    view |> element("#set-track-#{first.id} button[phx-value-dir=top]") |> render_click()
+    assert has_element?(view, "#set-track-#{first.id}[data-position='1']")
+    assert has_element?(view, "#set-track-#{last.id}[data-position='2']")
+    assert Enum.map(Sets.tracks(set), & &1.id) == [first.id, last.id]
+    assert has_element?(view, "a[href='/discotecagem?set=#{set.id}']", "Abrir na discotecagem")
+  end
+
+  test "delayed order controls cannot alter a different set after selection changes", %{
+    conn: conn
+  } do
+    first = track_with("8A", 112.0, tag_title: "Primeira")
+    last = track_with("8A", 113.0, tag_title: "Última")
+    extra = track_with("8A", 114.0, tag_title: "Outra")
+    {:ok, before} = Sets.create_filled("Antes", [first, last])
+    {:ok, current} = Sets.create_filled("Agora", [first, last])
+    {:ok, view, _html} = live(conn, ~p"/set/#{before.id}")
+    view |> element("aside a[href='/set/#{current.id}']") |> render_click()
+    assert_patch(view, ~p"/set/#{current.id}")
+
+    render_click(view, "append", %{"set_id" => before.id, "track" => extra.id})
+    render_click(view, "move", %{"set_id" => before.id, "track" => last.id, "dir" => "top"})
+    render_click(view, "remove", %{"set_id" => before.id, "track" => first.id})
+    assert Enum.map(Sets.tracks(current), & &1.id) == [first.id, last.id]
+    assert Enum.map(Sets.tracks(before), & &1.id) == [first.id, last.id]
+
+    # An old subscription must not replace the active editor's queue either.
+    :ok = Sets.move(before, last, :top)
+    assert has_element?(view, "#set-track-#{first.id}[data-position='1']")
+    assert has_element?(view, "#set-track-#{last.id}[data-position='2']")
+  end
+
   test "new set remains reachable through the collapsed set picker", %{conn: conn} do
     track = track_with("8A", 112.0, tag_title: "Proposta")
     {:ok, view, _html} = live(conn, ~p"/set?track_id=#{track.id}")
@@ -162,12 +303,29 @@ defmodule BeatgridWeb.RecSetLiveTest do
     {:ok, remaining} = Sets.create("Outro baile")
     {:ok, view, _html} = live(conn, ~p"/set/#{deleted.id}?track_id=#{track.id}")
 
-    {:ok, _} = Sets.delete(deleted)
+    Repo.delete!(deleted)
     view |> element("#set-add-proposed-track") |> render_click()
     assert_patch(view, ~p"/set?track_id=#{track.id}")
     assert has_element?(view, "#set-proposed-track", "Proposta")
     refute has_element?(view, "#set-add-proposed-track")
     assert has_element?(view, "aside a[href='/set/#{remaining.id}?track_id=#{track.id}']")
+    assert Sets.tracks(remaining) == []
+  end
+
+  test "an externally deleted set remounts the chooser without losing the proposal", %{conn: conn} do
+    track = track_with("8A", 112.0, tag_title: "Proposta externa")
+    {:ok, deleted} = Sets.create("Set removido")
+    {:ok, remaining} = Sets.create("Outro baile")
+    {:ok, view, _html} = live(conn, ~p"/set/#{deleted.id}?track_id=#{track.id}")
+
+    Process.flag(:trap_exit, true)
+    {:ok, _} = Sets.delete(deleted)
+    flash = assert_redirect(view, ~p"/set?track_id=#{track.id}")
+    assert flash["error"] =~ "Esse set já foi excluído"
+
+    {:ok, reopened, _html} = live(conn, ~p"/set?track_id=#{track.id}")
+    assert has_element?(reopened, "#set-proposed-track", "Proposta externa")
+    refute has_element?(reopened, "#set-add-proposed-track")
     assert Sets.tracks(remaining) == []
   end
 
@@ -278,11 +436,13 @@ defmodule BeatgridWeb.RecSetLiveTest do
     refute has_element?(view, "#set-name [aria-invalid=true]")
   end
 
-  test "duplicating a set removed in another tab returns to the remaining set", %{conn: conn} do
+  test "duplicating a stale set before the deletion notification returns to the remaining set", %{
+    conn: conn
+  } do
     {:ok, other} = Sets.create("Outro baile")
     {:ok, set} = Sets.create("Removido")
     {:ok, view, _} = live(conn, ~p"/set/#{set.id}")
-    {:ok, _} = Sets.delete(set)
+    Repo.delete!(set)
 
     view |> element("button[phx-click=duplicate_set]") |> render_click()
     assert_patch(view, ~p"/set/#{other.id}")
@@ -292,7 +452,7 @@ defmodule BeatgridWeb.RecSetLiveTest do
     assert remaining.id == other.id
   end
 
-  test "stale name, style and delete controls recover when another tab deletes the set", %{
+  test "stale name, style and delete controls recover even before deletion notifications", %{
     conn: conn
   } do
     {:ok, remaining} = Sets.create("Outro baile")
@@ -300,7 +460,7 @@ defmodule BeatgridWeb.RecSetLiveTest do
     for action <- [:rename, :style, :delete] do
       {:ok, gone} = Sets.create("Baile antigo")
       {:ok, view, _} = live(conn, ~p"/set/#{gone.id}")
-      {:ok, _} = Sets.delete(gone)
+      Repo.delete!(gone)
 
       case action do
         :rename -> view |> form("#set-name", %{name: "Novo nome"}) |> render_submit()
@@ -940,7 +1100,7 @@ defmodule BeatgridWeb.RecSetLiveTest do
     b = track_with("8A", 121.0, tag_title: "B")
     {:ok, set} = Sets.create_filled("Salão", [a, b])
     {:ok, view, _} = live(conn, ~p"/set/#{set.id}")
-    :ok = Sets.remove(set, b)
+    set.id |> RecSetQuery.rows() |> Enum.find(&(&1.track_id == b.id)) |> Repo.delete!()
 
     html =
       view |> element("[phx-click=toggle_breather][phx-value-track='#{b.id}']") |> render_click()
@@ -969,9 +1129,10 @@ defmodule BeatgridWeb.RecSetLiveTest do
     assert html =~ "sai 2:00 📌"
   end
 
-  test "adding a search result after another tab deletes the set keeps the editor usable", %{
-    conn: conn
-  } do
+  test "adding a search result before the notification of a deleted set keeps the editor usable",
+       %{
+         conn: conn
+       } do
     {:ok, surviving} = Sets.create("Próximo baile")
     {:ok, deleted} = Sets.create("Rascunho")
     track = track_with("8A", 112.0, tag_title: "Sanfona", norm_title: "sanfona")
@@ -979,7 +1140,7 @@ defmodule BeatgridWeb.RecSetLiveTest do
     open_panel(view, "search")
     view |> form("#track-search", %{q: "Sanfona"}) |> render_change()
 
-    {:ok, _} = Sets.delete(deleted)
+    Repo.delete!(deleted)
     view |> element("#search-results [phx-value-track='#{track.id}']") |> render_click()
 
     assert_patch(view, ~p"/set/#{surviving.id}")
