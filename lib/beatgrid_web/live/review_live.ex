@@ -33,9 +33,17 @@ defmodule BeatgridWeb.ReviewLive do
   end
 
   defp load(socket) do
+    renames = Review.queue_renames()
+    classifications = Review.queue_classifications()
+
     assign(socket,
-      renames: Review.queue_renames(),
-      classifications: Review.queue_classifications(),
+      renames: renames,
+      classifications: classifications,
+      counts: %{
+        renames: Enum.count(renames, &actionable?/1),
+        classifications: Enum.count(classifications, &actionable?/1),
+        auditoria: Enum.count(renames, &audit_flag(&1.reason))
+      },
       recent_batches: Operations.recent_batches(limit: 5)
     )
   end
@@ -44,7 +52,7 @@ defmodule BeatgridWeb.ReviewLive do
 
   @impl true
   def handle_params(params, _uri, socket) do
-    {:noreply, assign(socket, tab: tab_atom(params["aba"]), editing: nil)}
+    {:noreply, assign(socket, tab: review_tab(params["aba"], socket.assigns), editing: nil)}
   end
 
   # --- selection (ephemeral; no DB writes, so the list never reorders) ---
@@ -205,9 +213,20 @@ defmodule BeatgridWeb.ReviewLive do
 
   defp find(socket, id, _rename), do: Enum.find(socket.assigns.renames, &(&1.id == id))
 
-  defp tab_atom("classifications"), do: :classifications
-  defp tab_atom("auditoria"), do: :auditoria
-  defp tab_atom(_), do: :renames
+  defp review_tab("classifications", _assigns), do: :classifications
+  defp review_tab("auditoria", _assigns), do: :auditoria
+  defp review_tab("renames", _assigns), do: :renames
+
+  defp review_tab(_default, assigns) do
+    fallback =
+      if assigns.renames == [] and assigns.classifications != [],
+        do: :classifications,
+        else: :renames
+
+    Enum.find([:renames, :classifications, :auditoria], fallback, &(assigns.counts[&1] > 0))
+  end
+
+  defp actionable?(suggestion), do: suggestion.status != :rejected
 
   defp rename_items(:auditoria, renames), do: Enum.filter(renames, &audit_flag(&1.reason))
   defp rename_items(_tab, renames), do: renames
@@ -221,7 +240,7 @@ defmodule BeatgridWeb.ReviewLive do
   defp tab_items(assigns) do
     assigns.tab
     |> current_items(assigns.renames, assigns.classifications)
-    |> Enum.reject(&(&1.status == :rejected))
+    |> Enum.filter(&actionable?/1)
   end
 
   defp toggle(set, id) do
@@ -268,6 +287,7 @@ defmodule BeatgridWeb.ReviewLive do
     assigns =
       assign(assigns,
         items: items,
+        first_rejected: Enum.find(items, &(&1.status == :rejected)),
         eligible: eligible,
         selected_here: selected_here,
         selected_elsewhere: MapSet.size(assigns.selected) - selected_here,
@@ -283,21 +303,21 @@ defmodule BeatgridWeb.ReviewLive do
 
           <nav aria-label="Tipos de revisão" class="mt-3 grid grid-cols-3 gap-1 sm:flex sm:flex-wrap">
             <.tab
-              path={~p"/revisao"}
+              path={~p"/revisao?aba=renames"}
               label="Renomeações"
-              count={length(@renames)}
+              count={@counts.renames}
               active={@tab == :renames}
             />
             <.tab
               path={~p"/revisao?aba=classifications"}
               label="Classificação"
-              count={length(@classifications)}
+              count={@counts.classifications}
               active={@tab == :classifications}
             />
             <.tab
               path={~p"/revisao?aba=auditoria"}
               label="Auditoria"
-              count={length(rename_items(:auditoria, @renames))}
+              count={@counts.auditoria}
               active={@tab == :auditoria}
             />
           </nav>
@@ -440,6 +460,12 @@ defmodule BeatgridWeb.ReviewLive do
 
           <div :if={@items != []} class="space-y-2.5">
             <%= for s <- @items do %>
+              <h2
+                :if={@tab != :auditoria and s == @first_rejected}
+                class="border-t border-white/8 pt-3 text-body-lg font-semibold text-ink-secondary"
+              >
+                Sugestões rejeitadas
+              </h2>
               <.suggestion_card
                 :if={@tab == :classifications}
                 id={s.id}
