@@ -489,7 +489,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     postponeMs: 0,
     // Breather in progress. A null deadline means its outgoing phrase is still playing.
     breatherGap: null,
-    stopTransitionEffect: null,
+    stopScratchDrop: null,
     // User "comprimento" knob: scales every transition's timings around the
     // reference length (REF_LEN_S = the default crossfade). 1.0 = as designed.
     transitionScale: 1,
@@ -575,7 +575,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     else if (state.waitingForNext) handleEnded(decks[state.activeDeck])
   }
 
-  function handleEnded(deck) {
+  function handleEnded(deck, trackId = deck.trackId) {
     state.postponeMs = 0
     const hint = state.hint
     const other = decks[otherId(deck.id)]
@@ -597,7 +597,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       state.firedForTrack = null
       emit("deckStarted", {deck: other.id, trackId: other.trackId})
     } else {
-      boundaryOnce(deck.trackId, () => emit("trackEnded", {trackId: deck.trackId}))
+      boundaryOnce(trackId, () => emit("trackEnded", {trackId}))
     }
   }
 
@@ -733,6 +733,19 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     return token === state.transitionToken && outgoing?.deck === deck.id && outgoing.load === deck.loadToken
   }
 
+  function finishOutgoing(deck, token) {
+    if (!ownsOutgoing(deck, token)) return
+    if (deck.cueState === "preview") {
+      // The old effect can end, but CUE now owns playback and pitch.
+      deck.stopBrake?.()
+      settleTransitionParams(deck)
+      neutralizeIncoming(deck, "cut")
+    } else {
+      deck.pause()
+      resetChain(deck)
+    }
+  }
+
   function handoff(from, to, event) {
     state.activeDeck = to.id
     state.hint = null
@@ -840,11 +853,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     startIncoming(to, toMs)
     setXfadeTo(sideOf(to.id), outS)
 
-    after(outS + 0.1, () => {
-      if (!ownsOutgoing(from, token)) return
-      from.pause()
-      resetChain(from)
-    })
+    after(outS + 0.1, () => finishOutgoing(from, token))
   }
 
   function crossfade(from, to, toMs, token) {
@@ -856,8 +865,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     setXfadeTo(sideOf(to.id), xfS)
 
     after(xfS + 0.2, () => {
-      if (!ownsOutgoing(from, token)) return
-      from.pause()
+      if (ownsOutgoing(from, token) && from.cueState !== "preview") from.pause()
     })
   }
 
@@ -914,20 +922,16 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       const end = ctx.currentTime
       from.settleGain(from.echoSend)
       from.echoSend.gain.linearRampToValueAtTime(0, end + dur(0.6))
-      after(dur(0.7), () => {
-        if (!ownsOutgoing(from, token)) return
-        from.pause()
-        resetChain(from)
-      })
+      after(dur(0.7), () => finishOutgoing(from, token))
     })
 
     const turnOff = () => {
       clearTimeout(lightTimer)
-      state.stopTransitionEffect = null
+      from.stopEcho = null
       emit("echoState", {deck: from.id, on: false})
     }
     const lightTimer = after(total + dur(0.7), turnOff)
-    state.stopTransitionEffect = turnOff
+    from.stopEcho = turnOff
     emit("echoState", {deck: from.id, on: true, delayMs: Math.round(delayS * 1000)})
   }
 
@@ -945,11 +949,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     startIncoming(to, toMs)
     setXfadeTo(sideOf(to.id), s * 0.8)
 
-    after(s + 0.2, () => {
-      if (!ownsOutgoing(from, token)) return
-      from.pause()
-      resetChain(from)
-    })
+    after(s + 0.2, () => finishOutgoing(from, token))
   }
 
   // "Afunda": the mirror of the filter sweep — the outgoing track loses its
@@ -966,11 +966,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     startIncoming(to, toMs)
     setXfadeTo(sideOf(to.id), s * 0.8)
 
-    after(s + 0.2, () => {
-      if (!ownsOutgoing(from, token)) return
-      from.pause()
-      resetChain(from)
-    })
+    after(s + 0.2, () => finishOutgoing(from, token))
   }
 
   // Bass swap: the incoming track rides bodiless over the outgoing groove, then
@@ -1001,10 +997,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     })
     after(overlapS + dur(2.4), () => {
       if (token !== state.transitionToken) return
-      if (ownsOutgoing(from, token)) {
-        from.pause()
-        resetChain(from)
-      }
+      finishOutgoing(from, token)
       // The incoming deck keeps playing — only make sure its shelf sits flat.
       // (No resetChain: that would snap the SYNCed tempo back audibly.)
       to.settleParam(to.bass.gain)
@@ -1039,11 +1032,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       startIncoming(to, toMs)
       setXfadeTo(sideOf(to.id), 0.3)
     })
-    after(brakeS + 0.05, () => {
-      if (!ownsOutgoing(from, token)) return
-      from.pause()
-      resetChain(from)
-    })
+    after(brakeS + 0.05, () => finishOutgoing(from, token))
   }
 
   // Scratch DROP transitions: scratch the OUTGOING track (real worklet audio)
@@ -1138,7 +1127,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
     const stop = () => {
       clearInterval(iv)
-      state.stopTransitionEffect = null
+      state.stopScratchDrop = null
       if (s.active) {
         s.active = false
         if (s.node) s.node.port.postMessage({type: "stop"})
@@ -1170,7 +1159,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         // the room gets dead air with a stuck crossfader. Never touch `from`
         // here — its new owner drives it now.
         clearInterval(iv)
-        state.stopTransitionEffect = null
+        state.stopScratchDrop = null
         riseIncoming(to, 0.03)
         startIncoming(to, toMs)
         setXfadeTo(sideOf(to.id), 0.06)
@@ -1189,7 +1178,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       }
       if (p >= 1) drop()
     }, 16)
-    state.stopTransitionEffect = stop
+    state.stopScratchDrop = stop
   }
 
   // Respiro do salão: a música que sai toca até o FIM DE VERDADE — o eco
@@ -1216,6 +1205,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // Keep the outgoing track as the set pointer through its tail and the gap.
     // A set edit may replace the receiving track while the room is silent.
     const gap = {
+      fromTrackId: event.fromTrackId,
       durationMs: Math.max(transition.gap_ms ?? 5000, 0),
       deadline: null,
       timer: null,
@@ -1263,9 +1253,11 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   function interruptTransition() {
-    state.stopTransitionEffect?.()
-    decks.a.stopBrake?.()
-    decks.b.stopBrake?.()
+    state.stopScratchDrop?.()
+    for (const deck of Object.values(decks)) {
+      deck.stopBrake?.()
+      deck.stopEcho?.()
+    }
     if (state.breatherGap) clearTimeout(state.breatherGap.timer)
     state.breatherGap = null
     state.waitingForNext = false
@@ -1299,6 +1291,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     deck.feedback.gain.setValueAtTime(RAMP.echoFeedback, now)
     clearLoop(deck)
     deck.vinylMode = false
+    deck.stopEcho?.()
     deck.stopBrake?.()
     cancelBend(deck.id)
     deck.resetRate()
@@ -1830,6 +1823,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     rescued.el.playbackRate = rescued.baseRate
     if (rescued.el.paused) rescued.play()
     dropped.pause()
+    dropped.bass.gain.setValueAtTime(0, now)
     setCrossfader(keepFader ? xfade.pos : sideOf(rescued.id))
     rescued._seekGuard = true
     state.activeDeck = rescued.id
@@ -1874,6 +1868,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
     loadDeck(deckId, track, {autoplay = false, atMs = 0} = {}) {
       const deck = decks[deckId]
+      // Only a silent breather frees a deck that still owns a live set boundary.
+      if (!autoplay && sessionDeck() === deckId && !activeBreatherGap()) return false
       if (deckBusy(deckId) || !deck.load(track, atMs)) return false
       // A fresh load is a fresh instrument — loop off (chips/região avisados),
       // FX neutros, tempo natural. Vale para preload manual também.
@@ -1933,12 +1929,16 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       state.hint = null
       if (state.breatherGap || state.waitingForNext) {
         const from = decks[state.activeDeck]
-        const final = !from.audible()
+        const gap = state.breatherGap
+        const originalLoaded = !gap || ownsOutgoing(from, state.transitionToken)
+        const final = !originalLoaded || !from.audible()
         interruptTransition()
-        settleTransitionParams(from)
-        neutralizeIncoming(from, "cut")
+        if (originalLoaded) {
+          settleTransitionParams(from)
+          neutralizeIncoming(from, "cut")
+        }
         state.firedForTrack = null
-        if (final) handleEnded(from)
+        if (final) handleEnded(from, gap?.fromTrackId ?? from.trackId)
       }
     },
 
@@ -2318,7 +2318,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         breatherTail: Boolean(state.breatherGap && state.breatherGap.deadline === null),
         breather: (() => {
           const gap = activeBreatherGap()
-          return gap ? {remainingMs: Math.max(gap.deadline - performance.now(), 0)} : null
+          return gap ? {fromTrackId: gap.fromTrackId, remainingMs: Math.max(gap.deadline - performance.now(), 0)} : null
         })(),
         a: deckSnap(decks.a),
         b: deckSnap(decks.b),

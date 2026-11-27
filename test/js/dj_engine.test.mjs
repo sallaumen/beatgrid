@@ -949,3 +949,77 @@ test("a rescued echo cannot turn off the next echo early", t => {
   tick(2000)
   assert.deepEqual(lights, [true, false, true, false])
 })
+
+test("an early bass swap rescue leaves the incoming deck ready to play with flat bass", t => {
+  const {engine, b, hint} = booth(t)
+  hint(null)
+  assert.equal(engine.fireManual("bass_swap").ok, true)
+  // The stub applies future ramps immediately. Web Audio still reads -24 dB before the swap.
+  engine.decks.b.bass.gain.value = -24
+  assert.equal(engine.cancelTransition().ok, true)
+  engine.playPause("b")
+  assert.equal(b.paused, false)
+  assert.equal(engine.decks.b.bass.gain.value, 0)
+})
+
+for (const type of ["crossfade", "fade", "filter", "lowpass", "echo", "bass_swap", "brake"]) {
+  test(`holding CUE on the same outgoing record survives ${type} cleanup`, t => {
+    const {engine, a, b, hint, tick} = booth(t)
+    hint(null)
+    assert.equal(engine.fireManual(type).ok, true)
+    engine.cueButton("a", true)
+    engine.cueButton("a", false)
+    engine.cueButton("a", true)
+    assert.equal(a.paused, false)
+    engine.setRate("a", 1.06)
+    tick(12_000)
+    tick(1000)
+    assert.equal(a.paused, false)
+    assert.equal(a.playbackRate, 1.06)
+    assert.equal(b.paused, false)
+    engine.cueButton("a", false)
+    assert.equal(a.paused, true)
+    assert.equal(engine.sessionDeck(), "b")
+  })
+}
+
+test("a manual LOAD distinguishes a silent gap from a session waiting for its next record", t => {
+  const {engine, a, b, hint, breath, ends} = booth(t)
+  const third = {id: "three", src: "three", bpm: 120}
+  hint(null)
+  b.readyState = 1
+  a.end()
+  assert.equal(engine.loadDeck("a", third), false)
+  engine.stopAll()
+  assert.equal(engine.loadDeck("a", {id: "one", src: "one"}, {autoplay: true}), true)
+  hint(breath)
+  b.ready()
+  assert.equal(engine.loadDeck("a", third), false)
+  a.end()
+  assert.equal(engine.loadDeck("a", third), true)
+  assert.equal(engine.snapshot().breather.fromTrackId, "one")
+  engine.clearHint()
+  assert.deepEqual(ends, [{trackId: "one"}])
+  assert.equal(engine.snapshot().a.trackId, "three")
+})
+
+for (const method of ["LOAD", "set preload"]) {
+  test(`replacing the outgoing record via ${method} turns off its echo light immediately`, t => {
+    const lights = []
+    const {engine, a, b, hint, tick} = booth(t, {echoState: ({on}) => lights.push(on)})
+    hint(null)
+    assert.equal(engine.fireManual("echo").ok, true)
+    engine.playPause("a")
+    assert.deepEqual(lights, [true])
+    if (method === "LOAD") {
+      assert.equal(engine.loadDeck("a", {id: "three", src: "three"}), true)
+    } else {
+      assert.equal(hint(null, "three"), "a")
+    }
+    assert.deepEqual(lights, [true, false])
+    tick(12_000)
+    assert.deepEqual(lights, [true, false])
+    assert.equal(a.paused, true)
+    assert.equal(b.paused, false)
+  })
+}

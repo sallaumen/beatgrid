@@ -12,6 +12,32 @@ defmodule BeatgridWeb.AjustesLiveTest do
     on_exit(fn -> Settings.invalidate() end)
   end
 
+  test "a maintenance operation can change its setting and return directly", %{conn: conn} do
+    for {setting, key, section, value} <- [
+          {"volume", "target_lufs", "maintenance-gain", "-12.5"},
+          {"backup", "backup_keep", "5"}
+        ] do
+      {:ok, from, _} = live(conn, ~p"/manutencao")
+      link = "/ajustes?origem=#{setting}#ajuste-value-#{key}"
+      assert has_element?(from, "##{section} a[href='#{link}']")
+      {:ok, prefs, _} = live(conn, link)
+      assert has_element?(prefs, "#ajuste-card-#{key} a[href='/manutencao##{section}']")
+      refute has_element?(prefs, "#ajustes-maintenance")
+
+      prefs |> form("#ajuste-#{key}") |> render_submit(%{"value" => value})
+      assert has_element?(prefs, "#ajuste-card-#{key} [role=status]", "Valor salvo.")
+
+      assert {:error, {:live_redirect, %{to: "/manutencao#" <> ^section}}} =
+               prefs |> element("#ajuste-return-#{key}") |> render_click()
+    end
+  end
+
+  test "unknown origins fall back to the general maintenance entry", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/ajustes?origem=arbitraria")
+    assert has_element?(view, "#ajustes-maintenance[href='/manutencao']")
+    refute has_element?(view, "[id^='ajuste-return-']")
+  end
+
   test "renders every tunable with the default badge and the library root", %{conn: conn} do
     {:ok, view, html} = live(conn, ~p"/ajustes")
 

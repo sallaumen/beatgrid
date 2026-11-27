@@ -3,8 +3,9 @@ defmodule BeatgridWeb.DashboardLive do
   use BeatgridWeb, :live_view
 
   import BeatgridWeb.UI
+  import BeatgridWeb.RecommendationComponents, only: [rec_row: 1]
 
-  alias Beatgrid.{Dashboard, Repertoire}
+  alias Beatgrid.Dashboard
 
   @impl true
   def mount(_params, _session, socket) do
@@ -22,9 +23,26 @@ defmodule BeatgridWeb.DashboardLive do
   end
 
   @impl true
+  def handle_params(params, _uri, socket) do
+    key = params["genero"]
+    folders = socket.assigns.folders
+
+    folder =
+      if Enum.any?(folders, &(&1.key == key)),
+        do: key,
+        else: folders |> List.first() |> then(&(&1 && &1.key))
+
+    if folder == socket.assigns.gaps_folder,
+      do: {:noreply, socket},
+      else: {:noreply, assign_gaps(socket, folder)}
+  end
+
+  defp folder_path(key), do: ~p"/painel?genero=#{key}" <> "#dashboard-gaps"
+
+  @impl true
   def handle_event("select_folder", %{"folder" => key}, socket) do
     if Enum.any?(socket.assigns.folders, &(&1.key == key)) do
-      {:noreply, assign_gaps(socket, key)}
+      {:noreply, push_patch(socket, to: folder_path(key))}
     else
       {:noreply, socket}
     end
@@ -74,6 +92,13 @@ defmodule BeatgridWeb.DashboardLive do
      |> put_flash(:error, "A busca de sugestões falhou. Tente de novo.")}
   end
 
+  # Other folders' completions update the overview counts without touching the
+  # selection or the current folder's in-flight status.
+  def handle_info({:recommend_progress, %{scope: "folder", status: :done}}, socket) do
+    %{gap_counts: counts} = Dashboard.gaps(socket.assigns.gaps_folder)
+    {:noreply, assign(socket, gap_counts: counts)}
+  end
+
   def handle_info({:recommend_progress, _payload}, socket), do: {:noreply, socket}
 
   defp apply_dashboard_result(socket, {:ok, assigns}), do: assign(socket, assigns)
@@ -92,8 +117,22 @@ defmodule BeatgridWeb.DashboardLive do
 
   defp conf(by_confidence, level), do: Map.get(by_confidence, level, 0)
 
+  defp saved_label(1), do: "1 sugestão salva"
+  defp saved_label(count), do: "#{count} sugestões salvas"
+
   @impl true
   def render(assigns) do
+    {imported, pending} = Enum.split_with(assigns.recs, &(&1.status == :imported))
+    folders_by_key = Map.new(assigns.folders, &{&1.key, &1})
+
+    assigns =
+      assign(assigns,
+        pending: pending,
+        imported: imported,
+        folders_by_key: folders_by_key,
+        selected_folder: folders_by_key[assigns.gaps_folder]
+      )
+
     ~H"""
     <.app_shell flash={@flash} active={:painel} socket={@socket}>
       <header class="border-b border-white/6 bg-rail px-3 py-3 sm:px-6">
@@ -153,15 +192,36 @@ defmodule BeatgridWeb.DashboardLive do
         </section>
 
         <div id="dashboard-insights" class="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-4">
-          <.panel title="Distribuição por gênero">
-            <div :if={@genres != []} class="space-y-2">
-              <.bar_row
-                :for={{key, n} <- @genres}
-                label={folder_label(key)}
-                value={n}
-                max={max_count(@genres)}
-                color={folder_color(key)}
-              />
+          <.panel id="dashboard-genres" title="Distribuição por gênero">
+            <div :if={@genres != []}>
+              <p class="mb-2 text-body-sm text-ink-muted">
+                Faixas do acervo e sugestões salvas para cada gênero.
+              </p>
+              <ul class="divide-y divide-white/6">
+                <li
+                  :for={{key, n} <- @genres}
+                  class="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-1"
+                >
+                  <% folder = @folders_by_key[key] %>
+                  <.bar_row
+                    label={if folder, do: folder.display_name, else: key}
+                    value={n}
+                    max={max_count(@genres)}
+                    color={folder_color(folder || %{key: key})}
+                    wide_label
+                  />
+                  <.link
+                    :if={folder}
+                    patch={folder_path(key)}
+                    aria-label={"Lacunas de #{folder.display_name}: #{saved_label(Map.get(@gap_counts, key, 0))}"}
+                    class="inline-flex min-h-8 shrink-0 items-center justify-end gap-1 rounded-md px-1.5 py-1 text-body-sm font-medium text-primary-soft hover:bg-input hover:underline"
+                  >
+                    Lacunas
+                    <span class="font-mono tabular-nums">({Map.get(@gap_counts, key, 0)})</span>
+                    <.icon name="hero-arrow-right-mini" class="size-4 shrink-0" />
+                  </.link>
+                </li>
+              </ul>
             </div>
             <.empty :if={@genres == []} />
           </.panel>
@@ -211,36 +271,67 @@ defmodule BeatgridWeb.DashboardLive do
           </.panel>
         </div>
         <.panel id="dashboard-gaps" title="Lacunas no repertório (IA)">
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div class="flex flex-wrap items-center gap-1.5">
-              <button
-                :for={f <- @folders}
-                type="button"
-                phx-click="select_folder"
-                phx-value-folder={f.key}
-                aria-pressed={to_string(f.key == @gaps_folder)}
-                class={[
-                  "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-semibold transition-colors",
-                  f.key == @gaps_folder && "border-primary/60 bg-primary/15 text-ink",
-                  f.key != @gaps_folder && "border-white/8 text-ink-muted hover:text-ink"
-                ]}
-              >
-                <span class="size-2 rounded-full" style={"background:#{folder_color(f.key)}"} />
-                {f.display_name}
-                <span class={[
-                  "rounded-full px-1.5 font-mono text-caption font-bold tabular-nums",
-                  (Map.get(@gap_counts, f.key, 0) > 0 && "bg-primary/15 text-primary") ||
-                    "text-ink-faint bg-white/8"
-                ]}>
-                  {Map.get(@gap_counts, f.key, 0)}
-                </span>
-              </button>
+          <div
+            :if={@folders != []}
+            role="group"
+            aria-label="Gênero das sugestões"
+            class="flex flex-wrap items-center gap-1.5"
+          >
+            <button
+              :for={f <- @folders}
+              type="button"
+              phx-click="select_folder"
+              phx-value-folder={f.key}
+              aria-pressed={to_string(f.key == @gaps_folder)}
+              aria-label={"#{f.display_name}: #{saved_label(Map.get(@gap_counts, f.key, 0))}"}
+              class={[
+                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-body font-semibold transition-colors",
+                f.key == @gaps_folder && "border-primary/60 bg-primary/15 text-ink",
+                f.key != @gaps_folder && "border-white/8 text-ink-muted hover:text-ink"
+              ]}
+            >
+              <span
+                class="size-2 rounded-full"
+                style={"background:#{folder_color(f)}"}
+                aria-hidden="true"
+              />
+              {f.display_name}
+              <span class={[
+                "rounded-full px-1.5 font-mono text-caption font-bold tabular-nums",
+                (Map.get(@gap_counts, f.key, 0) > 0 && "bg-primary/15 text-primary") ||
+                  "text-ink-muted bg-white/8"
+              ]}>
+                {Map.get(@gap_counts, f.key, 0)}
+              </span>
+            </button>
+          </div>
+
+          <div
+            :if={@selected_folder}
+            id="gaps-scope"
+            class="mt-4 flex flex-wrap items-center justify-between gap-3 border-y border-white/8 py-3"
+          >
+            <div class="min-w-0">
+              <h3 class="flex items-center gap-2 break-words text-body-lg font-semibold text-ink">
+                <span
+                  class="size-2.5 shrink-0 rounded-full"
+                  style={"background:#{folder_color(@selected_folder)}"}
+                  aria-hidden="true"
+                />
+                {@selected_folder.display_name}
+              </h3>
+              <p class="mt-1 text-body text-ink-secondary">
+                <span class="font-mono tabular-nums">{length(@pending)}</span>
+                para conferir <span class="px-1 text-ink-muted">·</span>
+                <span class="font-mono tabular-nums">{length(@imported)}</span>
+                {if length(@imported) == 1, do: "importada", else: "importadas"}
+              </p>
             </div>
             <button
               type="button"
               phx-click="fetch_gaps"
               disabled={@recommending? or is_nil(@gaps_folder)}
-              class="inline-flex shrink-0 items-center gap-2 rounded-md bg-primary-deep px-3.5 py-1.5 text-body-sm font-semibold text-white transition-opacity disabled:opacity-50"
+              class="inline-flex shrink-0 items-center gap-2 rounded-md bg-primary-deep px-3 py-2 text-body font-semibold text-white transition-opacity disabled:opacity-50"
             >
               <span
                 :if={@recommending?}
@@ -251,29 +342,49 @@ defmodule BeatgridWeb.DashboardLive do
             </button>
           </div>
 
-          <p class="mt-2 text-caption text-ink-faint">
-            As sugestões ficam salvas por pasta. Confira as versões antes de importar uma faixa.
-          </p>
-
-          <div :if={@recs != []} class="mt-3 grid gap-2 lg:grid-cols-2">
-            <.rec_row :for={rec <- @recs} rec={rec} />
-          </div>
-
           <div
             :if={@recommending?}
             role="status"
-            class="mt-3 flex items-center gap-2 rounded-lg border border-primary/25 bg-primary/8 px-3 py-3 text-body-sm text-ink-secondary"
+            class="mt-3 flex items-center gap-2 rounded-lg border border-primary/25 bg-primary/8 px-3 py-3 text-body text-ink-secondary"
           >
             Gerando sugestões com a IA… isso pode levar alguns segundos.
           </div>
 
-          <p
-            :if={not is_nil(@gaps_folder) and @recs == [] and not @recommending?}
-            class="mt-3 rounded-lg border border-dashed border-white/8 px-3 py-4 text-center text-body-sm text-ink-faint"
+          <section
+            :if={@pending != []}
+            id="gaps-pending"
+            aria-labelledby="gaps-pending-title"
+            class="mt-4"
           >
-            Nenhuma sugestão salva para esta pasta. Clique em <span class="text-ink-secondary">Buscar lacunas (IA)</span>.
+            <h3 id="gaps-pending-title" class="text-body-lg font-semibold">Para conferir</h3>
+            <p class="mt-1 text-body-sm text-ink-muted">
+              Confira as versões antes de importar uma faixa.
+            </p>
+            <div class="mt-2 grid gap-2 lg:grid-cols-2">
+              <.rec_row :for={rec <- @pending} rec={rec} />
+            </div>
+          </section>
+
+          <p
+            :if={not is_nil(@gaps_folder) and @pending == [] and not @recommending?}
+            class="mt-4 rounded-lg border border-dashed border-white/10 px-3 py-4 text-body text-ink-secondary"
+          >
+            {if @imported == [],
+              do: "Nenhuma sugestão salva para esta pasta.",
+              else: "Nenhuma sugestão pendente para esta pasta."}
           </p>
-          <p :if={is_nil(@gaps_folder)} class="mt-3 text-body-sm text-ink-muted">
+
+          <details :if={@imported != []} id="gaps-imported" class="mt-4 border-t border-white/8 pt-3">
+            <summary class="cursor-pointer rounded-md py-2 text-body-lg font-semibold text-ink-secondary hover:text-ink">
+              Já importadas
+              <span class="font-mono text-body font-normal text-ink-muted">({length(@imported)})</span>
+            </summary>
+            <div class="mt-2 grid gap-2 lg:grid-cols-2">
+              <.rec_row :for={rec <- @imported} rec={rec} />
+            </div>
+          </details>
+
+          <p :if={is_nil(@gaps_folder)} class="mt-3 text-body text-ink-muted">
             Cadastre uma pasta em
             <.link navigate={~p"/generos"} class="text-primary underline">Gêneros</.link>
             para buscar sugestões.
@@ -320,76 +431,23 @@ defmodule BeatgridWeb.DashboardLive do
     """
   end
 
-  @doc """
-  One persisted AI recommendation (a folder gap or a track match): `artist — song`,
-  the AI's reason, and the YouTube search / download / dismiss actions. Imported
-  rows wear a subtle "baixada" tag so the history reads at a glance.
-  """
-  attr :rec, :map, required: true
-
-  def rec_row(assigns) do
-    ~H"""
-    <div class={[
-      "group rounded-lg border px-3 py-2.5 transition-colors",
-      if(@rec.status == :imported,
-        do: "border-green/25 bg-green/5",
-        else: "border-white/6 bg-base hover:border-white/12"
-      )
-    ]}>
-      <div class="flex items-start justify-between gap-3">
-        <div class="min-w-0 flex-1">
-          <p class="break-words text-body font-medium">
-            {@rec.artist} <span class="text-ink-faint">—</span> {@rec.song}
-          </p>
-          <p :if={@rec.reason} class="mt-0.5 text-caption text-ink-muted">{@rec.reason}</p>
-        </div>
-        <span
-          :if={@rec.status == :imported}
-          class="bg-token-chip inline-flex shrink-0 items-center gap-1 rounded-xs px-[7px] py-[2px] text-[9.5px] font-bold uppercase tracking-wide"
-          style="--c:var(--color-green)"
-        >
-          ✓ baixada
-        </span>
-      </div>
-
-      <div class="mt-2 flex flex-wrap items-center gap-1.5">
-        <a
-          href={Repertoire.youtube_search_url(@rec)}
-          target="_blank"
-          rel="noopener"
-          class="inline-flex items-center gap-1 rounded-md border border-white/10 bg-input px-2.5 py-1 text-[11px] text-ink-secondary transition-colors hover:text-ink"
-        >
-          Buscar no YouTube <span class="text-ink-faint" aria-hidden="true">↗</span>
-        </a>
-        <.link
-          navigate={~p"/importados?recomendacao=#{@rec.id}"}
-          class="inline-flex items-center rounded-md bg-primary/15 px-2.5 py-1 text-body-sm font-semibold text-primary-soft"
-        >
-          Conferir versões
-        </.link>
-        <button
-          type="button"
-          phx-click="dismiss_rec"
-          phx-value-id={@rec.id}
-          class="ml-auto rounded-md px-2.5 py-1 text-[11px] text-ink-muted transition-colors hover:text-coral"
-        >
-          Dispensar
-        </button>
-      </div>
-    </div>
-    """
-  end
-
   attr :label, :string, required: true
   attr :value, :integer, required: true
   attr :max, :integer, required: true
   attr :color, :string, default: "var(--color-primary)"
 
   attr :mono, :boolean, default: false
+  attr :wide_label, :boolean, default: false
 
   defp bar_row(assigns) do
     ~H"""
-    <div class="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)_auto] items-center gap-2.5">
+    <div class={[
+      "grid min-w-0 items-center gap-2",
+      if(@wide_label,
+        do: "grid-cols-[minmax(0,3fr)_minmax(1rem,2fr)_auto]",
+        else: "grid-cols-[minmax(0,2fr)_minmax(0,3fr)_auto]"
+      )
+    ]}>
       <span
         title={@label}
         class={[

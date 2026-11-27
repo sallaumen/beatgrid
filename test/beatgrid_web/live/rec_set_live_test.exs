@@ -405,7 +405,8 @@ defmodule BeatgridWeb.RecSetLiveTest do
     {:ok, view, _html} = live(conn, ~p"/set")
     new_set(view)
 
-    html = view |> element("button[phx-click=show_criteria]") |> render_click()
+    open_panel(view, "console")
+    html = view |> element("#open-set-criteria") |> render_click()
 
     # the energy arc + a style-affinity cell, both sourced from the backend (the
     # per-criterion weights moved to the live "Mesa de mixagem" console)
@@ -455,6 +456,18 @@ defmodule BeatgridWeb.RecSetLiveTest do
   end
 
   @tag :tmp_dir
+  test "the track order opens the existing catalog search even when the set is empty", %{
+    conn: conn
+  } do
+    {:ok, view, _} = live(conn, ~p"/set")
+    new_set(view)
+    refute has_element?(view, "#track-search")
+    view |> element("#set-find-track") |> render_click()
+    assert has_element?(view, "#track-search-input")
+    assert has_element?(view, "#set-find-track[phx-click*='focus']")
+    assert has_element?(view, "button[phx-value-panel=search][aria-expanded=true]")
+  end
+
   test "reset_console restores default weights", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/set")
     new_set(view)
