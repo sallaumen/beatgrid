@@ -1,3 +1,5 @@
+import {rehearsalOverlap} from "./rehearsal.js"
+
 // The tap has no outputs. Only stereo energy, peaks and attacks leave the render thread.
 export const METER_PROCESSOR = `
 class PassageMeter extends AudioWorkletProcessor {
@@ -105,4 +107,36 @@ export function measurePassage(ctx, input, window, report) {
     } catch { finish(null) }
   })
   return stop
+}
+
+// A reservation follows the playing record; the sound card has its own clock.
+// Only the real handoff may anchor a reading of the master output.
+export function observeRoomPassage(ctx, input, choice, deck, report, measure = measurePassage) {
+  const {plan, kind} = choice
+  const now = ctx.currentTime
+  const change = now + Math.max(0, choice.exitMs - deck.positionMs()) / (1000 * deck.el.playbackRate)
+  const overlap = rehearsalOverlap(plan, kind)
+  const tolerance = 0.25
+  const window = {kind, change, overlap, bpm: deck.bpm * (plan.mix?.out.rate ?? deck.el.playbackRate),
+    start: Math.max(now, change - plan.lead), end: change + overlap + 2 + tolerance}
+  let arrived = null, completed = false, stopped = false, capture
+
+  function publish() {
+    if (stopped || !completed || arrived === null) return
+    stopped = true
+    const drift = arrived - change
+    report(capture && Math.abs(drift) <= tolerance ? {...capture, changeAt: capture.changeAt + drift} : null)
+  }
+
+  const cancel = measure(ctx, input, window, data => {
+    capture = data
+    completed = true
+    publish()
+  })
+  return {
+    choice,
+    get arrived() { return arrived !== null },
+    arrive(time) { arrived = time; publish() },
+    cancel() { if (!stopped) { stopped = true; cancel() } }
+  }
 }

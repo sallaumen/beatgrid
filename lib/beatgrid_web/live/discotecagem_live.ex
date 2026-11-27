@@ -890,6 +890,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           >Desarmar</button>
         </div>
       </div>
+      <BeatgridWeb.PassageScore.result id="dj-room-score" title="Último ensaio levado à pista" />
       <dialog
         id="dj-rehearse-dialog"
         aria-labelledby="dj-rehearse-title"
@@ -967,6 +968,29 @@ defmodule BeatgridWeb.DiscotecagemLive do
             </select>
           </label>
         </div>
+        <section data-cue-assist hidden aria-label="Encaixe da entrada no fone" class="mt-3">
+          <div class="flex flex-wrap items-center gap-x-3">
+            <span class="text-body font-semibold text-ink">Encaixe da entrada</span>
+            <button
+              type="button"
+              data-cue-check
+              class="min-h-9 text-body font-semibold text-primary-soft hover:underline disabled:text-ink-muted"
+            >Verificar encaixe</button>
+            <button
+              type="button"
+              data-cue-try
+              hidden
+              class="min-h-9 text-body font-semibold text-primary-soft hover:underline disabled:text-ink-muted"
+            >Experimentar ajuste</button>
+            <button
+              type="button"
+              data-cue-restore
+              hidden
+              class="min-h-9 text-body font-semibold text-primary-soft hover:underline"
+            >Restaurar CUE</button>
+          </div>
+          <p data-cue-note aria-live="polite" class="text-body text-ink-muted"></p>
+        </section>
         <details class="mt-3 border-y border-white/10 py-2">
           <summary class="cursor-pointer text-body font-semibold text-ink">Ajustar no fone</summary>
           <p class="mt-2 text-body text-ink-muted">
@@ -1728,6 +1752,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
         import {tripVersionPath, tripTransportLabel, tripTransitionLabel} from "@/js/dj/trip_identity.js"
         import {hotCues} from "@/js/dj/hot_cues.js"
         import {mountRehearsal} from "@/js/dj/rehearsal_panel.js"
+        import {mountPassageScore} from "@/js/dj/passage_score_view.js"
+        import {scorePassage} from "@/js/dj/passage_score.js"
         import {loadPeaks, drawWave} from "@/js/dj/waveform.js"
 
         const ACCENTS = {a: "#8b7bf0", b: "#2d9cff"}
@@ -1836,6 +1862,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
                   this.toast(`${mode === "auto" ? "AUTO: " : "▶ "}${name} → deck ${deck.toUpperCase()}`)
                   window.dispatchEvent(new CustomEvent("beatgrid:playing", {detail: {source: "dj-console"}}))
                 },
+                roomScore: data => this.roomScore.show(data ? scorePassage(data) :
+                  {score: null, metrics: [], summary: "O trecho da pista não foi medido por inteiro."}),
                 transitionCancelled: ({trackId, deck}) => {
                   this.lastPlayedId = trackId
                   this.pushEvent("transition_cancelled", {track_id: trackId, deck})
@@ -2010,6 +2038,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             }
 
             // Depuração no console do navegador (e testes sem controladora).
+            this.roomScore = mountPassageScore(byId("dj-room-score"))
             this.rehearsal = mountRehearsal({
               root: byId("dj-rehearsal"), engine: this.engine, tracks: this.tracks, waves: this.waves,
               hint: () => this.hint,
@@ -2423,6 +2452,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
           destroyed() {
             cancelAnimationFrame(this.raf)
+            this.roomScore.destroy()
             this.rehearsal.destroy()
             this.outputEvents.abort()
             this.disconnectHeadphones()
