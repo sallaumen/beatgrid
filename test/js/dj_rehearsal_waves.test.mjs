@@ -1,7 +1,8 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import {drawRehearsalWaves, drawRehearsalBass} from "../../assets/js/dj/rehearsal_waves.js"
-import {neutralMix} from "../../assets/js/dj/deck_mix.js"
+import {neutralMix, syncedRate} from "../../assets/js/dj/deck_mix.js"
+import {planRehearsal} from "../../assets/js/dj/rehearsal.js"
 
 function canvas(width = 100, height = 48) {
   const rectangles = [], paths = []
@@ -83,5 +84,41 @@ test("the bass handoff follows the actual third beat and changes one shelf at a 
     assert.ok(value(out, edge(0.625)) > value(out, pivot))
     assert.equal(value(into, edge(0.625)), value(into, pivot))
     assert.equal(graph.width, 640)
+  }
+})
+
+function impulseAt(attack) {
+  const sampleRate = 10000, duration = 8
+  const channels = [new Float32Array(duration * sampleRate), new Float32Array(duration * sampleRate)]
+  channels[1][Math.round(attack * sampleRate)] = 1
+  const wave = waveform(0)
+  wave.peaks[Math.floor(attack * wave.bps)] = 1
+  return {wave, buffer: {sampleRate, duration, numberOfChannels: 2, getChannelData: index => channels[index]}}
+}
+
+function attackColumns(width, out, into, plan) {
+  const lanes = [canvas(width), canvas(width)]
+  drawRehearsalWaves(lanes, canvas(width), [out.wave, into.wave], plan, "cut", 2)
+  return lanes.map((lane, side) => lane.rectangles.filter(r => r.color === ["#ffb020", "#5ad1a0"][side]).map(r => r.x))
+}
+
+test("attacks outside the CUE and cut are silent on both waveforms, including fractional cue buckets", () => {
+  const out = impulseAt(5.012), into = impulseAt(7.4005)
+  const plan = planRehearsal(out.buffer, into.buffer, 5.001, 7.401, 120,
+    {out: {...neutralMix, rate: 1.08}, into: {...neutralMix, rate: .82}})
+  for (const width of [292, 616]) assert.deepEqual(attackColumns(width, out, into, plan), [[], []])
+})
+
+test("pitch and SYNC put each right-channel attack in its actual playback column", () => {
+  const outAt = 4.889, intoAt = 7.453
+  const out = impulseAt(outAt), into = impulseAt(intoAt)
+  for (const inRate of [.82, syncedRate(1, 112, 120)]) {
+    const plan = planRehearsal(out.buffer, into.buffer, 5.001, 7.401, 120,
+      {out: {...neutralMix, rate: 1.08}, into: {...neutralMix, rate: inRate}})
+    const times = [(outAt - plan.outStart) / 1.08, plan.lead + (intoAt - plan.inStart) / inRate]
+    for (const width of [292, 616]) {
+      assert.deepEqual(attackColumns(width, out, into, plan),
+        times.map(t => [Math.floor(t * width / plan.duration)]))
+    }
   }
 })
