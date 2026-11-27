@@ -50,7 +50,7 @@ export function mountPassageScore(root) {
     metrics.replaceChildren(...result.metrics.map(reading))
     metrics.hidden = result.metrics.length === 0
     const grade = scored ? `${result.score} de 100` : "Sem nota"
-    announce.textContent = announcement ?? (restored ? "" : `Nota da passagem. ${grade}. ${result.summary}`)
+    announce.textContent = announcement ?? (restored ? "" : `${part("title").textContent}. ${grade}. ${result.summary}`)
   }
 
   function clear() {

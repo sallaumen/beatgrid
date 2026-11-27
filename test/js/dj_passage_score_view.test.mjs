@@ -10,6 +10,7 @@ function fixture() {
   const nodes = Object.fromEntries(
     ["panel", "total", "number", "scale", "summary", "metrics", "announce"].map(key => [key, element()])
   )
+  nodes.title = {textContent: "Nota da passagem"}
   const metric = () => {
     const row = element()
     for (const key of ["label", "value", "state"]) row[key] = element()

@@ -30,6 +30,7 @@
 import {applyFilter, applyTone, createEq, neutralMix, setMixParam, syncedRate} from "./deck_mix.js"
 import {startDecodedEntry} from "./decoded_entry.js"
 import {createPassage} from "./passage.js"
+import {observeRoomPassage} from "./passage_meter.js"
 import {createRehearsal, rampRehearsalGain, rehearsalOverlap} from "./rehearsal.js"
 import {getScratchPcm, retainScratch} from "./waveform.js"
 import {ensureScratchModule, scratchPattern} from "./scratch.js"
@@ -439,6 +440,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   function wireOutputs() {
     const maxCh = ctx.destination.maxChannelCount || 2
     if (maxCh === routedChannels) return
+    cancelRoomReading()
     rehearsal.stop()
     try {
       master.disconnect()
@@ -539,9 +541,27 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     return null
   }
 
+  let roomReading = null
+  function cancelRoomReading() {
+    roomReading?.cancel()
+    roomReading = null
+  }
+
   const passage = createPassage(decks, (from, to) =>
     from.audible() && !deckHeld(from.id) && !from.loop.on && !state.breatherGap &&
-    to.trackId != null && !deckBusy(to.id) && !to.el.error && to.ready(), startPassage)
+    to.trackId != null && !deckBusy(to.id) && !to.el.error && to.ready(), startPassage, {
+      confirmed(choice) {
+        if (!callbacks.roomScore) return
+        cancelRoomReading()
+        roomReading = observeRoomPassage(ctx, masterAnalyser, choice, decks[choice.pair.from], data => {
+          roomReading = null
+          emit("roomScore", data)
+        })
+      },
+      abandoned(choice) {
+        if (roomReading?.choice === choice) cancelRoomReading()
+      }
+    })
 
   function deckMix(id) {
     const deck = decks[id]
@@ -562,7 +582,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     emit("mixApplied", {deck: deck.id, mix})
   }
 
-  function startPassage(from, to, {plan, kind}, complete) {
+  function startPassage(from, to, choice, complete) {
+    const {plan, kind} = choice
     const fade = rehearsalOverlap(plan, kind)
     const mix = plan.mix ?? {out: deckMix(from.id), into: deckMix(to.id)}
     const version = faderVersion
@@ -600,6 +621,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       outGain.cancelScheduledValues(now)
       rampRehearsalGain(outGain, now, fade, outLevel, 0)
       rampRehearsalGain(mute, now, fade, 0, 1)
+      if (roomReading?.choice === choice) roomReading.arrive(now)
       animateXfadePos(sideOf(to.id), fade)
       after(fade, () => finishOutgoing(from, token))
       handoff(from, to, {fromTrackId: from.trackId, deck: to.id, type: kind,
@@ -1360,6 +1382,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   function interruptTransition() {
+    if (roomReading?.arrived) cancelRoomReading()
     passage.disarm()
     state.stopScratchDrop?.()
     for (const deck of Object.values(decks)) {
