@@ -74,7 +74,7 @@ defmodule BeatgridWeb.DedupLiveTest do
 
   @tag :tmp_dir
   test "renders a pending group card with its members and match tag", %{conn: conn, tmp_dir: root} do
-    %{keep: keep, dup: dup} = exact_pair(root)
+    %{group: group, keep: keep, dup: dup} = exact_pair(root)
 
     {:ok, view, html} = live(conn, ~p"/dedup")
 
@@ -93,7 +93,22 @@ defmodule BeatgridWeb.DedupLiveTest do
     assert has_element?(view, "#copy-#{dup.id}", "MPB/b.mp3")
     assert has_element?(view, "#copy-#{keep.id} dd", "320 kbps")
     assert has_element?(view, "#copy-#{dup.id} dd", "128 kbps")
-    assert has_element?(view, "#copy-#{keep.id} input[checked]")
+
+    assert has_element?(
+             view,
+             "#copy-#{keep.id} input[type=radio][name='keeper-#{group.id}'][checked]"
+           )
+
+    assert has_element?(view, "#copy-#{dup.id} input[type=radio][name='keeper-#{group.id}']")
+    refute has_element?(view, "#copy-#{dup.id} input[checked]")
+    assert has_element?(view, "footer p", "1 cópia será mantida")
+
+    assert has_element?(
+             view,
+             "button[phx-click=resolve]",
+             "Manter selecionada e mover 1 cópia para a quarentena"
+           )
+
     assert has_element?(view, "#copy-#{keep.id}", "Cópia selecionada")
     assert has_element?(view, "#copy-#{dup.id}", "Vai para a quarentena")
   end

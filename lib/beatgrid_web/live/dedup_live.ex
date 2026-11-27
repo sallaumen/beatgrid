@@ -286,6 +286,7 @@ defmodule BeatgridWeb.DedupLive do
   defp group_card(assigns) do
     keeper_id = assigns.pick || keeper_of(assigns.group)
     keeper = Enum.find(assigns.group.members, &(&1.track_id == keeper_id))
+    quarantine_count = non_keeper_count(assigns.group, keeper_id)
 
     assigns =
       assign(assigns,
@@ -293,7 +294,8 @@ defmodule BeatgridWeb.DedupLive do
         keeper_isrc: Dedup.member_isrc(keeper),
         members: assigns.group.members,
         group_label: group_label(assigns.group.members),
-        quarantine_count: non_keeper_count(assigns.group, keeper_id)
+        kept_count: length(assigns.group.members) - quarantine_count,
+        quarantine_count: quarantine_count
       )
 
     ~H"""
@@ -316,7 +318,7 @@ defmodule BeatgridWeb.DedupLive do
             {match_label(@group.match_type)}
           </span>
           <span class="ml-auto shrink-0 font-mono text-body-sm text-ink-muted">
-            {length(@members)} cópias
+            {length(@members)} {copy_label(length(@members))}
           </span>
         </div>
         <p class="mt-1 break-all font-mono text-caption text-ink-muted">{@group.signature}</p>
@@ -340,10 +342,11 @@ defmodule BeatgridWeb.DedupLive do
 
       <footer class="flex flex-wrap items-center justify-end gap-2 border-t border-white/6 px-4 py-3">
         <p class="mr-auto text-body text-ink-secondary">
-          <span class="font-mono text-green">{length(@members) - @quarantine_count}</span>
-          serão mantidas <span class="mx-1.5 text-ink-muted">·</span>
+          <span class="font-mono text-green">{@kept_count}</span>
+          {if @kept_count == 1, do: "cópia será mantida", else: "cópias serão mantidas"}
+          <span class="mx-1.5 text-ink-muted">·</span>
           <span class="font-mono text-amber">{@quarantine_count}</span>
-          para quarentena
+          {copy_label(@quarantine_count)} para a quarentena
         </p>
         <button
           phx-click="ignore"
@@ -426,7 +429,7 @@ defmodule BeatgridWeb.DedupLive do
             phx-value-group={@group_id}
             phx-value-track={@member.track_id}
             checked={@chosen}
-            aria-label={"Escolher cópia para manter: #{@member.track.filename}"}
+            aria-label={"Escolher cópia para manter: #{@member.track.rel_path}"}
             class="size-4 shrink-0 accent-green"
           />
           {if @chosen, do: "Cópia selecionada", else: "Escolher cópia"}
@@ -448,8 +451,13 @@ defmodule BeatgridWeb.DedupLive do
   defp copy_outcome(false, true), do: "Manter · ISRC diferente"
   defp copy_outcome(false, false), do: "Vai para a quarentena"
 
+  defp copy_label(1), do: "cópia"
+  defp copy_label(_), do: "cópias"
+
   defp resolve_label(0), do: "Confirmar seleção"
-  defp resolve_label(count), do: "Manter selecionada e mover #{count} para a quarentena"
+
+  defp resolve_label(count),
+    do: "Manter selecionada e mover #{count} #{copy_label(count)} para a quarentena"
 
   attr :undo, :any, required: true
 
