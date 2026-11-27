@@ -1,12 +1,43 @@
 // Waveform-similarity overlap-add (WSOLA). Both stereo channels use the same
 // splice, so changing tempo preserves pitch and stereo phase.
+
+// A brief burst of high-frequency energy marks a drum attack. Keep that part on
+// the musical clock instead of moving it to the most similar neighboring wave.
+function nearAttack(channel, target, hop, stride, first, last) {
+  const frame = Math.max(4, Math.round(hop / 4))
+  const start = Math.max(first, target - 2 * hop)
+  const end = Math.min(channel.length, last + 2 * hop, target + 3 * hop)
+  let highSum = 0, highPeak = 0, energyPeak = 0, frames = 0
+  for (let base = start; base + frame <= end; base += frame) {
+    let high = 0, power = 0
+    for (let i = base + 2 * stride; i < base + frame; i += stride) {
+      const x = channel[i]
+      const detail = x - 2 * channel[i - stride] + channel[i - 2 * stride]
+      high += detail * detail
+      power += x * x
+    }
+    highSum += high
+    highPeak = Math.max(highPeak, high)
+    energyPeak = Math.max(energyPeak, power)
+    frames++
+  }
+  // Require both appreciable brightness and a 5 ms frame at four times the
+  // local mean so sustained notes and leakage in a silent channel stay locked.
+  return highPeak > energyPeak * 0.015 && highPeak * frames > highSum * 4
+}
+
 function bestSplice(channel, previous, target, hop, first, last) {
-  const radius = Math.floor(hop / 3)
-  const low = Math.max(first, target - radius), high = Math.min(last, target + radius)
-  let best = Math.max(first, Math.min(target, last)), score = -Infinity
+  const nominal = Math.max(first, Math.min(target, last))
+  const coarseStep = Math.max(1, Math.round(hop / 80))
+  if (nearAttack(channel, target, hop, coarseStep, first, last)) return nominal
+  // ±20 ms covers a cycle down to 25 Hz. Use a fixed number of coarse
+  // candidates and comparison samples even for high sample-rate recordings.
+  const low = Math.max(first, target - hop), high = Math.min(last, target + hop)
+  const scoreStep = Math.max(1, Math.round(hop / 64))
+  let best = nominal, score = -Infinity
   function compare(start) {
     let dot = 0, energy = 0
-    for (let i = 0; i < hop; i += 12) {
+    for (let i = 0; i < hop; i += scoreStep) {
       const sample = channel[start + i] || 0
       dot += (channel[previous + i] || 0) * sample
       energy += sample * sample
@@ -15,9 +46,9 @@ function bestSplice(channel, previous, target, hop, first, last) {
     if (value > score) { score = value; best = start }
   }
   compare(best)
-  for (let s = low; s <= high; s += 4) compare(s)
+  for (let s = low; s <= high; s += coarseStep) compare(s)
   const coarse = best
-  for (let s = Math.max(low, coarse - 3); s <= Math.min(high, coarse + 3); s++) compare(s)
+  for (let s = Math.max(low, coarse - coarseStep + 1); s <= Math.min(high, coarse + coarseStep - 1); s++) compare(s)
   return best
 }
 
