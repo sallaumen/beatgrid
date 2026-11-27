@@ -25,6 +25,7 @@ defmodule BeatgridWeb.MixLive do
            mix: mix,
            progress: nil,
            recorte: nil,
+           recorte_initial: nil,
            latest_cut: nil,
            folders: GenreFolders.list()
          )}
@@ -243,11 +244,12 @@ defmodule BeatgridWeb.MixLive do
       params["segment"] &&
         Enum.find(socket.assigns.mix.segments, &(&1.id == params["segment"]))
 
-    {:noreply, assign(socket, recorte: recorte_prefill(socket.assigns.mix, seg))}
+    initial = recorte_prefill(socket.assigns.mix, seg)
+    {:noreply, assign(socket, recorte: initial, recorte_initial: initial)}
   end
 
   def handle_event("close_recorte", _params, socket),
-    do: {:noreply, assign(socket, recorte: nil)}
+    do: {:noreply, assign(socket, recorte: nil, recorte_initial: nil)}
 
   def handle_event("recorte_mode", %{"mode" => mode}, socket) when mode in ~w(context exact),
     do: {:noreply, assign(socket, recorte: %{socket.assigns.recorte | mode: mode})}
@@ -282,7 +284,7 @@ defmodule BeatgridWeb.MixLive do
       {:ok, _job} ->
         {:noreply,
          socket
-         |> assign(recorte: nil)
+         |> assign(recorte: nil, recorte_initial: nil)
          |> put_flash(:info, "Recorte na fila para salvar na biblioteca.")}
 
       {:error, reason} ->
@@ -626,6 +628,11 @@ defmodule BeatgridWeb.MixLive do
         <section
           :if={@recorte}
           id="recorte-editor"
+          phx-hook=".RecorteDraft"
+          data-initial-range={@recorte_initial.range}
+          data-initial-artist={@recorte_initial.artist}
+          data-initial-title={@recorte_initial.title}
+          data-initial-folder={@recorte_initial.folder || ""}
           aria-labelledby="recorte-title"
           class="mt-4 scroll-mt-36 rounded-xl border border-primary/25 bg-surface p-3 sm:p-4"
         >
@@ -635,7 +642,7 @@ defmodule BeatgridWeb.MixLive do
               type="button"
               phx-click="close_recorte"
               aria-label="Fechar recorte"
-              data-confirm="Descartar esta edição de recorte?"
+              data-recorte-confirm="Descartar esta edição de recorte?"
               class="rounded-md border border-white/10 px-2 py-1.5 text-body-sm text-ink-secondary hover:text-ink"
             >
               Fechar
@@ -857,6 +864,36 @@ defmodule BeatgridWeb.MixLive do
         </p>
       </div>
     </.app_shell>
+    <script :type={Phoenix.LiveView.ColocatedHook} name=".RecorteDraft">
+      export default {
+        mounted() {
+          this.guardDraft = (event) => {
+            const button = event.target.closest("button[data-recorte-confirm]")
+            if (!button) return
+
+            const form = this.el.querySelector("#recorte-form")
+            if (!form) return
+
+            // Compare live DOM values, including edits still awaiting a phx-change
+            // round trip. The server supplies the initial prefill for each draft.
+            const edited = ["range", "artist", "title", "folder"].some((name) => {
+              const current = form.elements.namedItem(name)?.value || ""
+              const initial = this.el.getAttribute("data-initial-" + name) || ""
+              return current !== initial
+            })
+
+            if (edited && !window.confirm(button.dataset.recorteConfirm)) {
+              event.preventDefault()
+              event.stopImmediatePropagation()
+            }
+          }
+          window.addEventListener("click", this.guardDraft, true)
+        },
+        destroyed() {
+          window.removeEventListener("click", this.guardDraft, true)
+        },
+      }
+    </script>
     <script :type={Phoenix.LiveView.ColocatedHook} name=".RecortePreview">
       // A prévia é a ÚNICA timeline confiável (o player do set escorrega em MP3
       // longo), então marcar início/fim aqui = tempo absoluto exato no arquivo.
@@ -1302,7 +1339,7 @@ defmodule BeatgridWeb.MixLive do
           phx-click="open_recorte"
           phx-value-segment={@seg.id}
           title="Recortar este trecho como uma faixa da biblioteca"
-          data-confirm={
+          data-recorte-confirm={
             if @recorte_open, do: "Substituir a edição de recorte pelo trecho desta faixa?"
           }
           aria-label={"Recortar o trecho a partir de #{format_clock(@seg.start_ms)}"}
