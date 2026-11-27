@@ -4,7 +4,7 @@ defmodule BeatgridWeb.DashboardLiveTest do
   import Phoenix.LiveViewTest
   import Beatgrid.Factory
   alias Beatgrid.Analysis
-  alias Beatgrid.Library.Tracks
+  alias Beatgrid.Library.{GenreFolders, Tracks}
   alias Beatgrid.Repertoire
   alias Beatgrid.Workers.{ExpandWorker, RecommendWorker}
 
@@ -231,6 +231,48 @@ defmodule BeatgridWeb.DashboardLiveTest do
 
     assert has_element?(view, "#flash-error", "A busca de sugestões falhou")
     refute has_element?(view, "button[phx-click=fetch_gaps][disabled]")
+  end
+
+  test "genre distribution and selected scope use the same freshly loaded folder data", %{
+    conn: conn
+  } do
+    key = "roots_cache_probe"
+    GenreFolders.invalidate()
+    on_exit(fn -> GenreFolders.invalidate() end)
+    refute Map.has_key?(GenreFolders.by_key(), key)
+
+    insert(:genre_folder,
+      key: key,
+      display_name: "Roots do acervo",
+      dir_name: "Roots do acervo",
+      color: "#abc123"
+    )
+
+    insert(:genre_folder, key: "mpb", display_name: "MPB revisada", dir_name: "MPB", color: nil)
+
+    insert(:track, status: :present, genre_folder: key)
+    insert(:track, status: :present, genre_folder: "mpb")
+    insert(:track, status: :present, genre_folder: "unknown_folder")
+    refute Map.has_key?(GenreFolders.by_key(), key)
+
+    {:ok, view, _html} = live(conn, ~p"/painel?genero=#{key}")
+    assert has_element?(view, "#dashboard-genres [title='Roots do acervo']")
+    assert has_element?(view, "#dashboard-genres [style$='background:#abc123']")
+
+    assert has_element?(
+             view,
+             "#dashboard-genres a[aria-label='Lacunas de Roots do acervo: 0 sugestões salvas']"
+           )
+
+    assert has_element?(view, "button[phx-value-folder=#{key}] [style='background:#abc123']")
+    assert has_element?(view, "#gaps-scope [style='background:#abc123']")
+    assert has_element?(view, "#gaps-scope", "Roots do acervo")
+    assert has_element?(view, "#dashboard-genres [title='MPB revisada']")
+    assert has_element?(view, "#dashboard-genres [style$='background:#8b7bf0']")
+    assert has_element?(view, "button[phx-value-folder=mpb] [style='background:#8b7bf0']")
+    assert has_element?(view, "#dashboard-genres [title=unknown_folder]")
+    assert has_element?(view, "#dashboard-genres [style$='background:#9498a6']")
+    refute has_element?(view, "#dashboard-genres a[href*='genero=unknown_folder']")
   end
 
   test "a recommend-progress :done event reloads the persisted gaps live", %{conn: conn} do

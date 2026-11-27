@@ -30,9 +30,12 @@ defmodule BeatgridWeb.UI.Format do
   @cover_palette ~w(#6c5ce7 #8b7bf0 #ffb020 #e08e00 #5ad1a0 #2d9cff #ff8d97 #c08bf0)
 
   @doc """
-  Hex color for a genre folder key. Seeded keys hit the hardcoded fast path;
-  dynamic (user-created) folders fall back to their stored `color` (gray if none).
+  Hex color for a genre folder key or a folder already loaded by the caller.
+  Loaded folders use their own color without reading the global cache; seeded
+  colors and neutral gray remain the defaults. Keys keep the cached hot path.
   """
+  def folder_color(%{color: color}) when is_binary(color) and color != "", do: color
+  def folder_color(%{key: key}), do: @folder_colors[key] || "#9498a6"
   def folder_color(key), do: @folder_colors[key] || db_color(key)
 
   @doc """

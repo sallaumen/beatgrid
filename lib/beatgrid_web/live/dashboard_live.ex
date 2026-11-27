@@ -123,8 +123,15 @@ defmodule BeatgridWeb.DashboardLive do
   @impl true
   def render(assigns) do
     {imported, pending} = Enum.split_with(assigns.recs, &(&1.status == :imported))
-    selected = Enum.find(assigns.folders, &(&1.key == assigns.gaps_folder))
-    assigns = assign(assigns, pending: pending, imported: imported, selected_folder: selected)
+    folders_by_key = Map.new(assigns.folders, &{&1.key, &1})
+
+    assigns =
+      assign(assigns,
+        pending: pending,
+        imported: imported,
+        folders_by_key: folders_by_key,
+        selected_folder: folders_by_key[assigns.gaps_folder]
+      )
 
     ~H"""
     <.app_shell flash={@flash} active={:painel} socket={@socket}>
@@ -195,17 +202,18 @@ defmodule BeatgridWeb.DashboardLive do
                   :for={{key, n} <- @genres}
                   class="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-1"
                 >
+                  <% folder = @folders_by_key[key] %>
                   <.bar_row
-                    label={folder_label(key)}
+                    label={if folder, do: folder.display_name, else: key}
                     value={n}
                     max={max_count(@genres)}
-                    color={folder_color(key)}
+                    color={folder_color(folder || %{key: key})}
                     wide_label
                   />
                   <.link
-                    :if={Enum.any?(@folders, &(&1.key == key))}
+                    :if={folder}
                     patch={folder_path(key)}
-                    aria-label={"Lacunas de #{folder_label(key)}: #{saved_label(Map.get(@gap_counts, key, 0))}"}
+                    aria-label={"Lacunas de #{folder.display_name}: #{saved_label(Map.get(@gap_counts, key, 0))}"}
                     class="inline-flex min-h-8 shrink-0 items-center justify-end gap-1 rounded-md px-1.5 py-1 text-body-sm font-medium text-primary-soft hover:bg-input hover:underline"
                   >
                     Lacunas
@@ -284,7 +292,7 @@ defmodule BeatgridWeb.DashboardLive do
             >
               <span
                 class="size-2 rounded-full"
-                style={"background:#{folder_color(f.key)}"}
+                style={"background:#{folder_color(f)}"}
                 aria-hidden="true"
               />
               {f.display_name}
@@ -307,7 +315,7 @@ defmodule BeatgridWeb.DashboardLive do
               <h3 class="flex items-center gap-2 break-words text-body-lg font-semibold text-ink">
                 <span
                   class="size-2.5 shrink-0 rounded-full"
-                  style={"background:#{folder_color(@selected_folder.key)}"}
+                  style={"background:#{folder_color(@selected_folder)}"}
                   aria-hidden="true"
                 />
                 {@selected_folder.display_name}
