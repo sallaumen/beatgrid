@@ -162,5 +162,19 @@ defmodule BeatgridWeb.JobsLiveTest do
 
     # Expanded: full error must now be visible
     assert expanded_html =~ "ERRO_FIM_TOKEN"
+    assert has_element?(view, "button[phx-click='toggle_details'][aria-expanded='true']")
+  end
+
+  test "scheduled jobs show a future time and the phase beside their subject", %{conn: conn} do
+    job = insert_job(%{"url" => "https://y/later"}, "scheduled")
+
+    job
+    |> Ecto.Changeset.change(scheduled_at: DateTime.add(DateTime.utc_now(), 900, :second))
+    |> Beatgrid.Repo.update!()
+
+    {:ok, view, _html} = live(conn, ~p"/jobs")
+    assert has_element?(view, "#job-#{job.id}", "Agendada")
+    assert has_element?(view, "#job-#{job.id}", "daqui")
+    refute has_element?(view, "#job-#{job.id}", "agora")
   end
 end

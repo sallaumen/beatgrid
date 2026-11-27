@@ -54,7 +54,10 @@ defmodule BeatgridWeb.MaintenanceLive do
     <.app_shell flash={@flash} active={:manutencao} socket={@socket}>
       <header class="border-b border-white/6 bg-rail px-3 py-3 sm:px-6">
         <div class="mx-auto flex max-w-[1100px] flex-wrap items-center justify-between gap-3">
-          <h1 class="text-[22px] font-semibold">Manutenção</h1>
+          <div>
+            <h1 class="text-[22px] font-semibold">Manutenção</h1>
+            <p class="text-body-sm text-ink-muted">Ações em toda a biblioteca</p>
+          </div>
           <div class="flex flex-wrap items-center gap-2">
             <.link
               id="maintenance-ajustes"
@@ -74,6 +77,28 @@ defmodule BeatgridWeb.MaintenanceLive do
       </header>
 
       <div class="mx-auto max-w-[1100px] space-y-5 px-3 py-5 sm:px-6">
+        <nav
+          aria-label="Seções de manutenção"
+          class="flex flex-wrap items-center gap-2 text-body-sm"
+        >
+          <a
+            href="#maintenance-audio"
+            class="rounded-md border border-white/10 px-3 py-1.5 text-ink-secondary hover:text-ink"
+          >Preparação de áudio</a>
+          <a
+            href="#maintenance-volume"
+            class="rounded-md border border-white/10 px-3 py-1.5 text-ink-secondary hover:text-ink"
+          >Volume</a>
+          <a
+            href="#maintenance-enrichment"
+            class="rounded-md border border-white/10 px-3 py-1.5 text-ink-secondary hover:text-ink"
+          >Metadados</a>
+          <a
+            href="#maintenance-backup"
+            class="rounded-md border border-white/10 px-3 py-1.5 text-ink-secondary hover:text-ink"
+          >Backup</a>
+        </nav>
+
         <.group id="maintenance-audio" title="Preparação de áudio">
           <.operation title="Análise de áudio local (BPM e tom)" id="maintenance-analysis">
             <.coverage_progress value={@analysis.analyzed} total={@analysis.total} label="analisadas" />
@@ -83,7 +108,6 @@ defmodule BeatgridWeb.MaintenanceLive do
             <:actions>
               <.action
                 event="analyze_library"
-                primary
                 disabled={@analysis.analyzed >= @analysis.total}
               >
                 Analisar faltantes ({max(@analysis.total - @analysis.analyzed, 0)})
@@ -112,7 +136,9 @@ defmodule BeatgridWeb.MaintenanceLive do
               </.action>
             </:actions>
           </.operation>
+        </.group>
 
+        <.group id="maintenance-volume" title="Normalização de volume">
           <.operation title="Loudness (LUFS)" id="maintenance-loudness">
             <.coverage_progress value={@loudness.measured} total={@loudness.total} label="medidas" />
             <p :if={@loudness_note} role="status" class="text-body-sm text-ink-muted">
@@ -127,16 +153,27 @@ defmodule BeatgridWeb.MaintenanceLive do
 
           <.operation title="Ajuste de ganho" id="maintenance-gain">
             <p class="text-body-sm text-ink-muted">
-              Salva uma cópia do áudio original antes de aplicar o ganho e medir o volume de novo.
+              <span class="font-mono tabular-nums text-ink-secondary">{@gain_pending}</span>
+              faixa(s) elegível(is).
+              O ganho altera os arquivos de áudio; uma cópia dos originais é guardada antes da alteração.
             </p>
             <p :if={@gain_note} role="status" class="text-body-sm text-ink-muted">
               {@gain_note}
             </p>
             <:actions>
-              <.action event="apply_gain" disabled={@gain_pending == 0}>
+              <.action
+                event="apply_gain"
+                tone={:caution}
+                disabled={@gain_pending == 0}
+                data-confirm={"Aplicar ganho às #{@gain_pending} faixas elegíveis? Os originais serão guardados antes da alteração."}
+              >
                 Aplicar ganho ({@gain_pending})
               </.action>
-              <.action :if={@gain_undo_batch} event="restore_gain_backup">
+              <.action
+                :if={@gain_undo_batch}
+                event="restore_gain_backup"
+                data-confirm="Desfazer o último lote de ganho em toda a biblioteca usando os backups dos arquivos originais?"
+              >
                 Desfazer último ajuste de ganho
               </.action>
             </:actions>
@@ -157,6 +194,7 @@ defmodule BeatgridWeb.MaintenanceLive do
             <:actions>
               <.action
                 event="enrich_youtube"
+                data-confirm="Enriquecer as importações pendentes usando a cota do Soundcharts?"
                 disabled={
                   enrich_running?(@enrich) or @youtube_pending == 0 or
                     not Integrations.configured?(:soundcharts)
@@ -223,6 +261,9 @@ defmodule BeatgridWeb.MaintenanceLive do
             </p>
             <details :if={@backup} class="max-w-full text-body-sm text-ink-muted">
               <summary class="cursor-pointer text-primary">Comando para restaurar o backup</summary>
+              <p class="mt-2 text-body-sm text-amber">
+                Pare o Beatgrid antes de restaurar. O comando substitui os objetos do banco pelos dados do backup.
+              </p>
               <code class="mt-2 block break-all rounded-md bg-input p-2 font-mono text-ink-secondary">
                 {Backup.restore_command(@backup)}
               </code>
@@ -249,7 +290,7 @@ defmodule BeatgridWeb.MaintenanceLive do
     <section
       id={@id}
       aria-labelledby={"#{@id}-title"}
-      class="rounded-xl border border-white/8 bg-surface px-4 pt-3"
+      class="scroll-mt-20 rounded-xl border border-white/8 bg-surface px-4 pt-3"
     >
       <h2 id={"#{@id}-title"} class="mb-2 text-[18px] font-semibold">{@title}</h2>
       <div class="divide-y divide-white/8">{render_slot(@inner_block)}</div>
@@ -266,20 +307,20 @@ defmodule BeatgridWeb.MaintenanceLive do
     ~H"""
     <div
       id={@id}
-      class="flex flex-col gap-2 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4"
+      class="grid grid-cols-1 gap-2 py-3 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,auto)] lg:items-center lg:gap-4"
     >
       <div class="min-w-0 flex-1 space-y-1">
         <h3 class="text-body-lg font-semibold">{@title}</h3>
         {render_slot(@inner_block)}
       </div>
-      <div class="flex flex-wrap items-center gap-2 sm:justify-end">{render_slot(@actions)}</div>
+      <div class="flex flex-wrap items-center gap-2 lg:justify-end">{render_slot(@actions)}</div>
     </div>
     """
   end
 
   attr :event, :string, required: true
   attr :disabled, :boolean, default: false
-  attr :primary, :boolean, default: false
+  attr :tone, :atom, default: :normal
   attr :rest, :global
   slot :inner_block, required: true
 
@@ -291,8 +332,8 @@ defmodule BeatgridWeb.MaintenanceLive do
       disabled={@disabled}
       class={[
         "rounded-md border px-3 py-2 text-body-sm font-semibold disabled:opacity-40",
-        if(@primary,
-          do: "border-transparent bg-primary-deep text-white",
+        if(@tone == :caution,
+          do: "border-amber/30 bg-amber/10 text-amber hover:bg-amber/15",
           else: "border-white/10 bg-input text-ink-secondary hover:text-ink"
         )
       ]}
@@ -309,8 +350,11 @@ defmodule BeatgridWeb.MaintenanceLive do
 
   defp coverage_progress(assigns) do
     ~H"""
-    <p class="font-mono text-body-sm tabular-nums text-ink-muted">
-      {@value}/{@total} {@label}
+    <p class="flex flex-wrap items-baseline gap-x-2 text-body-sm text-ink-muted">
+      <span class="font-mono tabular-nums text-ink-secondary">{@value}/{@total}</span>
+      {@label}
+      <span :if={@total > 0 && @value == @total} class="text-green">Completo</span>
+      <span :if={@total == 0}> · Sem faixas</span>
     </p>
     <div
       :if={@total > 0}
@@ -322,7 +366,10 @@ defmodule BeatgridWeb.MaintenanceLive do
       class="h-1.5 max-w-sm rounded-full bg-white/5"
     >
       <div
-        class="h-full rounded-full bg-primary motion-safe:transition-[width]"
+        class={[
+          "h-full rounded-full motion-safe:transition-[width]",
+          if(@value == @total, do: "bg-green", else: "bg-primary")
+        ]}
         style={"width:#{round(@value / @total * 100)}%"}
       >
       </div>

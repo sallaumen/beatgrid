@@ -25,6 +25,7 @@ defmodule BeatgridWeb.MixLive do
            mix: mix,
            progress: nil,
            recorte: nil,
+           recorte_initial: nil,
            latest_cut: nil,
            folders: GenreFolders.list()
          )}
@@ -36,7 +37,8 @@ defmodule BeatgridWeb.MixLive do
         {:mix_progress, %{stage: "cut_done", mix_id: id, title: title, track_id: track_id}},
         %{assigns: %{mix: %{id: id}}} = socket
       ) do
-    {:noreply, assign(socket, latest_cut: %{id: track_id, title: title})}
+    {:noreply,
+     assign(socket, mix: Mixes.get_with_dj_parts(id), latest_cut: %{id: track_id, title: title})}
   end
 
   def handle_info(
@@ -242,11 +244,12 @@ defmodule BeatgridWeb.MixLive do
       params["segment"] &&
         Enum.find(socket.assigns.mix.segments, &(&1.id == params["segment"]))
 
-    {:noreply, assign(socket, recorte: recorte_prefill(socket.assigns.mix, seg))}
+    initial = recorte_prefill(socket.assigns.mix, seg)
+    {:noreply, assign(socket, recorte: initial, recorte_initial: initial)}
   end
 
   def handle_event("close_recorte", _params, socket),
-    do: {:noreply, assign(socket, recorte: nil)}
+    do: {:noreply, assign(socket, recorte: nil, recorte_initial: nil)}
 
   def handle_event("recorte_mode", %{"mode" => mode}, socket) when mode in ~w(context exact),
     do: {:noreply, assign(socket, recorte: %{socket.assigns.recorte | mode: mode})}
@@ -281,7 +284,7 @@ defmodule BeatgridWeb.MixLive do
       {:ok, _job} ->
         {:noreply,
          socket
-         |> assign(recorte: nil)
+         |> assign(recorte: nil, recorte_initial: nil)
          |> put_flash(:info, "Recorte na fila para salvar na biblioteca.")}
 
       {:error, reason} ->
@@ -296,55 +299,99 @@ defmodule BeatgridWeb.MixLive do
   def render(assigns) do
     ~H"""
     <.app_shell flash={@flash} active={:mixes} socket={@socket}>
-      <div class="mx-auto max-w-[1100px] px-6 py-5">
-        <.link navigate={~p"/sets-online"} class="text-body-sm text-ink-muted hover:text-ink">
-          ← Sets gravados
+      <div class="mx-auto max-w-[1100px] px-3 py-5 sm:px-6">
+        <.link
+          navigate={~p"/sets-online"}
+          class="inline-flex items-center gap-1 text-body-sm text-ink-muted hover:text-ink"
+        >
+          <.icon name="hero-arrow-left-mini" class="size-4" /> Sets gravados
         </.link>
 
-        <header class="mt-3 flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-          <div class="min-w-0">
-            <h1 class="break-words text-[22px] font-semibold">{@mix.title || @mix.source_url}</h1>
-            <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-body-sm text-ink-secondary">
-              <span>{@mix.dj || "DJ desconhecido"}</span>
-              <span class="text-ink-faint">·</span>
-              <a
-                href={@mix.source_url}
-                target="_blank"
-                rel="noopener"
-                class="text-primary hover:underline"
-              >
-                {source_link_label(@mix.source)}
-              </a>
-            </div>
-            <p
-              :if={@mix.description not in [nil, ""]}
-              class="mt-2 line-clamp-2 text-caption text-ink-muted"
-            >
-              {@mix.description}
-            </p>
+        <header class="mt-3 min-w-0">
+          <div class="flex flex-wrap items-baseline gap-2">
+            <h1 class="min-w-0 break-words text-[22px] font-semibold">
+              {@mix.title || @mix.source_url}
+            </h1>
+            <span class={[
+              "rounded-xs px-2 py-0.5 text-caption font-semibold",
+              mix_status_tone(@mix.status)
+            ]}>
+              {mix_status_label(@mix.status)}
+            </span>
           </div>
-          <p class="text-body-sm text-ink-muted">{mix_status_label(@mix.status)}</p>
+          <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-body text-ink-secondary">
+            <span>{@mix.dj || "DJ desconhecido"}</span>
+            <a
+              href={@mix.source_url}
+              target="_blank"
+              rel="noopener"
+              class="text-primary hover:underline"
+            >{source_link_label(@mix.source)}</a>
+          </div>
         </header>
 
-        <%!-- Set summary cards --%>
-        <div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div class="rounded-lg border border-white/8 bg-surface px-4 py-3">
-            <p class="text-[11px] text-ink-secondary">DJs</p>
-            <p class="mt-0.5 text-[22px] font-semibold">
-              {if length(@mix.dj_parts) == 0, do: "—", else: length(@mix.dj_parts)}
-            </p>
+        <dl class="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-y border-white/8 py-3 sm:grid-cols-4">
+          <div>
+            <dt class="text-body-sm text-ink-muted">Duração</dt>
+            <dd class="font-mono text-body-lg font-semibold tabular-nums">
+              {format_clock(@mix.duration_ms)}
+            </dd>
           </div>
-          <div class="rounded-lg border border-white/8 bg-surface px-4 py-3">
-            <p class="text-[11px] text-ink-secondary">Faixas</p>
-            <p class="mt-0.5 text-[22px] font-semibold">{length(@mix.segments)}</p>
+          <div>
+            <dt class="text-body-sm text-ink-muted">Faixas</dt>
+            <dd class="font-mono text-body-lg font-semibold tabular-nums">{length(@mix.segments)}</dd>
           </div>
-          <div class="rounded-lg border border-white/8 bg-surface px-4 py-3">
-            <p class="text-[11px] text-ink-secondary">Duração</p>
-            <p class="mt-0.5 text-[22px] font-semibold">{format_clock(@mix.duration_ms)}</p>
+          <div>
+            <dt class="text-body-sm text-ink-muted">Na biblioteca</dt>
+            <dd id="mix-coverage" class="font-mono text-body-lg font-semibold tabular-nums">
+              {library_coverage(@mix.segments)}%
+            </dd>
           </div>
-          <div class="rounded-lg border border-white/8 bg-surface px-4 py-3">
-            <p class="text-[11px] text-ink-secondary">Na biblioteca</p>
-            <p class="mt-0.5 text-[22px] font-semibold">{library_coverage(@mix.segments)}%</p>
+          <div>
+            <dt class="text-body-sm text-ink-muted">DJs</dt>
+            <dd class="font-mono text-body-lg font-semibold tabular-nums">
+              {if @mix.dj_parts == [], do: "—", else: length(@mix.dj_parts)}
+            </dd>
+          </div>
+        </dl>
+
+        <div
+          :if={is_integer(@mix.duration_ms) && @mix.duration_ms > 0 && @mix.segments != []}
+          id="mix-timeline"
+          data-duration-ms={@mix.duration_ms}
+          class="mt-3"
+        >
+          <div class="mb-1 flex flex-wrap items-center justify-between gap-2">
+            <h2 class="text-body-sm font-semibold text-ink-secondary">Linha do tempo</h2>
+            <div class="flex items-center gap-2 text-caption text-ink-muted">
+              <span class="flex items-center gap-1"><span class="size-2 rounded-xs bg-green/70"></span>
+              Na biblioteca</span>
+              <span class="flex items-center gap-1"><span class="size-2 rounded-xs bg-primary/50"></span>
+              Outras faixas</span>
+            </div>
+          </div>
+          <div class="relative h-4 overflow-hidden rounded-xs bg-deep" aria-hidden="true">
+            <div
+              :for={seg <- @mix.segments}
+              :if={is_integer(seg.start_ms) && is_integer(seg.end_ms) && seg.end_ms > seg.start_ms}
+              data-segment-marker
+              class={[
+                "absolute inset-y-0 border-r border-base",
+                if(seg.matched_track_id, do: "bg-green/70", else: "bg-primary/50")
+              ]}
+              style={timeline_style(seg, @mix.duration_ms)}
+              title={"#{format_clock(seg.start_ms)} · #{seg.title || "Sem nome"}"}
+            >
+            </div>
+            <div
+              :if={playable?(@mix)}
+              data-timeline-cursor
+              class="absolute inset-y-0 left-0 w-px bg-white"
+            >
+            </div>
+          </div>
+          <div class="mt-1 flex justify-between font-mono text-caption tabular-nums text-ink-muted">
+            <span>00:00</span><span>{format_clock(@mix.duration_ms)}</span>
           </div>
         </div>
 
@@ -364,10 +411,11 @@ defmodule BeatgridWeb.MixLive do
           id="mix-player"
           phx-hook=".MixPlayer"
           data-segment-starts={segment_starts(@mix.segments)}
-          class="sticky top-0 z-10 mt-3 rounded-lg border border-white/8 bg-surface/95 px-3 py-2 backdrop-blur"
+          class="sticky top-0 z-10 mt-3 rounded-lg border border-white/8 bg-surface px-3 py-2"
         >
           <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <div class="flex items-center gap-2">
+            <p class="text-body-sm font-semibold text-ink-secondary">Ouvir gravação</p>
+            <div class="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 data-mix-prev
@@ -394,6 +442,11 @@ defmodule BeatgridWeb.MixLive do
           />
         </div>
 
+        <details :if={@mix.description not in [nil, ""]} class="mt-3 text-body-sm text-ink-muted">
+          <summary class="cursor-pointer text-ink-secondary hover:text-ink">Sobre a gravação</summary>
+          <p class="mt-2 max-w-prose whitespace-pre-wrap break-words">{@mix.description}</p>
+        </details>
+
         <p :if={@mix.status == :analyzing} class="mt-4 text-body-sm text-ink-muted">
           Analisando o set… as faixas aparecem quando terminar.
         </p>
@@ -406,104 +459,130 @@ defmodule BeatgridWeb.MixLive do
             else: "Não foi possível baixar o áudio da gravação."}
         </p>
 
-        <details class="mt-5 rounded-lg border border-white/8 bg-surface">
-          <summary class="cursor-pointer px-4 py-2 text-body-sm font-medium text-ink-secondary hover:text-ink">
-            Análise e arquivo de áudio
-          </summary>
-          <div class="space-y-3 border-t border-white/8 px-4 py-3">
-            <div class="flex flex-wrap items-center gap-2">
-              <button
-                phx-click="reanalyze"
-                disabled={not playable?(@mix)}
-                title={unless playable?(@mix), do: "Áudio apagado — baixe de novo pra reprocessar"}
-                class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                Reanalisar faixas
-              </button>
-              <button
-                phx-click="analyze_all"
-                disabled={not playable?(@mix)}
-                title={unless playable?(@mix), do: "Áudio apagado — baixe de novo pra reprocessar"}
-                class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                Reanalisar faixas e DJs
-              </button>
+        <div class="mt-4 grid gap-2 md:grid-cols-2 items-start">
+          <details class="rounded-lg border border-white/8 bg-surface">
+            <summary class="cursor-pointer px-4 py-2 text-body-sm font-medium text-ink-secondary hover:text-ink">
+              Análise e arquivo de áudio
+            </summary>
+            <div class="space-y-3 border-t border-white/8 px-4 py-3">
+              <div class="flex flex-wrap items-center gap-2">
+                <button
+                  phx-click="reanalyze"
+                  data-confirm={
+                    if @mix.segments != [],
+                      do:
+                        "A análise irá substituir as faixas e seus vínculos com a biblioteca, inclusive nomes já editados. Recortes salvos serão preservados. Continuar?"
+                  }
+                  disabled={not playable?(@mix)}
+                  title={unless playable?(@mix), do: "Áudio apagado — baixe de novo pra reprocessar"}
+                  class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Reanalisar faixas
+                </button>
+                <button
+                  phx-click="analyze_all"
+                  data-confirm={
+                    if @mix.segments != [] || @mix.dj_parts != [],
+                      do:
+                        "A análise irá substituir as faixas e seus vínculos e poderá recalcular a divisão por DJ. Recortes salvos serão preservados. Continuar?"
+                  }
+                  disabled={not playable?(@mix)}
+                  title={unless playable?(@mix), do: "Áudio apagado — baixe de novo pra reprocessar"}
+                  class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Reanalisar faixas e DJs
+                </button>
+              </div>
+              <div :if={playable?(@mix)} class="border-t border-white/8 pt-3">
+                <button
+                  phx-click="delete_audio"
+                  data-confirm="Apagar o áudio deste set? (a análise é preservada)"
+                  title="Apagar o arquivo de áudio (mantém a análise)"
+                  class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-faint hover:bg-coral/10 hover:text-coral"
+                >
+                  Apagar áudio baixado
+                </button>
+              </div>
             </div>
-            <div :if={playable?(@mix)} class="border-t border-white/8 pt-3">
-              <button
-                phx-click="delete_audio"
-                data-confirm="Apagar o áudio deste set? (a análise é preservada)"
-                title="Apagar o arquivo de áudio (mantém a análise)"
-                class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-faint hover:bg-coral/10 hover:text-coral"
-              >
-                Apagar áudio baixado
-              </button>
-            </div>
-          </div>
-        </details>
+          </details>
 
-        <%!-- DJ panel --%>
-        <details class="mt-5 rounded-lg border border-white/8 bg-surface">
-          <summary class="cursor-pointer select-none px-4 py-2 text-body-sm font-medium text-ink-secondary hover:text-ink">
-            Divisão por DJ
-          </summary>
-          <div class="border-t border-white/8 px-4 py-3 space-y-3">
-            <form id="dj-manual-form" phx-submit="dj_manual" class="space-y-2">
-              <label
-                for="dj-start-times"
-                class="block text-[11px] uppercase tracking-wider text-ink-faint"
-              >
-                Horários de entrada dos DJs
-              </label>
-              <textarea
-                id="dj-start-times"
-                name="timestamps"
-                rows="4"
-                aria-label="Horários de entrada dos DJs"
-                class="w-full rounded border border-white/10 bg-transparent px-2 py-1.5 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary/50 focus:outline-none font-mono"
-                placeholder="0:00 DJ A\n30:00 DJ B"
-              ></textarea>
-              <button
-                type="submit"
-                class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink"
-              >
-                Salvar divisão
-              </button>
-            </form>
-            <div class="flex flex-wrap gap-2">
-              <button
-                phx-click="dj_chapters"
-                class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink"
-              >
-                Usar capítulos como DJs
-              </button>
-              <button
-                phx-click="dj_image"
-                class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink"
-              >
-                Detectar por imagem
-              </button>
-              <button
-                phx-click="dj_audio"
-                class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink"
-              >
-                Detectar por áudio
-              </button>
-              <button
-                phx-click="dj_clear"
-                class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink"
-              >
-                Limpar divisão por DJ
-              </button>
+          <%!-- DJ panel --%>
+          <details class="rounded-lg border border-white/8 bg-surface">
+            <summary class="cursor-pointer select-none px-4 py-2 text-body-sm font-medium text-ink-secondary hover:text-ink">
+              Divisão por DJ
+            </summary>
+            <div class="border-t border-white/8 px-4 py-3 space-y-3">
+              <form id="dj-manual-form" phx-submit="dj_manual" class="space-y-2">
+                <label
+                  for="dj-start-times"
+                  class="block text-[11px] uppercase tracking-wider text-ink-faint"
+                >
+                  Horários de entrada dos DJs
+                </label>
+                <textarea
+                  id="dj-start-times"
+                  name="timestamps"
+                  rows="4"
+                  aria-label="Horários de entrada dos DJs"
+                  class="w-full rounded border border-white/10 bg-transparent px-2 py-1.5 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary/50 font-mono"
+                  placeholder="0:00 DJ A\n30:00 DJ B"
+                ></textarea>
+                <button
+                  type="submit"
+                  class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink"
+                >
+                  Salvar divisão
+                </button>
+              </form>
+              <div class="flex flex-wrap gap-2">
+                <button
+                  phx-click="dj_chapters"
+                  data-confirm={
+                    if @mix.segments != [] || @mix.dj_parts != [],
+                      do:
+                        "Usar capítulos substitui a divisão por DJ e recalcula a lista de faixas existente. Continuar?"
+                  }
+                  class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink"
+                >
+                  Usar capítulos como DJs
+                </button>
+                <button
+                  phx-click="dj_image"
+                  data-confirm={
+                    if @mix.dj_parts != [],
+                      do: "Detectar novamente poderá substituir a divisão atual por DJs. Continuar?"
+                  }
+                  class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink"
+                >
+                  Detectar por imagem
+                </button>
+                <button
+                  phx-click="dj_audio"
+                  data-confirm={
+                    if @mix.dj_parts != [],
+                      do: "Detectar novamente poderá substituir a divisão atual por DJs. Continuar?"
+                  }
+                  class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink"
+                >
+                  Detectar por áudio
+                </button>
+                <button
+                  phx-click="dj_clear"
+                  data-confirm="Remover toda a divisão por DJs desta gravação?"
+                  class="rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[12px] font-medium text-ink-muted hover:bg-white/10 hover:text-ink"
+                >
+                  Limpar divisão por DJ
+                </button>
+              </div>
             </div>
-          </div>
-        </details>
+          </details>
+        </div>
 
         <section
           class="mt-5 flex flex-wrap items-center justify-between gap-2"
           aria-labelledby="mix-tracklist-heading"
         >
-          <h2 id="mix-tracklist-heading" class="text-body-lg font-semibold">Faixas do set</h2>
+          <h2 id="mix-tracklist-heading" class="text-[18px] font-semibold">Faixas do set</h2>
           <div class="flex flex-wrap items-center gap-2">
             <button
               :if={playable?(@mix)}
@@ -546,38 +625,52 @@ defmodule BeatgridWeb.MixLive do
           </.link>
         </div>
 
-        <div :if={@recorte} class="mt-5 rounded-xl border border-primary/25 bg-surface p-4">
+        <section
+          :if={@recorte}
+          id="recorte-editor"
+          phx-hook=".RecorteDraft"
+          data-initial-range={@recorte_initial.range}
+          data-initial-artist={@recorte_initial.artist}
+          data-initial-title={@recorte_initial.title}
+          data-initial-folder={@recorte_initial.folder || ""}
+          aria-labelledby="recorte-title"
+          class="mt-4 scroll-mt-36 rounded-xl border border-primary/25 bg-surface p-3 sm:p-4"
+        >
           <div class="flex items-center justify-between">
-            <h2 class="text-body-lg font-semibold">Novo recorte</h2>
+            <h2 id="recorte-title" class="text-[18px] font-semibold">Novo recorte</h2>
             <button
               type="button"
               phx-click="close_recorte"
-              aria-label="Fechar"
-              class="text-ink-faint hover:text-ink"
+              aria-label="Fechar recorte"
+              data-recorte-confirm="Descartar esta edição de recorte?"
+              class="rounded-md border border-white/10 px-2 py-1.5 text-body-sm text-ink-secondary hover:text-ink"
             >
-              ✕
+              Fechar
             </button>
           </div>
           <p class="mt-1 text-caption text-ink-muted">
-            Salve o trecho como uma faixa MP3 na biblioteca, vinculada à gravação original.
+            O recorte gera uma nova faixa MP3 vinculada à gravação original. O arquivo da gravação é preservado.
           </p>
 
           <div class="mt-4 space-y-4">
             <section>
               <div class="flex items-baseline gap-2">
-                <span class="text-caption font-bold text-primary">1</span>
-                <h3 class="text-body-sm font-semibold">Trecho</h3>
-                <span class="text-caption text-ink-faint">cole início-fim de uma vez</span>
+                <h3 class="text-body-lg font-semibold">
+                  <label for="recorte-range">Intervalo do recorte</label>
+                </h3>
+                <span class="text-caption text-ink-muted">5 segundos a 15 minutos</span>
               </div>
 
               <div class="mt-1.5 flex flex-wrap items-center gap-2">
                 <input
+                  id="recorte-range"
                   form="recorte-form"
+                  phx-mounted={JS.focus()}
                   name="range"
                   value={@recorte.range}
                   aria-label="Trecho do recorte (início-fim)"
                   placeholder="3:59:14-4:00:50"
-                  class="h-10 w-56 rounded-lg border border-white/12 bg-input px-3 font-mono text-body text-ink placeholder:text-ink-faint focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  class="h-10 w-full sm:w-56 rounded-lg border border-white/10 bg-input px-3 font-mono text-body text-ink placeholder:text-ink-faint focus:border-primary"
                 />
                 <span
                   :if={recorte_range(@recorte)}
@@ -585,16 +678,6 @@ defmodule BeatgridWeb.MixLive do
                 >
                   {recorte_summary(@recorte)}
                 </span>
-                <button
-                  :if={recorte_range(@recorte)}
-                  type="button"
-                  data-recorte-copy
-                  form="recorte-form"
-                  title="Copiar o trecho"
-                  class="h-8 rounded-md border border-white/12 px-2.5 text-caption text-ink-muted hover:border-white/25 hover:text-ink focus:outline-none focus:ring-2 focus:ring-primary/40"
-                >
-                  ⧉ copiar
-                </button>
               </div>
 
               <p
@@ -617,7 +700,7 @@ defmodule BeatgridWeb.MixLive do
                     phx-value-field={field}
                     phx-value-delta={delta}
                     aria-label={"#{delta_label} no #{label}"}
-                    class="h-8 w-11 rounded-md border border-white/12 font-mono text-caption text-ink-secondary hover:border-primary/50 hover:text-ink focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    class="h-8 w-11 rounded-md border border-white/12 font-mono text-caption text-ink-secondary hover:border-primary/50 hover:text-ink"
                   >
                     {delta_label}
                   </button>
@@ -628,36 +711,47 @@ defmodule BeatgridWeb.MixLive do
             <section
               :if={recorte_range(@recorte)}
               id="recorte-preview"
+              tabindex="0"
+              aria-label="Prévia precisa do recorte"
               phx-hook=".RecortePreview"
               data-window-start={recorte_window_start(@recorte)}
               data-range={recorte_canonical(@recorte)}
               data-src={recorte_preview_src(@mix, @recorte, recorte_pad(@recorte))}
             >
               <div class="flex flex-wrap items-baseline gap-2">
-                <span class="text-caption font-bold text-primary">2</span>
-                <h3 class="text-body-sm font-semibold">Ouça e marque</h3>
-                <div class="ml-auto flex overflow-hidden rounded-md border border-white/12">
+                <h3 class="text-body-lg font-semibold">Ouça e marque</h3>
+                <div class="flex flex-wrap items-center gap-2 sm:ml-auto">
                   <button
-                    :for={
-                      {mode, label} <- [
-                        {"context", "com 15s de contexto"},
-                        {"exact", "só o corte"}
-                      ]
-                    }
                     type="button"
-                    phx-click="recorte_mode"
-                    phx-value-mode={mode}
-                    aria-pressed={to_string(@recorte.mode == mode)}
-                    class={[
-                      "px-2.5 py-1 text-caption focus:outline-none focus:ring-2 focus:ring-primary/40",
-                      (@recorte.mode == mode && "bg-primary/20 text-primary") ||
-                        "text-ink-muted hover:text-ink"
-                    ]}
+                    data-recorte-copy
+                    class="rounded-md border border-white/10 px-2.5 py-1 text-body-sm text-ink-secondary hover:text-ink"
                   >
-                    {label}
+                    <.icon name="hero-document-duplicate-mini" class="size-3.5" /> Copiar intervalo
                   </button>
+                  <div class="flex rounded-md border border-white/10">
+                    <button
+                      :for={
+                        {mode, label} <- [
+                          {"context", "com 15s de contexto"},
+                          {"exact", "só o corte"}
+                        ]
+                      }
+                      type="button"
+                      phx-click="recorte_mode"
+                      phx-value-mode={mode}
+                      aria-pressed={to_string(@recorte.mode == mode)}
+                      class={[
+                        "px-2.5 py-1 text-caption",
+                        (@recorte.mode == mode && "bg-primary/20 text-primary") ||
+                          "text-ink-muted hover:text-ink"
+                      ]}
+                    >
+                      {label}
+                    </button>
+                  </div>
                 </div>
               </div>
+              <span role="status" data-copy-status class="text-caption text-ink-muted"></span>
 
               <audio
                 id="recorte-player"
@@ -672,7 +766,7 @@ defmodule BeatgridWeb.MixLive do
                   type="button"
                   data-mark="start"
                   title="Onde a prévia está agora vira o início do recorte (tecla I)"
-                  class="flex h-11 flex-1 items-center justify-center gap-2 rounded-lg border border-primary/50 bg-primary/10 text-body-sm font-semibold text-primary hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  class="flex h-11 flex-1 items-center justify-center gap-2 rounded-lg border border-primary/50 bg-primary/10 text-body-sm font-semibold text-primary hover:bg-primary/20"
                 >
                   ⟵ marcar início <kbd class="rounded bg-black/30 px-1 font-mono text-[10px]">I</kbd>
                 </button>
@@ -680,25 +774,24 @@ defmodule BeatgridWeb.MixLive do
                   type="button"
                   data-mark="end"
                   title="Onde a prévia está agora vira o fim do recorte (tecla O)"
-                  class="flex h-11 flex-1 items-center justify-center gap-2 rounded-lg border border-primary/50 bg-primary/10 text-body-sm font-semibold text-primary hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  class="flex h-11 flex-1 items-center justify-center gap-2 rounded-lg border border-primary/50 bg-primary/10 text-body-sm font-semibold text-primary hover:bg-primary/20"
                 >
                   marcar fim <kbd class="rounded bg-black/30 px-1 font-mono text-[10px]">O</kbd> ⟶
                 </button>
               </div>
 
               <p class="mt-1.5 text-caption text-ink-faint">
-                Esta prévia é cortada no servidor: a posição dela é exata (o relógio do player
-                do set inteiro escorrega em MP3 de horas). Atalhos: <b>espaço</b>
-                toca/pausa, <b>I</b>
+                Use a prévia para acertar os limites. O relógio da gravação inteira pode se deslocar em MP3 longos.
+                Com foco na prévia: <b>I</b>
                 marca início, <b>O</b>
-                marca fim.
+                marca fim e <b>espaço</b>
+                toca/pausa quando a região está focada.
               </p>
             </section>
 
             <section>
               <div class="flex items-baseline gap-2">
-                <span class="text-caption font-bold text-primary">3</span>
-                <h3 class="text-body-sm font-semibold">Nome e destino</h3>
+                <h3 class="text-body-lg font-semibold">Nome e destino</h3>
               </div>
 
               <form
@@ -714,7 +807,7 @@ defmodule BeatgridWeb.MixLive do
                     value={@recorte.title}
                     required
                     placeholder="Osso duro de roer"
-                    class="mt-0.5 h-10 w-full rounded-lg border border-white/12 bg-input px-3 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    class="mt-0.5 h-10 w-full rounded-lg border border-white/12 bg-input px-3 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary"
                   />
                 </label>
                 <label class="text-caption text-ink-muted sm:col-span-4">
@@ -723,14 +816,14 @@ defmodule BeatgridWeb.MixLive do
                     name="artist"
                     value={@recorte.artist}
                     placeholder="Os 3 do Nordeste"
-                    class="mt-0.5 h-10 w-full rounded-lg border border-white/12 bg-input px-3 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    class="mt-0.5 h-10 w-full rounded-lg border border-white/12 bg-input px-3 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary"
                   />
                 </label>
                 <label class="text-caption text-ink-muted sm:col-span-2">
                   Pasta
                   <select
                     name="folder"
-                    class="mt-0.5 h-10 w-full rounded-lg border border-white/12 bg-input px-2 text-body-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    class="mt-0.5 h-10 w-full rounded-lg border border-white/12 bg-input px-2 text-body-sm text-ink focus:border-primary"
                   >
                     <option value="">_Inbox</option>
                     <option :for={f <- @folders} value={f.key} selected={@recorte.folder == f.key}>
@@ -741,23 +834,24 @@ defmodule BeatgridWeb.MixLive do
                 <button
                   type="submit"
                   disabled={is_nil(recorte_range(@recorte))}
-                  class="h-10 rounded-lg bg-primary-deep px-4 text-body-sm font-semibold text-white hover:bg-primary-deep/90 focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-40 sm:col-span-2"
+                  phx-disable-with="Enfileirando…"
+                  class="h-10 rounded-lg bg-primary-deep px-4 text-body-sm font-semibold text-white hover:bg-primary-deep/90 disabled:opacity-40 sm:col-span-2"
                 >
-                  ✂ Criar
+                  Salvar MP3
                 </button>
               </form>
             </section>
           </div>
-        </div>
+        </section>
 
-        <ol :if={@mix.segments != []} class="mt-5 space-y-1">
+        <ol :if={@mix.segments != []} id="mix-segments" class="mt-5 space-y-1">
           <%= for {part, segs} <- Mixes.group_by_dj(@mix.segments, @mix.dj_parts) do %>
             <li :if={@mix.dj_parts != []} class="list-none">
               <.dj_divider part={part} count={length(segs)} />
             </li>
             <li :for={{seg, i} <- Enum.with_index(segs)}>
               <.transition_row :if={i > 0} t={Transition.between(Enum.at(segs, i - 1), seg)} />
-              <.segment_row seg={seg} playable={playable?(@mix)} />
+              <.segment_row seg={seg} playable={playable?(@mix)} recorte_open={not is_nil(@recorte)} />
             </li>
           <% end %>
         </ol>
@@ -770,6 +864,36 @@ defmodule BeatgridWeb.MixLive do
         </p>
       </div>
     </.app_shell>
+    <script :type={Phoenix.LiveView.ColocatedHook} name=".RecorteDraft">
+      export default {
+        mounted() {
+          this.guardDraft = (event) => {
+            const button = event.target.closest("button[data-recorte-confirm]")
+            if (!button) return
+
+            const form = this.el.querySelector("#recorte-form")
+            if (!form) return
+
+            // Compare live DOM values, including edits still awaiting a phx-change
+            // round trip. The server supplies the initial prefill for each draft.
+            const edited = ["range", "artist", "title", "folder"].some((name) => {
+              const current = form.elements.namedItem(name)?.value || ""
+              const initial = this.el.getAttribute("data-initial-" + name) || ""
+              return current !== initial
+            })
+
+            if (edited && !window.confirm(button.dataset.recorteConfirm)) {
+              event.preventDefault()
+              event.stopImmediatePropagation()
+            }
+          }
+          window.addEventListener("click", this.guardDraft, true)
+        },
+        destroyed() {
+          window.removeEventListener("click", this.guardDraft, true)
+        },
+      }
+    </script>
     <script :type={Phoenix.LiveView.ColocatedHook} name=".RecortePreview">
       // A prévia é a ÚNICA timeline confiável (o player do set escorrega em MP3
       // longo), então marcar início/fim aqui = tempo absoluto exato no arquivo.
@@ -782,25 +906,35 @@ defmodule BeatgridWeb.MixLive do
             const mark = e.target.closest("[data-mark]")
             if (mark) return this.mark(mark.dataset.mark)
             if (e.target.closest("[data-recorte-copy]")) {
-              navigator.clipboard.writeText(this.el.dataset.range || "")
+              const status = this.el.querySelector("[data-copy-status]")
+              if (!navigator.clipboard) {
+                if (status) status.textContent = "Selecione o intervalo para copiar manualmente."
+                return
+              }
+              navigator.clipboard.writeText(this.el.dataset.range || "").then(
+                () => { if (status) status.textContent = "Intervalo copiado." },
+                () => { if (status) status.textContent = "Selecione o intervalo para copiar manualmente." }
+              )
             }
           })
 
-          // Atalhos de editor: I/O marcam entrada e saída, espaço toca.
+          // I/O mark boundaries only while focus is in the preview.
           this.onKeys = (e) => {
             const t = e.target
-            if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return
+            if (e.defaultPrevented || !this.el.contains(t) || t.closest("input, textarea, select, [contenteditable]")) return
             const k = e.key.toLowerCase()
             if (k === "i" || k === "o") {
               this.mark(k === "i" ? "start" : "end")
-            } else if (e.key === " ") {
+            } else if (e.key === " " && t === this.el) {
               this.player.paused ? this.player.play().catch(() => {}) : this.player.pause()
             } else {
               return
             }
             e.preventDefault()
           }
-          window.addEventListener("keydown", this.onKeys)
+          this.el.addEventListener("keydown", this.onKeys)
+          this.onPlay = () => document.getElementById("mix-audio")?.pause()
+          this.player.addEventListener("play", this.onPlay)
         },
 
         updated() {
@@ -808,7 +942,8 @@ defmodule BeatgridWeb.MixLive do
         },
 
         destroyed() {
-          window.removeEventListener("keydown", this.onKeys)
+          this.el.removeEventListener("keydown", this.onKeys)
+          this.player.removeEventListener("play", this.onPlay)
         },
 
         mark(field) {
@@ -878,6 +1013,10 @@ defmodule BeatgridWeb.MixLive do
           }
           this.onTime = () => {
             const ms = this.audio.currentTime * 1000
+            const timeline = document.getElementById("mix-timeline")
+            const cursor = timeline?.querySelector("[data-timeline-cursor]")
+            const duration = Number(timeline?.dataset.durationMs)
+            if (cursor && duration > 0) cursor.style.left = Math.min(ms / duration * 100, 100) + "%"
             document.querySelectorAll("[data-seg]").forEach((row) => {
               const s = Number(row.dataset.startMs)
               const e = Number(row.dataset.endMs)
@@ -888,12 +1027,17 @@ defmodule BeatgridWeb.MixLive do
           document.addEventListener("click", this.onPrev)
           document.addEventListener("click", this.onNext)
           this.audio.addEventListener("timeupdate", this.onTime)
+          this.onPlay = () => document.getElementById("recorte-player")?.pause()
+          this.audio.addEventListener("play", this.onPlay)
         },
         destroyed() {
           document.removeEventListener("click", this.onClick)
           document.removeEventListener("click", this.onPrev)
           document.removeEventListener("click", this.onNext)
-          if (this.audio) this.audio.removeEventListener("timeupdate", this.onTime)
+          if (this.audio) {
+            this.audio.removeEventListener("timeupdate", this.onTime)
+            this.audio.removeEventListener("play", this.onPlay)
+          }
         },
       }
     </script>
@@ -1031,6 +1175,12 @@ defmodule BeatgridWeb.MixLive do
   defp recorte_error(:too_long), do: "Recorte muito longo — máximo de 15 minutos."
   defp recorte_error(_reason), do: "Não deu pra criar o recorte — veja os logs."
 
+  defp timeline_style(seg, duration) do
+    start_pct = min(max(seg.start_ms / duration * 100, 0), 100)
+    end_pct = min(max(seg.end_ms / duration * 100, start_pct), 100)
+    "left:#{start_pct}%;width:#{end_pct - start_pct}%"
+  end
+
   defp segment_starts(segments) do
     segments
     |> Enum.map(& &1.start_ms)
@@ -1059,7 +1209,7 @@ defmodule BeatgridWeb.MixLive do
 
   defp dj_divider(assigns) do
     ~H"""
-    <div class="flex items-center gap-2.5 mt-4 mb-2">
+    <div class="mt-4 mb-2 flex flex-wrap items-center gap-2.5">
       <span class="h-px w-3 bg-white/15"></span>
       <%= if @part do %>
         <form
@@ -1074,7 +1224,7 @@ defmodule BeatgridWeb.MixLive do
             value={@part.dj_name}
             phx-debounce="blur"
             aria-label={"Renomear DJ: #{@part.dj_name || "Sem DJ"}"}
-            class="rounded-full bg-primary/15 px-3 py-0.5 text-[13px] font-semibold text-primary border-0 outline-none focus:ring-1 focus:ring-primary/50 min-w-0 w-auto"
+            class="rounded-md bg-primary/10 px-2 py-1 text-body-lg font-semibold text-primary border-0 min-w-0 w-auto max-w-[13rem]"
             placeholder="Sem DJ"
           />
         </form>
@@ -1111,6 +1261,7 @@ defmodule BeatgridWeb.MixLive do
 
   attr :seg, :map, required: true
   attr :playable, :boolean, required: true
+  attr :recorte_open, :boolean, required: true
 
   defp segment_row(assigns) do
     ~H"""
@@ -1118,45 +1269,47 @@ defmodule BeatgridWeb.MixLive do
       data-seg
       data-start-ms={@seg.start_ms}
       data-end-ms={@seg.end_ms}
-      class="flex flex-wrap items-center gap-2 rounded-lg border border-white/6 bg-surface px-3 py-2"
+      class="grid min-w-0 gap-2 rounded-lg border border-white/6 bg-surface px-3 py-2.5 xl:grid-cols-[minmax(9rem,auto)_minmax(0,1fr)_auto] xl:items-center"
     >
-      <button
-        :if={@playable}
-        type="button"
-        data-seg-play
-        data-start-ms={@seg.start_ms}
-        aria-label={"Ouvir a partir de #{format_clock(@seg.start_ms)}"}
-        class="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-1 font-mono text-body-sm text-ink-secondary hover:text-primary"
-      >
-        <span class="hero-play size-3" aria-hidden="true" />
-        {format_clock(@seg.start_ms)}
-      </button>
-      <span :if={not @playable} class="w-12 shrink-0 font-mono text-body-sm text-ink-muted">{format_clock(
-        @seg.start_ms
-      )}</span>
-      <button
-        :if={@playable and not named?(@seg)}
-        type="button"
-        phx-click="recognize_seg"
-        phx-value-id={@seg.id}
-        disabled={not Beatgrid.Integrations.configured?(:audd)}
-        data-confirm="O AudD pode gerar cobrança por consulta. Identificar esta faixa?"
-        title="Identificar faixa (AudD)"
-        aria-label={"Identificar a faixa em #{format_clock(@seg.start_ms)} (AudD)"}
-        class="shrink-0 rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[11px] text-ink-muted hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
-      >
-        Identificar
-      </button>
-      <span
-        :if={name_source_label(@seg.name_source)}
-        class="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary/80"
-      >
-        {name_source_label(@seg.name_source)}
-      </span>
+      <div class="flex flex-wrap items-center gap-2">
+        <button
+          :if={@playable}
+          type="button"
+          data-seg-play
+          data-start-ms={@seg.start_ms}
+          aria-label={"Ouvir a partir de #{format_clock(@seg.start_ms)}"}
+          class="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-1 font-mono text-body-sm text-ink-secondary hover:text-primary"
+        >
+          <span class="hero-play size-3" aria-hidden="true" />
+          {format_clock(@seg.start_ms)}
+        </button>
+        <span :if={not @playable} class="shrink-0 font-mono text-body-sm text-ink-muted">{format_clock(
+          @seg.start_ms
+        )}</span>
+        <button
+          :if={@playable and not named?(@seg)}
+          type="button"
+          phx-click="recognize_seg"
+          phx-value-id={@seg.id}
+          disabled={not Beatgrid.Integrations.configured?(:audd)}
+          data-confirm="O AudD pode gerar cobrança por consulta. Identificar esta faixa?"
+          title="Identificar faixa (AudD)"
+          aria-label={"Identificar a faixa em #{format_clock(@seg.start_ms)} (AudD)"}
+          class="shrink-0 rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[11px] text-ink-muted hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          Identificar
+        </button>
+        <span
+          :if={name_source_label(@seg.name_source)}
+          class="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary/80"
+        >
+          {name_source_label(@seg.name_source)}
+        </span>
+      </div>
       <form
         id={"seg-form-#{@seg.id}"}
         phx-submit="save_segment"
-        class="flex min-w-[13rem] flex-1 items-center gap-1.5"
+        class="flex min-w-0 items-center gap-1.5"
       >
         <input type="hidden" name="segment_id" value={@seg.id} />
         <input
@@ -1164,37 +1317,43 @@ defmodule BeatgridWeb.MixLive do
           value={@seg.artist || ""}
           placeholder="Artista"
           aria-label={"Artista da faixa em #{format_clock(@seg.start_ms)}"}
-          class="w-[35%] min-w-0 rounded border border-white/10 bg-transparent px-1.5 py-0.5 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary/50 focus:outline-none"
+          class="w-[35%] min-w-0 rounded border border-white/10 bg-transparent px-1.5 py-1.5 text-body text-ink placeholder:text-ink-faint focus:border-primary/50"
         />
         <input
           name="title"
           value={@seg.title || ""}
           placeholder="Título"
           aria-label={"Título da faixa em #{format_clock(@seg.start_ms)}"}
-          class="min-w-0 flex-1 rounded border border-white/10 bg-transparent px-1.5 py-0.5 text-body-sm text-ink placeholder:text-ink-faint focus:border-primary/50 focus:outline-none"
+          class="min-w-0 flex-1 rounded border border-white/10 bg-transparent px-1.5 py-1.5 text-body text-ink placeholder:text-ink-faint focus:border-primary/50"
         />
         <button
           type="submit"
           aria-label="Salvar artista e título"
-          class="shrink-0 rounded px-2 py-0.5 text-[11px] text-ink-faint hover:text-ink"
-        >✓</button>
+          class="shrink-0 rounded-md border border-white/10 px-2 py-1 text-body-sm text-ink-secondary hover:text-ink"
+        >Salvar</button>
       </form>
-      <button
-        :if={@playable}
-        type="button"
-        phx-click="open_recorte"
-        phx-value-segment={@seg.id}
-        title="Recortar este trecho como uma faixa da biblioteca"
-        aria-label={"Recortar o trecho a partir de #{format_clock(@seg.start_ms)}"}
-        class="shrink-0 rounded px-1 py-0.5 text-[12px] text-ink-muted hover:text-ink"
-      >
-        <span class="hero-scissors size-3.5" aria-hidden="true" />
-      </button>
-      <span :if={@seg.bpm_detected} class="shrink-0 text-body-sm text-primary">{round(
-        @seg.bpm_detected
-      )} BPM</span>
-      <.camelot_seal value={@seg.camelot_detected} />
-      <.coverage_badge seg={@seg} />
+      <div class="flex flex-wrap items-center gap-2 xl:justify-end">
+        <button
+          :if={@playable}
+          type="button"
+          phx-click="open_recorte"
+          phx-value-segment={@seg.id}
+          title="Recortar este trecho como uma faixa da biblioteca"
+          data-recorte-confirm={
+            if @recorte_open, do: "Substituir a edição de recorte pelo trecho desta faixa?"
+          }
+          aria-label={"Recortar o trecho a partir de #{format_clock(@seg.start_ms)}"}
+          class="shrink-0 rounded-md border border-white/10 px-2 py-1 text-body-sm text-ink-secondary hover:text-ink"
+        >
+          <span class="hero-scissors size-3.5" aria-hidden="true" />
+        </button>
+        <span
+          :if={@seg.bpm_detected}
+          class="shrink-0 font-mono text-body-sm tabular-nums text-ink-secondary"
+        >{round(@seg.bpm_detected)} BPM</span>
+        <.camelot_seal value={@seg.camelot_detected} />
+        <.coverage_badge seg={@seg} />
+      </div>
     </div>
     """
   end
@@ -1203,8 +1362,8 @@ defmodule BeatgridWeb.MixLive do
 
   defp transition_row(assigns) do
     ~H"""
-    <div class="flex items-center gap-2 px-3 py-0.5 text-[11px] text-ink-faint">
-      <span>↕</span>
+    <div class="flex items-center gap-2 px-3 py-0.5 text-body-sm text-ink-muted">
+      <span aria-hidden="true">↕</span>
       <span>{camelot_label(@t.camelot)}</span>
       <span :if={@t.bpm_delta && @t.bpm_delta != 0.0}>· {bpm_delta_label(@t.bpm_delta)}</span>
     </div>
@@ -1300,6 +1459,10 @@ defmodule BeatgridWeb.MixLive do
   defp source_link_label("youtube"), do: "Abrir no YouTube"
   defp source_link_label("soundcloud"), do: "Abrir no SoundCloud"
   defp source_link_label(_), do: "Abrir gravação original"
+
+  defp mix_status_tone(:ready), do: "bg-green/10 text-green"
+  defp mix_status_tone(:failed), do: "bg-coral/10 text-coral"
+  defp mix_status_tone(_), do: "bg-primary/10 text-primary"
 
   defp mix_status_label(:downloading), do: "Baixando…"
   defp mix_status_label(:analyzing), do: "Analisando…"
