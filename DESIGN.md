@@ -474,3 +474,5 @@ semantic color, optional 10.5px subline; `alert` swaps the hairline for coral/25
 - **Don't** invent new accent colors inside features; anchor meaning to the
   existing semantic set first (the console's scratch set is the one categorical
   exception, and it stays in the console).
+
+The [page review guide](docs/playbook/beatgrid-ui.md) maps each workspace to a DJ task, a design review method and a browser check.
