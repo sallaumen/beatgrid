@@ -8,7 +8,7 @@ defmodule BeatgridWeb.ImportsLive do
   alias Beatgrid.Library.{TrackQuery, Tracks}
   alias Beatgrid.Spotify.Playlist
   alias Beatgrid.YouTube
-  alias Beatgrid.YouTube.{Playlists, Preview}
+  alias Beatgrid.YouTube.{Link, Playlists, Preview}
   alias BeatgridWeb.LocalImportComponent
 
   @impl true
@@ -30,12 +30,17 @@ defmodule BeatgridWeb.ImportsLive do
      |> assign(
        page_title: "Importações",
        online_route: ~p"/importados",
+       local_route: ~p"/importados?origem=local",
+       local_batch: nil,
+       local_job: nil,
        local_progress_event: nil,
        filters: %{},
        sort: :recent,
        expanded: MapSet.new(),
        urls: "",
        rows: [],
+       downloads: [],
+       video_matches: %{},
        spotify: nil,
        spotify_filter: "all",
        spotify_index: nil,
@@ -49,15 +54,18 @@ defmodule BeatgridWeb.ImportsLive do
   end
 
   @impl true
-  def handle_params(%{"origem" => "local"}, _uri, socket),
-    do: {:noreply, assign(socket, mode: :local)}
+  def handle_params(%{"origem" => "local"} = params, _uri, socket) do
+    batch = valid_batch(params["lote"])
+
+    route =
+      if batch, do: ~p"/importados?origem=local&lote=#{batch}", else: ~p"/importados?origem=local"
+
+    {:noreply,
+     socket |> assign(mode: :local, local_batch: batch, local_route: route) |> load_local_job()}
+  end
 
   def handle_params(params, _uri, socket) do
-    batch =
-      case Ecto.UUID.cast(params["lote"]) do
-        {:ok, id} -> id
-        :error -> nil
-      end
+    batch = valid_batch(params["lote"])
 
     online_route =
       case Map.take(params, ["lote", "recomendacao"]) do
@@ -68,6 +76,24 @@ defmodule BeatgridWeb.ImportsLive do
     {:noreply,
      socket |> assign(mode: :online, batch: batch, online_route: online_route) |> load_activity()}
   end
+
+  defp valid_batch(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, id} -> id
+      :error -> nil
+    end
+  end
+
+  defp load_local_job(socket) do
+    job = socket.assigns.local_batch && Jobs.local_import_in_batch(socket.assigns.local_batch)
+    assign(socket, local_job: job)
+  end
+
+  defp refresh_local_job(%{assigns: %{local_job: %{state: state}}} = socket)
+       when state not in ["completed", "discarded", "cancelled"],
+       do: load_local_job(socket)
+
+  defp refresh_local_job(socket), do: socket
 
   defp schedule_refresh, do: Process.send_after(self(), :refresh_downloads, 3_000)
 
@@ -82,17 +108,49 @@ defmodule BeatgridWeb.ImportsLive do
           {jobs, Enum.count(jobs, &(&1.state in ["discarded", "cancelled"]))}
       end
 
-    assign(socket,
+    socket
+    |> assign(
       downloads: jobs,
       completed: Enum.count(jobs, &(&1.state == "completed")),
       failed: failed
     )
+    |> load_video_matches()
   end
+
+  defp load_video_matches(socket) do
+    preview_ids = Enum.map(socket.assigns.rows, & &1.id)
+
+    completed_ids =
+      for job <- socket.assigns.downloads, job.state == "completed", do: job_video_id(job)
+
+    assign(socket, video_matches: Tracks.present_youtube_track_ids(preview_ids ++ completed_ids))
+  end
+
+  defp job_video_id(%{args: args}) do
+    case Link.video(args["video_id"]) do
+      {:video, id} -> id
+      :invalid -> url_video_id(args["url"])
+    end
+  end
+
+  defp url_video_id(url) when is_binary(url) do
+    case Link.parse(url) do
+      {:video, id} -> id
+      _ -> nil
+    end
+  end
+
+  defp url_video_id(_), do: nil
 
   @impl true
   def handle_info(:refresh_downloads, socket) do
     schedule_refresh()
-    {:noreply, if(socket.assigns.mode == :online, do: load_activity(socket), else: socket)}
+
+    {:noreply,
+     if(socket.assigns.mode == :online,
+       do: load_activity(socket),
+       else: refresh_local_job(socket)
+     )}
   end
 
   def handle_info({:import_progress, progress}, socket),
@@ -313,10 +371,17 @@ defmodule BeatgridWeb.ImportsLive do
     do: {:noreply, assign(socket, loading: false, spotify: catalog)}
 
   def handle_async(:preview, {:ok, {kind, {:ok, rows}}}, socket) do
-    selected =
-      for row <- rows, kind == :videos, is_nil(row.playlist_url), into: MapSet.new(), do: row.id
+    socket = socket |> assign(rows: rows) |> load_video_matches()
 
-    {:noreply, assign(socket, loading: false, rows: rows, selected: selected)}
+    selected =
+      for row <- rows,
+          kind == :videos,
+          is_nil(row.playlist_url),
+          not Map.has_key?(socket.assigns.video_matches, row.id),
+          into: MapSet.new(),
+          do: row.id
+
+    {:noreply, assign(socket, loading: false, selected: selected)}
   end
 
   def handle_async(:preview, {:ok, {_, {:error, %Beatgrid.Error{message: message}}}}, socket),
@@ -402,7 +467,7 @@ defmodule BeatgridWeb.ImportsLive do
             <.icon name="hero-link" class="mr-1.5 size-4" /> YouTube e Spotify
           </.link>
           <.link
-            patch={~p"/importados?origem=local"}
+            patch={@local_route}
             aria-current={@mode == :local && "page"}
             class={["inline-flex min-h-11 items-center sm:min-h-0", chip_class(@mode == :local)]}
           >
@@ -414,6 +479,8 @@ defmodule BeatgridWeb.ImportsLive do
           module={LocalImportComponent}
           id="local-import"
           active={@mode == :local}
+          batch={@local_batch}
+          job={@local_job}
           progress_event={@local_progress_event}
         />
         <.online_imports :if={@mode == :online} {assigns} />
@@ -497,8 +564,9 @@ defmodule BeatgridWeb.ImportsLive do
               :if={track.library_id}
               navigate={~p"/track/#{track.library_id}"}
               aria-label={"Abrir #{track.title} na biblioteca"}
+              title="Mesmo artista e título; a versão pode ser diferente"
               class="inline-block py-1 text-caption text-green hover:underline"
-            >Abrir na biblioteca</.link>
+            >Faixa correspondente na biblioteca</.link>
           </div>
           <button
             id={"spotify-version-#{i}"}
@@ -637,7 +705,11 @@ defmodule BeatgridWeb.ImportsLive do
                 do: "Limpar seleção",
                 else: "Selecionar todas"}</button>
               <div class="max-h-72 overflow-y-auto">
-                <div :for={row <- @rows} class="flex items-center gap-3 border-b border-white/6 py-1">
+                <div
+                  :for={row <- @rows}
+                  id={"video-preview-#{row.id}"}
+                  class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 border-b border-white/6 py-1"
+                >
                   <label class="flex min-w-0 grow items-center gap-2 py-2 text-body-sm">
                     <input
                       type="checkbox"
@@ -658,6 +730,10 @@ defmodule BeatgridWeb.ImportsLive do
                     class="shrink-0 text-caption text-primary-soft underline"
                     aria-label={"Abrir #{row.title} no YouTube"}
                   >Ver vídeo</a>
+                  <.video_library_match
+                    ids={Map.get(@video_matches, row.id, [])}
+                    title={row.title}
+                  />
                 </div>
               </div>
             </fieldset>
@@ -728,6 +804,7 @@ defmodule BeatgridWeb.ImportsLive do
           <ul class="mt-2 max-h-40 overflow-y-auto xl:max-h-52">
             <li
               :for={job <- @downloads}
+              id={"download-job-#{job.id}"}
               class="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 border-b border-white/6 py-2 text-body-sm"
             >
               <span class="min-w-0 break-words">{job.args["title"] || job.args["video_id"] ||
@@ -736,6 +813,12 @@ defmodule BeatgridWeb.ImportsLive do
                 job.state
               )}</span>
               <span :if={issue = download_issue(job)} class="col-span-2 text-caption text-amber">{issue}</span>
+              <.video_library_match
+                :if={job.state == "completed"}
+                ids={Map.get(@video_matches, job_video_id(job), [])}
+                title={job.args["title"] || job.args["video_id"] || job.args["url"]}
+                completed?={true}
+              />
             </li>
           </ul>
         </section>
@@ -851,6 +934,35 @@ defmodule BeatgridWeb.ImportsLive do
           <.track_row :for={track <- @singles} track={track} />
         </ul>
       </div>
+    </div>
+    """
+  end
+
+  attr :ids, :list, required: true
+  attr :title, :string, required: true
+  attr :completed?, :boolean, default: false
+
+  defp video_library_match(assigns) do
+    ~H"""
+    <div
+      :if={@completed? or @ids != []}
+      class="col-span-2 flex flex-wrap items-center gap-x-2 gap-y-1 pb-1 text-caption"
+    >
+      <%= case @ids do %>
+        <% [id] -> %>
+          <span :if={not @completed?} class="text-green">Já na biblioteca</span>
+          <.link
+            navigate={~p"/track/#{id}"}
+            aria-label={"Abrir faixa #{@title}"}
+            class="inline-flex min-h-7 items-center text-body-sm text-primary-soft underline"
+          >
+            Abrir faixa
+          </.link>
+        <% [] -> %>
+          <span class="text-ink-muted">Faixa não localizada na biblioteca</span>
+        <% _ -> %>
+          <span class="text-ink-muted">Mais de uma faixa com este vídeo</span>
+      <% end %>
     </div>
     """
   end

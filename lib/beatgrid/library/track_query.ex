@@ -6,6 +6,7 @@ defmodule Beatgrid.Library.TrackQuery do
   alias Beatgrid.Library.{Normalize, Track}
   alias Beatgrid.Repo
   alias Beatgrid.Soundcharts.Camelot
+  alias Beatgrid.YouTube.Link
 
   @type list_opt ::
           {:ids, [Ecto.UUID.t()]}
@@ -40,6 +41,55 @@ defmodule Beatgrid.Library.TrackQuery do
   @spec present_hash?(String.t()) :: boolean()
   def present_hash?(sha),
     do: Repo.exists?(from t in Track, where: t.status == :present and t.content_sha256 == ^sha)
+
+  @doc "Present track IDs grouped by exact content hash, including ambiguous copies."
+  @spec present_track_ids_by_hashes([String.t()]) :: %{String.t() => [Ecto.UUID.t()]}
+  def present_track_ids_by_hashes([]), do: %{}
+
+  def present_track_ids_by_hashes(hashes) do
+    from(t in Track,
+      where: t.status == :present and t.content_sha256 in ^hashes,
+      select: {t.content_sha256, t.id}
+    )
+    |> Repo.all()
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+  end
+
+  @doc "Present YouTube import IDs grouped by canonical video ID, including ambiguous copies."
+  @spec present_youtube_track_ids([String.t()]) :: %{String.t() => [Ecto.UUID.t()]}
+  def present_youtube_track_ids(video_ids) do
+    ids = for id <- Enum.uniq(video_ids), Link.video(id) != :invalid, do: id
+    youtube_track_ids(ids)
+  end
+
+  defp youtube_track_ids([]), do: %{}
+
+  defp youtube_track_ids(ids) do
+    # Prefilter candidate provenance URLs in one query; parse them afterwards to
+    # accept URL variants without mistaking another query parameter for a video ID.
+    patterns = Enum.map(ids, &"%#{&1}%")
+
+    candidates =
+      from(t in Track,
+        where: t.status == :present and t.source_playlist == "youtube",
+        where:
+          fragment(
+            "(?->>'youtube_url') LIKE ANY(?)",
+            t.raw_tags,
+            type(^patterns, {:array, :string})
+          ),
+        select: {fragment("?->>'youtube_url'", t.raw_tags), t.id}
+      )
+      |> Repo.all()
+
+    for(
+      {url, track_id} <- candidates,
+      {:video, id} <- [Link.parse(url)],
+      id in ids,
+      do: {id, track_id}
+    )
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+  end
 
   @spec get(Ecto.UUID.t()) :: Track.t() | nil
   def get(id), do: Repo.get(Track, id)

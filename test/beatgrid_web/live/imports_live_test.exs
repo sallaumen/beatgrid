@@ -227,6 +227,73 @@ defmodule BeatgridWeb.ImportsLiveTest do
     assert has_element?(view, "#download-failures", "Falhas e cancelamentos no histórico: 1")
   end
 
+  test "the video preview opens the exact existing recording and leaves it unselected", %{
+    conn: conn
+  } do
+    id = "ZvODpklNB2c"
+    url = "https://www.youtube.com/watch?v=" <> id
+
+    exact =
+      insert(:track,
+        source_playlist: "youtube",
+        raw_tags: %{"youtube_url" => "https://youtu.be/" <> id},
+        tag_title: "A gravação já renomeada",
+        genre_folder: "mpb"
+      )
+
+    other = insert(:track, source_playlist: "youtube", tag_title: "Título do vídeo")
+
+    expect(Beatgrid.YouTube.DownloaderMock, :list_entries, fn ^url ->
+      {:ok, [%{id: id, title: "Título do vídeo", url: url}]}
+    end)
+
+    {:ok, view, _} = live(conn, ~p"/importados")
+    view |> form("#link-preview", %{urls: url}) |> render_submit()
+    render_async(view)
+
+    assert has_element?(view, "#video-preview-#{id} a[href='/track/#{exact.id}']", "Abrir faixa")
+    refute has_element?(view, "#video-preview-#{id} a[href='/track/#{other.id}']")
+    refute has_element?(view, "#video-preview-#{id} input[checked]")
+    assert has_element?(view, "#confirm-downloads button[disabled]", "Baixar 0 faixas")
+    refute_enqueued(worker: DownloadWorker)
+
+    view |> form("#confirm-downloads", %{ids: [id]}) |> render_change()
+    assert has_element?(view, "#video-preview-#{id} input[checked]")
+    refute_enqueued(worker: DownloadWorker)
+    view |> form("#confirm-downloads") |> render_submit()
+    assert_enqueued(worker: DownloadWorker, args: %{video_id: id})
+  end
+
+  test "completed download links are exact even with import filters hiding the track", %{
+    conn: conn
+  } do
+    id = "ZvODpklNB2c"
+    url = "https://www.youtube.com/watch?v=" <> id
+    batch = Ecto.UUID.generate()
+    {:ok, job} = DownloadWorker.enqueue(url, video_id: id, title: "Gravação", batch_id: batch)
+    {:ok, view, _} = live(conn, ~p"/importados?lote=#{batch}")
+    row = "#download-job-#{job.id}"
+    refute has_element?(view, "#{row} a[href^='/track/']")
+
+    exact =
+      insert(:track,
+        source_playlist: "youtube",
+        raw_tags: %{"youtube_url" => url <> "&list=PLabc"},
+        genre_folder: "mpb"
+      )
+
+    job |> Ecto.Changeset.change(state: "completed") |> Beatgrid.Repo.update!()
+    send(view.pid, {:youtube_tick})
+    assert has_element?(view, "#{row} a[href='/track/#{exact.id}']", "Abrir faixa")
+    view |> element("button[phx-value-key=unfiled]") |> render_click()
+    assert has_element?(view, "#{row} a[href='/track/#{exact.id}']")
+
+    insert(:track, source_playlist: "youtube", raw_tags: %{"youtube_url" => url})
+    send(view.pid, :refresh_downloads)
+    refute has_element?(view, "#{row} a[href^='/track/']")
+    assert has_element?(view, row, "Mais de uma faixa com este vídeo")
+  end
+
   test "reviewing a watch link with a radio only queues the confirmed video", %{conn: conn} do
     url = "https://www.youtube.com/watch?v=ZvODpklNB2c"
 
@@ -316,6 +383,12 @@ defmodule BeatgridWeb.ImportsLiveTest do
   test "Spotify references offer concrete video versions with no automatic selection", %{
     conn: conn
   } do
+    existing =
+      insert(:track,
+        source_playlist: "youtube",
+        raw_tags: %{"youtube_url" => "https://youtu.be/aaaaaaaaaaa"}
+      )
+
     expect(Beatgrid.Spotify.PlaylistMock, :fetch, fn "2qq0JHZ3xzT6YNlVAWIr73" ->
       {:ok,
        %{
@@ -341,6 +414,13 @@ defmodule BeatgridWeb.ImportsLiveTest do
     assert render_async(view) =~ "balanço venenoso"
     view |> element("button[phx-click=find_version]") |> render_click()
     assert render_async(view) =~ "Versão ao vivo"
+
+    assert has_element?(
+             view,
+             "#video-preview-aaaaaaaaaaa a[href='/track/#{existing.id}']",
+             "Abrir faixa"
+           )
+
     assert has_element?(view, "#confirm-downloads button[disabled]", "Baixar 0 faixas")
     refute has_element?(view, "#confirm-downloads input[checked]")
     refute_enqueued(worker: Beatgrid.Workers.DownloadWorker)

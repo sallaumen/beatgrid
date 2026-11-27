@@ -3,6 +3,46 @@ defmodule Beatgrid.Library.TrackQueryTest do
 
   alias Beatgrid.Library.TrackQuery
 
+  test "exact source lookups exclude absent tracks and retain ambiguous copies" do
+    id = "ZvODpklNB2c"
+    canonical = "https://www.youtube.com/watch?v=" <> id
+
+    a =
+      insert(:track,
+        source_playlist: "youtube",
+        raw_tags: %{"youtube_url" => canonical},
+        content_sha256: "same"
+      )
+
+    b =
+      insert(:track,
+        source_playlist: "youtube",
+        raw_tags: %{"youtube_url" => "https://youtu.be/" <> id},
+        content_sha256: "same"
+      )
+
+    insert(:track,
+      status: :missing,
+      source_playlist: "youtube",
+      raw_tags: %{"youtube_url" => canonical},
+      content_sha256: "same"
+    )
+
+    insert(:track,
+      source_playlist: "youtube",
+      raw_tags: %{"youtube_url" => "https://youtube.com/watch?v=aaaaaaaaaaa&related=" <> id}
+    )
+
+    insert(:track, source_playlist: "import", raw_tags: %{"youtube_url" => canonical})
+
+    assert %{^id => matches} = TrackQuery.present_youtube_track_ids([id, "bbbbbbbbbbb"])
+    assert Enum.sort(matches) == Enum.sort([a.id, b.id])
+    assert %{"same" => matches} = TrackQuery.present_track_ids_by_hashes(["same", "unmatched"])
+    assert Enum.sort(matches) == Enum.sort([a.id, b.id])
+    assert TrackQuery.present_youtube_track_ids([]) == %{}
+    assert TrackQuery.present_track_ids_by_hashes([]) == %{}
+  end
+
   describe "library/1" do
     test "filters present tracks by genre, rating, tag, BPM range and search; preloads song" do
       keep =

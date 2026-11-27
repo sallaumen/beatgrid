@@ -15,6 +15,8 @@ defmodule Beatgrid.Library.Tracks do
   defdelegate get_with_song(id), to: TrackQuery
   defdelegate present_title_matches(titles), to: TrackQuery
   defdelegate present_hash?(sha), to: TrackQuery
+  defdelegate present_track_ids_by_hashes(hashes), to: TrackQuery
+  defdelegate present_youtube_track_ids(video_ids), to: TrackQuery
   defdelegate get_by_path(rel_path), to: TrackQuery
   defdelegate all_tags(), to: TrackQuery
 

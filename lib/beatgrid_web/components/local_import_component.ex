@@ -3,7 +3,7 @@ defmodule BeatgridWeb.LocalImportComponent do
   use BeatgridWeb, :live_component
 
   alias Beatgrid.Library
-  alias Beatgrid.Library.SourceBrowser
+  alias Beatgrid.Library.{SourceBrowser, Tracks}
   alias Beatgrid.Workers.ImportWorker
 
   @impl true
@@ -12,18 +12,22 @@ defmodule BeatgridWeb.LocalImportComponent do
      assign(socket,
        local_import: %{source: "", loading: false},
        local_progress: %{},
-       local_result: nil
+       local_batches: %{},
+       local_result: nil,
+       stored_receipt: nil
      )}
   end
 
   @impl true
-  def update(%{active: active, progress_event: progress} = assigns, socket) do
-    socket =
-      if progress != socket.assigns[:progress_event],
-        do: track_local_progress(socket, progress),
-        else: socket
-
+  def update(%{active: active, progress_event: progress, job: job} = assigns, socket) do
+    progress_changed? = progress != socket.assigns[:progress_event]
+    receipt_changed? = job != socket.assigns[:job] or (active and socket.assigns[:active] != true)
     socket = assign(socket, assigns)
+
+    socket =
+      if receipt_changed?, do: assign(socket, stored_receipt: stored_receipt(job)), else: socket
+
+    socket = if progress_changed?, do: track_local_progress(socket, progress), else: socket
 
     if active and is_nil(socket.assigns.local_import[:browse]) do
       {:ok, update(socket, :local_import, &browse(&1, SourceBrowser.start_dir()))}
@@ -34,18 +38,49 @@ defmodule BeatgridWeb.LocalImportComponent do
 
   @impl true
   def render(assigns) do
+    result = scoped_result(assigns.local_result, assigns.batch, assigns.job)
+    progress = scoped_progress(assigns.local_progress, assigns.batch, assigns.job, result)
+    active_batch? = not is_nil(assigns.batch) or not is_nil(result) or progress != %{}
+
+    assigns =
+      assign(assigns,
+        visible_result: result,
+        visible_progress: progress,
+        active_batch?: active_batch?
+      )
+
     ~H"""
-    <div id={@id} hidden={!@active} class="max-w-[1100px]">
-      <.local_import_panel :if={@active} import={@local_import} target={@myself} />
+    <div id={@id} hidden={!@active} class="max-w-[1100px] space-y-4">
       <.local_import_activity
-        :if={@active}
-        progress={@local_progress}
-        result={@local_result}
+        :if={@active && @active_batch?}
+        progress={@visible_progress}
+        result={@visible_result}
+        batch={@batch}
+        job={@job}
+        stored_receipt={@stored_receipt}
         target={@myself}
+      />
+      <.local_import_panel
+        :if={@active}
+        import={@local_import}
+        target={@myself}
+        show_queue_link={!@active_batch?}
       />
     </div>
     """
   end
+
+  defp scoped_result(result, nil, _job), do: result
+  defp scoped_result(%{batch_id: batch} = result, batch, job) when not is_nil(job), do: result
+  defp scoped_result(_, _, _), do: nil
+
+  defp scoped_progress(progress, nil, _job, _result), do: progress
+
+  defp scoped_progress(progress, batch, %{state: state}, nil)
+       when state not in ["completed", "discarded", "cancelled"],
+       do: Map.take(progress, [batch])
+
+  defp scoped_progress(_, _, _, _), do: %{}
 
   @impl true
   def handle_event("edit_local_import", %{"source" => source} = params, socket)
@@ -161,7 +196,9 @@ defmodule BeatgridWeb.LocalImportComponent do
           &Map.merge(&1, %{source: "", rows: nil, error: nil, ai: false, soundcharts: false})
         )
         |> assign(local_result: nil)
+        |> update(:local_batches, &Map.put(&1, batch_id, items))
         |> track_local_progress(progress)
+        |> push_patch(to: ~p"/importados?origem=local&lote=#{batch_id}")
 
       {:error, _reason} ->
         update(
@@ -173,15 +210,47 @@ defmodule BeatgridWeb.LocalImportComponent do
   end
 
   defp track_local_progress(socket, %{status: :done} = progress) do
-    socket
-    |> update(:local_progress, &Map.delete(&1, progress.batch_id))
-    |> assign(local_result: progress)
+    {items, batches} = Map.pop(socket.assigns.local_batches, progress.batch_id)
+
+    socket =
+      socket
+      |> update(:local_progress, &Map.delete(&1, progress.batch_id))
+      |> assign(local_batches: batches)
+
+    if socket.assigns.batch in [nil, progress.batch_id] do
+      items = items || job_items(socket.assigns.job)
+      assign(socket, local_result: Map.put(progress, :receipt, local_receipt(items)))
+    else
+      socket
+    end
   end
 
   defp track_local_progress(socket, nil), do: socket
 
   defp track_local_progress(socket, progress),
     do: update(socket, :local_progress, &Map.put(&1, progress.batch_id, progress))
+
+  defp job_items(%{args: %{"items" => items}}) when is_list(items), do: items
+  defp job_items(_), do: nil
+
+  defp stored_receipt(%{state: state} = job)
+       when state in ["completed", "discarded", "cancelled"],
+       do: job |> job_items() |> local_receipt()
+
+  defp stored_receipt(_), do: nil
+
+  # The worker's counts describe outcomes, not track IDs. The receipt separately
+  # identifies present files by exact reviewed content, including a concurrent skip.
+  defp local_receipt(nil), do: nil
+
+  defp local_receipt(items) do
+    hashes = for %{"sha256" => sha} <- items, is_binary(sha), do: sha
+    matches = Tracks.present_track_ids_by_hashes(hashes)
+
+    for %{"source_path" => path} = item <- items, is_binary(path) do
+      %{filename: Path.basename(path), ids: Map.get(matches, item["sha256"], [])}
+    end
+  end
 
   # Only reviewed, non-duplicate paths can reach the copying worker.
   defp items_from_params(%{"items" => edits}, rows) when is_map(edits) do
@@ -215,7 +284,7 @@ defmodule BeatgridWeb.LocalImportComponent do
   def handle_async(:local_preview, result, socket) do
     outcome =
       case result do
-        {:ok, {:ok, rows}} -> %{rows: rows}
+        {:ok, {:ok, rows}} -> %{rows: attach_duplicate_matches(rows)}
         {:ok, {:error, :not_found}} -> %{error: "Caminho não encontrado ou não é áudio."}
         _ -> %{error: "Falha ao pré-visualizar. Tente novamente."}
       end
@@ -224,9 +293,17 @@ defmodule BeatgridWeb.LocalImportComponent do
      update(socket, :local_import, &(&1 |> Map.merge(outcome) |> Map.put(:loading, false)))}
   end
 
+  defp attach_duplicate_matches(rows) do
+    hashes = for row <- rows, row.duplicate, is_binary(row.sha256), do: row.sha256
+    matches = Tracks.present_track_ids_by_hashes(hashes)
+    Enum.map(rows, &Map.put(&1, :library_ids, Map.get(matches, &1.sha256, [])))
+  end
+
   attr :import, :map, required: true
 
   attr :target, :any, required: true
+
+  attr :show_queue_link, :boolean, required: true
 
   defp local_import_panel(assigns) do
     ~H"""
@@ -234,9 +311,14 @@ defmodule BeatgridWeb.LocalImportComponent do
       class="rounded-lg border border-white/8 bg-surface p-4"
       aria-labelledby="local-import-title"
     >
-      <h2 id="local-import-title" class="mb-3 text-[18px] font-semibold">
-        Importar pasta ou arquivo
-      </h2>
+      <div class="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <h2 id="local-import-title" class="text-[18px] font-semibold">Importar pasta ou arquivo</h2>
+        <.link
+          :if={@show_queue_link}
+          navigate={~p"/jobs?worker=ImportWorker"}
+          class="inline-flex min-h-8 items-center text-body-sm text-primary-soft underline"
+        >Ver fila e tentativas</.link>
+      </div>
 
       <form
         id="import-source"
@@ -272,8 +354,6 @@ defmodule BeatgridWeb.LocalImportComponent do
         </div>
       </form>
 
-      <.source_browser browse={@import.browse} target={@target} />
-
       <p :if={@import[:error]} role="alert" class="mt-3 text-body-sm text-coral-soft">
         {@import.error}
       </p>
@@ -288,20 +368,43 @@ defmodule BeatgridWeb.LocalImportComponent do
         soundcharts={@import[:soundcharts]}
         target={@target}
       />
+
+      <details id="import-picker" class="mt-3 border-t border-white/8">
+        <summary class="cursor-pointer py-3 text-body-sm font-semibold text-ink-secondary hover:text-ink">
+          Procurar no disco
+        </summary>
+        <.source_browser browse={@import.browse} target={@target} />
+      </details>
     </section>
     """
   end
 
   attr :progress, :map, required: true
   attr :result, :map, default: nil
+  attr :batch, :string, default: nil
+  attr :job, :map, default: nil
+  attr :stored_receipt, :list, default: nil
 
   attr :target, :any, required: true
 
   defp local_import_activity(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :receipt,
+        (assigns.result && assigns.result.receipt) || assigns.stored_receipt
+      )
+
     ~H"""
-    <section id="local-import-activity" class="mt-4" aria-labelledby="local-activity-title">
+    <section
+      id="local-import-activity"
+      class="border-b border-white/8 pb-4"
+      aria-labelledby="local-activity-title"
+    >
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <h2 id="local-activity-title" class="text-[18px] font-semibold">Cópia de arquivos</h2>
+        <h2 id="local-activity-title" class="text-[18px] font-semibold">
+          {if @batch, do: "Lote de arquivos", else: "Cópia de arquivos"}
+        </h2>
         <.link
           navigate={~p"/jobs?worker=ImportWorker"}
           class="text-body-sm text-primary-soft underline"
@@ -309,8 +412,21 @@ defmodule BeatgridWeb.LocalImportComponent do
           Ver fila e tentativas
         </.link>
       </div>
-      <p :if={@progress == %{} and !@result} class="mt-2 text-body-sm text-ink-muted">
-        Nenhuma cópia em andamento.
+      <.link
+        :if={@batch}
+        id="local-import-recent-link"
+        patch={~p"/importados?origem=local"}
+        class="mt-2 inline-flex min-h-7 items-center text-body-sm text-primary-soft underline"
+      >
+        Ver importações locais
+      </.link>
+      <p
+        :if={@batch && !@result}
+        id="local-import-batch-status"
+        role="status"
+        class="mt-2 text-body-sm text-ink-secondary"
+      >
+        {batch_status(@job)}
       </p>
 
       <div
@@ -328,15 +444,22 @@ defmodule BeatgridWeb.LocalImportComponent do
       </div>
 
       <div :if={@result} class="flex flex-wrap items-center gap-3 border-b border-white/8 py-2">
-        <p role="status" class="grow text-body-sm text-ink">{import_summary(@result)}</p>
+        <p
+          id={if @batch, do: "local-import-batch-status"}
+          role="status"
+          class="grow text-body-sm text-ink"
+        >
+          {import_summary(@result)}
+        </p>
         <.link
-          :if={@result.imported > 0}
+          :if={library_fallback?(@result)}
           navigate={~p"/"}
           class="text-body-sm text-primary-soft underline"
         >
           Ver Biblioteca
         </.link>
         <button
+          :if={!@batch}
           type="button"
           phx-target={@target}
           phx-click="dismiss_import_toast"
@@ -345,17 +468,71 @@ defmodule BeatgridWeb.LocalImportComponent do
           Fechar aviso
         </button>
       </div>
+      <div :if={@receipt} id="local-import-receipt" class="mt-3">
+        <h3 class="text-body font-semibold text-ink-secondary">
+          Faixas do lote — correspondência por conteúdo
+        </h3>
+        <ul class="mt-1 max-h-64 overflow-y-auto divide-y divide-white/6">
+          <li
+            :for={row <- @receipt}
+            class="flex flex-wrap items-center justify-between gap-2 py-1.5 text-body-sm"
+          >
+            <span class="min-w-0 [overflow-wrap:anywhere]">{row.filename}</span>
+            <.local_library_match ids={row.ids} filename={row.filename} />
+          </li>
+        </ul>
+      </div>
     </section>
+    """
+  end
+
+  defp batch_status(nil), do: "Lote não encontrado no histórico."
+  defp batch_status(%{state: "completed"}), do: "Lote concluído."
+  defp batch_status(%{state: "discarded"}), do: "Lote com falha; confira os arquivos localizados."
+  defp batch_status(%{state: "cancelled"}), do: "Lote cancelado."
+  defp batch_status(%{state: "executing"}), do: "Em andamento."
+  defp batch_status(%{state: "retryable"}), do: "Aguardando nova tentativa."
+  defp batch_status(%{state: "scheduled"}), do: "Agendado."
+  defp batch_status(%{state: "suspended"}), do: "Pausado."
+  defp batch_status(_), do: "Na fila."
+
+  defp library_fallback?(%{imported: imported, receipt: receipt}) do
+    imported > 0 and (is_nil(receipt) or Enum.any?(receipt, &(length(&1.ids) != 1)))
+  end
+
+  attr :ids, :list, required: true
+  attr :filename, :string, required: true
+
+  defp local_library_match(assigns) do
+    ~H"""
+    <%= case @ids do %>
+      <% [id] -> %>
+        <.link
+          navigate={~p"/track/#{id}"}
+          aria-label={"Abrir faixa #{@filename}"}
+          class="inline-flex min-h-7 items-center text-body-sm text-primary-soft underline"
+        >Abrir faixa</.link>
+      <% [] -> %>
+        <span class="text-caption text-ink-muted">Faixa não localizada</span>
+      <% _ -> %>
+        <span class="text-caption text-ink-muted">Mais de uma faixa com este conteúdo</span>
+    <% end %>
     """
   end
 
   defp import_summary(%{failed: failed} = result) when failed > 0 do
     files = result.failures |> Enum.take(3) |> Enum.map_join(", ", & &1.file)
 
-    "#{result.imported} importada(s), #{result.skipped} duplicada(s), #{failed} com falha (#{files}). Confira os arquivos e tente novamente."
+    "#{counted(result.imported, "faixa importada", "faixas importadas")}, #{counted(result.skipped, "duplicada", "duplicadas")}, #{failed} com falha (#{files}). Confira os arquivos e tente novamente."
   end
 
-  defp import_summary(%{imported: n}) when n > 0, do: "#{n} faixa(s) importada(s)."
+  defp import_summary(%{imported: n, skipped: skipped}) when skipped > 0,
+    do:
+      "#{counted(n, "faixa importada", "faixas importadas")}, #{counted(skipped, "duplicada", "duplicadas")}."
+
+  defp import_summary(%{imported: n}) when n > 0,
+    do: counted(n, "faixa importada", "faixas importadas") <> "."
+
   defp import_summary(_result), do: "Nada novo para importar."
 
   # Server-side folder browser: the app is single-user and local, so it walks the
@@ -443,9 +620,16 @@ defmodule BeatgridWeb.LocalImportComponent do
 
     ~H"""
     <div class="mt-5 border-t border-white/8 pt-4" aria-labelledby="import-preview-title">
-      <h3 id="import-preview-title" class="text-[18px] font-semibold">Prévia das faixas</h3>
+      <h3
+        id="import-preview-title"
+        tabindex="-1"
+        phx-mounted={JS.focus()}
+        class="text-[18px] font-semibold"
+      >
+        Prévia das faixas
+      </h3>
       <p class="mt-1 mb-3 text-body-sm text-ink-muted" role="status">
-        {length(@new_rows)} nova(s), {@dupes} duplicada(s)
+        {counted(length(@new_rows), "nova", "novas")}, {counted(@dupes, "duplicada", "duplicadas")}
       </p>
 
       <form id="import-run" phx-target={@target} phx-submit="run_import" class="space-y-1">
@@ -493,6 +677,7 @@ defmodule BeatgridWeb.LocalImportComponent do
             >
               duplicada — será pulada
             </span>
+            <.local_library_match :if={row.duplicate} ids={row.library_ids} filename={row.filename} />
             <span
               :if={row.near_dup}
               class="inline-block rounded bg-amber/15 px-1.5 py-px text-[10px] font-semibold text-amber"
@@ -507,7 +692,9 @@ defmodule BeatgridWeb.LocalImportComponent do
 
         <div :if={@new_rows != []} class="flex justify-end pt-3">
           <button class="rounded-md bg-primary-deep px-4 py-2 text-body-sm font-semibold text-white">
-            Importar {length(@new_rows)} faixa(s){if @soundcharts, do: " + Soundcharts", else: ""}
+            Importar {counted(length(@new_rows), "faixa", "faixas")}{if @soundcharts,
+              do: " + Soundcharts",
+              else: ""}
           </button>
         </div>
         <p :if={@rows == []} class="pt-3 text-body-sm text-ink-muted">
@@ -520,6 +707,9 @@ defmodule BeatgridWeb.LocalImportComponent do
     </div>
     """
   end
+
+  defp counted(1, singular, _plural), do: "1 #{singular}"
+  defp counted(n, _singular, plural), do: "#{n} #{plural}"
 
   defp progress_label(%{status: :queued}), do: "Importando — na fila…"
   defp progress_label(%{done: d, total: t}), do: "Importando #{d}/#{t}…"
