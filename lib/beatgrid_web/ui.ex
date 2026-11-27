@@ -651,10 +651,10 @@ defmodule BeatgridWeb.UI do
 
   def suggestion_card(assigns) do
     ~H"""
-    <div
+    <article
       id={@id}
       class={[
-        "flex items-start gap-3 rounded-xl px-[14px] py-[13px]",
+        "grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-3 rounded-xl p-3 sm:grid-cols-[auto_minmax(0,1fr)_auto]",
         suggestion_card_class(@selected, @status),
         @playing? && "ring-1 ring-primary/50"
       ]}
@@ -670,137 +670,171 @@ defmodule BeatgridWeb.UI do
         playing?={@playing?}
       />
       <.cover :if={!(@audio_src && @track_id)} src={@cover_src} artist={@artist} size={42} />
-      <div class="min-w-0 flex-1">
-        <.link
-          :if={@track_id}
-          navigate={"/track/#{@track_id}"}
-          class="block truncate text-body font-medium text-ink hover:text-primary hover:underline"
-        >
-          {@title}
-        </.link>
-        <p :if={!@track_id} class="truncate text-body font-medium">{@title}</p>
-        <p :if={@artist} class="text-ink-muted truncate text-caption">{@artist}</p>
-
-        <div :if={!@editing} class="mt-1.5 flex items-center gap-2 text-[12px]">
-          <%= if @type == :classification do %>
-            <.folder_badge :if={@from_folder} folder={@from_folder} />
-            <span :if={!@from_folder} class="text-ink-faint">Inbox</span>
-            <span class="text-green">→</span>
-            <.folder_badge folder={@to} />
-          <% else %>
-            <span class="text-coral truncate font-mono line-through">{@from}</span>
-            <span class="text-green">→</span>
-            <span class="text-ink truncate font-mono">{@to}</span>
-          <% end %>
+      <div class="min-w-0">
+        <div class="flex flex-wrap items-start justify-between gap-x-3 gap-y-1.5">
+          <div class="min-w-0">
+            <.link
+              :if={@track_id}
+              navigate={"/track/#{@track_id}"}
+              class="block break-words text-body-lg font-semibold text-ink hover:text-primary hover:underline"
+            >
+              {@title}
+            </.link>
+            <p :if={!@track_id} class="break-words text-body-lg font-semibold text-ink">{@title}</p>
+            <p :if={@artist} class="mt-0.5 break-words text-body-sm text-ink-secondary">{@artist}</p>
+          </div>
+          <div class="flex min-w-0 flex-wrap items-center gap-1.5">
+            <.confidence_chip level={@confidence_level} />
+            <span
+              :if={@audit}
+              class="bg-token-chip inline-flex min-w-0 items-center gap-1 break-words rounded-xs px-[7px] py-[2px] text-[9.5px] font-bold uppercase tracking-wide [overflow-wrap:anywhere]"
+              style="--c:var(--color-amber)"
+            >
+              <span class="hero-exclamation-triangle size-3 shrink-0" aria-hidden="true" /> {@audit}
+            </span>
+          </div>
         </div>
+      </div>
+
+      <div class="col-span-2 min-w-0 sm:col-span-1 sm:col-start-2 sm:row-start-2">
+        <dl
+          :if={!@editing}
+          class={[
+            "grid gap-2 rounded-md border border-white/8 bg-base px-3 py-2",
+            if(@type == :classification, do: "grid-cols-2", else: "sm:grid-cols-2")
+          ]}
+        >
+          <div class="min-w-0">
+            <dt class="text-caption font-medium text-ink-muted">Atual</dt>
+            <dd class="mt-1 min-w-0 break-words">
+              <%= if @type == :classification do %>
+                <.folder_badge :if={@from_folder} folder={@from_folder} />
+                <span :if={!@from_folder} class="text-body text-ink-secondary">Inbox</span>
+              <% else %>
+                <span class="font-mono text-body text-ink-secondary [overflow-wrap:anywhere]">{@from ||
+                  "—"}</span>
+              <% end %>
+            </dd>
+          </div>
+          <div class="min-w-0">
+            <dt class="flex items-center gap-1 text-caption font-medium text-green">
+              <span class="hero-arrow-right-mini size-3" aria-hidden="true" /> Proposta
+            </dt>
+            <dd class="mt-1 min-w-0 break-words">
+              <%= if @type == :classification do %>
+                <.folder_badge folder={@to} />
+              <% else %>
+                <span class="font-mono text-body font-medium text-ink [overflow-wrap:anywhere]">{@to ||
+                  "—"}</span>
+              <% end %>
+            </dd>
+          </div>
+        </dl>
 
         <form
           :if={@editing}
           id={"edit-#{@id}"}
           phx-submit="edit_save"
-          class="mt-1.5 flex items-center gap-2"
+          class="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]"
         >
           <input type="hidden" name="sid" value={@id} />
           <input type="hidden" name="type" value={@type} />
-          <select
-            :if={@type == :classification}
-            name="value"
-            class="rounded-md border border-white/8 bg-input px-2 py-1 text-[12px]"
-          >
-            <option :for={f <- @folders} value={f.key} selected={f.key == @to}>
-              {f.display_name}
-            </option>
-          </select>
-          <input
-            :if={@type != :classification}
-            name="value"
-            value={@to}
-            class="flex-1 rounded-md border border-white/8 bg-input px-2 py-1 font-mono text-[12px] focus:border-primary/50 focus:outline-none"
-          />
-          <button class="rounded-md bg-primary-deep px-2.5 py-1 text-[12px] font-semibold text-white">
-            Salvar
-          </button>
-          <button
-            type="button"
-            phx-click="edit_cancel"
-            class="text-ink-muted hover:text-ink text-[12px]"
-          >
-            Cancelar
-          </button>
+          <div class="min-w-0">
+            <label for={"value-#{@id}"} class="mb-1 block text-body-sm font-medium text-ink-secondary">
+              {if @type == :classification, do: "Pasta proposta", else: "Nome proposto"}
+            </label>
+            <select
+              :if={@type == :classification}
+              id={"value-#{@id}"}
+              name="value"
+              class="w-full rounded-md border border-white/10 bg-input px-3 py-2 text-body"
+            >
+              <option :for={f <- @folders} value={f.key} selected={f.key == @to}>
+                {f.display_name}
+              </option>
+            </select>
+            <input
+              :if={@type != :classification}
+              id={"value-#{@id}"}
+              name="value"
+              value={@to}
+              class="w-full rounded-md border border-white/10 bg-input px-3 py-2 font-mono text-body"
+            />
+          </div>
+          <div class="flex flex-wrap items-end justify-end gap-2">
+            <button
+              type="button"
+              phx-click="edit_cancel"
+              class="rounded-md px-3 py-2 text-body text-ink-secondary hover:text-ink"
+            >
+              Cancelar
+            </button>
+            <button class="rounded-md bg-primary-deep px-3 py-2 text-body font-semibold text-white">
+              Salvar
+            </button>
+          </div>
         </form>
 
-        <div class="mt-1.5 flex items-center gap-2">
-          <.confidence_chip level={@confidence_level} />
-          <span
-            :if={@audit}
-            class="bg-token-chip inline-flex items-center rounded-xs px-[7px] py-[2px] text-[9.5px] font-bold uppercase tracking-wide"
-            style="--c:#ffb020"
-          >
-            ⚠ {@audit}
-          </span>
-        </div>
-
-        <div
+        <p
           :if={@rationale}
-          class="text-ink-muted mt-2 rounded-sm bg-deep px-2.5 py-1.5 text-[12px]"
+          class="mt-2 break-words text-body leading-relaxed text-ink-secondary [overflow-wrap:anywhere]"
         >
           <span class="font-semibold text-primary">IA:</span> {@rationale}
-        </div>
+        </p>
 
         <div :if={@extra != []} class="mt-2 flex flex-wrap gap-1.5">
           {render_slot(@extra)}
         </div>
       </div>
 
-      <div class="flex w-[112px] shrink-0 flex-col gap-1.5">
+      <div class="col-span-2 flex flex-wrap items-center justify-end gap-1.5 border-t border-white/6 pt-2 sm:col-span-1 sm:col-start-3 sm:row-span-2 sm:row-start-1 sm:flex-col sm:items-stretch sm:border-t-0 sm:pt-0">
         <button
           :if={@selectable and @status != :rejected}
           type="button"
           phx-click="toggle_select"
           phx-value-id={@id}
           aria-pressed={to_string(@selected)}
+          aria-label={"#{if @selected, do: "Marcada", else: "Marcar"}: #{@title}"}
           class={[
-            "flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[12px] font-semibold transition-colors",
+            "inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-body font-semibold transition-colors",
             select_btn_class(@selected)
           ]}
         >
           <span class={[
-            "flex size-4 items-center justify-center rounded-[4px] border text-[10px] leading-none",
+            "flex size-4 items-center justify-center rounded-[4px] border",
             checkbox_class(@selected)
           ]}>
-            <span :if={@selected}>✓</span>
+            <span :if={@selected} class="hero-check-mini size-3" aria-hidden="true" />
           </span>
           {if @selected, do: "Marcada", else: "Marcar"}
         </button>
         <span
           :if={@status == :rejected}
-          class="rounded-md bg-coral/10 px-2 py-1.5 text-center text-[11px] font-semibold text-coral"
+          class="rounded-md border border-coral/30 bg-coral/10 px-3 py-2 text-center text-body font-semibold text-coral"
         >
           Rejeitada
         </span>
-        <div class="flex gap-1.5">
-          <button
-            phx-click="edit_start"
-            phx-value-id={@id}
-            phx-value-type={@type}
-            class={[
-              "flex-1 rounded-md py-1.5 text-[12px] transition-colors",
-              edit_btn_class(@editing)
-            ]}
-          >
-            Editar
-          </button>
-          <button
-            phx-click="reject"
-            phx-value-id={@id}
-            phx-value-type={@type}
-            class={["size-[30px] rounded-md text-[13px] transition-colors", reject_btn_class(@status)]}
-          >
-            ✕
-          </button>
-        </div>
+        <button
+          :if={!@editing}
+          phx-click="edit_start"
+          phx-value-id={@id}
+          phx-value-type={@type}
+          aria-label={"Editar sugestão: #{@title}"}
+          class="rounded-md bg-input px-3 py-2 text-body text-ink-secondary transition-colors hover:text-ink"
+        >
+          Editar
+        </button>
+        <button
+          phx-click="reject"
+          phx-value-id={@id}
+          phx-value-type={@type}
+          aria-label={"#{if @status == :rejected, do: "Reabrir", else: "Rejeitar"} sugestão: #{@title}"}
+          class={["rounded-md px-3 py-2 text-body transition-colors", reject_btn_class(@status)]}
+        >
+          {if @status == :rejected, do: "Reabrir", else: "Rejeitar"}
+        </button>
       </div>
-    </div>
+    </article>
     """
   end
 
@@ -816,7 +850,7 @@ defmodule BeatgridWeb.UI do
   end
 
   defp suggestion_card_class(_selected, :rejected),
-    do: "border border-coral/35 bg-coral/5 opacity-60"
+    do: "border border-coral/35 bg-coral/5"
 
   defp suggestion_card_class(true, _status), do: "border border-green/40 bg-green/5"
   defp suggestion_card_class(false, _status), do: "border border-white/8 bg-surface"
@@ -829,9 +863,8 @@ defmodule BeatgridWeb.UI do
   defp checkbox_class(true), do: "border-[#0b0c10] bg-[#0b0c10] text-green"
   defp checkbox_class(false), do: "border-green/45"
 
-  defp edit_btn_class(true), do: "border border-primary/50 text-primary"
-  defp edit_btn_class(false), do: "bg-input text-ink-muted hover:text-ink"
+  defp reject_btn_class(:rejected),
+    do: "border border-white/10 bg-input text-ink-secondary hover:text-ink"
 
-  defp reject_btn_class(:rejected), do: "bg-coral text-white"
   defp reject_btn_class(_), do: "bg-coral/10 text-coral hover:bg-coral/20"
 end

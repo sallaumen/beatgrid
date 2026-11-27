@@ -77,6 +77,10 @@ defmodule BeatgridWeb.ReviewLiveTest do
     assert html =~ "Classificação"
     assert html =~ "Auditoria"
     assert html =~ "Djavan - Sina.mp3"
+    assert has_element?(view, "##{suggestion.id} dl dt", "Atual")
+    assert has_element?(view, "##{suggestion.id} dl dt", "Proposta")
+    assert has_element?(view, "##{suggestion.id} dl dd", "Djavan - Sina.mp3")
+    assert has_element?(view, "##{suggestion.id} button[phx-click=reject]", "Rejeitar")
     assert has_element?(view, "a[href='/track/#{suggestion.track_id}']", "Sina")
     # global player present; no local review-player
     assert html =~ ~s(id="player-audio")
@@ -85,14 +89,11 @@ defmodule BeatgridWeb.ReviewLiveTest do
     assert html =~ "https://img.test/cover.jpg"
   end
 
-  test "reserves space for the fixed bottom player (no full-height occlusion)", %{conn: conn} do
-    {:ok, _view, html} = live(conn, ~p"/revisao")
+  test "uses the shell's scroll and keeps review content under the main landmark", %{conn: conn} do
+    {:ok, view, html} = live(conn, ~p"/revisao")
 
-    # Must leave 5rem for the fixed bottom player, like every other viewport-filling
-    # screen — the old "flex h-screen flex-col" container pushed the bottom actions
-    # behind the player (app_shell's own min-h-screen wrapper is fine, hence the
-    # targeted pattern rather than a bare "h-screen").
-    assert html =~ "h-[calc(100vh_-_5rem)]"
+    assert has_element?(view, "main#workspace-content h1", "Revisão de sugestões")
+    refute html =~ "h-[calc(100vh_-_5rem)]"
     refute html =~ "flex h-screen"
   end
 
@@ -212,6 +213,7 @@ defmodule BeatgridWeb.ReviewLiveTest do
     assert html =~ "soa como MPB"
     assert html =~ "IA:"
     assert html =~ "Aplicar 1 no disco"
+    assert has_element?(view, "#review-selection", "1 em outra fila")
 
     assert render_patch(view, ~p"/revisao") =~ "Djavan - Sina.mp3"
     assert render(view) =~ "Aplicar 1 no disco"

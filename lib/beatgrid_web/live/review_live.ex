@@ -261,16 +261,27 @@ defmodule BeatgridWeb.ReviewLive do
 
   @impl true
   def render(assigns) do
+    items = current_items(assigns.tab, assigns.renames, assigns.classifications)
+    eligible = if assigns.tab == :auditoria, do: [], else: tab_items(assigns)
+    selected_here = Enum.count(eligible, &MapSet.member?(assigns.selected, &1.id))
+
     assigns =
-      assign(assigns, items: current_items(assigns.tab, assigns.renames, assigns.classifications))
+      assign(assigns,
+        items: items,
+        eligible: eligible,
+        selected_here: selected_here,
+        selected_elsewhere: MapSet.size(assigns.selected) - selected_here,
+        high_count: Enum.count(eligible, &high_confidence?/1),
+        medium_count: Enum.count(eligible, &medium_confidence?/1)
+      )
 
     ~H"""
     <.app_shell flash={@flash} active={:revisao} socket={@socket}>
-      <div class="flex h-[calc(100vh_-_5rem)] flex-col">
-        <header class="border-b border-white/6 bg-rail px-5 pt-3">
+      <div class="flex min-w-0 flex-col">
+        <header class="border-b border-white/6 bg-rail px-4 pt-4 sm:px-5">
           <h1 class="text-[22px] font-semibold">Revisão de sugestões</h1>
 
-          <nav aria-label="Tipos de revisão" class="mt-3 flex flex-wrap gap-1">
+          <nav aria-label="Tipos de revisão" class="mt-3 grid grid-cols-3 gap-1 sm:flex sm:flex-wrap">
             <.tab
               path={~p"/revisao"}
               label="Renomeações"
@@ -292,99 +303,132 @@ defmodule BeatgridWeb.ReviewLive do
           </nav>
         </header>
 
-        <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <div class="mx-auto w-full max-w-[1600px] px-4 py-4 sm:px-5">
           <.toast :if={@toast} toast={@toast} />
 
-          <.applied_batches :if={@recent_batches != []} batches={@recent_batches} />
+          <div class="mb-4 grid items-start gap-2 sm:grid-cols-2">
+            <.applied_batches :if={@recent_batches != []} batches={@recent_batches} />
 
-          <div :if={@tab == :classifications} class="mb-4">
-            <.link navigate={~p"/generos"} class="text-body-sm text-primary hover:underline">
-              Editar critérios de gênero
-            </.link>
-          </div>
-
-          <div :if={@tab == :auditoria} class="mb-4">
             <.link
-              navigate={~p"/resgate" <> "#quarentena"}
-              class="text-body-sm text-primary hover:underline"
+              :if={@tab == :classifications}
+              navigate={~p"/generos"}
+              class="inline-flex items-center gap-2 rounded-md border border-white/10 bg-input px-3 py-2 text-body text-primary hover:underline"
             >
-              Recuperar arquivos da quarentena
+              Editar critérios de gênero <.icon name="hero-arrow-right-mini" class="size-4" />
             </.link>
-          </div>
 
-          <details :if={@tab == :renames} class="mb-3 rounded-lg border border-white/8 px-3 py-2">
-            <summary class="cursor-pointer text-body-sm text-ink-secondary">
-              Reavaliar renomeações com IA
-            </summary>
-            <div class="mt-2 flex flex-wrap items-center gap-1.5">
-              <button phx-click="reevaluate" phx-value-scope="unevaluated" class={reeval_btn()}>
-                Não-avaliados
-              </button>
-              <button phx-click="reevaluate" phx-value-scope="pending" class={reeval_btn()}>
-                Pendentes
-              </button>
-              <button phx-click="reevaluate" phx-value-scope="rejected" class={reeval_btn()}>
-                Rejeitados
-              </button>
-              <form id="reeval-folder-form" phx-change="reevaluate_folder">
-                <select
-                  name="folder"
-                  aria-label="Reavaliar com IA por pasta"
-                  class="rounded-md border border-white/8 bg-input px-2 py-1.5 text-[12px]"
-                >
-                  <option value="">Por pasta…</option>
-                  <option :for={f <- @folders} value={f.key}>{f.display_name}</option>
-                </select>
-              </form>
-            </div>
-          </details>
+            <.link
+              :if={@tab == :auditoria}
+              navigate={~p"/resgate" <> "#quarentena"}
+              class="inline-flex items-center gap-2 rounded-md border border-white/10 bg-input px-3 py-2 text-body text-primary hover:underline"
+            >
+              Recuperar arquivos da quarentena <.icon name="hero-arrow-right-mini" class="size-4" />
+            </.link>
+
+            <details
+              :if={@tab == :renames}
+              class="rounded-md border border-white/10 bg-input px-3 py-2"
+            >
+              <summary class="cursor-pointer text-body font-medium text-ink-secondary">
+                Reavaliar renomeações com IA
+              </summary>
+              <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                <button phx-click="reevaluate" phx-value-scope="unevaluated" class={reeval_btn()}>
+                  Não-avaliados
+                </button>
+                <button phx-click="reevaluate" phx-value-scope="pending" class={reeval_btn()}>
+                  Pendentes
+                </button>
+                <button phx-click="reevaluate" phx-value-scope="rejected" class={reeval_btn()}>
+                  Rejeitados
+                </button>
+                <form id="reeval-folder-form" phx-change="reevaluate_folder">
+                  <select
+                    name="folder"
+                    aria-label="Reavaliar com IA por pasta"
+                    class="rounded-md border border-white/8 bg-input px-2 py-1.5 text-[12px]"
+                  >
+                    <option value="">Por pasta…</option>
+                    <option :for={f <- @folders} value={f.key}>{f.display_name}</option>
+                  </select>
+                </form>
+              </div>
+            </details>
+          </div>
 
           <div
-            :if={(@tab != :auditoria and @items != []) or MapSet.size(@selected) > 0}
-            class="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-white/6 pb-3"
+            :if={@eligible != [] or MapSet.size(@selected) > 0}
+            class="mb-4 rounded-xl border border-white/8 bg-surface px-3 py-3"
           >
-            <div :if={@tab != :auditoria and @items != []} class="flex flex-wrap items-center gap-2">
-              <button
-                phx-click="select_high"
-                class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm text-ink-secondary hover:text-ink"
-              >
-                Marcar alta confiança
-              </button>
-              <button
-                phx-click="select_medium"
-                title="Soma à seleção atual — clique também em alta pra pegar as duas faixas de confiança"
-                class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm text-ink-secondary hover:text-ink"
-              >
-                Marcar média confiança
-              </button>
-              <button
-                phx-click="select_all"
-                class="rounded-md border border-white/10 bg-input px-3 py-1.5 text-body-sm text-ink-secondary hover:text-ink"
-              >
-                Marcar todas
-              </button>
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div :if={@eligible != []} class="flex flex-wrap items-center gap-1.5">
+                <button
+                  phx-click="select_high"
+                  disabled={@high_count == 0}
+                  class="rounded-md border border-white/10 bg-input px-3 py-2 text-body text-ink-secondary hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Marcar alta confiança <span class="font-mono text-ink-muted">({@high_count})</span>
+                </button>
+                <button
+                  phx-click="select_medium"
+                  disabled={@medium_count == 0}
+                  title="Soma à seleção atual — clique também em alta pra pegar as duas faixas de confiança"
+                  class="rounded-md border border-white/10 bg-input px-3 py-2 text-body text-ink-secondary hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Marcar média confiança
+                  <span class="font-mono text-ink-muted">({@medium_count})</span>
+                </button>
+                <button
+                  phx-click="select_all"
+                  class="rounded-md border border-white/10 bg-input px-3 py-2 text-body text-ink-secondary hover:text-ink"
+                >
+                  Marcar todas <span class="font-mono text-ink-muted">({length(@eligible)})</span>
+                </button>
+              </div>
+
+              <div class="ml-auto flex flex-wrap items-center justify-end gap-2">
+                <button
+                  :if={MapSet.size(@selected) > 0}
+                  phx-click="clear_selection"
+                  class="rounded-md px-3 py-2 text-body text-ink-secondary hover:text-ink"
+                >
+                  Limpar seleção
+                </button>
+                <button
+                  phx-click="apply"
+                  disabled={@applying? or MapSet.size(@selected) == 0}
+                  class="rounded-md bg-primary-deep px-3 py-2 text-body font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {if @applying?,
+                    do: "Aplicando…",
+                    else: "Aplicar #{MapSet.size(@selected)} no disco"}
+                </button>
+              </div>
             </div>
-            <div class="ml-auto flex flex-wrap items-center gap-2">
-              <button
-                :if={MapSet.size(@selected) > 0}
-                phx-click="clear_selection"
-                class="rounded-md px-2.5 py-1.5 text-body-sm text-ink-muted hover:text-ink"
-              >
-                Limpar seleção
-              </button>
-              <button
-                phx-click="apply"
-                disabled={@applying? or MapSet.size(@selected) == 0}
-                class="rounded-md bg-primary-deep px-3.5 py-1.5 text-body-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {if @applying?,
-                  do: "Aplicando…",
-                  else: "Aplicar #{MapSet.size(@selected)} no disco"}
-              </button>
-            </div>
+
+            <p
+              id="review-selection"
+              role="status"
+              class="mt-3 border-t border-white/6 pt-2 text-body text-ink-secondary"
+            >
+              <%= if @tab == :auditoria do %>
+                Seleção nas filas de sugestões: <b class="font-mono">{MapSet.size(@selected)}</b>
+              <% else %>
+                <b class="font-mono">{@selected_here}</b>
+                selecionadas nesta fila
+                <span :if={@selected_elsewhere > 0} class="text-amber">
+                  · <b class="font-mono">{@selected_elsewhere}</b>
+                  em {if @selected_elsewhere == 1, do: "outra fila", else: "outras filas"}
+                </span>
+              <% end %>
+            </p>
           </div>
 
-          <div :if={@reeval} class="mb-3 rounded-lg border border-white/8 bg-surface px-3 py-2">
+          <div
+            :if={@reeval}
+            role="status"
+            class="mb-3 rounded-lg border border-white/8 bg-surface px-3 py-2"
+          >
             <p class="text-body-sm text-ink-secondary">{reeval_label(@reeval)}</p>
             <div class="mt-1.5 h-1.5 w-full rounded-full bg-white/5">
               <div
@@ -439,10 +483,10 @@ defmodule BeatgridWeb.ReviewLive do
                     :if={s.status == :pending}
                     phx-click="reevaluate_one"
                     phx-value-id={s.id}
-                    aria-label={"Re-avaliar (IA): #{card_title(s.track)}"}
+                    aria-label={"Reavaliar com IA: #{card_title(s.track)}"}
                     class="rounded-md bg-input px-2.5 py-1 text-[11px] text-ink-muted hover:text-ink"
                   >
-                    Re-avaliar (IA)
+                    Reavaliar com IA
                   </button>
                 </:extra>
               </.suggestion_card>
@@ -468,30 +512,30 @@ defmodule BeatgridWeb.ReviewLive do
                   <button
                     phx-click="re_resolve"
                     phx-value-id={s.id}
-                    aria-label={"Re-resolver: #{card_title(s.track)}"}
+                    aria-label={"Consultar Soundcharts: #{card_title(s.track)}"}
                     data-confirm="Re-resolver gasta chamadas da cota Soundcharts. Continuar?"
                     disabled={not Beatgrid.Integrations.configured?(:soundcharts)}
                     class="rounded-md bg-input px-2.5 py-1 text-[11px] text-ink-muted hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    Re-resolver
+                    Consultar Soundcharts
                   </button>
                   <.integration_gate key={:soundcharts} />
                   <button
                     phx-click="dismiss_audit"
                     phx-value-id={s.id}
-                    aria-label={"Ignorar flag: #{card_title(s.track)}"}
+                    aria-label={"Ignorar alerta: #{card_title(s.track)}"}
                     class="rounded-md bg-input px-2.5 py-1 text-[11px] text-ink-muted hover:text-ink"
                   >
-                    Ignorar flag
+                    Ignorar alerta
                   </button>
                   <button
                     phx-click="quarantine"
                     phx-value-id={s.id}
-                    aria-label={"Quarentena: #{card_title(s.track)}"}
+                    aria-label={"Mover para a quarentena: #{card_title(s.track)}"}
                     data-confirm="Mover esta faixa para _Quarantine no disco?"
                     class="rounded-md bg-coral/10 px-2.5 py-1 text-[11px] text-coral hover:bg-coral/20"
                   >
-                    Quarentena
+                    Mover para a quarentena
                   </button>
                 </:extra>
               </.suggestion_card>
@@ -500,10 +544,10 @@ defmodule BeatgridWeb.ReviewLive do
 
           <div
             :if={@items == []}
-            class="flex flex-col items-center justify-center gap-2 py-24 text-center"
+            class="flex items-start gap-3 rounded-xl border border-white/8 bg-surface px-4 py-5"
           >
-            <span class="hero-check-circle size-10 text-ink-disabled" />
-            <p class="text-ink-muted">Nada pendente nesta aba.</p>
+            <.icon name="hero-check-circle" class="size-6 shrink-0 text-ink-muted" />
+            <p class="text-body-lg font-medium text-ink-secondary">Nada pendente nesta aba.</p>
           </div>
         </div>
       </div>
@@ -522,9 +566,9 @@ defmodule BeatgridWeb.ReviewLive do
       patch={@path}
       aria-current={@active && "page"}
       class={[
-        "flex items-center gap-2 rounded-t-md px-3.5 py-2 text-body-sm font-medium transition-colors",
-        @active && "bg-surface text-ink",
-        !@active && "text-ink-muted hover:text-ink"
+        "flex min-w-0 flex-col items-center justify-center gap-1 rounded-t-md border-b-2 px-2 py-2 text-body-sm font-medium transition-colors sm:flex-row sm:gap-2 sm:px-3",
+        @active && "border-primary bg-surface text-primary",
+        !@active && "border-transparent text-ink-muted hover:text-ink"
       ]}
     >
       {@label}
@@ -546,8 +590,8 @@ defmodule BeatgridWeb.ReviewLive do
   # batches stay listed here so the reversal outlives the message.
   defp applied_batches(assigns) do
     ~H"""
-    <details class="mb-3 rounded-lg border border-white/8 bg-surface px-3 py-2">
-      <summary class="cursor-pointer text-body-sm text-ink-secondary">
+    <details class="rounded-md border border-white/10 bg-input px-3 py-2">
+      <summary class="cursor-pointer text-body font-medium text-ink-secondary">
         Últimos lotes aplicados
       </summary>
       <ul class="mt-2 divide-y divide-white/5">
@@ -576,8 +620,9 @@ defmodule BeatgridWeb.ReviewLive do
     ~H"""
     <div
       id="review-toast"
+      role="status"
       class={[
-        "mb-4 flex items-center justify-between gap-4 rounded-lg border px-4 py-2.5",
+        "mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3",
         toast_frame(@toast)
       ]}
     >
@@ -597,7 +642,7 @@ defmodule BeatgridWeb.ReviewLive do
           phx-click="dismiss_toast"
           aria-label="Fechar aviso"
           class="text-ink-muted hover:text-ink text-body-sm"
-        >✕</button>
+        ><.icon name="hero-x-mark" class="size-4" /></button>
       </div>
     </div>
     """
