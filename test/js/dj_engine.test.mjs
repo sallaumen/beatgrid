@@ -3041,3 +3041,15 @@ for (const stop of [true, false]) {
     assert.deepEqual(ends, [])
   })
 }
+
+test("jog strokes retain the input timestamps when several controller events arrive together", async t => {
+  const {engine, commands} = await scratchBooth(t, "queued-hand")
+  engine.stopAll()
+  for (const deck of ["a", "b"]) {
+    assert.ok(engine.loadDeck(deck, {id: "queued-hand", src: "queued-hand"}))
+    engine.jogTouch(deck, true, 100)
+    for (const stamp of [110, 120, 130]) engine.jogTurn(deck, 1, stamp)
+    assert.deepEqual(commands.filter(m => m.type === "scrub").slice(-4).map(m => m.t), [100, 110, 120, 130])
+    engine.jogTouch(deck, false, 140)
+  }
+})

@@ -3303,10 +3303,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 }
                 break
               case "jog_touch":
-                this.engine.jogTouch(a.deck, a.pressed)
+                this.engine.jogTouch(a.deck, a.pressed, a.inputTime)
                 break
               case "jog_turn":
-                this.engine.jogTurn(a.deck, a.delta)
+                this.engine.jogTurn(a.deck, a.delta, a.inputTime)
                 break
               case "browse":
                 if (this.focus.section === "lista") this.moveCursor(a.delta)
@@ -3431,7 +3431,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               if (!dragging) return
               const dx = e.clientX - lastX
               lastX = e.clientX
-              this.engine.jogTurn(d, dx * PX)
+              this.engine.jogTurn(d, dx * PX, e.timeStamp)
             }
             const onUp = () => {
               dragging = false
@@ -3446,7 +3446,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               dragging = true
               lastX = e.clientX
               this.engine.resume()
-              this.engine.jogTouch(d, true)
+              this.engine.jogTouch(d, true, e.timeStamp)
               el.classList.add("dj-scratching")
               window.addEventListener("mousemove", onMove)
               window.addEventListener("mouseup", onUp)
@@ -3782,7 +3782,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             for (const input of inputs) {
               if (this.inputs.has(input)) continue
               const held = new Map()
-              const listener = (msg) => this.handle(Array.from(msg.data), held)
+              const listener = (msg) => this.handle(Array.from(msg.data), held, msg.timeStamp)
               this.inputs.set(input, {listener, held})
               input.addEventListener("midimessage", listener)
             }
@@ -3798,7 +3798,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             }
           },
 
-          handle(data, held) {
+          handle(data, held, inputTime) {
             if (data.length < 3) return
             const action = decode(data)
             if (!action) {
@@ -3807,6 +3807,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               )
               return
             }
+            if (action.type === "jog_touch" || action.type === "jog_turn") action.inputTime = inputTime
             if (action.type === "cue" || action.type === "jog_touch") {
               const key = action.type + action.deck
               if (action.pressed) held.set(key, action)

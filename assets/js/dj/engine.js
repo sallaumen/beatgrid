@@ -1917,13 +1917,14 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
   // Command the hand's position; the worklet reconstructs the velocity from the
   // timestamps (and stops on its own when the commands go quiet — a held hand).
-  function scratchScrub(deckId, posSamples) {
+  function scratchScrub(deckId, posSamples, inputTime) {
     const s = scratch[deckId]
     // Clamp inside the track: scratching past the end must never let the release
     // seek fire `ended` and advance the set.
     const maxPos = (decks[deckId].el.duration || 0) * sr
     s.pos = Math.min(Math.max(posSamples, 0), maxPos > 0 ? maxPos : posSamples)
-    if (s.node) s.node.port.postMessage({type: "scrub", position: s.pos, t: performance.now()})
+    if (s.node) s.node.port.postMessage({type: "scrub", position: s.pos,
+      t: Number.isFinite(inputTime) ? inputTime : performance.now()})
   }
 
   // Stop scratching: hand the position back to the media element and (maybe) run.
@@ -2011,7 +2012,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // Touch (platter top on hardware, or a mouse-drag on the on-screen wheel) grabs
   // the record: playback becomes an AUDIBLE scratch driven by the hand. Without
   // the decoded PCM yet, it degrades to the old silent scrub.
-  function jogTouch(deckId, held) {
+  function jogTouch(deckId, held, inputTime) {
     const deck = decks[deckId]
     const j = jog[deckId]
     if (held === j.held) return
@@ -2037,7 +2038,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       if (scratchArm(deckId)) {
         s.active = true
         s.token = deck.loadToken
-        scratchScrub(deckId, deck.platterTime() * sr)
+        scratchScrub(deckId, deck.platterTime() * sr, inputTime)
         // The crossfader stays the DJ's — a jog scratch NEVER moves it. Lucas
         // works the fader by hand to open/close the scratch (transform/chop
         // cuts), so scratching a deck the crossfader has cut is silent until he
@@ -2056,7 +2057,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     }
   }
 
-  function jogTurn(deckId, delta) {
+  function jogTurn(deckId, delta, inputTime) {
     const deck = decks[deckId]
     if (!delta || deck.trackId == null || deck.cueState) return
     if (deck.stopBrake) return // the brake owns playbackRate until it finishes
@@ -2068,7 +2069,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       // move the record; the worklet turns the position stream into velocity.
       deck._cued = true
       deck._pendingSeekMs = null
-      scratchScrub(deckId, s.pos + delta * RAMP.jogTickS * sr)
+      scratchScrub(deckId, s.pos + delta * RAMP.jogTickS * sr, inputTime)
       return
     }
     if (s.active) return // a scratch transition or pad owns the playhead
