@@ -116,16 +116,24 @@ export function observeRoomPassage(ctx, input, choice, deck, report, measure = m
   const now = ctx.currentTime
   const change = now + Math.max(0, choice.exitMs - deck.positionMs()) / (1000 * deck.el.playbackRate)
   const overlap = rehearsalOverlap(plan, kind)
-  const tolerance = 0.25
+  // Allow startup buffering on the media clock, then keep only what actually played.
+  const guard = 1
   const window = {kind, change, overlap, bpm: deck.bpm * (plan.mix?.out.rate ?? deck.el.playbackRate),
-    start: Math.max(now, change - plan.lead), end: change + overlap + 2 + tolerance}
+    start: Math.max(now, change - plan.lead - guard), end: change + overlap + 2 + guard}
   let arrived = null, completed = false, stopped = false, capture
 
   function publish() {
     if (stopped || !completed || arrived === null) return
     stopped = true
-    const drift = arrived - change
-    report(capture && Math.abs(drift) <= tolerance ? {...capture, changeAt: capture.changeAt + drift} : null)
+    if (!capture) return report(null)
+    const dt = capture.frameSeconds
+    const first = change - capture.changeAt
+    const wanted = arrived - plan.lead
+    // A last-moment confirmation can only hear from the first quantum after it.
+    const from = wanted <= now ? 0 : Math.round((wanted - first) / dt)
+    const to = Math.round((arrived + overlap + 2 - first) / dt)
+    if (from < 0 || to > capture.frames.length || to <= from) return report(null)
+    report({...capture, frames: capture.frames.slice(from, to), changeAt: arrived - (first + from * dt)})
   }
 
   const cancel = measure(ctx, input, window, data => {
