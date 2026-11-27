@@ -11,12 +11,17 @@ export function planRehearsal(outgoing, incoming, exit, entry, bpm) {
   return {outgoing, incoming, outStart: outPoint - lead, inStart, lead, blend, duration}
 }
 
-function overlap(plan, kind) {
+export function rehearsalOverlap(plan, kind) {
   return kind === "cut" ? Math.min(0.008, plan.blend) : plan.blend
 }
 
+export function rampRehearsalGain(param, change, fade, start, end) {
+  param.setValueAtTime(start, change)
+  param.linearRampToValueAtTime(end, change + fade)
+}
+
 export function rehearsalGains(plan, kind, time) {
-  const p = Math.min(1, Math.max(0, (time - plan.lead) / overlap(plan, kind)))
+  const p = Math.min(1, Math.max(0, (time - plan.lead) / rehearsalOverlap(plan, kind)))
   return [1 - p, p]
 }
 
@@ -40,7 +45,7 @@ export function createRehearsal(ctx, phones, pfl) {
     stop()
     const now = ctx.currentTime
     const change = now + plan.lead
-    const fade = overlap(plan, kind)
+    const fade = rehearsalOverlap(plan, kind)
     const output = ctx.createStereoPanner()
     output.pan.value = pan
     const level = ctx.createGain()
@@ -61,8 +66,7 @@ export function createRehearsal(ctx, phones, pfl) {
         source.connect(fader)
         fader.connect(level)
         fader.gain.setValueAtTime(a, at)
-        fader.gain.setValueAtTime(a, change)
-        fader.gain.linearRampToValueAtTime(b, change + fade)
+        rampRehearsalGain(fader.gain, change, fade, a, b)
         current.nodes.push(source, fader)
         source.start(at, offset, seconds)
         current.sources.push(source)

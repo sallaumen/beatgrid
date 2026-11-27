@@ -100,6 +100,16 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
              "Ouvir no fone"
            )
 
+    assert has_element?(view, "#dj-rehearse-dialog [data-arm][disabled]", "Armar esta passagem")
+
+    assert has_element?(
+             view,
+             "[data-reservation][hidden] [data-confirm][disabled]",
+             "Confirmar para a pista"
+           )
+
+    assert has_element?(view, "[data-reservation] [data-disarm]", "Desarmar")
+
     refute has_element?(
              view,
              "#dj-rehearse-dialog [data-dj-fire], #dj-rehearse-dialog [phx-click]"

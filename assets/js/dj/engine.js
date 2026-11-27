@@ -27,7 +27,8 @@
 // the headphones either as channels 3/4 of a 4-channel interface (DJ2GO2
 // Touch main = 1/2, phones = 3/4) or via a routable MediaStream element.
 
-import {createRehearsal} from "./rehearsal.js"
+import {createPassage} from "./passage.js"
+import {createRehearsal, rampRehearsalGain, rehearsalOverlap} from "./rehearsal.js"
 import {getScratchPcm, retainScratch} from "./waveform.js"
 import {ensureScratchModule, scratchPattern} from "./scratch.js"
 
@@ -237,7 +238,7 @@ class Deck {
     this.el.addEventListener("canplay", once)
   }
 
-  play(atMs = null) {
+  play(atMs = null, started, failed) {
     this.wantsPlayback = true
     if (atMs != null) this._pendingSeekMs = atMs
     const token = ++this.playToken
@@ -252,7 +253,7 @@ class Deck {
         if (target !== this.el.currentTime) this._seekGuard = true
         this.el.currentTime = target
       }
-      this.el.play().catch(() => {})
+      this.el.play().then(started, failed || (() => {}))
     })
   }
 
@@ -530,6 +531,48 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     return null
   }
 
+  const passage = createPassage(decks, (from, to) =>
+    from.audible() && !deckHeld(from.id) && !from.loop.on && !state.breatherGap &&
+    to.trackId != null && !deckBusy(to.id) && !to.el.error && to.ready(), startPassage)
+
+  function startPassage(from, to, {plan, kind}, complete) {
+    const fade = rehearsalOverlap(plan, kind)
+    const version = faderVersion
+    const mute = xfade[to.id].gain
+    const previous = mute.value
+    mute.cancelScheduledValues(ctx.currentTime)
+    mute.setValueAtTime(0, ctx.currentTime)
+    const restore = () => {
+      if (to.playToken === playToken) to.pause()
+      if (version === faderVersion) mute.setValueAtTime(previous, ctx.currentTime)
+    }
+    to.play(plan.inStart * 1000, () => {
+      if (!complete(to.playToken === playToken && !deckHeld(from.id) && !deckHeld(to.id))) return
+      const token = interruptTransition()
+      state.lastFireAt = performance.now()
+      state.rescue = {deck: from.id, load: from.loadToken}
+      state.faderVersion = faderVersion
+      rehearsal.stop()
+      clearLoop(to)
+      to._cued = false
+      settleTransitionParams(to)
+      neutralizeIncoming(to, "cut")
+      emit("fxReset", {deck: to.id})
+      const now = ctx.currentTime
+      const outGain = xfade[from.id].gain
+      const outLevel = outGain.value
+      outGain.cancelScheduledValues(now)
+      rampRehearsalGain(outGain, now, fade, outLevel, 0)
+      rampRehearsalGain(mute, now, fade, 0, 1)
+      animateXfadePos(sideOf(to.id), fade)
+      after(fade, () => finishOutgoing(from, token))
+      handoff(from, to, {fromTrackId: from.trackId, deck: to.id, type: kind,
+        mode: "manual", origin: "rehearsal", atMs: from.positionMs()})
+    }, () => complete(false))
+    const playToken = to.playToken
+    return restore
+  }
+
   // ── boundary handling: ONE advance per track, whatever triggers it ──────────
 
   function boundaryOnce(trackId, fn) {
@@ -559,6 +602,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       if (state.breatherGap) return state.breatherGap.beginGap()
       handleEnded(deck)
     })
+    listen("seeking", () => passage.seek(deck, deck.positionMs()))
     listen("canplay", () => retryReadyHint(deck))
     listen("durationchange", () => {
       emit("durationChanged", {deck: deck.id})
@@ -575,6 +619,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       // Capture transport intent before pause() clears it. A media failure on
       // a manually paused source must not command playback of the other deck.
       const trackId = deck.trackId
+      passage.fail()
       const wasPlaying = state.activeDeck === deck.id && Boolean(deck.wantsPlayback || sessionDeck() === deck.id)
       deck.pause()
       emit("deckError", {deck: deck.id, trackId, wasPlaying})
@@ -590,6 +635,11 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
   function handleEnded(deck, trackId = deck.trackId) {
     state.postponeMs = 0
+    if (passage.current()?.pair.from === deck.id) {
+      passage.disarm()
+      boundaryOnce(trackId, () => emit("trackEnded", {trackId}))
+      return
+    }
     const hint = state.hint
     const other = decks[otherId(deck.id)]
     if (state.autoOn && hint) {
@@ -632,6 +682,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   function maybeFire(deck) {
+    if (passage.current()?.pair.from === deck.id) return passage.check()
     const hint = state.hint
     if (!state.autoOn || !hint || deck.id !== state.activeDeck) return
     if (deck._seekQueued || deck.el.seeking) return
@@ -1267,6 +1318,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   function interruptTransition() {
+    passage.disarm()
     state.stopScratchDrop?.()
     for (const deck of Object.values(decks)) {
       deck.stopBrake?.()
@@ -1282,6 +1334,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
   // Transition cleanup resets effects only: the DJ may have armed a new loop since fire.
   function resetDeck(deck) {
+    passage.disarm()
     rehearsal.stop()
     clearLoop(deck)
     resetChain(deck)
@@ -1373,6 +1426,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
   // Manual gesture (UI or MIDI): cancel any automated glide and take over.
   function setCrossfader(pos) {
+    if (passage.current()?.phase === "starting") passage.fail()
     faderVersion++
     xfadeGlide++
     cancelAnimationFrame(xfadeAnim)
@@ -1503,6 +1557,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // Keep the latest hand position through buffering, PLAY and the next AUTO fire.
   function placePlatter(deck, seconds) {
     const targetMs = deck.clampPosition(seconds) * 1000
+    passage.seek(deck, targetMs)
     if (deck.loop.on && (targetMs < deck.loop.startMs || targetMs >= deck.loop.endMs)) clearLoop(deck)
     deck._cued = true
     deck._pendingSeekMs = targetMs
@@ -1856,6 +1911,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   function pauseTransport(deck) {
+    passage.disarm()
     const other = decks[otherId(deck.id)]
     if (state.activeDeck === deck.id && other.audible() && !other.cueState) {
       // Restore the mix to the outgoing deck, respecting a manual fader takeover.
@@ -1975,6 +2031,14 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // "No ar" for the UI and for manual fires: crossfader side wins when both
     // decks are running.
     rehearsal,
+    armPassage: passage.arm,
+    confirmPassage: passage.confirm,
+    disarmPassage() {
+      const current = passage.current()
+      if (current) decks[current.pair.from]._seekGuard = true
+      passage.disarm()
+    },
+    passage: passage.current,
     audibleDeck: audibleDeckId,
     sessionDeck,
 
@@ -1982,6 +2046,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // crossfader says is on air, into the other deck. Works with AUTO on or
     // off — the server hears the same transition_started either way.
     fireManual(type) {
+      if (passage.current()) return {ok: false, reason: "passage_reserved"}
       // Double-click guard: two near-simultaneous fires would reverse the
       // transition that just started and double-advance the boundary.
       if (state.lastFireAt && performance.now() - state.lastFireAt < 400) {
@@ -2014,6 +2079,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // Durante um respiro, W ESTICA o silêncio (a pista ainda está agradecendo)
     // e devolve o novo restante em ms.
     postponeFire(ms) {
+      if (passage.current()) return null
       const gap = state.breatherGap
       if (gap) {
         if (gap.deadline === null) {
@@ -2034,6 +2100,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // (the keyboard cousin of AUTO's own fire; works with AUTO off too).
     // Durante um respiro, T PULA o resto do silêncio: a próxima entra já.
     fireHint() {
+      if (passage.current()) return {ok: false, reason: "passage_reserved"}
       const gap = activeBreatherGap()
       if (gap) {
         clearTimeout(gap.timer)

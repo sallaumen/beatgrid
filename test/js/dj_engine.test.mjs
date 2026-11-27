@@ -1116,3 +1116,117 @@ for (const playing of [false, true]) {
     assert.equal(b.paused, !playing)
   })
 }
+
+function preparePassage(rig, kind = "blend") {
+  const {engine, hint} = rig
+  hint({type: "echo", from_ms: 42_000, to_ms: 0})
+  const pair = {from: "a", to: "b", fromLoad: engine.decks.a.loadToken, toLoad: engine.decks.b.loadToken}
+  return engine.armPassage(pair, {outStart: 45, lead: 3, inStart: 2.5, blend: 2}, kind)
+}
+
+test("arming reserves the pair without touching either transport, even at the AUTO boundary", t => {
+  const rig = booth(t)
+  const {a, b, engine, advances} = rig
+  const initial = engine.snapshot()
+  assert.equal(preparePassage(rig).ok, true)
+  a.at(43)
+  assert.equal(engine.snapshot().xfadePos, initial.xfadePos)
+  assert.equal(engine.snapshot().auto, true)
+  assert.equal(b.currentTime, 0)
+  assert.equal(b.plays, 0)
+  assert.deepEqual(advances, [])
+  assert.equal(engine.fireHint().ok, false)
+  assert.equal(engine.fireManual("cut").ok, false)
+  a.at(49)
+  assert.equal(engine.confirmPassage().ok, false)
+  assert.equal(a.currentTime, 49)
+  assert.equal(b.plays, 0)
+  a.end()
+  assert.equal(b.plays, 0)
+  assert.deepEqual(rig.ends.map(e => e.trackId), ["one"])
+})
+
+test("only confirmation lets the saved entry and overlap take the room at the outgoing point", async t => {
+  const rig = booth(t)
+  const {a, b, engine, advances} = rig
+  preparePassage(rig)
+  a.at(40)
+  assert.equal(engine.confirmPassage().ok, true)
+  assert.equal(engine.confirmPassage().ok, false)
+  a.at(47.95)
+  assert.equal(b.plays, 0)
+  assert.equal(a.currentTime, 47.95)
+  a.at(48)
+  await Promise.resolve()
+  assert.equal(b.plays, 1)
+  assert.equal(b.currentTime, 2.5)
+  assert.equal(a.currentTime, 48)
+  assert.deepEqual(advances.map(x => [x.deck, x.origin, x.type]), [["b", "rehearsal", "blend"]])
+  rig.tick(1950)
+  assert.equal(a.paused, false)
+  rig.tick(100)
+  assert.equal(a.paused, true)
+  assert.equal(b.paused, false)
+  assert.equal(engine.snapshot().auto, true)
+})
+
+test("discard and replacement invalidate a confirmed passage with AUTO off", t => {
+  const rig = booth(t)
+  const {a, b, engine, advances} = rig
+  engine.setAuto(false)
+  for (const replace of [false, true]) {
+    a.at(40)
+    preparePassage(rig, "cut")
+    assert.equal(engine.confirmPassage().ok, true)
+    if (replace) engine.loadDeck("b", {id: "another", src: "another"})
+    else engine.disarmPassage()
+    a.at(48)
+    rig.tick(1000)
+    assert.equal(b.plays, 0)
+    assert.equal(engine.passage(), null)
+  }
+  assert.deepEqual(advances, [])
+})
+
+test("late, rejected or cancelled starts leave the outgoing record playing and never take the room", async t => {
+  const rig = booth(t)
+  const {engine, a, b, advances, tick} = rig
+  for (const action of ["late", "reject", "disarm"]) {
+    let start, reject
+    b.play = () => new Promise((yes, no) => { start = yes; reject = no })
+    a.at(40)
+    assert.ok(preparePassage(rig).ok)
+    engine.confirmPassage()
+    a.at(48)
+    if (action === "disarm") engine.disarmPassage()
+    if (action === "late") { a.at(49); tick(1000) }
+    if (action === "reject") reject(new Error("media error"))
+    else start()
+    await Promise.resolve()
+    tick(3000)
+    assert.equal(a.paused, false, action)
+    assert.equal(engine.snapshot().xfadePos, 0, action)
+    assert.deepEqual(advances, [], action)
+    engine.disarmPassage()
+  }
+})
+
+test("a rehearsed cut works from B to A and ignores the transition-length knob", async t => {
+  const {engine, a, b, advances, tick} = booth(t)
+  engine.stopAll()
+  engine.loadDeck("b", {id: "two", src: "two"}, {autoplay: true})
+  engine.loadDeck("a", {id: "one", src: "one"})
+  const pair = {from: "b", to: "a", fromLoad: engine.decks.b.loadToken, toLoad: engine.decks.a.loadToken}
+  assert.ok(engine.armPassage(pair, {outStart: 10, lead: 3, inStart: 1.25, blend: 2}, "cut").ok)
+  engine.setTransitionLength(15)
+  engine.confirmPassage()
+  b.at(13)
+  b.at(13)
+  await Promise.resolve()
+  assert.equal(a.currentTime, 1.25)
+  tick(7)
+  assert.equal(b.paused, false)
+  tick(1)
+  assert.equal(b.paused, true)
+  assert.deepEqual(advances.map(e => [e.deck, e.type]), [["a", "cut"]])
+})

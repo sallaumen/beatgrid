@@ -34,7 +34,13 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
   const cursor = dialog.querySelector("[data-cursor]")
   const pan = dialog.querySelector("select")
   const lanes = [...dialog.querySelectorAll("canvas")]
+  const arm = dialog.querySelector("[data-arm]")
+  const reservation = root.querySelector("[data-reservation]")
+  const confirm = root.querySelector("[data-confirm]")
+  const passageState = root.querySelector("[data-passage-state]")
+  const open = root.querySelector("[aria-haspopup=dialog]")
   const transport = engine.rehearsal
+  let lastChoice, lastPhase
   let pair, plan, failure, pending = false, request = 0
   const kind = () => dialog.querySelector("input:checked").value
 
@@ -54,14 +60,30 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
   }
 
   function update() {
+    const choice = engine.passage()
+    if (choice !== lastChoice || choice?.phase !== lastPhase) {
+      lastChoice = choice
+      lastPhase = choice?.phase
+      reservation.hidden = !choice
+      if (choice) {
+        const {plan, kind, exitMs, pair, phase} = choice
+        const name = kind === "cut" ? "Corte" : "Mistura de quatro tempos"
+        const state = {armed: "Armada", confirmed: "Confirmada", starting: "Entrando na pista",
+          missed: "O ponto ensaiado já passou", failed: "A entrada não ficou pronta"}
+        const seconds = n => n.toLocaleString("pt-BR", {maximumFractionDigits: 3}) + " s"
+        text(passageState, state[phase] + " · " + name + " · " + pair.from.toUpperCase() + " em " +
+          seconds(exitMs / 1000) + " → " + pair.to.toUpperCase() + " em " + seconds(plan.inStart))
+        confirm.hidden = confirm.disabled = phase !== "armed"
+      }
+    }
     if (!dialog.open) return
     const from = engine.audibleDeck() || engine.snapshot().activeDeck || "a"
     const to = from === "a" ? "b" : "a"
     const a = engine.decks[from], b = engine.decks[to]
     const out = tracks[from], into = tracks[to]
-    if (pair?.from !== from || pair.a !== a.loadToken || pair.b !== b.loadToken) {
+    if (pair?.from !== from || pair.fromLoad !== a.loadToken || pair.toLoad !== b.loadToken) {
       stop()
-      pair = {from, to, a: a.loadToken, b: b.loadToken}
+      pair = {from, to, fromLoad: a.loadToken, toLoad: b.loadToken}
       plan = null
       failure = ""
       text(timing, "")
@@ -78,7 +100,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
         const point = armed ? engine.firePointMs() : null
         const outro = out.markers?.find(m => m.type === "outro")?.ms
         const exit = point ?? outro
-        plan = planRehearsal(outgoing, incoming, exit == null ? null : exit / 1000, b.platterTime(), a.bpm)
+        plan = choice?.pair.from === from ? choice.plan : planRehearsal(outgoing, incoming, exit == null ? null : exit / 1000, b.platterTime(), a.bpm)
         if (plan) {
           const seconds = n => n.toLocaleString("pt-BR", {maximumFractionDigits: 1}) + " s"
           text(timing, "Linha de entrada em " + seconds(plan.lead) + " · trecho de " + seconds(plan.duration))
@@ -98,12 +120,41 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
     const playing = transport.elapsed() !== null
     text(status, message || (playing ? "Tocando só no fone." : pending ? "Abrindo o fone…" : "Pronto para ouvir no fone."))
     listen.disabled = !plan || !phones || !!a.el.error || !!b.el.error || pending
+    arm.disabled = !plan || !a.audible() || b.audible() || !b.ready() || !!b.el.error ||
+      a.positionMs() > Math.round((plan.outStart + plan.lead) * 1000) || ["confirmed", "starting"].includes(choice?.phase)
+    if (plan && a.audible() && a.positionMs() > (plan.outStart + plan.lead) * 1000 && !playing) {
+      text(status, "O ponto ensaiado já passou nesta faixa.")
+    }
     text(listen, playing ? "Parar ensaio" : "Ouvir no fone")
     cursor.hidden = !playing
     if (playing) cursor.style.left = Math.min(100, 100 * elapsed / plan.duration) + "%"
   }
 
-  root.querySelector("[aria-haspopup=dialog]").onclick = () => {
+  arm.onclick = () => {
+    update()
+    if (arm.disabled) return
+    if (engine.armPassage(pair, plan, kind()).ok) {
+      dialog.close()
+      update()
+      passageState.focus()
+    } else {
+      failure = "Deixe a faixa que sai tocando e o deck de entrada livre para armar."
+      update()
+    }
+  }
+  confirm.onclick = () => {
+    if (!engine.confirmPassage().ok && engine.passage()?.phase === "armed") {
+      text(passageState, "Solte os controles dos decks antes de confirmar a passagem.")
+    }
+    update()
+    passageState.focus()
+  }
+  root.querySelector("[data-disarm]").onclick = () => {
+    engine.disarmPassage()
+    update()
+    open.focus()
+  }
+  open.onclick = () => {
     pair = null
     dialog.showModal()
     update()

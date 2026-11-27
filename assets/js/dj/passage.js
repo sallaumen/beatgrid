@@ -1,0 +1,82 @@
+// Reserve one loaded pair and follow the outgoing record's clock, including during stalls.
+const MAX_LATE_MS = 100
+
+export function createPassage(decks, available, start) {
+  let choice = null, timer = null, abortStart = null
+
+  function stopWaiting() {
+    clearTimeout(timer)
+    const abort = abortStart
+    abortStart = null
+    abort?.()
+  }
+
+  function disarm() {
+    choice = null
+    stopWaiting()
+  }
+
+  function fail(phase = "failed") {
+    if (!choice) return
+    choice.phase = phase
+    stopWaiting()
+  }
+
+  function arm(pair, plan, kind) {
+    const from = decks[pair.from], to = decks[pair.to]
+    const exitMs = Math.round((plan.outStart + plan.lead) * 1000)
+    if (from.loadToken !== pair.fromLoad || to.loadToken !== pair.toLoad || !available(from, to) ||
+        from.positionMs() > exitMs || !["cut", "blend"].includes(kind)) return {ok: false}
+    disarm()
+    choice = {pair, plan, kind, exitMs, phase: "armed"}
+    return {ok: true}
+  }
+
+  function check() {
+    if (!choice) return
+    const {pair, phase, exitMs} = choice
+    const from = decks[pair.from], to = decks[pair.to]
+    if (from.loadToken !== pair.fromLoad || to.loadToken !== pair.toLoad) return disarm()
+    if (phase !== "confirmed" && phase !== "armed") return
+    clearTimeout(timer)
+    const remaining = exitMs - from.positionMs()
+    if (remaining < (phase === "armed" ? 0 : -MAX_LATE_MS)) return fail("missed")
+    if (phase === "armed") return
+    if (remaining > 0) {
+      timer = setTimeout(check, Math.max(10, remaining / from.el.playbackRate))
+      return
+    }
+    if (from.el.seeking || from._seekQueued || !available(from, to)) return fail()
+    const saved = choice
+    saved.phase = "starting"
+    // A late decoder must never fade the room after the rehearsed beat has gone by.
+    timer = setTimeout(fail, MAX_LATE_MS)
+    abortStart = start(from, to, saved, ok => {
+      if (choice !== saved || saved.phase !== "starting") return false
+      if (!ok || !from.audible() || Math.abs(from.positionMs() - exitMs) > MAX_LATE_MS) {
+        fail()
+        return false
+      }
+      clearTimeout(timer)
+      abortStart = null
+      choice = null
+      return true
+    })
+  }
+
+  function confirm() {
+    check()
+    if (choice?.phase !== "armed") return {ok: false}
+    const {from, to} = choice.pair
+    if (!available(decks[from], decks[to])) return {ok: false}
+    choice.phase = "confirmed"
+    check()
+    return {ok: true}
+  }
+
+  function seek(deck, positionMs) {
+    if (choice?.pair.from === deck.id && positionMs >= choice.exitMs) fail("missed")
+  }
+
+  return {arm, confirm, disarm, check, seek, fail, current: () => choice}
+}

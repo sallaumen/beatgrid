@@ -874,6 +874,22 @@ defmodule BeatgridWeb.DiscotecagemLive do
       >
         <.icon name="hero-musical-note" class="size-4" /> Ensaiar a próxima
       </button>
+      <div data-reservation hidden class="mt-2">
+        <p data-passage-state role="status" tabindex="-1" class="text-body text-ink"></p>
+        <div class="mt-2 flex flex-wrap gap-2">
+          <button
+            type="button"
+            data-confirm
+            disabled
+            class="min-h-9 rounded-md bg-primary px-3 text-body font-semibold text-deep"
+          >Confirmar para a pista</button>
+          <button
+            type="button"
+            data-disarm
+            class="min-h-9 rounded-md border border-white/10 px-3 text-body text-ink-secondary"
+          >Desarmar</button>
+        </div>
+      </div>
       <dialog
         id="dj-rehearse-dialog"
         aria-labelledby="dj-rehearse-title"
@@ -942,6 +958,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
             </select>
           </label>
         </div>
+        <button
+          type="button"
+          data-arm
+          disabled
+          class="mt-4 min-h-9 rounded-md border border-primary/40 px-3 text-body font-semibold text-ink hover:border-primary disabled:opacity-40"
+        >Armar esta passagem</button>
         <p role="status" class="mt-2 text-body text-ink-muted"></p>
       </dialog>
     </div>
@@ -1649,6 +1671,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           no_audible: "nada no ar — dê play primeiro",
           empty_target: "o outro deck está vazio",
           target_loading: "o outro deck ainda está carregando",
+          passage_reserved: "confirme ou desarme a passagem ensaiada",
           deck_held: "solte o CUE ou o jog antes da transição",
           target_error: "a faixa do outro deck falhou — carregue outra",
           too_fast: "calma — uma transição acabou de disparar",
@@ -1741,9 +1764,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
                     from_track_id: fromTrackId, to_track_id: toTrackId, type, deck,
                     origin, at_ms: atMs,
                   })
-                  const tag = mode === "manual" ? " (manual)" : ""
-                  this.log(`transição ${type.toUpperCase()}${tag} → deck ${deck.toUpperCase()}`)
-                  this.toast(`${mode === "auto" ? "AUTO: " : "▶ "}${type.toUpperCase()} → deck ${deck.toUpperCase()}`)
+                  const tag = origin === "rehearsal" ? " (ensaio)" : mode === "manual" ? " (manual)" : ""
+                  const name = origin === "rehearsal" ? (type === "cut" ? "Corte" : "Mistura") : type.toUpperCase()
+                  this.log(`transição ${name}${tag} → deck ${deck.toUpperCase()}`)
+                  this.toast(`${mode === "auto" ? "AUTO: " : "▶ "}${name} → deck ${deck.toUpperCase()}`)
                   window.dispatchEvent(new CustomEvent("beatgrid:playing", {detail: {source: "dj-console"}}))
                 },
                 transitionCancelled: ({trackId, deck}) => {
@@ -1939,6 +1963,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               }
             })
             this.handleEvent("dj_set", ({id}) => {
+              if (id !== this.setId) this.engine.disarmPassage()
               this.setId = id
               if (this.pendingLoad?.autoplay && this.pendingLoad.set_id !== id) {
                 this.pendingLoad = null
@@ -2350,6 +2375,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           },
 
           actPostpone(ms) {
+            if (this.engine.passage()) return this.toast("A passagem segue o ponto ensaiado.")
             // No silêncio do respiro, W estende o agradecimento da pista.
             const state = this.engine.snapshot()
             if (state.breather || state.breatherTail) {
@@ -2372,6 +2398,11 @@ defmodule BeatgridWeb.DiscotecagemLive do
           },
 
           actCancel() {
+            if (this.engine.passage()) {
+              this.engine.disarmPassage()
+              this.toast("Passagem desarmada.")
+              return
+            }
             if (!this.engine.cancelTransition().ok) this.notice("nada para cancelar")
           },
 
@@ -2788,7 +2819,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 chip.style.color = ""
               }
             }
-            for (const btn of this.fireBtns || []) btn.disabled = !ready
+            for (const btn of this.fireBtns || []) btn.disabled = !ready || !!this.engine.passage()
           },
 
           // O mesmo texto vale pro card do mixer e pro overlay da viagem.
@@ -2806,6 +2837,13 @@ defmodule BeatgridWeb.DiscotecagemLive do
           countdownState() {
             const hint = this.hint
             const snap = this.engine.snapshot()
+            const passage = this.engine.passage()
+            if (passage) {
+              const left = passage.exitMs - snap[passage.pair.from].posMs
+              const label = {armed: "Ensaio aguarda confirmação", confirmed: `Passagem ensaiada em ${fmt(left)}`,
+                starting: "Entrando na pista", missed: "Ponto do ensaio já passou", failed: "Entrada indisponível"}
+              return {text: label[passage.phase], color: ""}
+            }
             // O silêncio do agradecimento vem ANTES de tudo: não há hint nem
             // deck tocando aqui — e é exatamente isso que a tela deve dizer.
             if (snap.waitingForNext || (snap.breather?.remainingMs === 0 && !snap.hintReady)) {
