@@ -1,12 +1,23 @@
-// Default and communications can be aliases of a named stereo output.
+// System aliases can move to another speaker before devicechange is delivered.
+const isAlias = id => id === "default" || id === "communications"
+
 export function separateOutputs(mainId, phonesId, outputs) {
   const main = outputs.find(device => device.deviceId === (mainId || "default"))
   const phones = outputs.find(device => device.deviceId === phonesId)
-  if (!main || !phones || main.deviceId === phones.deviceId) return false
+  if (!main || !phones || isAlias(phonesId) || main.deviceId === phonesId) return false
+  return !isAlias(main.deviceId) || Boolean(main.groupId && phones.groupId && main.groupId !== phones.groupId)
+}
 
-  const alias = id => id === "default" || id === "communications"
-  if (!alias(main.deviceId) && !alias(phones.deviceId)) return true
-  return Boolean(main.groupId && phones.groupId && main.groupId !== phones.groupId)
+export function headphoneOutput(mainId, choice, outputs) {
+  let id = choice
+  if (isAlias(choice)) {
+    const group = outputs.find(device => device.deviceId === choice)?.groupId
+    if (!group) return null
+    const matches = outputs.filter(device => !isAlias(device.deviceId) && device.groupId === group)
+    if (matches.length !== 1) return null
+    id = matches[0].deviceId
+  }
+  return separateOutputs(mainId, id, outputs) ? id : null
 }
 
 export async function unlockOutputNames(devices) {
