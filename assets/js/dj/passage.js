@@ -31,7 +31,7 @@ export function createPassage(decks, available, start, observer = {}) {
     const from = decks[pair.from], to = decks[pair.to]
     const exitMs = Math.round((plan.exit ?? plan.outStart + plan.lead) * 1000)
     if (from.loadToken !== pair.fromLoad || to.loadToken !== pair.toLoad || !available(from, to, plan, kind) ||
-        from.positionMs() > exitMs || !["cut", "blend"].includes(kind)) return {ok: false}
+        from.positionMs() > exitMs || !(["cut", "blend"].includes(kind) || (kind === "bass_swap" && plan.fullBlend))) return {ok: false}
     disarm()
     choice = {pair, plan, kind, exitMs, phase: "armed", reference}
     return {ok: true}

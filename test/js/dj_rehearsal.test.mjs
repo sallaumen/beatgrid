@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import {createRehearsal, planRehearsal, recordTime, rehearsalGains} from "../../assets/js/dj/rehearsal.js"
+import {createRehearsal, planRehearsal, recordTime, rehearsalBassDb, rehearsalBassWindow, rehearsalGains, scheduleRehearsalBass} from "../../assets/js/dj/rehearsal.js"
 
 test("the two choices compare the same entry and fit both real audio files", () => {
   const plan = planRehearsal({duration: 14}, {duration: 8}, 12, 5, 120)
@@ -19,6 +19,18 @@ test("short files, an opening cue at zero and unknown BPM produce a bounded prev
   assert.equal(plan.blend, 0.5)
   assert.equal(plan.duration, 0.5)
   assert.equal(planRehearsal({duration: 1}, {duration: 1}, 0, 1, 120), null)
+})
+
+test("a fractional BPM fits a full four-beat fallback, but a missing audio frame does not", () => {
+  const duration = 36, bpm = 105.73, fourBeats = 240 / bpm
+  const track = {duration}, frame = 1 / 96000
+  const mix = {out: {rate: 1.08}, into: {rate: .92}}
+  for (const speeds of [undefined, mix]) {
+    assert.equal(planRehearsal(track, track, null, 0, bpm, speeds).fullBlend, true)
+    assert.equal(planRehearsal(track, track, duration - fourBeats + frame, 0, bpm, speeds).fullBlend, false)
+    const requiredIncoming = fourBeats * (speeds?.into.rate ?? 1) / (speeds?.out.rate ?? 1)
+    assert.equal(planRehearsal(track, track, null, duration - requiredIncoming + frame, bpm, speeds).fullBlend, false)
+  }
 })
 
 test("auditions schedule independent sources only into phones and restore PFL on stop or completion", async () => {
@@ -145,5 +157,23 @@ test("a resumed blend schedules the same amplitude drawn at every sample point",
       assert.ok(Math.abs((v1+v2)/2 - rehearsalGains(plan, "blend", (t1+t2)/2)[side]) < 1e-12)
     }
     assert.equal(points.at(-1)[0], side)
+  }
+})
+
+test("the four-beat bass exchange opens the incoming shelf on beat three before removing the old bass", () => {
+  const plan = planRehearsal({duration: 20}, {duration: 20}, 5, 0, 120)
+  assert.deepEqual(rehearsalBassWindow(plan), {start: 3.75, swap: 4, end: 4.25})
+  assert.deepEqual(rehearsalGains({...plan, blendCurve: {outPeak: 0.1, inPeak: 0.1, correlation: 0}}, "bass_swap", 4), [.5, .5])
+  for (const [side, expected] of [["out", [0, 0, 0, -4, -8]], ["into", [-8, -4, 0, 0, 0]]]) {
+    const points = [.375, .4375, .5, .5625, .625]
+    for (const [i, p] of points.entries()) assert.ok(Math.abs(rehearsalBassDb(side, p) - expected[i]) < 1e-9)
+    // Seeking partway through the preview must pick up the same automated curve.
+    const events = []
+    const param = {cancelScheduledValues() {}, setValueAtTime(v, t) { events.push([v,t]) },
+      linearRampToValueAtTime(v,t) { events.push([v,t]) }}
+    scheduleRehearsalBass(param, side, 10, 2, 10.875)
+    assert.equal(events[0][1], 10.875)
+    for (const [v,t] of events) assert.ok(Math.abs(v - rehearsalBassDb(side, (t-10)/2)) < 1e-9)
+    assert.ok(events.slice(1).every((x,i) => x[1] > events[i][1]))
   }
 })

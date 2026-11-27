@@ -11,11 +11,14 @@ export function planRehearsal(outgoing, incoming, exit, entry, bpm, mix = {out: 
   const point = exit != null && exit >= 0 && exit < outgoing.duration
     ? exit : Math.max(0, outgoing.duration - fourBeats)
   const inTime = (incoming.duration - inStart) / inRate
-  const blend = Math.min(fourBeats / outRate, (outgoing.duration - point) / outRate, inTime)
+  const fourBeatTime = fourBeats / outRate
+  const blend = Math.min(fourBeatTime, (outgoing.duration - point) / outRate, inTime)
   if (!(blend > 0)) return null
   const lead = Math.min(3, point / outRate)
   const duration = lead + Math.min(blend + 2, inTime)
-  return {outgoing, incoming, exit: point, outStart: point - lead * outRate, inStart, lead, blend, fullBlend: blend === fourBeats / outRate, duration, mix}
+  // Subtracting a fractional fallback cue from the record length can round down.
+  const fullBlend = fourBeatTime - blend < 1e-9
+  return {outgoing, incoming, exit: point, outStart: point - lead * outRate, inStart, lead, blend, fullBlend, duration, mix}
 }
 
 export const CUT_OVERLAP_S = 0.008
@@ -27,6 +30,31 @@ export function rehearsalOverlap(plan, kind) {
 export function rehearsalGains(plan, kind, time) {
   const p = Math.min(1, Math.max(0, (time - plan.lead) / rehearsalOverlap(plan, kind)))
   return blendGains(kind === "blend" && plan.blendCurve, p)
+}
+
+// Both 200 Hz shelves are neutral on beat three. Open the new bass over half
+// a beat before the handoff and remove the old bass over the following half.
+const BASS_OPEN = 3 / 8, BASS_SWAP = 1 / 2, BASS_CLOSE = 5 / 8
+const BASS_DEPTH_DB = 8
+
+export function rehearsalBassWindow(plan) {
+  const at = position => plan.lead + position * plan.blend
+  return {start: at(BASS_OPEN), swap: at(BASS_SWAP), end: at(BASS_CLOSE)}
+}
+
+export function rehearsalBassDb(side, progress) {
+  const cut = side === "out" ? (progress - BASS_SWAP) / (BASS_CLOSE - BASS_SWAP) :
+    (BASS_SWAP - progress) / (BASS_SWAP - BASS_OPEN)
+  return cut <= 0 ? 0 : -BASS_DEPTH_DB * Math.min(1, cut)
+}
+
+export function scheduleRehearsalBass(param, side, change, fade, at) {
+  param.cancelScheduledValues(at)
+  param.setValueAtTime(rehearsalBassDb(side, (at - change) / fade), at)
+  for (const p of [BASS_OPEN, BASS_SWAP, BASS_CLOSE]) {
+    const time = change + p * fade
+    if (time > at) param.linearRampToValueAtTime(rehearsalBassDb(side, p), time)
+  }
 }
 
 export function recordTime(plan, side, time) {
@@ -66,7 +94,7 @@ export function createRehearsal(ctx, phones, pfl) {
   }
 
   function play(plan, kind, pan, skip = 0, observe, keepPhones = false) {
-    if (skip >= plan.duration) { stop(); return Promise.resolve(false) }
+    if (skip >= plan.duration || (kind === "bass_swap" && !plan.fullBlend)) { stop(); return Promise.resolve(false) }
     stop(false, true)
     const now = ctx.currentTime
     const start = now - Math.max(0, skip)
@@ -101,6 +129,7 @@ export function createRehearsal(ctx, phones, pfl) {
         const mix = plan.mix[side]
         const source = createRecordSource(ctx, buffer, mix)
         const eq = createEq(ctx), channel = ctx.createGain(), fader = ctx.createGain()
+        if (kind === "bass_swap") scheduleRehearsalBass(eq.bass.gain, side, change, fade, at)
         source.connect(eq.hpf)
         eq.toneTreble.connect(channel)
         channel.connect(fader)

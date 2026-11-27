@@ -1894,7 +1894,7 @@ function preparePassage(rig, kind = "blend") {
   hint({type: "echo", from_ms: 42_000, to_ms: 0})
   const pair = {from: "a", to: "b", fromLoad: engine.decks.a.loadToken, toLoad: engine.decks.b.loadToken}
   const audio = {duration: 60, sampleRate: engine.ctx.sampleRate, length: 60 * engine.ctx.sampleRate}
-  return engine.armPassage(pair, {outgoing: audio, incoming: audio, outStart: 45, lead: 3, inStart: 2.5, blend: 2}, kind)
+  return engine.armPassage(pair, {outgoing: audio, incoming: audio, outStart: 45, lead: 3, inStart: 2.5, blend: 2, fullBlend: true}, kind)
 }
 
 test("arming reserves the pair without touching either transport, even at the AUTO boundary", t => {
@@ -1917,6 +1917,54 @@ test("arming reserves the pair without touching either transport, even at the AU
   a.end()
   assert.equal(b.plays, 0)
   assert.deepEqual(rig.ends.map(e => e.trackId), ["one"])
+})
+
+test("the four-beat bass exchange moves neither live shelf until the saved cue is confirmed and accepted", async t => {
+  const rig = booth(t), {a, b, engine, advances, tick} = rig
+  const gate = Promise.withResolvers()
+  t.mock.method(b, "play", () => { b.paused = false; return gate.promise })
+  const shelves = [engine.decks.a.bass.gain, engine.decks.b.bass.gain]
+  assert.equal(preparePassage(rig, "bass_swap").ok, true)
+  assert.deepEqual(shelves.map(p => p.value), [0, 0])
+  a.at(40)
+  assert.equal(engine.confirmPassage().ok, true)
+  a.at(48)
+  assert.deepEqual(shelves.map(p => p.value), [0, 0])
+  assert.deepEqual(advances, [])
+  gate.resolve()
+  await Promise.resolve()
+  assert.deepEqual(advances.map(e => e.type), ["bass_swap"])
+  assert.deepEqual(shelves.map(p => p.value), [-8, 0])
+  assert.equal(engine.cancelTransition().ok, true)
+  tick(3000)
+  assert.deepEqual(shelves.map(p => p.value), [0, 0])
+  assert.equal(engine.sessionDeck(), "a")
+})
+
+test("pausing and restarting during the bass handoff restores the full record", async t => {
+  const rig = booth(t), {engine, a} = rig
+  assert.equal(preparePassage(rig, "bass_swap").ok, true)
+  assert.equal(engine.confirmPassage().ok, true)
+  a.at(48)
+  await Promise.resolve()
+  const shelf = engine.decks.b.bass.gain
+  shelf.value = -5 // the incoming shelf is in flight when the media session pauses
+  engine.pauseAll()
+  engine.playPause("b")
+  assert.equal(shelf.value, 0)
+})
+
+test("a shortened or already-colored passage cannot promise a four-beat bass exchange", t => {
+  const rig = booth(t), {engine, a} = rig
+  assert.equal(preparePassage(rig, "bass_swap").ok, true)
+  const {pair, plan} = engine.passage()
+  engine.disarmPassage()
+  assert.equal(engine.armPassage(pair, {...plan, fullBlend: false}, "bass_swap").ok, false)
+  engine.setEchoSend("a", .4)
+  assert.equal(engine.canRecallBass(pair), false)
+  assert.equal(engine.armPassage(pair, plan, "bass_swap").ok, false)
+  assert.equal(a.paused, false)
+  assert.equal(engine.armPassage(pair, plan, "cut").ok, true)
 })
 
 test("only confirmation lets the saved entry and overlap take the room at the outgoing point", async t => {

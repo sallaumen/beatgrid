@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import {drawRehearsalWaves} from "../../assets/js/dj/rehearsal_waves.js"
+import {drawRehearsalWaves, drawRehearsalBass} from "../../assets/js/dj/rehearsal_waves.js"
 import {neutralMix} from "../../assets/js/dj/deck_mix.js"
 
 function canvas(width = 100, height = 48) {
@@ -63,5 +63,25 @@ test("both boundaries align with the fader panel and a subpixel cut keeps a sing
     const [outgoing, incoming] = ramps
     assert.ok(outgoing.points[0][1] < outgoing.points.at(-1)[1])
     assert.ok(incoming.points[0][1] > incoming.points.at(-1)[1])
+  }
+})
+
+test("the bass handoff follows the actual third beat and changes one shelf at a time", () => {
+  for (const blend of [2, 3.2]) {
+    const graph = canvas(320, 32)
+    const plan = {duration: 8, lead: 2, blend}
+    drawRehearsalBass(graph, plan, 2)
+    const edge = portion => 40 * (plan.lead + portion * blend)
+    const pivot = edge(0.5)
+    const marks = graph.rectangles.filter(rect => rect.w === 1 && rect.h === graph.clientHeight)
+    assert.ok(marks.some(rect => rect.x === Math.floor(pivot)))
+    const [out, into] = graph.paths.map(path => path.points)
+    const value = (points, x) => points.find(point => Math.abs(point[0] - x) < 0.00001)[1]
+    assert.equal(value(out, pivot), value(into, pivot))
+    assert.ok(value(into, edge(0.375)) > value(into, pivot))
+    assert.equal(value(out, edge(0.375)), value(out, pivot))
+    assert.ok(value(out, edge(0.625)) > value(out, pivot))
+    assert.equal(value(into, edge(0.625)), value(into, pivot))
+    assert.equal(graph.width, 640)
   }
 })

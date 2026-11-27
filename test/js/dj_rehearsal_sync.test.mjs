@@ -18,6 +18,10 @@ function control() {
 
 async function privateTake(t, outBpm = 133.01, intoBpm = 133.01) {
   const root = control(), dialog = root.querySelector("dialog"), strip = control()
+  const second = dialog.querySelector("[data-compare-with]")
+  second.options = [["cut", "Corte"], ["blend", "Mistura"], ["bass_swap", "Troca de graves"]]
+    .map(([value, text]) => ({value, text, dataset: {short: text}}))
+  second.value = "blend"
   strip.dataset.side = "into"
   dialog.querySelectorAll = key => key === "[data-side]" ? [strip] : []
   dialog.querySelector('input[name="dj-rehearse-kind"]:checked').value = "cut"

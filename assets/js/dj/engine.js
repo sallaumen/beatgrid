@@ -32,7 +32,7 @@ import {startDecodedEntry} from "./decoded_entry.js"
 import {createPassage} from "./passage.js"
 import {createProgramMeter, observeRoomPassage} from "./passage_meter.js"
 import {scheduleBlend} from "./blend_curve.js"
-import {createRehearsal, CUT_OVERLAP_S, rehearsalOverlap} from "./rehearsal.js"
+import {createRehearsal, CUT_OVERLAP_S, rehearsalOverlap, scheduleRehearsalBass} from "./rehearsal.js"
 import {getDeckAudio, getScratchPcm, retainScratch} from "./waveform.js"
 import {ensureScratchModule, scratchPattern} from "./scratch.js"
 
@@ -646,10 +646,21 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       from.gain.gain.value <= (mix?.out.level ?? 1) + 0.001
   }
 
+  // Echo tails and a live bass effect aren't part of the saved deck controls.
+  // An exchange can be recalled once the room is back on a clean outgoing deck.
+  function bassReady(from, to) {
+    return xfade[from.id].gain.value >= 0.999 && dryForBlend(from) && dryForBlend(to)
+  }
+
+  function canRecallPassage(from, to, plan, kind) {
+    if (kind === "bass_swap") return bassReady(from, to)
+    return kind !== "blend" || !plan?.blendCurve || canMeasureBlend(from, to, plan.mix)
+  }
+
   const passage = createPassage(decks, (from, to, plan, kind) =>
     from.audible() && !deckHeld(from.id) && !from.loop.on && !state.breatherGap &&
     to.trackId != null && !deckBusy(to.id) && !to.el.error && to.ready() &&
-    (kind !== "blend" || !plan?.blendCurve || canMeasureBlend(from, to, plan.mix)), startPassage, {
+    canRecallPassage(from, to, plan, kind), startPassage, {
       confirmed(choice) {
         if (!callbacks.roomScore) return
         cancelRoomReading()
@@ -697,7 +708,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     }
     to.play(plan.inStart * 1000, () => {
       const owned = to.playToken === playToken && !deckHeld(from.id) && !deckHeld(to.id) &&
-        (kind !== "blend" || !plan.blendCurve || canMeasureBlend(from, to, plan.mix))
+        canRecallPassage(from, to, plan, kind)
       if (!complete(owned, () => {
         to.playDecoded(plan.incoming, plan.inStart, mix.into)
         if (from.playbackRate !== mix.out.rate || from.vinylMode !== mix.out.vinyl) {
@@ -721,6 +732,10 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       const outLevel = outGain.value
       outGain.cancelScheduledValues(now)
       const curve = kind === "blend" && plan.blendCurve
+      if (kind === "bass_swap") {
+        scheduleRehearsalBass(from.bass.gain, "out", now, fade, now)
+        scheduleRehearsalBass(to.bass.gain, "into", now, fade, now)
+      }
       scheduleBlend(outGain, curve, 0, now, fade, now, outLevel)
       scheduleBlend(mute, curve, 1, now, fade, now)
       if (roomReading?.choice === choice) roomReading.arrive(now)
@@ -2419,6 +2434,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // decks are running.
     rehearsal,
     deckMix,
+    canRecallBass: pair => bassReady(decks[pair.from], decks[pair.to]),
     canMeasureBlend: (pair, mix) => canMeasureBlend(decks[pair.from], decks[pair.to], mix),
     armPassage: passage.arm,
     confirmPassage: passage.confirm,
@@ -2571,6 +2587,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         const now = ctx.currentTime
         if (deck.gain.gain.value < 0.05) deck.gain.gain.setValueAtTime(1, now)
         deck.dry.gain.linearRampToValueAtTime(1, now + 0.2)
+        deck.bass.gain.linearRampToValueAtTime(0, now + 0.15)
         deck.echoSend.gain.linearRampToValueAtTime(0, now + 0.2)
         deck.hpf.frequency.linearRampToValueAtTime(10, now + 0.15)
         deck.lpf.frequency.linearRampToValueAtTime(20_000, now + 0.15)

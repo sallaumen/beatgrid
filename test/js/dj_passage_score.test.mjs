@@ -168,3 +168,10 @@ for (const kind of ["fade", "echo", "filter", "lowpass", "bass_swap"]) {
     assert.match(degraded.summary, /dBFS|abaixo|fase|ms/)
   })
 }
+
+test("the bass exchange uses the pulse and level evidence of a continuous four-beat overlap", () => {
+  const sound = passage({kind: "blend", nextBeat: 0.45})
+  const score = scorePassage(sound)
+  assert.equal(metric(score, "pulse").state, "poor")
+  assert.deepEqual(scorePassage({...sound, kind: "bass_swap"}), score)
+})
