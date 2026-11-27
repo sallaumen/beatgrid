@@ -52,6 +52,41 @@ function bestSplice(channel, previous, target, hop, first, last) {
   return best
 }
 
+// Render a block from a record position. Continuing with its last splice keeps
+// both channels phase-continuous when the next block has a different tempo.
+export function createRecordRenderer(ctx, buffer, first, end) {
+  const channels = Array.from({length: buffer.numberOfChannels}, (_, i) => buffer.getChannelData(i))
+  const sr = buffer.sampleRate, hop = Math.max(16, Math.round(sr * 0.02))
+  function render(recordFrame, rate, previous, frames, splices) {
+    const block = ctx.createBuffer(channels.length, frames, sr)
+    for (let i = 0; i < frames; i += hop) {
+      const tail = previous == null ? null : previous + hop
+      let splice = Math.round(recordFrame + i * rate)
+      if (tail != null) {
+        let loudest = channels[0], peak = 0
+        for (const channel of channels) {
+          let energy = 0
+          for (let j = 0; j < hop; j += 16) energy += (channel[tail + j] || 0) ** 2
+          if (energy > peak) { peak = energy; loudest = channel }
+        }
+        splice = bestSplice(loudest, tail, splice, hop, first, Math.max(first, end - 2 * hop))
+      }
+      const count = Math.min(hop, frames - i)
+      channels.forEach((channel, index) => {
+        const out = block.getChannelData(index)
+        for (let j = 0; j < count; j++) {
+          const sample = splice + j < end ? channel[splice + j] : 0
+          out[i + j] = tail == null ? sample : (tail + j < end ? channel[tail + j] : 0) * (1 - j / hop) + sample * j / hop
+        }
+      })
+      splices?.push(splice)
+      previous = splice
+    }
+    return {block, previous}
+  }
+  return {render, hop}
+}
+
 export function createRecordSource(ctx, buffer, {rate, vinyl}) {
   if (rate === 1 || vinyl) {
     const source = ctx.createBufferSource()
@@ -61,43 +96,20 @@ export function createRecordSource(ctx, buffer, {rate, vinyl}) {
   }
 
   const output = ctx.createGain()
-  const channels = Array.from({length: buffer.numberOfChannels}, (_, i) => buffer.getChannelData(i))
-  const sr = buffer.sampleRate, hop = Math.max(16, Math.round(sr * 0.02))
+  const sr = buffer.sampleRate
   const voices = new Set()
-  let at, first, end, length, written = 0, previous, stopped = false, ended = false
+  let at, first, length, renderer, written = 0, previous, stopped = false, ended = false
 
   function queue() {
     if (written >= length || stopped) return
-    // Two blocks ahead, bounded memory even when the native deck takes a long time to sync.
-    const frames = Math.min(hop * 24, length - written)
-    const block = ctx.createBuffer(channels.length, frames, sr)
+    const frames = Math.min(renderer.hop * 24, length - written)
     const when = at + written / sr
-    for (let i = 0; i < frames; i += hop) {
-      const tail = previous + hop
-      let splice = first
-      if (written > 0) {
-        let loudest = channels[0], peak = 0
-        for (const channel of channels) {
-          let energy = 0
-          for (let j = 0; j < hop; j += 16) energy += (channel[tail + j] || 0) ** 2
-          if (energy > peak) { peak = energy; loudest = channel }
-        }
-        splice = bestSplice(loudest, tail, first + Math.round(written * rate), hop, first, Math.max(first, end - 2 * hop))
-      }
-      const count = Math.min(hop, frames - i)
-      channels.forEach((channel, index) => {
-        const out = block.getChannelData(index)
-        for (let j = 0; j < count; j++) {
-          const sample = splice + j < end ? channel[splice + j] : 0
-          out[i + j] = written === 0 ? sample : (tail + j < end ? channel[tail + j] : 0) * (1 - j / hop) + sample * j / hop
-        }
-      })
-      previous = splice
-      written += count
-    }
+    const rendered = renderer.render(first + written * rate, rate, previous, frames)
+    previous = rendered.previous
+    written += frames
     const voice = ctx.createBufferSource()
     voices.add(voice)
-    voice.buffer = block
+    voice.buffer = rendered.block
     voice.connect(output)
     voice.onended = () => {
       voice.disconnect()
@@ -111,7 +123,8 @@ export function createRecordSource(ctx, buffer, {rate, vinyl}) {
   output.start = (when, offset, seconds = buffer.duration - offset) => {
     at = when
     first = Math.round(offset * sr)
-    end = Math.min(buffer.length, first + Math.round(seconds * sr))
+    const end = Math.min(buffer.length, first + Math.round(seconds * sr))
+    renderer = createRecordRenderer(ctx, buffer, first, end)
     length = Math.max(1, Math.round((end - first) / rate))
     queue()
     queue()

@@ -8,10 +8,13 @@ function entry(t, offset = 1.25) {
     linearRampToValueAtTime(v) { this.value = v }})
   const node = () => ({connect() {}, disconnect() {}, gain: param()})
   const source = {...node(), playbackRate: param(), start(...args) { this.started = args }, stop(at) { this.stopAt = at }}
-  const ctx = {currentTime: 5, createGain: node, createBufferSource: () => source}
-  const media = {currentTime: offset, duration: 10, playbackRate: 1, readyState: 4}
+  const ctx = {currentTime: 5, sampleRate: 8000, createGain: node, createBufferSource: () => source,
+    createBuffer() { throw Error("buffer unavailable") }}
+  const buffer = {duration: 10, length: 80_000, sampleRate: 8000, numberOfChannels: 1,
+    getChannelData: () => new Float32Array(80_000)}
+  const media = {currentTime: offset, duration: 10, playbackRate: 1, preservesPitch: true, readyState: 4}
   const gain = node(), released = []
-  const bridge = startDecodedEntry(ctx, media, {duration: 10}, offset, node(), gain, end => released.push(end))
+  const bridge = startDecodedEntry(ctx, media, buffer, offset, node(), gain, end => released.push(end))
   return {ctx, media, source, gain: gain.gain, bridge, released, tick() { t.mock.timers.tick(25) }}
 }
 
@@ -41,4 +44,14 @@ test("a very short cue ends once even if the native player never delivers its fi
   assert.equal(media.currentTime, 10)
   bridge.release(true)
   assert.deepEqual(released, [true])
+})
+
+test("a failed bend allocation returns the audible position to the loaded player", t => {
+  const {ctx, bridge, media, gain, released} = entry(t)
+  ctx.currentTime += .4
+  const heard = bridge.position()
+  assert.equal(bridge.nudge(1.08), false)
+  assert.equal(media.currentTime, heard)
+  assert.equal(gain.value, 1)
+  assert.deepEqual(released, [false])
 })

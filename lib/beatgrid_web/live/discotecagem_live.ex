@@ -1780,7 +1780,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
         const ACCENTS = {a: "#8b7bf0", b: "#2d9cff"}
         const WAVE_WINDOW_S = 16
-        const waveWindow = (deck) => WAVE_WINDOW_S * deck.el.playbackRate
+        const waveWindow = (deck) => WAVE_WINDOW_S * deck.playbackRate
         const FIRE_ERRORS = {
           no_audible: "nada no ar — dê play primeiro",
           empty_target: "o outro deck está vazio",
@@ -2919,7 +2919,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             // deck, para casar tempos na mão vendo os dois números.
             const bpmEl = byId(`dj-jogbpm-${d}`)
             if (bpmEl && track && track.bpm) {
-              bpmEl.textContent = (track.bpm * deck.el.playbackRate).toFixed(1)
+              bpmEl.textContent = (track.bpm * deck.playbackRate).toFixed(1)
             }
             const target = byId(`dj-target-${d}`)
             if (target) {

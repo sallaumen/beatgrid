@@ -45,7 +45,7 @@ export function createPassage(decks, available, start, observer = {}) {
     if (remaining < (phase === "armed" ? 0 : -MAX_LATE_MS)) return fail("missed")
     if (phase === "armed") return
     if (remaining > 0) {
-      timer = setTimeout(check, Math.max(10, remaining / from.el.playbackRate))
+      timer = setTimeout(check, Math.max(10, remaining / from.playbackRate))
       return
     }
     if (from.seeking() || !available(from, to, choice.plan, choice.kind)) return fail()
