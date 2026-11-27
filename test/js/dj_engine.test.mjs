@@ -2108,6 +2108,24 @@ test("chaining a different vinyl pitch preserves the audible record's submillise
   assert.equal(from.platterTime(), heard)
 })
 
+test("a changed pitch withdraws confirmation and keeps the heard splice with its original reservation", t => {
+  const rig = booth(t), {engine} = rig
+  preparePassage(rig)
+  const {pair, plan} = engine.passage()
+  const heard = {rate: 1.05, prior: [24, 208]}
+  t.mock.method(engine.rehearsal, "splices", draft => draft === plan ? heard : undefined)
+  assert.ok(engine.armPassage(pair, plan, "blend").ok)
+  assert.ok(engine.confirmPassage().ok)
+  engine.setRate("b", .95)
+  assert.equal(engine.passage().phase, "armed")
+  assert.equal(engine.passage().splices, heard)
+  assert.ok(engine.confirmPassage().ok)
+  engine.disarmPassage()
+  const revised = {...plan, exit: 31}
+  assert.ok(engine.armPassage(pair, revised, "blend").ok)
+  assert.equal(engine.passage().splices, undefined)
+})
+
 
 test("reopening a confirmed version only withdraws its authorization when the draft is edited", t => {
   const rig = booth(t)

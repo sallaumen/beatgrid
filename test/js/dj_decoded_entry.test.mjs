@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
+import {recallSplice} from "../../assets/js/dj/record_source.js"
 import {startDecodedEntry} from "../../assets/js/dj/decoded_entry.js"
 
 function entry(t, offset = 1.25) {
@@ -56,6 +57,22 @@ test("a failed bend allocation returns the audible position to the loaded player
   assert.deepEqual(released, [false])
 })
 
+test("a failed pitch-locked recall leaves the previous recording playing at its original speed", t => {
+  const {bridge, source, released, ctx, gain} = entry(t)
+  ctx.currentTime += .375
+  const heard = bridge.position()
+  const file = {numberOfChannels: 1, sampleRate: 8000, length: 80_000, duration: 10,
+    getChannelData: () => new Float32Array(80_000)}
+  const saved = {rate: 1.05, first: 0, end: 32000, begin: 76, hop: 160, prior: [12160, 12320]}
+  assert.throws(() => bridge.recall(file, heard, {rate: 1.05, vinyl: false}, recallSplice(saved, file, heard, 1.05)), /buffer unavailable/)
+  assert.equal(source.stopAt, undefined)
+  assert.equal(gain.value, 0)
+  assert.equal(bridge.rate(), 1)
+  ctx.currentTime += .25
+  assert.equal(bridge.position(), heard + .25)
+  assert.deepEqual(released, [])
+})
+
 test("a playing hot cue bridges both heads briefly and a stop can silence the retiring head", t => {
   const {ctx, media, gain, bridge, source} = entry(t)
   let newVoice
@@ -76,4 +93,43 @@ test("a playing hot cue bridges both heads briefly and a stop can silence the re
   assert.equal(media.currentTime, 5.25)
   assert.equal(source.onended, null)
   assert.equal(source.stopAt, undefined)
+})
+
+test("recalling a heard phase crossfades both heads and a stop silences both at once", t => {
+  const {ctx, bridge, source, gain, released} = entry(t)
+  const nodes = [], voices = []
+  const output = ctx.createGain
+  ctx.createGain = () => {
+    const node = output()
+    node.gain.linearRampToValueAtTime = (value, when) => { node.ramp = {value, when} }
+    nodes.push(node)
+    return node
+  }
+  ctx.createBuffer = (channels, length, sampleRate) => {
+    ctx.currentTime += .006 // private splice reconstruction crosses an audio quantum
+    const rows = Array.from({length: channels}, () => new Float32Array(length))
+    return {length, sampleRate, numberOfChannels: channels, getChannelData: i => rows[i]}
+  }
+  ctx.createBufferSource = () => {
+    const voice = {...source}
+    voices.push(voice)
+    return voice
+  }
+  const file = ctx.createBuffer(2, 80_000, 8000)
+  file.duration = 10
+  const out = {rate: 1.05, vinyl: false}
+  const saved = {rate: 1.05, first: 0, end: 32000, begin: 76, hop: 160, prior: [12160, 12320]}
+  ctx.currentTime += .375
+  const at = ctx.currentTime
+  const heard = bridge.position()
+  bridge.recall(file, heard, out, recallSplice(saved, file, heard, out.rate))
+  assert.ok(Math.abs(bridge.position() - heard - (ctx.currentTime - at) * out.rate) < 1 / 8000)
+  assert.equal(bridge.rate(), out.rate)
+  assert.equal(source.stopAt, ctx.currentTime + .004)
+  assert.deepEqual(nodes[0].ramp, {value: 1, when: source.stopAt})
+  assert.equal(gain.value, 0)
+  bridge.release(true)
+  assert.ok(voices.every(voice => voice.stopAt === undefined && voice.onended === null))
+  assert.equal(source.stopAt, undefined)
+  assert.deepEqual(released, [false])
 })

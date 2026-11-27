@@ -4,17 +4,20 @@ const SEEK_RAMP_S = 0.004 // bridge unrelated waveform phases without delaying t
 
 // A media clock can advance before its decoder delivers the corresponding audio.
 // The rehearsed recording owns the sound and playhead across bends and seeks.
-export function startDecodedEntry(ctx, media, buffer, offset, input, mediaGain, onRelease, mix = {rate: media.playbackRate, vinyl: !media.preservesPitch}, repeatAtEnd) {
+export function startDecodedEntry(ctx, media, buffer, offset, input, mediaGain, onRelease, mix = {rate: media.playbackRate, vinyl: !media.preservesPitch}, repeatAtEnd, splice) {
   const start = ctx.currentTime
   const tails = new Set()
-  function play(at, rate, fade = 0, when = ctx.currentTime) {
-    return startLiveRecord(ctx, input, buffer, at, {...mix, rate}, () => {
+  function play(at, settings, fade = 0, when = ctx.currentTime, saved, recording = buffer) {
+    return startLiveRecord(ctx, input, recording, at, settings, () => {
       if (!repeatAtEnd?.()) release(false, true)
-    }, () => release(true), fade, when)
+    }, () => release(true), fade, when, saved)
   }
-  let source = play(offset, mix.rate)
+  let source = play(offset, mix, splice ? SEEK_RAMP_S : 0, start, splice)
   mediaGain.gain.cancelScheduledValues(start)
-  mediaGain.gain.setValueAtTime(0, start)
+  if (splice) {
+    mediaGain.gain.setValueAtTime(mediaGain.gain.value, source.fadeAt)
+    mediaGain.gain.linearRampToValueAtTime(0, source.fadeAt + SEEK_RAMP_S)
+  } else mediaGain.gain.setValueAtTime(0, start)
   let closed = false
 
   function release(sync = false, ended = false) {
@@ -31,6 +34,21 @@ export function startDecodedEntry(ctx, media, buffer, offset, input, mediaGain, 
     onRelease(ended)
   }
 
+  function replace(at, settings, when, saved, recording) {
+    const prior = source
+    source = play(at, settings, SEEK_RAMP_S, when, saved, recording)
+    tails.add(prior)
+    prior.stop(SEEK_RAMP_S, () => tails.delete(prior), source.fadeAt)
+  }
+
+  function recall(recording, seconds, settings, saved) {
+    // Allocate and schedule before retiring the audible head. Failure leaves
+    // that head and both buses intact for the passage's rollback.
+    replace(seconds, settings, ctx.currentTime, saved, recording)
+    buffer = recording
+    mix = settings
+  }
+
   function seek(seconds, positionAfter) {
     if (closed) return false
     if (seconds >= buffer.duration) { release(); return false }
@@ -41,13 +59,11 @@ export function startDecodedEntry(ctx, media, buffer, offset, input, mediaGain, 
     const when = ctx.currentTime + lead
     const target = positionAfter?.(lead * rate) ?? seconds
     try {
-      source = play(target, rate, SEEK_RAMP_S, when)
+      replace(target, {...mix, rate}, when)
     } catch {
       release()
       return false
     }
-    tails.add(prior)
-    prior.stop(SEEK_RAMP_S, () => tails.delete(prior), when)
     return true
   }
 
@@ -62,5 +78,5 @@ export function startDecodedEntry(ctx, media, buffer, offset, input, mediaGain, 
       return false
     }
   }
-  return {position: () => closed ? media.currentTime : source.position(), rate: () => source.rate(), nudge, seek, release}
+  return {position: () => closed ? media.currentTime : source.position(), rate: () => source.rate(), nudge, seek, recall, release}
 }

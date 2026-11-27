@@ -44,6 +44,10 @@ test("auditions schedule independent sources only into phones and restore PFL on
   })
   const ctx = {
     currentTime: 10,
+    createBuffer(channels, frames, sampleRate) {
+      const samples = Array.from({length: channels}, () => new Float32Array(frames))
+      return {length: frames, sampleRate, numberOfChannels: channels, getChannelData: i => samples[i]}
+    },
     createStereoPanner: () => ({...node(), pan: {value: 0}}),
     createGain: node, createBiquadFilter: node,
     createChannelSplitter() {
@@ -62,7 +66,7 @@ test("auditions schedule independent sources only into phones and restore PFL on
   function track(duration, polarity) {
     const left = new Float32Array(duration * 1000).fill(0.5)
     const right = new Float32Array(duration * 1000).fill(polarity * 0.5)
-    return {duration, sampleRate: 1000, numberOfChannels: 2, getChannelData: ch => [left, right][ch]}
+    return {duration, length: left.length, sampleRate: 1000, numberOfChannels: 2, getChannelData: ch => [left, right][ch]}
   }
   const plan = planRehearsal(track(14, 1), track(8, -1), 12, 5, 120)
   let canceled = 0, stereoTap, clock
@@ -121,6 +125,27 @@ test("auditions schedule independent sources only into phones and restore PFL on
   preview.play(plan, "cut", 0, 0, () => { throw new Error("observer unavailable") })
   assert.equal(splitters.length, splittersBeforeStereo)
   assert.equal(preview.elapsed(), 0)
+  preview.stop()
+
+  const shifted = planRehearsal(plan.outgoing, plan.incoming, plan.exit, plan.inStart, 120,
+    {...plan.mix, out: {...plan.mix.out, rate: 1.055}})
+  void preview.play(shifted, "blend", 0, shifted.lead - .2)
+  ctx.currentTime += .1
+  preview.stop()
+  assert.equal(preview.splices(shifted, "blend"), undefined, "a canceled cue has not been heard")
+  void preview.play(shifted, "blend", 0, shifted.lead - .2)
+  ctx.currentTime += .25
+  const heard = preview.splices(shifted, "blend")
+  assert.ok(heard.prior.length > 0 && heard.prior.length <= 8)
+  assert.equal(preview.splices(shifted, "bass_swap"), undefined)
+  preview.stop()
+  assert.deepEqual(preview.splices(shifted, "blend"), heard)
+  const revised = {...shifted, mix: {...shifted.mix, out: {...shifted.mix.out, rate: .96}}}
+  void preview.play(revised, "blend", 0, revised.lead - .2)
+  assert.equal(preview.splices(revised, "blend"), undefined)
+  ctx.currentTime += .25
+  assert.equal(preview.splices(revised, "blend").rate, .96)
+  assert.deepEqual(preview.splices(shifted, "blend"), heard, "a second take cannot rewrite the first")
   preview.stop()
 })
 
