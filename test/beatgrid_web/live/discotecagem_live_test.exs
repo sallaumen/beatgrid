@@ -106,6 +106,8 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
              "Último ensaio levado à pista"
            )
 
+    assert has_element?(view, "#dj-room-score details[data-score-reference][hidden] summary")
+    refute has_element?(view, "#dj-rehearsal-score [data-score-reference]")
     assert has_element?(view, "#dj-rehearsal [data-reservation] + #dj-room-score")
     refute has_element?(view, "#dj-rehearse-dialog #dj-room-score")
 

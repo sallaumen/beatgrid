@@ -890,7 +890,11 @@ defmodule BeatgridWeb.DiscotecagemLive do
           >Desarmar</button>
         </div>
       </div>
-      <BeatgridWeb.PassageScore.result id="dj-room-score" title="Último ensaio levado à pista" />
+      <BeatgridWeb.PassageScore.result
+        id="dj-room-score"
+        title="Último ensaio levado à pista"
+        compare
+      />
       <dialog
         id="dj-rehearse-dialog"
         aria-labelledby="dj-rehearse-title"
@@ -1880,8 +1884,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
                   this.toast(`${mode === "auto" ? "AUTO: " : "▶ "}${name} → deck ${deck.toUpperCase()}`)
                   window.dispatchEvent(new CustomEvent("beatgrid:playing", {detail: {source: "dj-console"}}))
                 },
-                roomScore: data => this.roomScore.show(data ? scorePassage(data) :
-                  {score: null, metrics: [], summary: "O trecho da pista não foi medido por inteiro."}),
+                roomScore: ({data, reference}) => this.roomScore.show(data ? scorePassage(data) :
+                  {score: null, metrics: [], summary: "O trecho da pista não foi medido por inteiro."}, {reference}),
                 cutRefused: ({deck}) => this.notice(`O deck ${deck.toUpperCase()} não começou a tocar. Tente o corte de novo.`),
                 transitionCancelled: ({trackId, deck}) => {
                   this.lastPlayedId = trackId
