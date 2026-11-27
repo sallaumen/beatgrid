@@ -31,6 +31,10 @@ defmodule BeatgridWeb.LibraryNavigationTest do
              path
   end
 
+  test "retains an encoded fragment character when it belongs to a search term" do
+    assert Navigation.return_path("/?search=Forr%C3%B3+%231") == "/?search=Forr%C3%B3+%231"
+  end
+
   test "rejects other destinations and invalid filter values" do
     for value <- [
           nil,
@@ -41,6 +45,16 @@ defmodule BeatgridWeb.LibraryNavigationTest do
           "/importados?origem=local",
           "/?importar=1",
           "/#elsewhere",
+          "/?search=Sina#fragment",
+          "/./?search=Sina",
+          "/%2F?search=Sina",
+          "/\\?search=Sina",
+          " /?search=Sina",
+          "/?search=one two",
+          "/?search=%invalid",
+          "/?search=%FF",
+          "/?search=%00",
+          <<"/?search=", 255>>,
           "/?confidence=not_an_atom&gold=false&camelot=99Z&rating_min=bad&sort=unknown&dir=desc"
         ] do
       assert Navigation.return_path(value) == "/"

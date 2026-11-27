@@ -80,18 +80,25 @@ defmodule BeatgridWeb.LibraryNavigation do
   end
 
   @doc "Accepts only the local Library route; strips all unknown and unsafe URL parameters."
-  def return_path(value) when is_binary(value) do
-    case URI.new(value) do
-      {:ok, %URI{scheme: nil, host: nil, authority: nil, fragment: nil, path: "/", query: query}} ->
-        params = URI.decode_query(query || "")
-        path(filters(params), sort(params))
-
-      _ ->
-        "/"
+  def return_path("/?" <> query) do
+    with true <- valid_query?(query),
+         params = URI.decode_query(query),
+         true <- Enum.all?(params, fn {key, value} -> valid_text?(key) and valid_text?(value) end) do
+      path(filters(params), sort(params))
+    else
+      _ -> "/"
     end
   rescue
     ArgumentError -> "/"
   end
 
   def return_path(_), do: "/"
+
+  # The only accepted outer route is the literal `/?`. Raw fragments and
+  # invalid query escapes must not become filter values after reconstruction.
+  defp valid_query?(query) do
+    String.valid?(query) and not Regex.match?(~r/[#\x00-\x20\x7F]|%(?![0-9a-fA-F]{2})/, query)
+  end
+
+  defp valid_text?(text), do: String.valid?(text) and not Regex.match?(~r/[\x00-\x1F\x7F]/, text)
 end
