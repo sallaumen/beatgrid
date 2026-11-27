@@ -16,6 +16,7 @@ defmodule BeatgridWeb.TrackLive do
   alias Beatgrid.Sets
   alias Beatgrid.Workers.{AnalyzeWorker, EnrichWorker, MarkerAnalyzeWorker, RecommendWorker}
   alias Beatgrid.YouTube
+  alias BeatgridWeb.LibraryNavigation
   alias Phoenix.LiveView.JS
 
   # The only fields the inline pencils may edit. `phx-value-field` is client-supplied,
@@ -27,15 +28,20 @@ defmodule BeatgridWeb.TrackLive do
   @audio_exts ~w(.mp3 .m4a .flac .wav .aac .ogg)
 
   @impl true
-  def mount(%{"id" => id}, _session, socket) do
-    case Tracks.get_with_song(id) do
+  def mount(%{"id" => id} = params, _session, socket) do
+    origin = track_origin(params)
+
+    case fetch_track(id) do
       nil ->
-        {:ok, socket |> put_flash(:error, "Faixa não encontrada.") |> push_navigate(to: ~p"/")}
+        {:ok,
+         socket |> put_flash(:error, "Faixa não encontrada.") |> push_navigate(to: origin.path)}
 
       track ->
         {:ok,
          socket
          |> assign(
+           origin: origin,
+           planner: planner_action(origin, track.id),
            track: track,
            folders: GenreFolders.list(),
            versions: Tracks.same_song_versions_of(track),
@@ -209,13 +215,6 @@ defmodule BeatgridWeb.TrackLive do
   def handle_event("dismiss_rename", _params, socket),
     do: {:noreply, assign(socket, rename_undo: nil)}
 
-  def handle_event("start_set", _params, socket) do
-    track = socket.assigns.track
-    {:ok, set} = Sets.create("Set: #{title(track)}")
-    Sets.append(set, track)
-    {:noreply, push_navigate(socket, to: ~p"/set")}
-  end
-
   def handle_event("restore_gain_backup", _params, socket) do
     case Operations.latest_gain_operation(socket.assigns.track.id) do
       nil ->
@@ -290,17 +289,20 @@ defmodule BeatgridWeb.TrackLive do
   end
 
   # Permanent delete (file + DB row). The `data-confirm` on the button guards it;
-  # there is no undo, so we navigate back to the library afterwards. Re-fetch first
+  # there is no undo, so we return to the originating screen afterwards. Re-fetch first
   # so a double-fire (already deleted) just navigates instead of crashing.
   def handle_event("delete_track", _params, socket) do
     case Tracks.get(socket.assigns.track.id) do
       nil ->
-        {:noreply, push_navigate(socket, to: ~p"/")}
+        {:noreply, push_navigate(socket, to: socket.assigns.origin.path)}
 
       track ->
         case Library.hard_delete(track) do
           {:ok, _} ->
-            {:noreply, socket |> put_flash(:info, "Faixa apagada.") |> push_navigate(to: ~p"/")}
+            {:noreply,
+             socket
+             |> put_flash(:info, "Faixa apagada.")
+             |> push_navigate(to: socket.assigns.origin.path)}
 
           {:error, _reason} ->
             {:noreply, assign(socket, toast: {:error, "Não foi possível apagar a faixa."})}
@@ -471,10 +473,53 @@ defmodule BeatgridWeb.TrackLive do
     )
   end
 
+  defp fetch_track(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} -> Tracks.get_with_song(uuid)
+      :error -> nil
+    end
+  end
+
+  defp track_origin(%{"set_id" => id} = params) do
+    with {:ok, uuid} <- Ecto.UUID.cast(id),
+         %{} = set <- Sets.get(uuid) do
+      %{
+        path: ~p"/set/#{set.id}",
+        label: "Voltar ao set · #{set.name}",
+        set: set,
+        params: %{set_id: set.id}
+      }
+    else
+      _ -> library_origin(params)
+    end
+  end
+
+  defp track_origin(params), do: library_origin(params)
+
+  defp library_origin(params) do
+    path = LibraryNavigation.return_path(params["library"])
+    query = if path == ~p"/", do: %{}, else: %{library: path}
+    %{path: path, label: "Biblioteca", set: nil, params: query}
+  end
+
+  defp planner_action(%{set: nil}, id),
+    do: %{path: ~p"/set?track_id=#{id}", label: "Usar em um set"}
+
+  defp planner_action(%{set: set}, id) do
+    if Sets.member?(set.id, id) do
+      %{path: ~p"/set?track_id=#{id}", label: "Usar em outro set"}
+    else
+      %{path: ~p"/set/#{set.id}?track_id=#{id}", label: "Usar neste set"}
+    end
+  end
+
   defp needs_recovery?(track),
-    do: track.status == :quarantined or track.integrity_status in [:missing_file, :corrupt]
+    do:
+      track.status in [:missing, :quarantined] or
+        track.integrity_status in [:missing_file, :corrupt]
 
   defp file_status(%{status: :quarantined}), do: "Arquivo na quarentena"
+  defp file_status(%{status: :missing}), do: "Arquivo ausente"
   defp file_status(%{integrity_status: :missing_file}), do: "Arquivo ausente"
   defp file_status(%{integrity_status: :corrupt}), do: "Arquivo corrompido"
 
@@ -498,8 +543,13 @@ defmodule BeatgridWeb.TrackLive do
     ~H"""
     <.app_shell flash={@flash} active={:biblioteca} socket={@socket}>
       <div class="mx-auto w-full max-w-[1280px] px-3 py-4 sm:px-5 lg:px-6 lg:py-5">
-        <.link navigate={~p"/"} class="text-body-sm text-ink-muted hover:text-ink">
-          ← Biblioteca
+        <.link
+          id="track-return"
+          navigate={@origin.path}
+          class="inline-flex max-w-full items-center gap-1.5 text-body-sm text-ink-secondary hover:text-ink hover:underline"
+        >
+          <.icon name="hero-arrow-left-mini" class="size-4 shrink-0" />
+          <span class="break-words">{@origin.label}</span>
         </.link>
 
         <.enrich_toast :if={@toast} toast={@toast} />
@@ -550,7 +600,7 @@ defmodule BeatgridWeb.TrackLive do
 
             <div
               :if={not needs_recovery?(@track)}
-              class="col-span-2 md:col-span-1 md:justify-self-end"
+              class="col-span-2 flex flex-wrap items-center gap-3 md:col-span-1 md:flex-col md:items-end md:justify-self-end"
             >
               <button
                 id="play-track"
@@ -558,13 +608,21 @@ defmodule BeatgridWeb.TrackLive do
                 phx-click={
                   toggle_track(%{src: ~p"/audio/#{@track.id}", id: @track.id, preview: false})
                 }
-                class="inline-flex w-full items-center justify-center gap-2 rounded-full bg-primary-deep md:w-auto px-4 py-2 text-[13px] font-semibold text-white shadow-lg shadow-primary/25 hover:bg-primary-deep/90"
+                class="inline-flex items-center justify-center gap-2 rounded-full bg-primary-deep px-4 py-2 text-[13px] font-semibold text-white hover:bg-primary-deep/90"
                 title="Tocar no player global"
               >
                 <.vinyl :if={@track.id == @playing_track_id} size={17} />
-                <span :if={@track.id != @playing_track_id} aria-hidden="true">▶</span>
+                <.icon :if={@track.id != @playing_track_id} name="hero-play-mini" class="size-4" />
                 {if @track.id == @playing_track_id, do: "Tocar / pausar", else: "Tocar faixa"}
               </button>
+              <.link
+                id="track-use-in-set"
+                navigate={@planner.path}
+                class="inline-flex min-h-11 items-center gap-1.5 rounded-md px-2 text-body-sm font-semibold text-primary-soft hover:bg-white/5 hover:underline"
+              >
+                <.icon name="hero-queue-list-mini" class="size-4 shrink-0" />
+                {@planner.label}
+              </.link>
             </div>
           </div>
 
@@ -1069,7 +1127,7 @@ defmodule BeatgridWeb.TrackLive do
                   </button>
                   <div class="min-w-0 flex-1">
                     <.link
-                      navigate={~p"/track/#{v.id}"}
+                      navigate={~p"/track/#{v.id}?#{@origin.params}"}
                       class="block truncate text-body-sm font-medium text-ink hover:text-primary hover:underline"
                     >
                       {title(v)}
@@ -1107,7 +1165,7 @@ defmodule BeatgridWeb.TrackLive do
               <div :if={@next != []} class="mt-3 space-y-1">
                 <.link
                   :for={s <- @next}
-                  navigate={~p"/track/#{s.track.id}"}
+                  navigate={~p"/track/#{s.track.id}?#{@origin.params}"}
                   class="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-surface-2"
                 >
                   <.cover src={cover_src(s.track)} artist={s.track.tag_artist} size={34} />

@@ -8,6 +8,7 @@ defmodule BeatgridWeb.TrackLiveTest do
   alias Beatgrid.Library.{Marker, Tracks}
   alias Beatgrid.Operations
   alias Beatgrid.Repertoire
+  alias Beatgrid.Sets
   alias Beatgrid.Workers.{AnalyzeWorker, EnrichWorker, ExpandWorker, RecommendWorker}
 
   test "shows the detail and updates rating, tags and note", %{conn: conn} do
@@ -363,19 +364,72 @@ defmodule BeatgridWeb.TrackLiveTest do
     refute html =~ "Start set"
   end
 
-  test "does not render the old start-set action in the track cockpit", %{conn: conn} do
-    track =
-      insert(:track,
-        status: :present,
-        tag_title: "Sina",
-        tag_artist: "Djavan",
-        analyzed_at: ~U[2026-01-01 00:00:00Z]
-      )
+  test "hands this exact recording to the set planner without creating a set", %{conn: conn} do
+    track = insert(:track, status: :present)
+    {:ok, view, _html} = live(conn, ~p"/track/#{track.id}")
 
-    {:ok, view, html} = live(conn, ~p"/track/#{track.id}")
+    assert has_element?(
+             view,
+             "#track-use-in-set[href='/set?track_id=#{track.id}']",
+             "Usar em um set"
+           )
 
     refute has_element?(view, "button[phx-click=start_set]")
-    refute html =~ "Start set"
+    assert Sets.list() == []
+  end
+
+  test "returns to the originating set and keeps the recording when adding from that set", %{
+    conn: conn
+  } do
+    track = insert(:track, status: :present)
+    {:ok, set} = Sets.create("Baile de sexta")
+    {:ok, view, _html} = live(conn, ~p"/track/#{track.id}?set_id=#{set.id}")
+
+    assert has_element?(view, "#track-return[href='/set/#{set.id}']", "Baile de sexta")
+    assert has_element?(view, "#track-use-in-set[href='/set/#{set.id}?track_id=#{track.id}']")
+    assert Sets.entries(set) == []
+
+    {:ok, _} = Sets.append(set, track)
+    {:ok, member, _} = live(conn, ~p"/track/#{track.id}?set_id=#{set.id}")
+
+    assert has_element?(
+             member,
+             "#track-use-in-set[href='/set?track_id=#{track.id}']",
+             "Usar em outro set"
+           )
+
+    for invalid <- ["desconhecido", Ecto.UUID.generate()] do
+      {:ok, fallback, _} = live(conn, ~p"/track/#{track.id}?set_id=#{invalid}")
+      assert has_element?(fallback, "#track-return[href='/']", "Biblioteca")
+    end
+  end
+
+  test "the track sheet restores the library view and ignores foreign return destinations", %{
+    conn: conn
+  } do
+    track = insert(:track, status: :present)
+    path = ~p"/?search=Sina"
+    {:ok, view, _} = live(conn, ~p"/track/#{track.id}?library=#{path}")
+    assert has_element?(view, "#track-return[href='#{path}']", "Biblioteca")
+
+    for dest <- ["//example.org", "/ajustes", "https://example.org/?search=Sina"] do
+      {:ok, safe, _} = live(conn, ~p"/track/#{track.id}?library=#{dest}")
+      assert has_element?(safe, "#track-return[href='/']")
+    end
+
+    assert {:error, {:live_redirect, %{to: ^path}}} =
+             live(conn, ~p"/track/invalid?library=#{path}")
+  end
+
+  test "a missing recording directs the DJ to recovery before performing or planning", %{
+    conn: conn
+  } do
+    track = insert(:track, status: :missing, integrity_status: nil)
+    {:ok, view, _} = live(conn, ~p"/track/#{track.id}")
+
+    assert has_element?(view, "a[href='/resgate#arquivo-#{track.id}']", "Ver recuperação")
+    refute has_element?(view, "#track-use-in-set")
+    refute has_element?(view, "#play-track")
   end
 
   test "uses the unified player and renders manageable markers", %{conn: conn} do
