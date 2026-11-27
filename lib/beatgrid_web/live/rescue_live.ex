@@ -4,13 +4,17 @@ defmodule BeatgridWeb.RescueLive do
 
   import BeatgridWeb.UI
 
-  alias Beatgrid.Library.Tracks
+  alias Beatgrid.Library.{Normalize, Tracks}
   alias Beatgrid.Rescue
 
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: Rescue.subscribe()
-    {:ok, socket |> assign(page_title: "Recuperação de arquivos", note: nil) |> load()}
+
+    {:ok,
+     socket
+     |> assign(page_title: "Recuperação de arquivos", note: nil, query: "", availability: "all")
+     |> load()}
   end
 
   defp load(socket) do
@@ -43,6 +47,18 @@ defmodule BeatgridWeb.RescueLive do
      )
      |> load()}
   end
+
+  def handle_event(
+        "filter_quarantine",
+        %{"query" => query, "availability" => availability},
+        socket
+      ) do
+    availability = if availability in ~w(all ready missing unknown), do: availability, else: "all"
+    {:noreply, assign(socket, query: query, availability: availability)}
+  end
+
+  def handle_event("clear_quarantine_filter", _params, socket),
+    do: {:noreply, assign(socket, query: "", availability: "all")}
 
   def handle_event("restore", %{"track" => id}, socket) do
     {:noreply,
@@ -77,11 +93,18 @@ defmodule BeatgridWeb.RescueLive do
     {:noreply,
      with_track(socket, id, fn track ->
        case Rescue.restore_from_quarantine(track) do
-         {:ok, _restored} ->
-           socket |> put_flash(:info, "De volta da quarentena, no caminho original.") |> load()
+         {:ok, restored} ->
+           socket
+           |> put_flash(:info, "De volta da quarentena: #{restored.rel_path}")
+           |> load()
 
          {:error, _reason} ->
-           put_flash(socket, :error, "Não consegui restaurar — o caminho original está ocupado?")
+           socket
+           |> put_flash(
+             :error,
+             "Não consegui restaurar. Confira se o arquivo ainda está na quarentena e se a pasta de origem está acessível."
+           )
+           |> load()
        end
      end)}
   end
@@ -95,8 +118,37 @@ defmodule BeatgridWeb.RescueLive do
 
   defp restorable_count(damaged), do: Enum.count(damaged, &is_binary(&1.backup_rel))
 
+  defp quarantine_status(%{file?: false}), do: "missing"
+  defp quarantine_status(%{restore_rel: nil}), do: "unknown"
+  defp quarantine_status(_), do: "ready"
+
+  defp quarantine_results(quarantined, query, availability) do
+    query = Normalize.normalize(query)
+
+    Enum.filter(quarantined, fn q ->
+      (availability == "all" or quarantine_status(q) == availability) and
+        matches_quarantine?(q, query)
+    end)
+  end
+
+  defp matches_quarantine?(_q, ""), do: true
+
+  defp matches_quarantine?(q, query) do
+    [title(q.track), q.track.tag_artist, q.track.rel_path, q.restore_rel]
+    |> Enum.join(" ")
+    |> Normalize.normalize()
+    |> String.contains?(query)
+  end
+
   @impl true
   def render(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :visible_quarantined,
+        quarantine_results(assigns.quarantined, assigns.query, assigns.availability)
+      )
+
     ~H"""
     <.app_shell flash={@flash} active={:resgate} socket={@socket}>
       <div class="mx-auto max-w-5xl px-4 py-5 sm:px-6">
@@ -135,7 +187,7 @@ defmodule BeatgridWeb.RescueLive do
               </dd>
             </div>
             <div>
-              <dt class="text-body-sm text-ink-muted">Corrompidas</dt>
+              <dt class="text-body-sm text-ink-muted">Arquivos corrompidos</dt>
               <dd class="mt-1 font-mono text-[18px] font-semibold text-amber">
                 {count(@progress, :corrupt)}
               </dd>
@@ -154,15 +206,14 @@ defmodule BeatgridWeb.RescueLive do
             href="#arquivos-danificados"
             class="inline-flex min-w-0 items-center justify-between gap-2 rounded-md border border-white/10 bg-input px-3 py-2 text-body font-medium text-ink-secondary hover:text-ink"
           >
-            <span>Arquivos danificados
-            <span class="font-mono text-ink-muted">({length(@damaged)})</span></span>
+            <span>Arquivos com problema</span>
             <.icon name="hero-arrow-down-mini" class="size-4 shrink-0" />
           </a>
           <a
             href="#quarentena"
             class="inline-flex min-w-0 items-center justify-between gap-2 rounded-md border border-white/10 bg-input px-3 py-2 text-body font-medium text-ink-secondary hover:text-ink"
           >
-            <span>Quarentena <span class="font-mono text-ink-muted">({length(@quarantined)})</span></span>
+            <span>Quarentena</span>
             <.icon name="hero-arrow-down-mini" class="size-4 shrink-0" />
           </a>
         </nav>
@@ -171,11 +222,13 @@ defmodule BeatgridWeb.RescueLive do
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 class="text-[18px] font-semibold">
-                Arquivos danificados
-                <span class="font-mono text-body-lg text-ink-muted">({length(@damaged)})</span>
+                Arquivos ausentes ou corrompidos
               </h2>
-              <p :if={@damaged != []} class="mt-1 text-body text-ink-muted">
-                {restorable_count(@damaged)} com backup disponível
+              <p
+                :if={@damaged != [] && restorable_count(@damaged) == 0}
+                class="mt-1 text-body text-ink-muted"
+              >
+                Nenhum backup disponível para esses arquivos.
               </p>
             </div>
             <button
@@ -189,7 +242,7 @@ defmodule BeatgridWeb.RescueLive do
           </div>
 
           <p :if={@damaged == []} class="mt-2 text-body text-ink-muted">
-            Nenhum arquivo danificado identificado. Verifique a biblioteca para atualizar o diagnóstico.
+            Nenhum arquivo ausente ou corrompido identificado. Verifique a biblioteca para atualizar o diagnóstico.
           </p>
 
           <ul
@@ -213,13 +266,13 @@ defmodule BeatgridWeb.RescueLive do
                     :if={d.track.integrity_status == :missing_file}
                     class="text-body-sm font-medium text-coral"
                   >
-                    arquivo sumido
+                    Arquivo ausente
                   </span>
                   <span
                     :if={d.track.integrity_status == :corrupt}
                     class="text-body-sm font-medium text-amber"
                   >
-                    áudio corrompido
+                    Áudio corrompido
                   </span>
                 </div>
                 <dl class="mt-2 text-body">
@@ -270,47 +323,134 @@ defmodule BeatgridWeb.RescueLive do
             </.link>
           </div>
           <p class="mt-1 text-body text-ink-muted">
-            A restauração devolve o arquivo à pasta de origem.
+            Confira o arquivo guardado e o destino original antes de restaurar.
           </p>
 
+          <form
+            :if={@quarantined != []}
+            id="quarantine-search"
+            phx-change="filter_quarantine"
+            phx-submit="filter_quarantine"
+            class="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(13rem,auto)]"
+          >
+            <div class="min-w-0">
+              <label
+                for="quarantine-query"
+                class="mb-1 block text-body-sm font-semibold text-ink-secondary"
+              >Buscar arquivo</label>
+              <input
+                id="quarantine-query"
+                type="search"
+                name="query"
+                value={@query}
+                placeholder="Título, artista ou caminho"
+                phx-debounce="250"
+                class="w-full rounded-md border border-white/10 bg-input px-3 py-2 text-body"
+              />
+            </div>
+            <div>
+              <label
+                for="quarantine-availability"
+                class="mb-1 block text-body-sm font-semibold text-ink-secondary"
+              >Disponibilidade</label>
+              <select
+                id="quarantine-availability"
+                name="availability"
+                class="w-full rounded-md border border-white/10 bg-input px-3 py-2 text-body"
+              >
+                <option
+                  :for={
+                    {value, label} <- [
+                      {"all", "Todas"},
+                      {"ready", "Com arquivo e origem"},
+                      {"missing", "Arquivo ausente"},
+                      {"unknown", "Origem desconhecida"}
+                    ]
+                  }
+                  value={value}
+                  selected={@availability == value}
+                >
+                  {label}
+                </option>
+              </select>
+            </div>
+          </form>
+          <div
+            :if={@quarantined != [] && (@query != "" or @availability != "all")}
+            class="mt-2 flex flex-wrap items-center justify-between gap-2 text-body-sm text-ink-muted"
+          >
+            <p role="status">
+              <span class="font-mono tabular-nums text-ink-secondary">{length(@visible_quarantined)}</span>
+              de {length(@quarantined)} faixas
+            </p>
+            <button
+              id="clear-quarantine-filter"
+              phx-click="clear_quarantine_filter"
+              class="text-primary hover:underline"
+            >Limpar filtros</button>
+          </div>
           <p :if={@quarantined == []} class="mt-2 text-body text-ink-muted">Quarentena vazia.</p>
+          <p
+            :if={@quarantined != [] && @visible_quarantined == []}
+            class="mt-3 text-body text-ink-muted"
+          >
+            Nenhuma faixa corresponde à busca e aos filtros.
+          </p>
 
           <ul
-            :if={@quarantined != []}
+            :if={@visible_quarantined != []}
             class="mt-3 divide-y divide-white/6 rounded-xl border border-white/8 bg-surface"
           >
             <li
-              :for={q <- @quarantined}
+              :for={q <- @visible_quarantined}
               id={"arquivo-#{q.track.id}"}
               class="grid min-w-0 gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start"
             >
               <div class="min-w-0">
-                <p class="break-words text-body-lg font-semibold text-ink">{title(q.track)}</p>
-                <dl class="mt-2 text-body">
-                  <dt class="text-caption text-ink-muted">Destino original</dt>
-                  <dd class="break-words font-mono text-body-sm text-ink-secondary [overflow-wrap:anywhere]">
-                    {q.restore_rel || "Origem desconhecida"}
-                  </dd>
+                <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                  <.link
+                    navigate={~p"/track/#{q.track.id}"}
+                    class="min-w-0 break-words text-body-lg font-semibold text-ink hover:text-primary hover:underline"
+                  >{title(q.track)}</.link>
+                  <span
+                    :if={q.track.tag_artist not in [nil, ""]}
+                    class="min-w-0 break-words text-body text-ink-secondary"
+                  >{q.track.tag_artist}</span>
+                </div>
+                <dl class="mt-2 grid gap-2 text-body">
+                  <div>
+                    <dt class="text-caption text-ink-muted">Destino original</dt>
+                    <dd class="break-words font-mono text-body-sm text-ink-secondary [overflow-wrap:anywhere]">
+                      {q.restore_rel || "Origem desconhecida"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt class="text-caption text-ink-muted">Caminho na quarentena</dt>
+                    <dd class="break-words font-mono text-body-sm text-ink-secondary [overflow-wrap:anywhere]">
+                      {q.track.rel_path}
+                    </dd>
+                  </div>
                 </dl>
               </div>
               <button
-                :if={q.restore_rel && q.file?}
+                :if={quarantine_status(q) == "ready"}
                 phx-click="unquarantine"
                 phx-value-track={q.track.id}
-                aria-label={"Restaurar #{title(q.track)} à origem"}
+                data-confirm={"Restaurar “#{title(q.track)}” de #{q.track.rel_path} para a origem #{q.restore_rel}? Se o caminho estiver ocupado, o arquivo restaurado receberá outro nome."}
+                aria-label={"Restaurar #{title(q.track)} à origem: #{q.restore_rel}"}
                 class="justify-self-start rounded-md border border-primary/35 bg-primary/10 px-3 py-2 text-body font-semibold text-primary hover:bg-primary/15 sm:justify-self-end"
               >
                 Restaurar à origem
               </button>
               <span
-                :if={!q.file?}
+                :if={quarantine_status(q) == "missing"}
                 class="flex items-center gap-1.5 text-body-sm font-medium text-amber"
               >
                 <.icon name="hero-exclamation-triangle" class="size-4 shrink-0" />
                 Arquivo ausente na quarentena
               </span>
               <span
-                :if={q.file? and is_nil(q.restore_rel)}
+                :if={quarantine_status(q) == "unknown"}
                 class="flex items-center gap-1.5 text-body-sm text-ink-secondary"
               >
                 <.icon name="hero-information-circle" class="size-4 shrink-0 text-ink-muted" />
