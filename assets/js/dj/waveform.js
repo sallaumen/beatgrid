@@ -3,8 +3,8 @@ import {prepareHeadphoneFold} from "./headphone_fold.js"
 // Serato-style scrolling waveforms for the Discotecagem console.
 //
 // The audio file is fetched once, decoded off the playback path and reduced to
-// a peak envelope (~50 buckets/second). Drawing happens every frame from that
-// small array: the playhead is FIXED at the canvas center and the wave scrolls
+// a peak envelope (~50 buckets/second). A moving deck draws from that small
+// array every frame: the playhead is FIXED at the canvas center and the wave scrolls
 // under it — turn the platter and you see exactly where the needle is going.
 
 // Keep the envelope and scratch PCM together. A cached envelope alone would
@@ -110,6 +110,34 @@ async function decode(clip, src, ctx) {
 }
 
 const MARKER_COLORS = {cue: "#ffb020", intro: "#5ad1a0", outro: "#ff5d6c"}
+
+// A stopped deck keeps its canvas while the other platter scrolls. Marker edits
+// replace the list; loopState returns a new object, so compare its visible bounds.
+export function mountDeckWave(canvas) {
+  let parked = null
+  const invalidate = () => { parked = null }
+  canvas.addEventListener("contextrestored", invalidate)
+
+  function resize(pixelRatio) {
+    const width = Math.floor(canvas.clientWidth * pixelRatio)
+    const height = Math.floor(canvas.clientHeight * pixelRatio)
+    if (canvas.width === width && canvas.height === height) return
+    canvas.width = width
+    canvas.height = height
+    invalidate()
+  }
+
+  function draw(state) {
+    const loop = state.loop?.on ? state.loop : null
+    const picture = state.playing ? null : [state.entry, state.posS, state.windowS, state.bpm,
+      state.gridPhaseMs, state.markers, loop?.startMs, loop?.endMs, state.fireMs, state.accent, state.label]
+    if (picture && parked && picture.every((value, i) => value === parked[i])) return
+    drawWave(canvas, state)
+    parked = picture
+  }
+
+  return {draw, resize, destroy() { canvas.removeEventListener("contextrestored", invalidate); invalidate() }}
+}
 
 // Draw one deck's lane. `state`:
 //   posS, playing, accent, entry (from loadPeaks) | null,

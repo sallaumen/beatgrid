@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import {loadPeaks, getScratchPcm, retainScratch} from "../../assets/js/dj/waveform.js"
+import {loadPeaks, getScratchPcm, mountDeckWave, retainScratch} from "../../assets/js/dj/waveform.js"
 
 function audioFixture(t, left, right, sampleRate) {
   const fetch = t.mock.method(globalThis, "fetch", async () => new Response(new ArrayBuffer(0)))
@@ -120,4 +120,55 @@ test("an abandoned decode cannot touch its audio buffer or evict a newly loaded 
   await replacement
   assert.equal(abandonedReads, 0)
   assert.ok(getScratchPcm("revisited-during-decode"))
+})
+
+test("a parked platter keeps its drawing until a visible input or the canvas changes", () => {
+  let paints = 0
+  const ctx = {clearRect() { paints++ }, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, fillRect() {}, fill() {}, closePath() {}, fillText() {}}
+  const canvas = Object.assign(new EventTarget(), {clientWidth: 80, clientHeight: 16, getContext: () => ctx})
+  const wave = mountDeckWave(canvas)
+  wave.resize(2)
+  let state = {entry: {peaks: Float32Array.of(0.3), bps: 50, durationS: 10}, posS: 2,
+    windowS: 16, bpm: 105, gridPhaseMs: 0, markers: [], loop: {on: false}, accent: "#ffb020", playing: false}
+  const paint = () => wave.draw({...state, loop: {...state.loop}})
+  paint()
+  paint()
+  wave.resize(2)
+  paint()
+  assert.equal(paints, 1)
+
+  for (const change of [
+    {posS: 2.004}, {bpm: 107}, {windowS: 17}, {markers: [{ms: 1000, type: "cue"}]},
+    {gridPhaseMs: 20}, {fireMs: 3500}, {loop: {on: true, startMs: 2000, endMs: 2400}},
+    {loop: {on: true, startMs: 2010, endMs: 2400}}, {loop: {on: true, startMs: 2010, endMs: 2800}},
+    {loop: {on: false}}, {entry: {...state.entry}}, {accent: "#5ad1a0"}
+  ]) {
+    const before = paints
+    state = {...state, ...change}
+    paint()
+    paint()
+    assert.equal(paints, before + 1)
+  }
+
+  const before = paints
+  for (let i = 0; i < 6; i++) {
+    state = {...state, playing: true, posS: 3 + i / 60}
+    paint()
+  }
+  state = {...state, playing: false}
+  paint()
+  paint()
+  assert.equal(paints, before + 7)
+
+  canvas.clientWidth = 240
+  wave.resize(2)
+  canvas.clientWidth = 80
+  wave.resize(2)
+  paint()
+  assert.equal(canvas.width, 160)
+  assert.equal(paints, before + 8)
+  canvas.dispatchEvent(new Event("contextrestored"))
+  paint()
+  assert.equal(paints, before + 9)
+  wave.destroy()
 })
