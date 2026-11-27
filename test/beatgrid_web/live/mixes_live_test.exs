@@ -74,4 +74,16 @@ defmodule BeatgridWeb.MixesLiveTest do
     assert render(view) =~ "YouTube ou SoundCloud"
     assert has_element?(view, "input[name=url][value='https://vimeo.com/1']")
   end
+
+  test "searches recordings by title or DJ and can clear the search", %{conn: conn} do
+    insert(:mix, title: "Baile de domingo", dj: "DJ Raízes", status: :ready)
+    insert(:mix, title: "Outra gravação", dj: "DJ X", status: :ready)
+
+    {:ok, view, _} = live(conn, ~p"/sets-online")
+    view |> form("#mix-search", query: "raízes") |> render_change()
+    assert has_element?(view, "#recorded-mixes article", "Baile de domingo")
+    refute has_element?(view, "#recorded-mixes article", "Outra gravação")
+    view |> element("button[phx-click=clear_search]") |> render_click()
+    assert has_element?(view, "#recorded-mixes article", "Outra gravação")
+  end
 end
