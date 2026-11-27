@@ -289,19 +289,19 @@ defmodule BeatgridWeb.DashboardLive do
               aria-pressed={to_string(f.key == @gaps_folder)}
               aria-label={"#{f.display_name}: #{saved_label(Map.get(@gap_counts, f.key, 0))}"}
               class={[
-                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-body font-semibold transition-colors",
+                "inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-body font-semibold transition-colors",
                 f.key == @gaps_folder && "border-primary/60 bg-primary/15 text-ink",
                 f.key != @gaps_folder && "border-white/8 text-ink-muted hover:text-ink"
               ]}
             >
               <span
-                class="size-2 rounded-full"
+                class="size-2 shrink-0 rounded-full"
                 style={"background:#{folder_color(f)}"}
                 aria-hidden="true"
               />
-              {f.display_name}
+              <span class="min-w-0 break-words text-left">{f.display_name}</span>
               <span class={[
-                "rounded-full px-1.5 font-mono text-caption font-bold tabular-nums",
+                "shrink-0 rounded-full px-1.5 font-mono text-caption font-bold tabular-nums",
                 (Map.get(@gap_counts, f.key, 0) > 0 && "bg-primary/15 text-primary") ||
                   "text-ink-muted bg-white/8"
               ]}>
@@ -316,13 +316,13 @@ defmodule BeatgridWeb.DashboardLive do
             class="mt-4 flex flex-wrap items-center justify-between gap-3 border-y border-white/8 py-3"
           >
             <div class="min-w-0">
-              <h3 class="flex items-center gap-2 break-words text-body-lg font-semibold text-ink">
+              <h3 class="flex items-start gap-2 text-body-lg font-semibold text-ink">
                 <span
-                  class="size-2.5 shrink-0 rounded-full"
+                  class="mt-1 size-2.5 shrink-0 rounded-full"
                   style={"background:#{folder_color(@selected_folder)}"}
                   aria-hidden="true"
                 />
-                {@selected_folder.display_name}
+                <span class="min-w-0 break-words">{@selected_folder.display_name}</span>
               </h3>
               <p class="mt-1 text-body text-ink-secondary">
                 <span class="font-mono tabular-nums">{length(@pending)}</span>

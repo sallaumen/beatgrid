@@ -10,9 +10,9 @@ defmodule BeatgridWeb.RecommendationComponents do
     ~H"""
     <article
       id={"recommendation-#{@rec.id}"}
-      class="min-w-0 rounded-lg border border-white/8 bg-base px-3 py-2.5"
+      class="flex min-w-0 flex-col rounded-lg border border-white/8 bg-base px-3 py-2.5"
     >
-      <div class="flex items-start justify-between gap-3">
+      <div class="flex flex-1 items-start justify-between gap-3">
         <div class="min-w-0 flex-1">
           <p class="text-body font-medium [overflow-wrap:anywhere]">
             {@rec.artist} <span class="text-ink-faint">—</span> {@rec.song}
