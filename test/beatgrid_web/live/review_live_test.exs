@@ -365,6 +365,12 @@ defmodule BeatgridWeb.ReviewLiveTest do
     assert render(view) =~ "1 alterações desfeitas"
   end
 
+  test "folder reevaluation selector reserves the standard control height", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/revisao?aba=renames")
+
+    assert has_element?(view, ~s(select[aria-label="Reavaliar com IA por pasta"].h-8))
+  end
+
   test "a scope click enqueues a ReevaluateWorker", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/revisao")
 

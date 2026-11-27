@@ -202,6 +202,7 @@ defmodule BeatgridWeb.RescueLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/resgate")
 
+    assert has_element?(view, "#quarantine-availability.h-9")
     search_quarantine(view, "", "ready")
     assert has_element?(view, "#arquivo-#{available.id} button[phx-click=unquarantine]")
     refute has_element?(view, "#arquivo-#{missing.id}")
