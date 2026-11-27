@@ -50,6 +50,25 @@ export function getScratchPcm(trackId) {
   return clips.get(trackId)?.pcm || null
 }
 
+// The scratch head reads mono. Use the same phase-safe balance heard in one ear.
+function scratchSamples(audio, left, right) {
+  if (audio.numberOfChannels === 1) return left.slice()
+  const points = prepareHeadphoneFold(audio, left, right)
+  const pcm = new Float32Array(left.length)
+  let start = 0
+  for (let p = 0; p < points.length; p++) {
+    const next = points[p + 1]
+    const end = next ? Math.round(next.time * audio.sampleRate) : pcm.length
+    let share = points[p].share
+    const step = next && end > start ? (next.share - share) / (end - start) : 0
+    for (let i = start; i < end; i++, share += step) {
+      pcm[i] = left[i] * (1 - Math.abs(share)) + right[i] * share
+    }
+    start = end
+  }
+  return pcm
+}
+
 async function decode(clip, src, ctx) {
   const res = await fetch(src)
   if (!res.ok) throw new Error(`audio fetch failed: ${res.status}`)
@@ -59,12 +78,7 @@ async function decode(clip, src, ctx) {
   const ch0 = audio.getChannelData(0)
   const ch1 = audio.numberOfChannels > 1 ? audio.getChannelData(1) : ch0
 
-  if (audio.numberOfChannels === 2) prepareHeadphoneFold(audio, ch0, ch1)
-
-  // Mono downmix at ctx rate — the scratch worklet reads this back and forth.
-  const mono = new Float32Array(ch0.length)
-  for (let i = 0; i < ch0.length; i++) mono[i] = (ch0[i] + ch1[i]) * 0.5
-  clip.pcm = mono
+  clip.pcm = scratchSamples(audio, ch0, ch1)
 
   const bps = 50
   const total = Math.ceil(audio.duration * bps)
