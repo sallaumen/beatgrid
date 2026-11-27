@@ -55,3 +55,25 @@ test("a failed bend allocation returns the audible position to the loaded player
   assert.equal(gain.value, 1)
   assert.deepEqual(released, [false])
 })
+
+test("a playing hot cue bridges both heads briefly and a stop can silence the retiring head", t => {
+  const {ctx, media, gain, bridge, source} = entry(t)
+  let newVoice
+  const newGain = {gain: {value: 1, setValueAtTime() {}, linearRampToValueAtTime(value, at) { this.rampEnds = at }},
+    connect() {}, disconnect() {}}
+  ctx.createGain = () => newGain
+  ctx.createBufferSource = () => (newVoice = {...source, start(...args) { this.started = args }})
+  ctx.currentTime += .1
+  assert.ok(bridge.seek(5.25))
+  assert.equal(bridge.position(), 5.25)
+  assert.equal(gain.value, 0)
+  assert.equal(newVoice.started[1], 5.25)
+  assert.ok(newVoice.started[0] >= ctx.currentTime + 256 / ctx.sampleRate)
+  assert.ok(source.stopAt > newVoice.started[0] && source.stopAt <= newVoice.started[0] + .01)
+  assert.equal(newGain.gain.rampEnds, source.stopAt)
+  assert.equal(newGain.gain.value, 0, "even a sample before the scheduled ramp starts silently")
+  bridge.release(true)
+  assert.equal(media.currentTime, 5.25)
+  assert.equal(source.onended, null)
+  assert.equal(source.stopAt, undefined)
+})
