@@ -191,6 +191,14 @@ defmodule BeatgridWeb.ImportsLiveTest do
     {:ok, view, _} = live(conn, ~p"/importados")
     view |> form("#link-preview", %{urls: url}) |> render_submit()
     assert render_async(view) =~ "Festa"
+    refute has_element?(view, "#confirm-downloads input[checked]")
+    assert has_element?(view, "#confirm-downloads button[type=submit][disabled]")
+    view |> element("#playlist-selection", "Selecionar todas") |> render_click()
+    assert has_element?(view, "#confirm-downloads input[value=aaaaaaaaaaa][checked]")
+    assert has_element?(view, "#confirm-downloads input[value=bbbbbbbbbbb][checked]")
+    refute_enqueued(worker: Beatgrid.Workers.DownloadWorker)
+    view |> element("#playlist-selection", "Limpar seleção") |> render_click()
+    refute has_element?(view, "#confirm-downloads input[checked]")
     render_submit(view, "confirm_downloads", %{"ids" => ["bbbbbbbbbbb", "unreviewed"]})
     assert [job] = all_enqueued(worker: Beatgrid.Workers.DownloadWorker)
     assert job.args["playlist_index"] == 2
@@ -256,6 +264,58 @@ defmodule BeatgridWeb.ImportsLiveTest do
 
     refute has_element?(view, "#confirm-downloads")
     refute has_element?(view, "button[phx-click=find_version]")
+  end
+
+  @tag :tmp_dir
+  test "Spotify filters retain the original track, library link and review context", %{
+    conn: conn,
+    tmp_dir: root
+  } do
+    track = insert(:track, status: :present, norm_title: "primeira", norm_artist: "trio")
+    File.write!(Path.join(root, track.rel_path), "audio")
+    url = "https://open.spotify.com/playlist/2qq0JHZ3xzT6YNlVAWIr73"
+
+    expect(Beatgrid.Spotify.PlaylistMock, :fetch, fn _ ->
+      {:ok,
+       %{
+         title: "No baile",
+         tracks: [
+           %{artist: "Trio", title: "Primeira"},
+           %{artist: "Banda", title: "Segunda"}
+         ]
+       }}
+    end)
+
+    stub(Beatgrid.YouTube.DownloaderMock, :list_entries, fn "ytsearch3:Banda Segunda" ->
+      {:ok, [%{id: "aaaaaaaaaaa", title: "Segunda ao vivo"}]}
+    end)
+
+    {:ok, view, _} = live(conn, ~p"/importados")
+    view |> form("#link-preview", %{urls: url}) |> render_submit()
+    render_async(view)
+    assert has_element?(view, "#spotify-tracks a[href='/track/#{track.id}']")
+    view |> element("#spotify-filters button", "Faltam") |> render_click()
+    assert has_element?(view, "#spotify-filters [aria-pressed=true]", "Faltam 1")
+    refute has_element?(view, "#spotify-tracks", "Primeira")
+    view |> element("#spotify-version-1") |> render_click()
+    render_async(view)
+    assert has_element?(view, "#spotify-version-heading", "Segunda")
+    refute has_element?(view, "#spotify-tracks")
+    assert has_element?(view, "#confirm-downloads input[value=aaaaaaaaaaa]:not(:checked)")
+
+    view |> element("#back-to-spotify") |> render_click()
+    refute has_element?(view, "#confirm-downloads")
+    assert has_element?(view, "#spotify-filters [aria-pressed=true]", "Faltam 1")
+    assert has_element?(view, "#spotify-version-1")
+    refute_enqueued(worker: Beatgrid.Workers.DownloadWorker)
+
+    view |> element("#spotify-version-1") |> render_click()
+    render_async(view)
+    render_submit(view, "confirm_downloads", %{"ids" => ["aaaaaaaaaaa"]})
+    assert_patch(view)
+    assert has_element?(view, "#spotify-version-1")
+    assert has_element?(view, "#link-preview textarea", url)
+    assert_enqueued(worker: Beatgrid.Workers.DownloadWorker, args: %{video_id: "aaaaaaaaaaa"})
   end
 
   test "hostile sort/filter payloads are ignored, never crash the view", %{conn: conn} do

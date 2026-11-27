@@ -37,6 +37,8 @@ defmodule BeatgridWeb.ImportsLive do
        urls: "",
        rows: [],
        spotify: nil,
+       spotify_filter: "all",
+       spotify_index: nil,
        loading: false,
        error: nil,
        search: nil,
@@ -137,7 +139,16 @@ defmodule BeatgridWeb.ImportsLive do
 
   def handle_event("preview_links", %{"urls" => input}, socket) do
     urls = String.trim(input)
-    socket = assign(socket, urls: urls, search: nil, spotify: nil, recommendation: nil)
+
+    socket =
+      assign(socket,
+        urls: urls,
+        search: nil,
+        spotify: nil,
+        spotify_filter: "all",
+        spotify_index: nil,
+        recommendation: nil
+      )
 
     case Playlist.id(urls) do
       {:ok, id} ->
@@ -154,10 +165,27 @@ defmodule BeatgridWeb.ImportsLive do
     with true <- is_binary(index),
          {i, ""} when i >= 0 <- Integer.parse(index),
          %{artist: artist, title: title} <- Enum.at(tracks, i) do
-      {:noreply, search_versions(assign(socket, recommendation: nil), artist <> " " <> title)}
+      {:noreply,
+       search_versions(
+         assign(socket, recommendation: nil, spotify_index: i),
+         artist <> " " <> title
+       )}
     else
       _ -> {:noreply, socket}
     end
+  end
+
+  def handle_event("filter_spotify", %{"filter" => filter}, socket)
+      when filter in ~w(all missing library),
+      do: {:noreply, assign(socket, spotify_filter: filter)}
+
+  def handle_event("filter_spotify", _params, socket), do: {:noreply, socket}
+
+  def handle_event("back_to_spotify", _, socket) do
+    {:noreply,
+     socket
+     |> cancel_async(:preview)
+     |> assign(search: nil, rows: [], selected: MapSet.new(), loading: false, error: nil)}
   end
 
   def handle_event("find_recommendation", _, %{assigns: %{recommendation: rec}} = socket)
@@ -165,8 +193,26 @@ defmodule BeatgridWeb.ImportsLive do
     {:noreply, search_versions(socket, rec.youtube_query || "#{rec.artist} #{rec.song}")}
   end
 
+  def handle_event(
+        "toggle_playlist_selection",
+        _,
+        %{assigns: %{rows: rows, selected: selected}} = socket
+      ) do
+    next =
+      if MapSet.size(selected) == length(rows), do: MapSet.new(), else: MapSet.new(rows, & &1.id)
+
+    {:noreply, assign(socket, selected: next)}
+  end
+
   def handle_event("select_downloads", params, socket) do
-    {:noreply, assign(socket, selected: MapSet.new(List.wrap(params["ids"])))}
+    {:noreply,
+     assign(socket,
+       selected:
+         MapSet.intersection(
+           MapSet.new(socket.assigns.rows, & &1.id),
+           MapSet.new(List.wrap(params["ids"]))
+         )
+     )}
   end
 
   def handle_event("confirm_downloads", params, socket) do
@@ -182,7 +228,7 @@ defmodule BeatgridWeb.ImportsLive do
          socket
          |> assign(
            rows: [],
-           urls: "",
+           urls: if(socket.assigns.spotify, do: socket.assigns.urls, else: ""),
            search: nil,
            selected: MapSet.new(),
            error: nil,
@@ -259,7 +305,9 @@ defmodule BeatgridWeb.ImportsLive do
     do: {:noreply, assign(socket, loading: false, spotify: catalog)}
 
   def handle_async(:preview, {:ok, {kind, {:ok, rows}}}, socket) do
-    selected = if kind == :videos, do: MapSet.new(rows, & &1.id), else: MapSet.new()
+    selected =
+      for row <- rows, kind == :videos, is_nil(row.playlist_url), into: MapSet.new(), do: row.id
+
     {:noreply, assign(socket, loading: false, rows: rows, selected: selected)}
   end
 
@@ -359,6 +407,105 @@ defmodule BeatgridWeb.ImportsLive do
     """
   end
 
+  attr :tracks, :list, required: true
+  attr :filter, :string, required: true
+  attr :last_index, :integer, default: nil
+
+  defp spotify_catalog(assigns) do
+    tracks = Enum.with_index(assigns.tracks)
+    in_library = Enum.count(tracks, fn {track, _} -> track.library_id end)
+
+    visible =
+      case assigns.filter do
+        "missing" -> Enum.reject(tracks, fn {track, _} -> track.library_id end)
+        "library" -> Enum.filter(tracks, fn {track, _} -> track.library_id end)
+        "all" -> tracks
+      end
+
+    assigns =
+      assign(assigns,
+        visible: visible,
+        counts: [
+          {"all", "Todas", length(tracks)},
+          {"missing", "Faltam", length(tracks) - in_library},
+          {"library", "Na biblioteca", in_library}
+        ]
+      )
+
+    ~H"""
+    <section
+      id="spotify-catalog"
+      aria-label="Prévia da playlist do Spotify"
+      class="mt-2 border-t border-white/10 pt-3"
+    >
+      <p class="text-body-sm text-ink-muted">Faixas da prévia pública do Spotify</p>
+      <div
+        id="spotify-filters"
+        role="group"
+        aria-label="Filtrar por presença na biblioteca"
+        class="my-2 flex flex-wrap gap-1.5"
+      >
+        <button
+          :for={{key, label, count} <- @counts}
+          type="button"
+          phx-click="filter_spotify"
+          phx-value-filter={key}
+          aria-pressed={to_string(@filter == key)}
+          aria-controls="spotify-tracks"
+          class={["inline-flex min-h-9 items-center gap-1.5", chip_class(@filter == key)]}
+        >
+          {label} <span class="font-mono tabular-nums">{count}</span>
+        </button>
+      </div>
+      <ol
+        id="spotify-tracks"
+        class="max-h-96 overflow-y-auto"
+        phx-mounted={
+          if is_integer(@last_index),
+            do: JS.focus(to: "#spotify-version-#{@last_index}"),
+            else: JS.focus(to: "#spotify-filters [aria-pressed=true]")
+        }
+      >
+        <li
+          :for={{track, i} <- @visible}
+          value={i + 1}
+          class="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 border-b border-white/6 py-2 sm:gap-x-3"
+        >
+          <span
+            aria-hidden="true"
+            class="min-w-5 text-right font-mono text-caption tabular-nums text-ink-faint"
+          >{i + 1}</span>
+          <div class="min-w-0">
+            <p class="break-words text-body font-semibold">{track.title}</p>
+            <p class="break-words text-body-sm text-ink-muted">{track.artist}</p>
+            <.link
+              :if={track.library_id}
+              navigate={~p"/track/#{track.library_id}"}
+              aria-label={"Abrir #{track.title} na biblioteca"}
+              class="inline-block py-1 text-caption text-green hover:underline"
+            >Abrir na biblioteca</.link>
+          </div>
+          <button
+            id={"spotify-version-#{i}"}
+            type="button"
+            phx-click="find_version"
+            phx-value-index={i}
+            aria-label={"Buscar versões de #{track.title} no YouTube"}
+            class="min-h-11 rounded-sm px-2 text-body-sm font-medium text-primary-soft hover:bg-input hover:underline"
+          >Buscar versões</button>
+        </li>
+      </ol>
+      <p :if={@visible == []} role="status" class="py-3 text-body-sm text-ink-muted">
+        {cond do
+          @tracks == [] -> "A prévia pública está vazia."
+          @filter == "library" -> "Nenhuma faixa desta prévia foi encontrada na biblioteca."
+          true -> "Todas as faixas desta prévia estão na biblioteca."
+        end}
+      </p>
+    </section>
+    """
+  end
+
   defp online_imports(assigns) do
     ~H"""
     <div>
@@ -367,34 +514,76 @@ defmodule BeatgridWeb.ImportsLive do
           class="min-w-0 rounded-lg border border-white/8 bg-surface p-4"
           aria-labelledby="online-import-title"
         >
-          <h2 id="online-import-title" class="mb-3 text-[18px] font-semibold">Importar de um link</h2>
-          <form id="link-preview" phx-submit="preview_links" phx-change="edit_links">
-            <label for="import-urls" class="block text-body font-semibold">Links do YouTube ou playlist do Spotify</label>
-            <p id="link-hint" class="mb-2 text-body-sm text-ink-muted">
-              Cole um link por linha. Para baixar uma playlist do YouTube, use o link da própria playlist.
+          <h2 id="online-import-title" class="break-words text-[18px] font-semibold">
+            {if @spotify, do: @spotify.title, else: "Importar de um link"}
+          </h2>
+          <details id="playlist-source" open={is_nil(@spotify)}>
+            <summary
+              hidden={is_nil(@spotify)}
+              class="w-fit cursor-pointer py-2 text-body-sm text-primary-soft"
+            >
+              Alterar link da playlist
+            </summary>
+            <form id="link-preview" phx-submit="preview_links" phx-change="edit_links" class="mt-3">
+              <label for="import-urls" class="block text-body font-semibold">Links do YouTube ou playlist do Spotify</label>
+              <p id="link-hint" class="mb-2 text-body-sm text-ink-muted">
+                Cole um link por linha. Para baixar uma playlist do YouTube, use o link da própria playlist.
+              </p>
+              <div class="flex flex-col items-end gap-2">
+                <textarea
+                  id="import-urls"
+                  name="urls"
+                  rows="3"
+                  aria-describedby="link-hint"
+                  placeholder="https://…"
+                  class="w-full min-w-0 rounded-md border border-white/10 bg-input px-3 py-2 text-body"
+                >{@urls}</textarea>
+                <button
+                  type="submit"
+                  disabled={@loading}
+                  class={[
+                    "rounded-md px-4 py-2 text-body-sm font-semibold disabled:opacity-50",
+                    if(is_nil(@spotify) && @rows == [],
+                      do: "bg-primary-deep text-white",
+                      else: "border border-white/10 bg-input text-ink-secondary hover:text-ink"
+                    )
+                  ]}
+                >{if @loading, do: "Consultando…", else: "Conferir links"}</button>
+              </div>
+            </form>
+          </details>
+
+          <.spotify_catalog
+            :if={@spotify && is_nil(@search)}
+            tracks={@spotify.tracks}
+            filter={@spotify_filter}
+            last_index={@spotify_index}
+          />
+          <div
+            :if={track = @spotify && @search && Enum.at(@spotify.tracks, @spotify_index)}
+            id="spotify-versions"
+            class="mt-3 border-t border-white/10 pt-3"
+          >
+            <button
+              id="back-to-spotify"
+              type="button"
+              phx-click="back_to_spotify"
+              class="inline-flex min-h-9 items-center gap-1.5 text-body-sm text-primary-soft hover:underline"
+            >
+              <.icon name="hero-arrow-left-mini" class="size-4" /> Voltar à playlist
+            </button>
+            <h3
+              id="spotify-version-heading"
+              tabindex="-1"
+              phx-mounted={JS.focus()}
+              class="mt-1 break-words text-body-lg font-semibold"
+            >
+              Versões de {track.title}
+            </h3>
+            <p class="text-body-sm text-ink-muted">
+              {track.artist}
             </p>
-            <div class="flex flex-col items-end gap-2">
-              <textarea
-                id="import-urls"
-                name="urls"
-                rows="3"
-                aria-describedby="link-hint"
-                placeholder="https://…"
-                class="w-full min-w-0 rounded-md border border-white/10 bg-input px-3 py-2 text-body"
-              >{@urls}</textarea>
-              <button
-                type="submit"
-                disabled={@loading}
-                class={[
-                  "rounded-md px-4 py-2 text-body-sm font-semibold disabled:opacity-50",
-                  if(@rows == [],
-                    do: "bg-primary-deep text-white",
-                    else: "border border-white/10 bg-input text-ink-secondary hover:text-ink"
-                  )
-                ]}
-              >{if @loading, do: "Consultando…", else: "Conferir links"}</button>
-            </div>
-          </form>
+          </div>
           <p :if={@recommendation} class="mt-3 text-body-sm">
             {@recommendation.artist} · {@recommendation.song}
             <button phx-click="find_recommendation" class="ml-2 text-primary-soft underline">Buscar versões</button>
@@ -403,16 +592,6 @@ defmodule BeatgridWeb.ImportsLive do
             Consultando faixas…
           </p>
           <p :if={@error} role="alert" class="mt-3 text-body-sm text-coral-soft">{@error}</p>
-
-          <a
-            :if={@search}
-            href={"https://www.youtube.com/results?" <> URI.encode_query(%{"search_query" => @search})}
-            target="_blank"
-            rel="noopener"
-            class="mt-2 inline-flex text-body-sm text-primary-soft underline"
-          >
-            Procurar “{@search}” no YouTube
-          </a>
 
           <form
             :if={@rows != []}
@@ -423,12 +602,25 @@ defmodule BeatgridWeb.ImportsLive do
           >
             <fieldset>
               <legend class="mb-2 text-body font-semibold">
-                {if @search, do: "Versões para “#{@search}”", else: "Confira as faixas"}
+                {cond do
+                  @spotify -> "Vídeos encontrados"
+                  @search -> "Versões para “#{@search}”"
+                  true -> "Confira as faixas"
+                end}
               </legend>
               <p id="download-selection-count" role="status" class="mb-2 text-body-sm text-ink-muted">
                 <span class="font-mono text-ink tabular-nums">{MapSet.size(@selected)}/{length(@rows)}</span>
                 selecionadas
               </p>
+              <button
+                :if={length(@rows) > 1 && Enum.any?(@rows, & &1.playlist_url)}
+                id="playlist-selection"
+                type="button"
+                phx-click="toggle_playlist_selection"
+                class="mb-2 inline-flex min-h-9 items-center text-body-sm font-semibold text-primary-soft hover:underline"
+              >{if MapSet.size(@selected) == length(@rows),
+                do: "Limpar seleção",
+                else: "Selecionar todas"}</button>
               <div class="max-h-72 overflow-y-auto">
                 <div :for={row <- @rows} class="flex items-center gap-3 border-b border-white/6 py-1">
                   <label class="flex min-w-0 grow items-center gap-2 py-2 text-body-sm">
@@ -455,6 +647,7 @@ defmodule BeatgridWeb.ImportsLive do
               </div>
             </fieldset>
             <button
+              type="submit"
               disabled={MapSet.size(@selected) == 0}
               class="mt-3 rounded-sm bg-primary-deep px-4 py-2 text-body-sm font-semibold text-white disabled:opacity-50"
             >
@@ -463,37 +656,15 @@ defmodule BeatgridWeb.ImportsLive do
                 else: "faixas"}
             </button>
           </form>
-          <section
-            :if={@spotify}
-            class="mt-4 border-t border-white/10 pt-3"
-            aria-label="Prévia da playlist do Spotify"
+          <a
+            :if={@search}
+            href={"https://www.youtube.com/results?" <> URI.encode_query(%{"search_query" => @search})}
+            target="_blank"
+            rel="noopener"
+            class="mt-2 inline-flex text-body-sm text-primary-soft underline"
           >
-            <h2 class="text-body font-semibold">{@spotify.title}</h2>
-            <p class="text-body-sm text-ink-muted">
-              {length(@spotify.tracks)} faixas na prévia pública do Spotify. Escolha uma faixa para conferir as versões no YouTube.
-            </p>
-            <ol class="mt-2 max-h-80 list-decimal overflow-y-auto pl-6">
-              <li
-                :for={{track, index} <- Enum.with_index(@spotify.tracks)}
-                class="border-b border-white/6 py-1 text-body-sm"
-              >
-                <div class="flex flex-wrap items-center justify-between gap-1">
-                  <span>{track.title} · {track.artist}<.link
-                    :if={track.library_id}
-                    navigate={~p"/track/#{track.library_id}"}
-                    class="block py-1 text-caption text-green underline"
-                  >Abrir na biblioteca</.link></span>
-                  <button
-                    type="button"
-                    phx-click="find_version"
-                    phx-value-index={index}
-                    aria-label={"Buscar versões de #{track.title}"}
-                    class="py-2 text-primary-soft underline"
-                  >Buscar versões</button>
-                </div>
-              </li>
-            </ol>
-          </section>
+            Procurar “{@search}” no YouTube
+          </a>
         </section>
         <section
           id="download-activity"
