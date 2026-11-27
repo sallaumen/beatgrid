@@ -104,6 +104,10 @@ defmodule Beatgrid.Sets do
   @spec get(Ecto.UUID.t()) :: RecSet.t() | nil
   defdelegate get(id), to: RecSetQuery
 
+  @doc "Whether this recording already occupies a place in the set."
+  @spec member?(Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
+  def member?(set_id, track_id), do: match?({:ok, _}, RecSetQuery.fetch_row(set_id, track_id))
+
   @spec tracks(RecSet.t()) :: [Library.Track.t()]
   def tracks(%RecSet{id: id}), do: RecSetQuery.ordered_tracks(id)
 
