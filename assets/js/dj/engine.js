@@ -723,7 +723,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       breatherOut(from, to, transition, event, token)
       return
     }
-    state.fireScale = fitScale(from, mode === "auto" ? state.hint : null, toMs)
+    const entryMs = to._cued || to.audible() || toMs == null ? to.platterTime() * 1000 : toMs
+    state.fireScale = fitScale(from, mode === "auto" ? state.hint : null, entryMs)
     if (state.fireScale < 0.95) emit("transitionSqueezed", {type, factor: state.fireScale})
     const run = TRANSITIONS()[type] || cut
     state.pendingEntry = to.id

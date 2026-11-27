@@ -1069,3 +1069,19 @@ for (const type of ["fade", "filter", "lowpass", "echo", "bass_swap", "brake"]) 
     assert.equal(engine.loopState("a").on, false)
   })
 }
+
+test("AUTO fits its crossfade to the section remaining after a prepared hot cue", t => {
+  const {engine, a, b, tick} = booth(t)
+  engine.armHint({
+    track: {id: "next", src: "next", markers: [{type: "cue", ms: 6000}]},
+    transition: {type: "crossfade", from_ms: 48_000, to_ms: 0},
+  })
+  engine.cueTo("b", 4000)
+  a.at(48)
+  assert.equal(b.currentTime, 4)
+  tick(1900)
+  assert.equal(a.paused, false)
+  tick(400)
+  assert.equal(a.paused, true)
+  assert.equal(b.paused, false)
+})
