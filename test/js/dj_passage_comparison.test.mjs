@@ -15,7 +15,8 @@ function setup(kinds = ["cut", "blend"]) {
     show(value, options) { events.push(["show", value, options]) }
   }
   let selected = "cut"
-  const view = mountPassageComparison(details, labels, () => selected)
+  const view = mountPassageComparison(details, labels, () => selected, kind =>
+    ({cut: "Corte na entrada", blend: "Mistura de quatro tempos", bass_swap: "Troca de graves"})[kind])
   view.bind(pair, plan, 120)
   return {view, labels, events, select(kind) { selected = kind; view.select() }}
 }
@@ -30,7 +31,7 @@ test("changing kind and headphone side retains each completed score, including u
   view.begin("blend").finish(blend)
   assert.deepEqual(labels.map(n => n.textContent), ["0/100", "Sem nota"])
   select("cut")
-  assert.deepEqual(events.at(-1), ["show", cut, {restored: true}])
+  assert.deepEqual(events.at(-1), ["show", cut, {reference: {pair: "Corte na entrada"}, restored: true}])
   select("cut") // panning changes the monitor destination only
   assert.equal(labels[1].textContent, "Sem nota")
 })
@@ -41,7 +42,7 @@ test("current take wins once; cancelling a repeat keeps the previous result", ()
   view.begin("cut").finish(first)
   const late = view.begin("cut")
   late.cancel()
-  assert.deepEqual(events.at(-1), ["show", first, {restored: true}])
+  assert.deepEqual(events.at(-1), ["show", first, {reference: {pair: "Corte na entrada"}, restored: true}])
   const current = view.begin("cut")
   late.finish(result(100))
   late.cancel()
@@ -145,4 +146,26 @@ test("the third kind keeps its own reading across headphone comparisons and drop
   view.bind(pair, {...plan, inStart: 11}, 120)
   assert.equal(view.reading(), null)
   assert.ok(labels.every(label => label.hidden))
+})
+
+test("monitoring the alternative keeps the chosen score in view and identifies both results", () => {
+  const {view, events, select} = setup()
+  const chosen = result(100)
+  view.begin("cut").finish(chosen)
+  const last = events.at(-1)
+  const other = view.begin("blend")
+  assert.equal(events.at(-1), last)
+  other.finish(result(65))
+  assert.equal(events.at(-1), last)
+  view.finishPair(["cut", "blend"])
+  assert.equal(view.summary(), "Corte na entrada 100/100 · Mistura de quatro tempos 65/100.")
+  assert.equal(view.reading(), chosen)
+  select("blend")
+  assert.equal(view.summary(), "")
+  assert.equal(view.reading().score, 65)
+  view.begin("cut").unavailable()
+  view.finishPair(["blend", "cut"])
+  assert.equal(view.summary(), "Mistura de quatro tempos 65/100 · Corte na entrada sem medição.")
+  view.bind(pair, {...plan, inStart: 3}, 120)
+  assert.equal(view.summary(), "")
 })

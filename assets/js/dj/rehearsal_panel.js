@@ -47,7 +47,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
   const kind = () => dialog.querySelector('input[name="dj-rehearse-kind"]:checked').value
   let sequence = null
   const heardKind = () => sequence?.kind ?? kind()
-  const comparison = mountPassageComparison(score, [...dialog.querySelectorAll("[data-score-for]")], heardKind)
+  const comparison = mountPassageComparison(score, [...dialog.querySelectorAll("[data-score-for]")], kind, name)
   const assist = mountCueAssist(dialog.querySelector("[data-cue-assist]"), {audition: tryEntry, refresh: update})
 
   function stop() {
@@ -286,7 +286,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
     if (message && (elapsed !== null || pending || sequence)) stop()
     const playing = transport.elapsed() !== null
     const comparisonStatus = sequence && `${sequence.index + 1} de 2 no fone · ${name(sequence.kind)}.`
-    const listening = comparisonStatus || (playing ? "Tocando só no fone." : pending ? "Abrindo o fone…" : "Pronto para ouvir no fone.")
+    const listening = comparisonStatus || (playing ? "Tocando só no fone." : pending ? "Abrindo o fone…" : comparison.summary() || "Pronto para ouvir no fone.")
     const review = choice?.review === "draft" ? " A versão anterior está salva e aguarda confirmação." : ""
     text(status, message || [listening + review, mixNote].filter(Boolean).join(" "))
     const unavailable = !plan || shortBass || !phones || !!a.el.error || !!b.el.error
@@ -356,7 +356,8 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
   dialog.querySelector("[data-close]").onclick = () => dialog.close()
   dialog.onclose = () => { blendReview.lock(); stop(); assist.reset(); pair = plan = null }
   dialog.onchange = e => {
-    if (e.target.matches("[data-mix]") || e.target === second) return
+    if (e.target.matches("[data-mix]")) return
+    if (e.target === second) { comparison.clearSummary(); update(); return }
     stop(); failure = ""; draw(); update()
   }
   for (const strip of strips) {
@@ -415,6 +416,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
     const first = kind()
     const kinds = compare ? [first, second.value] : [first]
     pending = true
+    let compared = false
     try {
       if (compare) sequence = {kind: first, index: 0}
       update()
@@ -430,6 +432,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
         pending = false
         update()
         if (!compare || !(await heard)) break
+        compared = index === kinds.length - 1
       }
     } catch {
       if (id === request) failure = "Não foi possível iniciar o ensaio. Tente novamente."
@@ -439,7 +442,8 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
         if (sequence) {
           sequence = null
           transport.stop()
-          comparison.select()
+          if (compared) comparison.finishPair(kinds)
+          else comparison.select()
           draw()
         }
       }

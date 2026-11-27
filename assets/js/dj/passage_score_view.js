@@ -25,6 +25,7 @@ export function mountPassageScore(root) {
     previous = null
     panel.hidden = false
     total.hidden = metrics.hidden = true
+    if (pair) pair.hidden = true
     summary.textContent = listeningMessage
     if (announce.textContent !== listeningMessage) announce.textContent = listeningMessage
   }
@@ -63,6 +64,7 @@ export function mountPassageScore(root) {
       part("reference-metrics").replaceChildren(...(hearing?.metrics ?? []).map(reading))
     }
     const grade = scored ? `${result.score} de 100` : "Sem nota"
+    part("readable").textContent = grade
     announce.textContent = announcement ?? (restored ? "" : [part("title").textContent, reference?.pair, result.descriptive ? null : grade, result.summary].filter(Boolean).join(". "))
   }
 

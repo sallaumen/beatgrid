@@ -8,7 +8,7 @@ function fixture() {
     replaceChildren(...nodes) { this.children = nodes }
   })
   const nodes = Object.fromEntries(
-    ["panel", "total", "number", "scale", "summary", "metrics", "announce", "pair", "reference", "reference-label", "reference-metrics"].map(key => [key, element()])
+    ["panel", "total", "number", "readable", "scale", "summary", "metrics", "announce", "pair", "reference", "reference-label", "reference-metrics"].map(key => [key, element()])
   )
   nodes.title = {textContent: "Nota da passagem"}
   const metric = () => {
@@ -100,4 +100,14 @@ test("intentional effects announce the observations without an empty numeric gra
   assert.doesNotMatch(nodes.announce.textContent, /Sem nota|de 100/)
   view.show({score: 80, metrics: [], summary: "Pulso alinhado"}, {reference: {pair: "Corte manual"}})
   assert.equal(nodes.total.hidden, false)
+})
+
+test("the final grade stays readable when revisiting a score without another live announcement", () => {
+  const {view, nodes} = fixture()
+  const result = {score: 65, summary: "Queda de nível na mistura.", metrics: []}
+  view.show(result, {restored: true})
+  assert.equal(nodes.readable.textContent, "65 de 100")
+  assert.equal(nodes.announce.textContent, "")
+  view.show({...result, score: null})
+  assert.equal(nodes.readable.textContent, "Sem nota")
 })

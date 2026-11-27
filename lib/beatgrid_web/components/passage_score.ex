@@ -19,9 +19,14 @@ defmodule BeatgridWeb.PassageScore do
       >
         <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
           <h3 id={"#{@id}-title"} class="text-body-lg font-semibold" data-score-title>{@title}</h3>
-          <p data-score-total hidden aria-hidden="true" class="flex items-baseline gap-1 font-mono">
-            <span data-score-number class="text-title font-semibold leading-none tabular-nums"></span>
-            <span data-score-scale class="text-body text-ink-muted">/100</span>
+          <p data-score-total hidden class="flex items-baseline gap-1 font-mono">
+            <span data-score-readable class="sr-only"></span>
+            <span
+              data-score-number
+              aria-hidden="true"
+              class="text-title font-semibold leading-none tabular-nums"
+            ></span>
+            <span data-score-scale aria-hidden="true" class="text-body text-ink-muted">/100</span>
           </p>
         </div>
         <p
