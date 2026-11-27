@@ -45,7 +45,9 @@ defmodule BeatgridWeb.RecSetLive do
   end
 
   @impl true
-  def handle_params(%{"id" => id}, _uri, socket) do
+  def handle_params(%{"id" => id} = params, _uri, socket) do
+    socket = load_proposal(socket, params["track_id"])
+
     with {:ok, uuid} <- Ecto.UUID.cast(id),
          %{} = set <- Sets.get(uuid) do
       {:noreply,
@@ -58,13 +60,40 @@ defmodule BeatgridWeb.RecSetLive do
         {:noreply,
          socket
          |> put_flash(:error, "Set não encontrado.")
-         |> push_patch(to: ~p"/set", replace: true)}
+         |> push_patch(to: set_path(nil, socket.assigns.proposed_track), replace: true)}
     end
   end
 
-  def handle_params(_params, _uri, socket) do
-    socket = refresh_sets(socket)
-    {:noreply, load_selection(socket, List.first(socket.assigns.sets))}
+  def handle_params(params, _uri, socket) do
+    socket = socket |> load_proposal(params["track_id"]) |> refresh_sets()
+    {:noreply, load_selection(socket, initial_set(socket))}
+  end
+
+  defp initial_set(%{assigns: %{proposed_track: nil, sets: sets}}), do: List.first(sets)
+  defp initial_set(_socket), do: nil
+
+  defp load_proposal(socket, nil), do: assign(socket, :proposed_track, nil)
+
+  defp load_proposal(socket, id) do
+    case available_proposal(id) do
+      nil ->
+        socket
+        |> assign(:proposed_track, nil)
+        |> put_flash(:error, "Faixa indisponível para adicionar ao set.")
+
+      track ->
+        assign(socket, :proposed_track, track)
+    end
+  end
+
+  defp available_proposal(id) do
+    with {:ok, uuid} <- Ecto.UUID.cast(id),
+         %{status: :present, integrity_status: status} = track <- Tracks.get(uuid),
+         true <- status not in [:missing_file, :corrupt] do
+      track
+    else
+      _ -> nil
+    end
   end
 
   defp refresh_sets(socket),
@@ -192,14 +221,15 @@ defmodule BeatgridWeb.RecSetLive do
   def handle_event("open_set", %{"set_id" => id}, socket) do
     case Enum.find(socket.assigns.sets, &(&1.id == id)) do
       nil -> {:noreply, socket}
-      set -> {:noreply, push_patch(socket, to: ~p"/set/#{set.id}")}
+      set -> {:noreply, push_patch(socket, to: set_path(set, socket.assigns.proposed_track))}
     end
   end
 
   def handle_event("new_set", _params, socket) do
     {:ok, set} = Sets.create("Novo set")
 
-    {:noreply, socket |> refresh_sets() |> push_patch(to: set_path(set))}
+    {:noreply,
+     socket |> refresh_sets() |> push_patch(to: set_path(set, socket.assigns.proposed_track))}
   end
 
   def handle_event(
@@ -239,7 +269,7 @@ defmodule BeatgridWeb.RecSetLive do
          socket
          |> refresh_sets()
          |> put_flash(:info, "Cópia criada: “#{copy.name}”. Você está editando a cópia.")
-         |> push_patch(to: set_path(copy))}
+         |> push_patch(to: set_path(copy, socket.assigns.proposed_track))}
 
       {:error, %Beatgrid.Error{code: :set_not_found}} ->
         {:noreply, missing_set(socket)}
@@ -268,16 +298,27 @@ defmodule BeatgridWeb.RecSetLive do
 
   # --- members ---
 
-  def handle_event("append", %{"track" => track_id}, socket) do
-    {:noreply,
-     with_track(socket, track_id, fn track ->
-       case Sets.append(socket.assigns.set, track) do
-         {:ok, _} -> reload(socket)
-         {:error, %Beatgrid.Error{code: :set_not_found}} -> missing_set(socket)
-         {:error, _changeset} -> stale_reference(socket)
-       end
-     end)}
+  def handle_event(
+        "append",
+        %{"track" => id},
+        %{assigns: %{set: %{}, proposed_track: %{id: id}}} = socket
+      ),
+      do: {:noreply, append_proposal(socket, id)}
+
+  def handle_event("append", %{"track" => track_id}, %{assigns: %{set: %{}}} = socket) do
+    {:noreply, with_track(socket, track_id, &append_track(socket, &1))}
   end
+
+  def handle_event("append", _params, socket), do: {:noreply, socket}
+
+  def handle_event(
+        "append_proposed",
+        _params,
+        %{assigns: %{set: %{}, proposed_track: %{id: id}}} = socket
+      ),
+      do: {:noreply, append_proposal(socket, id)}
+
+  def handle_event("append_proposed", _params, socket), do: {:noreply, socket}
 
   def handle_event("remove", %{"track" => track_id}, socket) do
     {:noreply,
@@ -589,11 +630,45 @@ defmodule BeatgridWeb.RecSetLive do
 
   defp select_remaining_set(socket) do
     socket = refresh_sets(socket)
-    push_patch(socket, to: set_path(List.first(socket.assigns.sets)), replace: true)
+
+    push_patch(socket,
+      to: set_path(initial_set(socket), socket.assigns.proposed_track),
+      replace: true
+    )
   end
 
-  defp set_path(nil), do: ~p"/set"
-  defp set_path(set), do: ~p"/set/#{set.id}"
+  defp append_proposal(socket, id) do
+    case available_proposal(id) do
+      nil ->
+        socket
+        |> put_flash(:error, "Faixa indisponível para adicionar ao set.")
+        |> push_patch(to: set_path(socket.assigns.set, nil), replace: true)
+
+      track ->
+        append_track(socket, track)
+    end
+  end
+
+  defp append_track(socket, track) do
+    case Sets.append(socket.assigns.set, track) do
+      {:ok, _} -> appended(socket, track)
+      {:error, %Beatgrid.Error{code: :set_not_found}} -> missing_set(socket)
+      {:error, _changeset} -> stale_reference(socket)
+    end
+  end
+
+  defp appended(%{assigns: %{proposed_track: %{id: id}}} = socket, %{id: id}) do
+    socket
+    |> put_flash(:info, "Faixa incluída no set.")
+    |> push_patch(to: set_path(socket.assigns.set, nil), replace: true)
+  end
+
+  defp appended(socket, _track), do: reload(socket)
+
+  defp set_path(nil, nil), do: ~p"/set"
+  defp set_path(set, nil), do: ~p"/set/#{set.id}"
+  defp set_path(nil, track), do: ~p"/set?track_id=#{track.id}"
+  defp set_path(set, track), do: ~p"/set/#{set.id}?track_id=#{track.id}"
 
   defp failure_reason({:ok, {:error, %Beatgrid.Error{code: :no_candidates}}}),
     do: "Nenhuma faixa atende aos critérios"
@@ -765,6 +840,7 @@ defmodule BeatgridWeb.RecSetLive do
                 class="h-9 w-full min-w-0 rounded-md border border-white/10 bg-input px-2 text-body text-ink"
               >
                 <option :if={@sets == []} value="">Nenhum set</option>
+                <option :if={@sets != [] && is_nil(@set)} value="" selected>Escolha um set</option>
                 <option :for={s <- @sets} value={s.id} selected={@set && @set.id == s.id}>
                   {s.name}
                 </option>
@@ -790,7 +866,7 @@ defmodule BeatgridWeb.RecSetLive do
           <div class="hidden min-h-0 flex-1 overflow-y-auto px-2 pb-3 lg:block">
             <.link
               :for={s <- @sets}
-              patch={set_path(s)}
+              patch={set_path(s, @proposed_track)}
               aria-current={@set && @set.id == s.id && "page"}
               class={[
                 "flex w-full items-center gap-1.5 rounded-md px-2.5 py-2 text-left text-body-sm",
@@ -823,7 +899,10 @@ defmodule BeatgridWeb.RecSetLive do
         </button>
 
         <div :if={is_nil(@set)} class="flex-1">
-          <.empty_state />
+          <div :if={@proposed_track} class="p-4">
+            <.proposed_recording track={@proposed_track} set={nil} />
+          </div>
+          <.empty_state :if={is_nil(@proposed_track)} />
         </div>
 
         <div
@@ -831,6 +910,12 @@ defmodule BeatgridWeb.RecSetLive do
           class="flex min-w-0 flex-1 flex-col overflow-y-auto xl:flex-row xl:overflow-hidden"
         >
           <section class="@container min-w-0 flex-1 px-4 py-4 lg:overflow-y-auto">
+            <.proposed_recording
+              :if={@proposed_track}
+              track={@proposed_track}
+              set={@set}
+              member?={Enum.any?(@entries, &(&1.track.id == @proposed_track.id))}
+            />
             <header id={"set-editor-header-#{@set.id}"} class="flex flex-wrap items-center gap-3">
               <form
                 id="set-name"
@@ -1077,7 +1162,7 @@ defmodule BeatgridWeb.RecSetLive do
                   <div class="min-w-0 flex-[1_1_8rem]">
                     <div class="flex min-w-0 items-center gap-1.5">
                       <.link
-                        navigate={~p"/track/#{e.track.id}"}
+                        navigate={~p"/track/#{e.track.id}?set_id=#{@set.id}"}
                         class="truncate text-body font-medium text-ink hover:text-primary hover:underline"
                       >
                         {title(e.track)}
@@ -1192,6 +1277,7 @@ defmodule BeatgridWeb.RecSetLive do
                 <.candidate_list
                   :if={@entries != []}
                   candidates={@candidates}
+                  set_id={@set.id}
                   weights={@weights}
                   empty?={false}
                   section={role_label(@active_section)}
@@ -1200,6 +1286,7 @@ defmodule BeatgridWeb.RecSetLive do
                 <.candidate_list
                   :if={@entries == []}
                   candidates={@candidates}
+                  set_id={@set.id}
                   weights={@weights}
                   empty?={true}
                   playing_id={@playing_track_id}
@@ -1209,6 +1296,7 @@ defmodule BeatgridWeb.RecSetLive do
               <.collapsible id="search" title="Buscar faixa" open_panels={@open_panels}>
                 <.search_box
                   query={@search_query}
+                  set_id={@set.id}
                   results={@search_results}
                   in_set={MapSet.new(@entries, & &1.track.id)}
                   playing_id={@playing_track_id}
@@ -1221,6 +1309,61 @@ defmodule BeatgridWeb.RecSetLive do
 
       <.criteria_modal :if={@show_criteria} folders={@folders} />
     </.app_shell>
+    """
+  end
+
+  attr :track, :map, required: true
+  attr :set, :any, required: true
+  attr :member?, :boolean, default: false
+
+  defp proposed_recording(assigns) do
+    ~H"""
+    <section
+      id="set-proposed-track"
+      class="mb-4 rounded-md border border-primary/30 bg-surface p-3"
+      aria-labelledby="proposed-track-heading"
+    >
+      <div class="flex min-w-0 items-start gap-3">
+        <.cover src={cover_src(@track)} artist={@track.tag_artist} size={40} />
+        <div class="min-w-0 flex-1">
+          <h2 id="proposed-track-heading" class="text-body-sm font-semibold text-primary-soft">
+            Faixa escolhida para o set
+          </h2>
+          <p class="break-words text-body-lg font-semibold text-ink">{title(@track)}</p>
+          <p :if={@track.tag_artist} class="break-words text-body-sm text-ink-secondary">
+            {@track.tag_artist}
+          </p>
+          <p class="mt-1 break-words font-mono text-caption text-ink-muted [overflow-wrap:anywhere]">
+            {@track.rel_path}
+          </p>
+        </div>
+      </div>
+      <p :if={is_nil(@set)} class="mt-3 text-body text-ink-secondary">
+        Escolha um set em Meus sets ou crie um novo. A faixa ainda não foi adicionada.
+      </p>
+      <p :if={@set && @member?} class="mt-3 text-body text-ink-secondary">
+        A faixa já está neste set: “{@set.name}”.
+      </p>
+      <div class="mt-3 flex flex-wrap items-center gap-3">
+        <button
+          :if={is_nil(@set)}
+          type="button"
+          phx-click="new_set"
+          class="rounded-md bg-primary-deep px-3 py-2 text-body-sm font-semibold text-white"
+        >+ Novo set</button>
+        <button
+          :if={@set && !@member?}
+          id="set-add-proposed-track"
+          type="button"
+          phx-click="append_proposed"
+          class="rounded-md bg-primary-deep px-3 py-2 text-body-sm font-semibold text-white"
+        >Adicionar ao final de “{@set.name}”</button>
+        <.link patch={set_path(@set, nil)} class="text-body-sm text-ink-secondary hover:underline">{if @member?,
+          do: "Concluir escolha",
+          else: "Cancelar escolha"}</.link>
+        <.link navigate={~p"/track/#{@track.id}"} class="text-body-sm text-primary hover:underline">Voltar à ficha</.link>
+      </div>
+    </section>
     """
   end
 
@@ -1824,6 +1967,7 @@ defmodule BeatgridWeb.RecSetLive do
   end
 
   attr :candidates, :list, required: true
+  attr :set_id, :string, required: true
   attr :weights, :map, required: true
   attr :empty?, :boolean, required: true
   attr :section, :string, default: nil
@@ -1856,7 +2000,7 @@ defmodule BeatgridWeb.RecSetLive do
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
               <.link
-                navigate={~p"/track/#{c.track.id}"}
+                navigate={~p"/track/#{c.track.id}?set_id=#{@set_id}"}
                 class="min-w-0 flex-1 truncate text-body-sm font-medium text-ink hover:text-primary hover:underline"
               >
                 {title(c.track)}
@@ -1894,6 +2038,7 @@ defmodule BeatgridWeb.RecSetLive do
   end
 
   attr :query, :string, required: true
+  attr :set_id, :string, required: true
   attr :results, :list, required: true
   attr :in_set, :any, default: %MapSet{}
   attr :playing_id, :string, default: nil
@@ -1932,7 +2077,7 @@ defmodule BeatgridWeb.RecSetLive do
           <.cover src={cover_src(t)} artist={t.tag_artist} size={30} />
           <div class="min-w-0 flex-1">
             <.link
-              navigate={~p"/track/#{t.id}"}
+              navigate={~p"/track/#{t.id}?set_id=#{@set_id}"}
               class="block truncate text-body-sm font-medium text-ink hover:text-primary hover:underline"
             >
               {title(t)}
