@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import {headphoneOutput, separateOutputs, unlockOutputNames} from "../../assets/js/dj/outputs.js"
+import {activateHeadphones, headphoneOutput, separateOutputs, unlockOutputNames} from "../../assets/js/dj/outputs.js"
 
 const outputs = [
   {deviceId: "default", groupId: "speakers"},
@@ -58,4 +58,59 @@ test("headphone aliases require a unique named endpoint in their physical group"
   assert.equal(headphoneOutput("pa", "default", [room, alias, phones, {...phones, deviceId: "usb-2"}]), null)
   assert.equal(headphoneOutput("pa", "default", [room, {...alias, groupId: ""}, {...phones, groupId: ""}]), null)
   assert.equal(headphoneOutput("pa", "bt", [room, phones]), "bt")
+})
+
+for (const [previous, requested] of [["usb", "bluetooth"], ["bluetooth", "usb"]]) {
+  test(`a refused move to ${requested} restores the proven ${previous} headphone stream`, async () => {
+    const pending = Promise.withResolvers(), stream = {}, attempted = []
+    const audio = {
+      sinkId: previous, srcObject: null, paused: true,
+      async setSinkId(id) { attempted.push(id); await pending.promise; this.sinkId = id },
+      pause() { this.paused = true },
+      async play() { this.paused = false }
+    }
+    const changing = activateHeadphones(audio, stream, requested, previous, () => true)
+    assert.equal(audio.srcObject, null)
+    pending.reject(new Error("device unavailable"))
+    assert.equal(await changing, previous)
+    assert.equal(audio.srcObject, stream)
+    assert.equal(audio.paused, false)
+    assert.deepEqual(attempted, [requested])
+  })
+}
+
+test("a late switch cannot start the cue or restore it onto the new room output", async () => {
+  const pending = Promise.withResolvers(), played = []
+  const audio = {
+    sinkId: "usb", srcObject: null,
+    async setSinkId(id) { await pending.promise; this.sinkId = id },
+    pause() {},
+    async play() { played.push(this.sinkId) }
+  }
+  let current = true
+  const switching = activateHeadphones(audio, {}, "bluetooth", "usb", () => current)
+  current = false
+  pending.resolve()
+  assert.equal(await switching, null)
+  assert.equal(audio.srcObject, null)
+  assert.deepEqual(played, [])
+})
+
+test("a play failure after the sink has changed restores audio only to an available private device", async () => {
+  for (const available of [false, true]) {
+    const stream = {}, played = []
+    const audio = {
+      sinkId: "old", srcObject: null,
+      async setSinkId(id) { this.sinkId = id },
+      pause() {},
+      async play() {
+        played.push(this.sinkId)
+        if (this.sinkId === "new") throw new Error("play rejected")
+      }
+    }
+    const actual = await activateHeadphones(audio, stream, "new", "old", id => id === "new" || available)
+    assert.equal(actual, available ? "old" : null)
+    assert.deepEqual(played, available ? ["new", "old"] : ["new"])
+    assert.equal(audio.srcObject, available ? stream : null)
+  }
 })
