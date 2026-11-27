@@ -158,10 +158,15 @@ function levelWindows(frames, width) {
   return levels
 }
 
-function levelMetric(before, middle, after, dt, kind) {
+function levelMetric(before, middle, after, dt, kind, descriptive) {
   const out = rms(before), into = rms(after)
   if (out < 0.001 && into < 0.001) return unknown("level", "Sem sinal nos dois lados")
   if (out < 0.001 || into < 0.001) return metric("level", "poor", into < 0.001 ? "Entrada em silêncio" : "Saída em silêncio")
+  const jump = db(into / out), change = Math.abs(jump)
+  const ends = change > 3.5
+    ? metric("level", change >= 8 ? "poor" : "watch", `Entrada ${decimal(change)} dB ${jump > 0 ? "acima" : "abaixo"}`)
+    : metric("level", "good", `Variação de ${decimal(change)} dB`)
+  if (descriptive) return ends
   const guard = Math.round(0.75 / dt)
   const center = [...before.slice(-guard), ...middle, ...after.slice(0, guard)]
   const floor = Math.max(0.0001, Math.min(out, into) / 16)
@@ -170,11 +175,7 @@ function levelMetric(before, middle, after, dt, kind) {
   if (quiet > Math.max(0.18, rest + 0.12)) {
     return metric("level", quiet >= 0.32 ? "poor" : "watch", `Silêncio de ${Math.round(quiet * 1000)} ms`)
   }
-  const jump = db(into / out)
-  const change = Math.abs(jump)
-  if (change > 3.5) {
-    return metric("level", change >= 8 ? "poor" : "watch", `Entrada ${decimal(change)} dB ${jump > 0 ? "acima" : "abaixo"}`)
-  }
+  if (ends.state !== "good") return ends
   const width = Math.max(1, Math.round(0.45 / dt))
   if (kind === "blend" && [middle, before, after].every(part => part.length >= width)) {
     const context = [...levelWindows(before, width), ...levelWindows(after, width)]
@@ -184,7 +185,7 @@ function levelMetric(before, middle, after, dt, kind) {
     const lift = db(quantile(levels, 0.95) / Math.max(quantile(context, 0.9), floor))
     if (lift > 4) return metric("level", lift > 7 ? "poor" : "watch", `Subida de ${decimal(lift)} dB na mistura`)
   }
-  return metric("level", "good", `Variação de ${decimal(change)} dB`)
+  return ends
 }
 
 function headroomMetric(frames) {
@@ -199,10 +200,11 @@ function headroomMetric(frames) {
   return metric("headroom", state, `Pico de ${reading} dBFS`)
 }
 
-export function scorePassage({frames, frameSeconds: dt, changeAt, overlap, kind, bpm} = {}) {
-  const incomplete = () => ({score: null, metrics: Object.keys(names).map(id => unknown(id)), summary: "É preciso ouvir os dois lados da troca."})
+export function scorePassage({frames, frameSeconds: dt, changeAt, overlap, kind, bpm, descriptive = false} = {}) {
+  const supported = descriptive ? ["fade", "echo", "filter", "lowpass", "bass_swap"] : ["cut", "blend"]
+  const incomplete = () => ({score: null, descriptive, metrics: Object.keys(names).map(id => unknown(id)), summary: "É preciso ouvir os dois lados da troca."})
   if (!Array.isArray(frames) || !(Number.isFinite(dt) && dt > 0) || !Number.isFinite(changeAt) ||
-      !Number.isFinite(overlap) || overlap < 0 || !["cut", "blend"].includes(kind)) return incomplete()
+      !Number.isFinite(overlap) || overlap < 0 || !supported.includes(kind)) return incomplete()
   const start = Math.round(changeAt / dt), end = Math.round((changeAt + overlap) / dt)
   if (start * dt < 0.35 || (frames.length - end) * dt < 0.35) return incomplete()
   const span = Math.ceil(4 / dt)
@@ -214,10 +216,14 @@ export function scorePassage({frames, frameSeconds: dt, changeAt, overlap, kind,
         (f.onset != null && (!Number.isFinite(f.onset) || f.onset < 0))) return incomplete()
   }
   const pulse = pulseMetric(before, after, middle, start, end, dt, kind, bpm)
-  const level = levelMetric(before, middle, after, dt, kind)
+  const level = levelMetric(before, middle, after, dt, kind, descriptive)
   const headroom = headroomMetric([...before.slice(-Math.ceil(0.25 / dt)), ...middle, ...after.slice(0, Math.ceil(0.75 / dt))])
   const metrics = [pulse, level, headroom]
   const issue = metrics.find(m => m.state === "poor") ?? metrics.find(m => m.state === "watch")
+  if (descriptive) {
+    const summary = headroom.state === "poor" ? headroom.value : issue?.value ?? (pulse.state === "unknown" ? pulse.value : "O pulso e o nível entre as faixas se mantiveram.")
+    return {score: null, descriptive, metrics, summary}
+  }
   if (metrics.some(m => m.state === "unknown")) {
     return {score: null, metrics, summary: issue?.value ?? (level.state === "unknown" ? "Áudio insuficiente para avaliar a troca." : "O pulso não ficou claro neste trecho.")}
   }

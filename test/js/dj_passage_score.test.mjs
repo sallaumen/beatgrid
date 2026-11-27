@@ -152,3 +152,19 @@ for (const kind of ["cut", "blend"]) {
     assert.equal(metric(scorePassage(alternatingAccents(kind, false, {bpm: 70})), "pulse").state, "good")
   })
 }
+
+for (const kind of ["fade", "echo", "filter", "lowpass", "bass_swap"]) {
+  test(`${kind} reports the two ends and peak without grading its intentional envelope`, () => {
+    const make = changes => ({...passage({pause: 1.4, ...changes}), kind, descriptive: true})
+    const aligned = scorePassage(make({}))
+    assert.equal(aligned.score, null)
+    assert.equal(aligned.descriptive, true)
+    assert.equal(metric(aligned, "level").state, "good")
+    assert.equal(metric(aligned, "pulse").state, "good")
+    const degraded = scorePassage(make({nextLevel: .25, peak: 1.1, shift: .18}))
+    assert.match(metric(degraded, "level").value, /12.*dB abaixo/)
+    assert.equal(metric(degraded, "headroom").state, "poor")
+    assert.notEqual(metric(degraded, "pulse").state, "good")
+    assert.match(degraded.summary, /dBFS|abaixo|fase|ms/)
+  })
+}

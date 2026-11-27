@@ -1023,7 +1023,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     from._seekGuard = false
     to._seekGuard = false
     if (overlap != null && programMeter && roomAvailable) {
-      const kind = event.type === "cut" ? "cut" : "blend"
+      const kind = event.type === "crossfade" ? "blend" : event.type
       const names = {from: from.title, fromDeck: from.id, into: to.title, toDeck: to.id}
       programMeter.read(kind, overlap, from.bpm * from.playbackRate,
         data => emit("programScore", {data, kind, mode: event.mode, names}))
@@ -1165,10 +1165,12 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     const outS = dur(RAMP.fadeOutS)
     from.gain.gain.linearRampToValueAtTime(0, now + outS)
 
-    riseIncoming(to, outS + dur(RAMP.fadeInS), wasPlaying)
+    const until = outS + dur(RAMP.fadeInS)
+    riseIncoming(to, until, wasPlaying)
     setXfadeTo(sideOf(to.id), outS)
 
     after(outS + 0.1, () => finishOutgoing(from, token))
+    return until
   }
 
   function crossfade(from, to, {token}) {
@@ -1231,12 +1233,13 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // side until the new track has surfaced.
     setXfadeTo(sideOf(to.id), inStart + inRise * 0.8)
 
+    const wetDown = dur(0.6), release = dur(0.7)
     after(total, () => {
       if (!ownsOutgoing(from, token)) return
       const end = ctx.currentTime
       from.settleGain(from.echoSend)
-      from.echoSend.gain.linearRampToValueAtTime(0, end + dur(0.6))
-      after(dur(0.7), () => finishOutgoing(from, token))
+      from.echoSend.gain.linearRampToValueAtTime(0, end + wetDown)
+      after(release, () => finishOutgoing(from, token))
     })
 
     const turnOff = () => {
@@ -1244,9 +1247,10 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       from.stopEcho = null
       emit("echoState", {deck: from.id, on: false})
     }
-    const lightTimer = after(total + dur(0.7), turnOff)
+    const lightTimer = after(total + release, turnOff)
     from.stopEcho = turnOff
     emit("echoState", {deck: from.id, on: true, delayMs: Math.round(delayS * 1000)})
+    return total + release
   }
 
   // High-pass sweep: the outgoing track loses its body, thins into air while the
@@ -1263,6 +1267,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     setXfadeTo(sideOf(to.id), s * 0.8)
 
     after(s + 0.2, () => finishOutgoing(from, token))
+    return s + 0.2
   }
 
   // "Afunda": the mirror of the filter sweep — the outgoing track loses its
@@ -1279,6 +1284,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     setXfadeTo(sideOf(to.id), s * 0.8)
 
     after(s + 0.2, () => finishOutgoing(from, token))
+    return s + 0.2
   }
 
   // Bass swap: the incoming track rides bodiless over the outgoing groove, then
@@ -1302,11 +1308,12 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     to.bass.gain.setValueAtTime(RAMP.bassCutDb, swapAt)
     to.bass.gain.linearRampToValueAtTime(0, swapAt + moveS)
 
+    const glide = dur(2), until = overlapS + dur(2.4)
     after(overlapS, () => {
       if (token !== state.transitionToken) return
-      setXfadeTo(sideOf(to.id), dur(2.0))
+      setXfadeTo(sideOf(to.id), glide)
     })
-    after(overlapS + dur(2.4), () => {
+    after(until, () => {
       if (token !== state.transitionToken) return
       finishOutgoing(from, token)
       // The incoming deck keeps playing — only make sure its shelf sits flat.
@@ -1314,6 +1321,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       to.settleParam(to.bass.gain)
       to.bass.gain.setValueAtTime(0, ctx.currentTime)
     })
+    return until
   }
 
   // Vinyl brake: the platter winds down (pitch drops with it), then the next
