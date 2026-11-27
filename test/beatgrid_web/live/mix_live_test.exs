@@ -592,6 +592,73 @@ defmodule BeatgridWeb.MixLiveTest do
     end
 
     @tag :tmp_dir
+    test "long lists retain the exact recorte opener across draft replacement and dismissal", %{
+      conn: conn,
+      tmp_dir: tmp
+    } do
+      audio = Path.join(tmp, "set.mp3")
+      File.write!(audio, "mp3")
+      mix = insert(:mix, status: :ready, audio_path: audio, duration_ms: 3_600_000)
+
+      segments =
+        for position <- 0..130 do
+          insert(:mix_segment,
+            mix: mix,
+            position: position,
+            start_ms: position * 20_000,
+            end_ms: (position + 1) * 20_000,
+            title: "Faixa #{position + 1}"
+          )
+        end
+
+      [first | _] = segments
+      last = List.last(segments)
+      {:ok, view, _html} = live(conn, ~p"/sets-online/#{mix.id}")
+      opener = "#recorte-open-#{last.id}"
+      assert has_element?(view, "#{opener}[aria-controls=recorte-editor][aria-expanded=false]")
+      assert has_element?(view, "#mix-to-tracks[href='#mix-tracklist-heading']")
+      assert has_element?(view, "#mix-to-timeline[href='#mix-timeline-heading']")
+      assert has_element?(view, "#mix-back-to-tracks[href='#mix-tracklist-heading']")
+      assert has_element?(view, "#mix-back-to-timeline[href='#mix-timeline-heading']")
+
+      view |> element(opener) |> render_click()
+      assert has_element?(view, "#recorte-title[tabindex='-1']")
+      refute has_element?(view, "#recorte-range[phx-mounted]")
+      assert has_element?(view, "#{opener}[aria-expanded=true]")
+
+      assert has_element?(
+               view,
+               "#recorte-editor[data-origin-id='recorte-open-#{last.id}'][data-draft-version='1']"
+             )
+
+      assert has_element?(view, "#recorte-editor input[name=title][value='Faixa 131']")
+      render_change(view, "recorte_change", %{"title" => "Rascunho"})
+      assert has_element?(view, "#recorte-editor[data-draft-version='1']")
+      view |> element(opener) |> render_click()
+      assert has_element?(view, "#recorte-editor[data-draft-version='2']")
+      view |> element("#recorte-open-#{first.id}") |> render_click()
+      assert has_element?(view, "#{opener}[aria-expanded=false]")
+
+      assert has_element?(
+               view,
+               "#recorte-editor[data-origin-id='recorte-open-#{first.id}'][data-draft-version='3']"
+             )
+
+      view |> element("#recorte-close") |> render_click()
+      refute has_element?(view, "#recorte-editor")
+      assert has_element?(view, "#recorte-open-#{first.id}[aria-expanded=false]")
+      view |> element(opener) |> render_click()
+      view |> element("#recorte-close") |> render_click()
+      assert has_element?(view, "#{opener}[aria-expanded=false]")
+
+      view |> element("#recorte-open-free") |> render_click()
+      assert has_element?(view, "#recorte-editor[data-origin-id='recorte-open-free']")
+      view |> element("#recorte-close") |> render_click()
+      assert has_element?(view, "#recorte-open-free[aria-expanded=false]")
+      refute_enqueued(worker: Beatgrid.Workers.MixCutWorker)
+    end
+
+    @tag :tmp_dir
     test "discard checks compare the actual fields against each newly opened draft", %{
       conn: conn,
       tmp_dir: tmp
