@@ -115,7 +115,7 @@ defmodule Beatgrid.Library.TrackQuery do
     filters |> library_base() |> Repo.aggregate(:count, :id)
   end
 
-  @doc "Every present track id matching the filters (ignores limit/offset) — powers \"Marcar todas\" across pages."
+  @doc "Every present track id matching the filters (ignores limit/offset); optional :ids restricts an existing selection."
   @spec library_ids(map()) :: [Ecto.UUID.t()]
   def library_ids(filters \\ %{}) do
     filters |> library_base() |> select([t], t.id) |> Repo.all()
@@ -143,6 +143,7 @@ defmodule Beatgrid.Library.TrackQuery do
     Track
     |> join(:left, [t], s in assoc(t, :soundcharts_song), as: :song)
     |> where([t], t.status == :present)
+    |> filter(:ids, filters)
     |> filter(:genre_folder, filters)
     |> filter(:rating_min, filters)
     |> filter(:rating_max, filters)
@@ -173,6 +174,7 @@ defmodule Beatgrid.Library.TrackQuery do
     end
   end
 
+  defp apply_filter(q, :ids, ids) when is_list(ids), do: where(q, [t], t.id in ^ids)
   defp apply_filter(q, :genre_folder, v), do: where(q, [t], t.genre_folder == ^v)
 
   defp apply_filter(q, :rating_min, v) do

@@ -11,14 +11,11 @@ defmodule BeatgridWeb.LibraryLive do
   alias Beatgrid.Playback
   alias Beatgrid.Soundcharts.Camelot
   alias Beatgrid.Workers.{MoveBatchWorker, UndoBatchWorker}
+  alias BeatgridWeb.LibraryNavigation
 
   # "Parecidas" widens the energy window by ±this many points (0–100) around the
   # reference track's effective energy.
   @energy_window 12
-
-  # The sortable columns the header emits — client payloads are checked against
-  # this before any String.to_existing_atom.
-  @sort_fields ~w(artist folder bpm key energy rating loudness confidence)
 
   @confidences [{"alta", :high}, {"média", :medium}, {"baixa", :low}]
 
@@ -49,6 +46,7 @@ defmodule BeatgridWeb.LibraryLive do
        page_title: "Biblioteca",
        folders: GenreFolders.list(),
        filters: %{},
+       library_path: "/",
        filters_open?: false,
        sort: {:artist, :asc},
        selecting?: false,
@@ -59,7 +57,17 @@ defmodule BeatgridWeb.LibraryLive do
        move_toast: nil,
        playing_track_id: np.track_id,
        all_tags: Tracks.all_tags()
-     )
+     )}
+  end
+
+  @impl true
+  def handle_params(params, _uri, socket) do
+    filters = LibraryNavigation.filters(params)
+    sort = LibraryNavigation.sort(params)
+
+    {:noreply,
+     socket
+     |> assign(filters: filters, sort: sort, library_path: LibraryNavigation.path(filters, sort))
      |> load_tracks()}
   end
 
@@ -68,39 +76,43 @@ defmodule BeatgridWeb.LibraryLive do
     {:noreply,
      socket
      |> update_filter(:genre_folder, toggle(socket.assigns.filters[:genre_folder], key))
-     |> load_tracks()}
+     |> patch_library()}
   end
 
   def handle_event("toggle_confidence", %{"level" => level}, socket) do
     {:noreply,
      socket
      |> update_filter(:confidence, toggle(socket.assigns.filters[:confidence], level))
-     |> load_tracks()}
+     |> patch_library()}
   end
 
   def handle_event("toggle_unclassified", _params, socket) do
     {:noreply,
      socket
      |> update_filter(:unclassified, toggle(socket.assigns.filters[:unclassified], true))
-     |> load_tracks()}
+     |> patch_library()}
   end
 
   def handle_event("toggle_tag", %{"tag" => tag}, socket) do
     {:noreply,
      socket
      |> update_filter(:tag, toggle(socket.assigns.filters[:tag], tag))
-     |> load_tracks()}
+     |> patch_library()}
   end
 
   # Clicking a column header sorts by that field — toggling asc/desc when it's
   # already the active field, otherwise starting ascending. `by` is
   # client-supplied, so it's whitelisted before touching atoms.
-  def handle_event("sort", %{"by" => by}, socket) when by in @sort_fields do
-    field = String.to_existing_atom(by)
-    {cur_field, cur_dir} = socket.assigns.sort
-    dir = if cur_field == field, do: flip_dir(cur_dir), else: :asc
+  def handle_event("sort", %{"by" => by}, socket) do
+    case LibraryNavigation.sort_field(by) do
+      nil ->
+        {:noreply, socket}
 
-    {:noreply, socket |> assign(sort: {field, dir}) |> load_tracks()}
+      field ->
+        {cur_field, cur_dir} = socket.assigns.sort
+        dir = if cur_field == field, do: flip_dir(cur_dir), else: :asc
+        {:noreply, socket |> assign(sort: {field, dir}) |> patch_library()}
+    end
   end
 
   def handle_event("sort", _params, socket), do: {:noreply, socket}
@@ -113,7 +125,7 @@ defmodule BeatgridWeb.LibraryLive do
         current -> put_filter(current, key, value)
       end
 
-    {:noreply, socket |> assign(filters: filters) |> load_tracks()}
+    {:noreply, socket |> assign(filters: filters) |> patch_library()}
   end
 
   def handle_event("remove_filter", %{"filter" => group}, socket) do
@@ -121,7 +133,7 @@ defmodule BeatgridWeb.LibraryLive do
            {key, _, _} -> key == group
          end) do
       {_, keys, _} ->
-        {:noreply, socket |> update(:filters, &Map.drop(&1, keys)) |> load_tracks()}
+        {:noreply, socket |> update(:filters, &Map.drop(&1, keys)) |> patch_library()}
 
       nil ->
         {:noreply, socket}
@@ -150,16 +162,18 @@ defmodule BeatgridWeb.LibraryLive do
 
   def handle_event("toggle_camelot_compatible", _params, socket) do
     value = if socket.assigns.filters[:camelot_compatible] == true, do: nil, else: true
-    {:noreply, socket |> update_filter(:camelot_compatible, value) |> load_tracks()}
+    {:noreply, socket |> update_filter(:camelot_compatible, value) |> patch_library()}
   end
 
   def handle_event("clear_filters", _params, socket) do
-    {:noreply, socket |> assign(filters: %{}) |> load_tracks()}
+    {:noreply, socket |> assign(filters: %{}) |> patch_library()}
   end
 
   def handle_event("toggle_gold_filter", _params, socket) do
     current = socket.assigns.filters[:gold]
-    {:noreply, socket |> update_filter(:gold, if(current, do: nil, else: true)) |> load_tracks()}
+
+    {:noreply,
+     socket |> update_filter(:gold, if(current, do: nil, else: true)) |> patch_library()}
   end
 
   # --- per-row ⋯ menu ---
@@ -205,7 +219,7 @@ defmodule BeatgridWeb.LibraryLive do
 
     case Tracks.get_with_song(id) do
       nil -> {:noreply, socket}
-      track -> {:noreply, socket |> assign(filters: similar_filters(track)) |> load_tracks()}
+      track -> {:noreply, socket |> assign(filters: similar_filters(track)) |> patch_library()}
     end
   end
 
@@ -219,14 +233,18 @@ defmodule BeatgridWeb.LibraryLive do
   end
 
   def handle_event("toggle_select", %{"id" => id}, socket) do
-    selected =
-      if MapSet.member?(socket.assigns.selected, id) do
-        MapSet.delete(socket.assigns.selected, id)
-      else
-        MapSet.put(socket.assigns.selected, id)
-      end
+    if socket.assigns.selecting? and Enum.any?(socket.assigns.tracks, &(&1.id == id)) do
+      selected =
+        if MapSet.member?(socket.assigns.selected, id) do
+          MapSet.delete(socket.assigns.selected, id)
+        else
+          MapSet.put(socket.assigns.selected, id)
+        end
 
-    {:noreply, assign(socket, selected: selected)}
+      {:noreply, assign(socket, selected: selected)}
+    else
+      {:noreply, socket}
+    end
   end
 
   # Scroll reached the bottom — append the next DB page (guarded so it no-ops once
@@ -331,7 +349,9 @@ defmodule BeatgridWeb.LibraryLive do
     total = TrackQuery.count_library(filters)
     tracks = TrackQuery.library(Map.merge(filters, %{limit: @per_page, offset: 0}))
 
-    assign(socket,
+    socket
+    |> retain_matching_selection(filters)
+    |> assign(
       tracks: tracks,
       total: total,
       page: 1,
@@ -339,10 +359,57 @@ defmodule BeatgridWeb.LibraryLive do
     )
   end
 
+  # The batch controls label the current result scope. Keep matching selected
+  # ids from every page, not just the rows currently loaded on screen.
+  defp retain_matching_selection(socket, filters) do
+    selected = socket.assigns.selected
+
+    if MapSet.size(selected) == 0 do
+      socket
+    else
+      retained =
+        filters
+        |> Map.put(:ids, MapSet.to_list(selected))
+        |> TrackQuery.library_ids()
+        |> MapSet.new()
+
+      dropped = MapSet.size(selected) - MapSet.size(retained)
+      socket |> assign(selected: retained) |> selection_notice(dropped)
+    end
+  end
+
+  defp selection_notice(socket, 0), do: socket
+
+  defp selection_notice(socket, 1),
+    do: put_flash(socket, :info, "1 faixa saiu da seleção por não estar mais nos resultados.")
+
+  defp selection_notice(socket, n),
+    do:
+      put_flash(
+        socket,
+        :info,
+        "#{n} faixas saíram da seleção por não estarem mais nos resultados."
+      )
+
+  defp total_label(1), do: "1 faixa"
+  defp total_label(n), do: "#{n} faixas"
+
+  # Replacing the list location keeps the current result shareable and restores
+  # it after opening a track without putting every keystroke in browser history.
+  defp patch_library(socket) do
+    filters = LibraryNavigation.filters(socket.assigns.filters)
+    to = LibraryNavigation.path(filters, socket.assigns.sort)
+    socket = assign(socket, filters: filters, row_menu: nil, folder_menu: nil)
+
+    if to == socket.assigns.library_path,
+      do: socket,
+      else: push_patch(socket, to: to, replace: true)
+  end
+
   defp base_filters(socket), do: Map.put(socket.assigns.filters, :sort, socket.assigns.sort)
 
   defp change_key_filter(socket, code),
-    do: {:noreply, socket |> update_filter(:camelot, code) |> load_tracks()}
+    do: {:noreply, socket |> update_filter(:camelot, code) |> patch_library()}
 
   defp update_filter(socket, key, val),
     do: assign(socket, filters: put_filter(socket.assigns.filters, key, val))
@@ -445,7 +512,9 @@ defmodule BeatgridWeb.LibraryLive do
         <header class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-3 border-b border-white/6 bg-rail px-3 py-3 lg:flex lg:flex-wrap lg:px-5">
           <div class="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
             <h1 class="text-[22px] font-semibold">Biblioteca</h1>
-            <span role="status" class="font-mono text-body-sm text-ink-muted tabular-nums">{@total} faixas</span>
+            <span role="status" class="font-mono text-body-sm text-ink-muted tabular-nums">
+              {total_label(@total)}
+            </span>
           </div>
           <.link
             navigate={~p"/importados?origem=local"}
@@ -466,10 +535,11 @@ defmodule BeatgridWeb.LibraryLive do
             />
             <input
               type="search"
+              id="library-search-input"
               name="search"
               phx-debounce="250"
               value={@filters[:search] || ""}
-              aria-label="Buscar artista ou título"
+              aria-label="Buscar artista, título ou ID da faixa"
               placeholder="Buscar artista ou título…"
               class="w-full rounded-md border border-white/10 bg-input py-2 pl-9 pr-3 text-body placeholder:text-ink-faint"
             />
@@ -574,6 +644,8 @@ defmodule BeatgridWeb.LibraryLive do
               folder_menu={@folder_menu}
               folders={@folders}
               playing_id={@playing_track_id}
+              library_path={@library_path}
+              show_paths?={is_binary(@filters[:search])}
             />
             <button
               :if={@has_more?}
@@ -906,6 +978,8 @@ defmodule BeatgridWeb.LibraryLive do
   end
 
   attr :tracks, :list, required: true
+  attr :library_path, :string, required: true
+  attr :show_paths?, :boolean, default: false
   attr :sort, :any, required: true
   attr :selecting?, :boolean, required: true
   attr :selected, :any, required: true
@@ -945,6 +1019,7 @@ defmodule BeatgridWeb.LibraryLive do
       </div>
       <div
         :for={track <- @tracks}
+        id={"library-track-#{track.id}"}
         class={[
           "lib-grid grid items-center gap-2 rounded-lg px-1.5 py-1.5",
           @selecting? && "is-selecting",
@@ -985,7 +1060,7 @@ defmodule BeatgridWeb.LibraryLive do
         <div class="min-w-0">
           <div class="flex min-w-0 items-center gap-1.5">
             <.link
-              navigate={~p"/track/#{track.id}"}
+              navigate={track_path(track.id, @library_path)}
               class="line-clamp-2 min-w-0 break-words text-body font-medium leading-tight text-ink hover:text-primary hover:underline lg:truncate"
               title={track.tag_title || track.filename}
             >
@@ -1024,7 +1099,18 @@ defmodule BeatgridWeb.LibraryLive do
         <div class="hidden text-right lg:block">
           <.confidence_chip level={track.sc_match_confidence} />
         </div>
-        <.row_menu track={track} open?={@row_menu == track.id} folders={@folders} />
+        <.row_menu
+          track={track}
+          open?={@row_menu == track.id}
+          folders={@folders}
+          library_path={@library_path}
+        />
+        <p
+          :if={@show_paths?}
+          class="col-span-full min-w-0 break-words px-1 font-mono text-body-sm leading-relaxed text-ink-secondary [overflow-wrap:anywhere]"
+        >
+          {track.rel_path}
+        </p>
       </div>
     </div>
     """
@@ -1099,11 +1185,15 @@ defmodule BeatgridWeb.LibraryLive do
     """
   end
 
+  defp track_path(id, "/"), do: ~p"/track/#{id}"
+  defp track_path(id, library), do: ~p"/track/#{id}?#{%{library: library}}"
+
   # The per-row ⋯ popover: move-to-folder, "Parecidas", and open. A full-screen
   # backdrop (rendered only when open) closes it on an outside click.
   attr :track, :map, required: true
   attr :open?, :boolean, required: true
   attr :folders, :list, required: true
+  attr :library_path, :string, required: true
 
   defp row_menu(assigns) do
     ~H"""
@@ -1134,38 +1224,40 @@ defmodule BeatgridWeb.LibraryLive do
         >
         </div>
         <div class="absolute right-0 top-8 z-40 w-52 overflow-hidden rounded-lg border border-white/10 bg-surface py-1 shadow-xl shadow-black/40">
-          <p class="px-3 pt-1.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
-            Mover para
-          </p>
-          <button
-            :for={folder <- @folders}
-            :if={folder.key != @track.genre_folder}
-            type="button"
-            phx-click="move_track"
-            phx-value-track_id={@track.id}
-            phx-value-to={folder.key}
-            class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-body-sm text-ink-secondary hover:bg-white/6 hover:text-ink"
-          >
-            <span
-              class="size-2 shrink-0 rounded-full"
-              style={"background:#{folder_color(folder.key)}"}
-            />
-            {folder.display_name}
-          </button>
-          <div class="my-1 border-t border-white/8"></div>
+          <div class="lg:hidden">
+            <p class="px-3 pt-1.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+              Mover para
+            </p>
+            <button
+              :for={folder <- @folders}
+              :if={folder.key != @track.genre_folder}
+              type="button"
+              phx-click="move_track"
+              phx-value-track_id={@track.id}
+              phx-value-to={folder.key}
+              class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-body-sm text-ink-secondary hover:bg-white/6 hover:text-ink"
+            >
+              <span
+                class="size-2 shrink-0 rounded-full"
+                style={"background:#{folder_color(folder.key)}"}
+              />
+              {folder.display_name}
+            </button>
+            <div class="my-1 border-t border-white/8"></div>
+          </div>
           <button
             type="button"
             phx-click="similar_to"
             phx-value-track_id={@track.id}
             class="flex w-full items-center px-3 py-1.5 text-left text-body-sm text-ink-secondary hover:bg-white/6 hover:text-ink"
           >
-            Parecidas
+            Buscar faixas parecidas
           </button>
           <.link
-            navigate={~p"/track/#{@track.id}"}
+            navigate={track_path(@track.id, @library_path)}
             class="flex w-full items-center px-3 py-1.5 text-body-sm text-ink-secondary hover:bg-white/6 hover:text-ink"
           >
-            Abrir
+            Abrir ficha
           </.link>
         </div>
       <% end %>
