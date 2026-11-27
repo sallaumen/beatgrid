@@ -705,6 +705,13 @@ defmodule BeatgridWeb.RecSetLiveTest do
              view,
              "#search-results button[phx-click=append][phx-value-track='#{other.id}']"
            )
+
+    view |> form("#track-search", %{q: "no such track"}) |> render_change()
+    assert has_element?(view, "#set-search-empty[role=status]", "Nenhuma faixa encontrada.")
+    refute has_element?(view, "#search-results")
+
+    view |> form("#track-search", %{q: ""}) |> render_change()
+    refute has_element?(view, "#set-search-empty")
   end
 
   @tag :tmp_dir

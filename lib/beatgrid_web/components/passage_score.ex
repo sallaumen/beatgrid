@@ -9,7 +9,7 @@ defmodule BeatgridWeb.PassageScore do
   @doc "Renders the measurement panel and its persistent announcement target."
   def result(assigns) do
     ~H"""
-    <div id={@id} phx-update="ignore">
+    <div id={@id} phx-update="ignore" class="@container">
       <section
         hidden
         data-score-panel
@@ -26,21 +26,21 @@ defmodule BeatgridWeb.PassageScore do
         <p :if={@compare} data-score-pair hidden class="mt-1 break-words text-body text-ink-secondary">
         </p>
         <p data-score-summary class="mt-1 text-body text-ink-secondary"></p>
-        <dl data-score-metrics hidden class="mt-3 grid gap-x-3 gap-y-2 sm:grid-cols-3"></dl>
+        <dl data-score-metrics hidden class="mt-3 grid gap-x-3 gap-y-2 @md:grid-cols-3"></dl>
         <details :if={@compare} data-score-reference hidden class="mt-2">
           <summary
             data-score-reference-label
             class="cursor-pointer py-1.5 text-body font-semibold text-ink-secondary"
           >
           </summary>
-          <dl data-score-reference-metrics class="mt-1 grid gap-x-3 gap-y-2 sm:grid-cols-3"></dl>
+          <dl data-score-reference-metrics class="mt-1 grid gap-x-3 gap-y-2 @md:grid-cols-3"></dl>
         </details>
       </section>
       <p data-score-announce aria-live="polite" aria-atomic="true" class="sr-only"></p>
       <template data-score-template>
-        <div class="grid min-w-0 grid-cols-2 items-baseline gap-x-2 border-t border-white/8 pt-1.5 sm:block">
+        <div class="grid min-w-0 items-baseline gap-x-2 border-t border-white/8 pt-1.5 @2xs:grid-cols-2 @md:block">
           <dt data-reading-label class="text-body-sm font-medium text-ink-muted"></dt>
-          <dd class="flex min-w-0 flex-wrap items-baseline justify-end gap-x-2 sm:justify-start">
+          <dd class="flex min-w-0 flex-wrap items-baseline gap-x-2 @2xs:justify-end @md:justify-start">
             <span data-reading-value class="font-mono text-body tabular-nums"></span>
             <span
               data-reading-state

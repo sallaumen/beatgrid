@@ -996,7 +996,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             <button
               type="button"
               data-cue-check
-              class="min-h-9 text-body font-semibold text-primary-soft hover:underline disabled:text-ink-muted"
+              class="min-h-9 text-body font-semibold text-primary-soft hover:underline disabled:text-ink-muted aria-disabled:text-ink-muted"
             >Verificar encaixe</button>
             <button
               type="button"
@@ -1011,7 +1011,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               class="min-h-9 text-body font-semibold text-primary-soft hover:underline"
             >Restaurar CUE</button>
           </div>
-          <p data-cue-note aria-live="polite" class="text-body text-ink-muted"></p>
+          <p data-cue-note aria-live="polite" tabindex="-1" class="text-body text-ink-muted"></p>
         </section>
         <details class="mt-3 border-y border-white/10 py-2">
           <summary class="cursor-pointer text-body font-semibold text-ink">Ajustar no fone</summary>
@@ -2632,6 +2632,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               if (pad) {
                 pad.disabled = true
                 delete pad.dataset.ms
+                pad.title = `Hot cue ${n}`
                 pad.style.borderColor = ""
                 pad.style.color = ""
               }
@@ -2765,9 +2766,11 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 pad.style.borderColor = "#ffb02055"
                 pad.style.color = "#ffb020"
                 lab.textContent = m.label || fmt(m.ms)
+                pad.title = `Hot cue ${n} · ${lab.textContent}`
               } else {
                 pad.disabled = true
                 delete pad.dataset.ms
+                pad.title = `Hot cue ${n}`
                 pad.style.borderColor = ""
                 pad.style.color = ""
                 lab.textContent = "—"
@@ -3974,10 +3977,10 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 type="button"
                 disabled
                 title={"Hot cue #{n}"}
-                class="flex h-7 items-center justify-center rounded-md border border-white/8 bg-[#101218] text-[9px] font-semibold text-ink-faint transition-colors disabled:opacity-40"
+                class="flex h-7 min-w-0 items-center justify-center rounded-md border border-white/8 bg-[#101218] px-1 text-[9px] font-semibold text-ink-faint transition-colors disabled:opacity-40"
               >
                 <span class="sr-only">Hot cue {n} do deck {String.upcase(@d)} · </span>
-                <span id={"dj-padlab-#{@d}-#{n}"}>—</span>
+                <span id={"dj-padlab-#{@d}-#{n}"} class="min-w-0 truncate">—</span>
               </button>
             </div>
 

@@ -4,8 +4,17 @@ import {mountCueAssist} from "../../assets/js/dj/cue_assist.js"
 
 function booth() {
   const nodes = new Map()
-  const section = {querySelector(selector) {
-    if (!nodes.has(selector)) nodes.set(selector, {hidden: false, disabled: false, textContent: "", focus() {}})
+  const document = {activeElement: null}
+  const section = {ownerDocument: document, querySelector(selector) {
+    if (!nodes.has(selector)) {
+      const node = {hidden: false, textContent: "", focus() { if (!this.disabled) document.activeElement = this }}
+      let disabled = false
+      Object.defineProperty(node, "disabled", {get: () => disabled, set(value) {
+        disabled = value
+        if (disabled && document.activeElement === node) document.activeElement = null
+      }})
+      nodes.set(selector, node)
+    }
     return nodes.get(selector)
   }}
   const get = name => section.querySelector("[data-cue-" + name + "]")
@@ -17,10 +26,33 @@ function booth() {
   function refresh(options = {}) {assist.update({plan: draft, pair, kind: "blend", outBpm: 120, intoBpm: 120,
     deckCue: 10, phones: true, ...options})}
   refresh()
-  return {saved, replies, hearings, get, refresh, assist, cancelled: () => cancelling}
+  return {saved, replies, hearings, get, refresh, assist, cancelled: () => cancelling,
+    active: () => document.activeElement}
 }
 
 const candidate = {entry: 10.125, recordDelta: .125, wallDelta: .125}
+
+test("keyboard focus survives analysis and moves to the available response", () => {
+  const b = booth()
+  const check = b.get("check")
+  check.focus()
+  check.onclick()
+  assert.equal(check.disabled, false)
+  assert.equal(check.ariaDisabled, "true")
+  assert.equal(b.active(), check)
+  check.onclick()
+  assert.equal(b.replies.length, 1)
+  b.replies[0](candidate)
+  assert.equal(b.active(), b.get("try"))
+
+  const withoutPhones = booth()
+  withoutPhones.refresh({phones: false})
+  const unavailableCheck = withoutPhones.get("check")
+  unavailableCheck.focus()
+  unavailableCheck.onclick()
+  withoutPhones.replies[0](candidate)
+  assert.equal(withoutPhones.active(), withoutPhones.get("note"))
+})
 test("analysis, trying and restoring use a private draft while the saved entry remains untouched", () => {
   const b = booth()
   b.get("check").onclick()

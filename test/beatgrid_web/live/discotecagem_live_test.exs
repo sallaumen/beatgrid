@@ -67,6 +67,9 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
       side = String.upcase(deck)
 
       for slot <- 1..4 do
+        assert has_element?(view, ~s(#dj-pad-#{deck}-#{slot}.h-7.px-1[title="Hot cue #{slot}"]))
+        assert has_element?(view, "#dj-padlab-#{deck}-#{slot}.min-w-0.truncate")
+
         assert has_element?(
                  view,
                  "#dj-pad-#{deck}-#{slot}[disabled] .sr-only",
@@ -83,6 +86,21 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
                )
       end
     end
+  end
+
+  test "passage score panels adapt to their own width instead of the viewport", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/discotecagem")
+
+    for id <- ["dj-room-score", "dj-rehearsal-score"] do
+      assert has_element?(view, ~s(##{id}[class~="@container"]))
+      assert has_element?(view, ~s(##{id} [data-score-metrics][class~="@md:grid-cols-3"]))
+      refute has_element?(view, ~s(##{id} [data-score-metrics][class~="sm:grid-cols-3"]))
+    end
+
+    assert has_element?(
+             view,
+             ~s(#dj-room-score [data-score-reference-metrics][class~="@md:grid-cols-3"])
+           )
   end
 
   test "rehearsing opens a private comparison without binding a live transition", %{conn: conn} do

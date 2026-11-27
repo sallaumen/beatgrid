@@ -15,7 +15,8 @@ export function mountCueAssist(section, {audition, refresh, analyze = startCueAn
     const applied = plan?.originalEntry != null
     section.hidden = !plan
     check.hidden = applied || !!candidate
-    check.disabled = !plan || state === "working" || !context.outBpm || !context.intoBpm
+    check.disabled = !plan || !context.outBpm || !context.intoBpm
+    check.ariaDisabled = String(state === "working")
     trial.hidden = !candidate || applied
     trial.disabled = !context?.phones
     restore.hidden = !applied
@@ -64,17 +65,18 @@ export function mountCueAssist(section, {audition, refresh, analyze = startCueAn
 
   check.onclick = () => {
     refresh?.()
-    if (check.disabled || check.hidden) return
+    if (check.disabled || check.hidden || state === "working") return
     const ticket = ++revision
     state = "working"
     paint()
     cancel = analyze(inputs, (result, failed) => {
       if (ticket !== revision) return
+      const focused = section.ownerDocument?.activeElement === check
       cancel = null
       state = failed ? "failed" : "measured"
       candidate = result
       paint()
-      if (candidate && section.ownerDocument?.activeElement === check) trial.focus()
+      if (candidate && focused) (trial.disabled ? note : trial).focus()
     })
   }
   trial.onclick = () => {
