@@ -105,6 +105,7 @@ defmodule BeatgridWeb.ReviewLiveTest do
 
     html = view |> element(select_btn(r.id)) |> render_click()
     assert html =~ "Aplicar 1 no disco"
+    assert has_element?(view, "#review-selection", "1 selecionada nesta fila")
     # the key fix: selecting is ephemeral — it must NOT mutate the row (no reorder/reload)
     assert NameSync.get(r.id).status == :pending
 

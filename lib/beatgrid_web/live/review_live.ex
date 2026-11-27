@@ -415,7 +415,7 @@ defmodule BeatgridWeb.ReviewLive do
                 Seleção nas filas de sugestões: <b class="font-mono">{MapSet.size(@selected)}</b>
               <% else %>
                 <b class="font-mono">{@selected_here}</b>
-                selecionadas nesta fila
+                {if @selected_here == 1, do: "selecionada", else: "selecionadas"} nesta fila
                 <span :if={@selected_elsewhere > 0} class="text-amber">
                   · <b class="font-mono">{@selected_elsewhere}</b>
                   em {if @selected_elsewhere == 1, do: "outra fila", else: "outras filas"}
