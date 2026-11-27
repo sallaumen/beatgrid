@@ -672,11 +672,45 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     return kind !== "blend" || !plan?.blendCurve || canMeasureBlend(from, to, plan.mix)
   }
 
+  let preparedPassage = null
+
+  function releasePrepared(choice) {
+    if (preparedPassage?.choice !== choice) return
+    preparedPassage.discard()
+    preparedPassage = null
+  }
+
+  function preparePair(choice, from, to, head, mix) {
+    const {plan} = choice
+    const entry = from.entry, rate = from.playbackRate, vinyl = from.vinylMode
+    const incoming = to.preparePassageAudio(plan.incoming, plan.inStart, mix.into)
+    let outgoing
+    try {
+      const splice = recallSplice(choice.splices, plan.outgoing, head, mix.out.rate)
+      if (splice || rate !== mix.out.rate || vinyl !== mix.out.vinyl) {
+        outgoing = from.preparePassageAudio(plan.outgoing, head, mix.out, true, splice)
+      }
+    } catch (error) {
+      incoming.discard()
+      throw error
+    }
+    return {choice, incoming, outgoing,
+      matches: () => from.entry === entry && from.playbackRate === rate && from.vinylMode === vinyl,
+      discard() { incoming.discard(); outgoing?.discard() }}
+  }
+
   const passage = createPassage(decks, (from, to, plan, kind) =>
     from.audible() && !deckHeld(from.id) && !from.loop.on && !state.breatherGap &&
     to.trackId != null && !deckBusy(to.id) && !to.el.error && to.ready() &&
     canRecallPassage(from, to, plan, kind), startPassage, {
       confirmed(choice) {
+        const {plan, pair} = choice
+        const from = decks[pair.from]
+        if (plan.mix && from.positionMs() < choice.exitMs) {
+          try {
+            preparedPassage = preparePair(choice, from, decks[pair.to], plan.exit ?? choice.exitMs / 1000, plan.mix)
+          } catch { /* A failed speculative allocation gets one ordinary attempt at the cue. */ }
+        }
         if (!callbacks.roomScore) return
         cancelRoomReading()
         roomReading = observeRoomPassage(ctx, masterAnalyser, choice, decks[choice.pair.from], data => {
@@ -685,6 +719,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         })
       },
       abandoned(choice) {
+        releasePrepared(choice)
         if (roomReading?.choice === choice) cancelRoomReading()
       }
     })
@@ -726,26 +761,28 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       const owned = to.playToken === playToken && !deckHeld(from.id) && !deckHeld(to.id) &&
         canRecallPassage(from, to, plan, kind)
       if (!owned || passage.current() !== choice || choice.phase !== "starting") return complete(false)
-      let incoming, outgoing, now, atMs, token
+      let prepared, now, atMs, token
       let landed = false
       try {
-        incoming = to.preparePassageAudio(plan.incoming, plan.inStart, mix.into)
-        const head = from.platterTime()
-        const splice = recallSplice(choice.splices, plan.outgoing, head, mix.out.rate)
-        if (splice || from.playbackRate !== mix.out.rate || from.vinylMode !== mix.out.vinyl) {
-          outgoing = from.preparePassageAudio(plan.outgoing, head, mix.out, true, splice)
+        if (preparedPassage?.choice === choice && preparedPassage.matches()) {
+          prepared = preparedPassage
+          preparedPassage = null
+        } else {
+          releasePrepared(choice)
+          prepared = preparePair(choice, from, to, from.platterTime(), mix)
         }
         landed = complete(true, () => {
           token = interruptTransition({startingPassage: true})
           settleTransitionParams(to)
-          now = ctx.currentTime
-          const liveHead = from.platterTime()
+          const head = from.platterTime()
+          const liveHead = Math.max(head, plan.exit ?? choice.exitMs / 1000)
+          now = ctx.currentTime + (liveHead - head) / from.playbackRate
           atMs = Math.round(liveHead * 1000)
-          incoming.launch(now, plan.inStart)
-          outgoing?.launch(now, liveHead)
+          prepared.incoming.launch(now, plan.inStart)
+          prepared.outgoing?.launch(now, liveHead)
         })
       } catch { complete(false) } finally {
-        if (!landed) { incoming?.discard(); outgoing?.discard() }
+        if (!landed) prepared?.discard()
       }
       if (!landed) return
       state.lastFireAt = performance.now()
