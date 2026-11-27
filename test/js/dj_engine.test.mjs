@@ -1023,3 +1023,8 @@ for (const method of ["LOAD", "set preload"]) {
     assert.equal(b.paused, false)
   })
 }
+
+test("a browser without output selection cannot confirm a switch to the controller", async t => {
+  const {engine} = booth(t)
+  await assert.rejects(engine.setOutputDevice("numark"))
+})
