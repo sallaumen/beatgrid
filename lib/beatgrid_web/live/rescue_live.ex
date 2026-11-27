@@ -359,7 +359,7 @@ defmodule BeatgridWeb.RescueLive do
               <select
                 id="quarantine-availability"
                 name="availability"
-                class="w-full rounded-md border border-white/10 bg-input px-3 py-2 text-body"
+                class="h-9 w-full rounded-md border border-white/10 bg-input px-3 text-body"
               >
                 <option
                   :for={

@@ -375,7 +375,7 @@ defmodule BeatgridWeb.ReviewLive do
                   <select
                     name="folder"
                     aria-label="Reavaliar com IA por pasta"
-                    class="max-w-full rounded-md border border-white/8 bg-input px-2 py-1.5 text-body"
+                    class="h-8 max-w-full rounded-md border border-white/8 bg-input px-2 py-1.5 text-body"
                   >
                     <option value="">Por pasta…</option>
                     <option :for={f <- @folders} value={f.key}>{f.display_name}</option>

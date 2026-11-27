@@ -4513,7 +4513,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
         </label>
         <select
           id="dj-out-device"
-          class="mt-0.5 hidden w-full rounded-md border border-white/10 bg-input px-2 py-1 text-[10px] text-ink"
+          class="mt-0.5 hidden h-8 w-full rounded-md border border-white/10 bg-input px-2 text-[10px] text-ink"
         ></select>
         <label
           id="dj-cue-device-label"
@@ -4524,7 +4524,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
         </label>
         <select
           id="dj-cue-device"
-          class="mt-0.5 hidden w-full rounded-md border border-white/10 bg-input px-2 py-1 text-[10px] text-ink"
+          class="mt-0.5 hidden h-8 w-full rounded-md border border-white/10 bg-input px-2 text-[10px] text-ink"
         ></select>
         <audio id="dj-cue-audio" class="hidden"></audio>
       </div>

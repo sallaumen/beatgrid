@@ -538,6 +538,7 @@ defmodule BeatgridWeb.RecSetLiveTest do
     {:ok, view, _html} = live(conn, ~p"/set")
     new_set(view)
     open_panel(view, "plan")
+    assert has_element?(view, "#plan-set-form select[name='style_tier[forro_roots]'].h-8")
 
     view
     |> form("#plan-set-form")

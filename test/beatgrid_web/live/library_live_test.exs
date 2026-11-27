@@ -16,6 +16,14 @@ defmodule BeatgridWeb.LibraryLiveTest do
     :ok
   end
 
+  test "native library selectors reserve the same control height on all browsers", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    assert has_element?(view, "#library-sort-field.h-8")
+    view |> element("#library-wheel-toggle") |> render_click()
+    assert has_element?(view, "#library-wheel-code.h-8")
+  end
+
   test "lists present tracks and filters by genre", %{conn: conn} do
     insert(:track,
       status: :present,

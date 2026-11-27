@@ -764,7 +764,7 @@ defmodule BeatgridWeb.LibraryLive do
       <select
         id="library-sort-field"
         name="by"
-        class="rounded-md border border-white/8 bg-input px-2 py-1 text-body-sm"
+        class="h-8 rounded-md border border-white/8 bg-input px-2 py-1 text-body-sm"
       >
         <option
           :for={
@@ -1479,7 +1479,7 @@ defmodule BeatgridWeb.LibraryLive do
         id="library-wheel-code"
         name="code"
         aria-label="Tom Camelot"
-        class="w-full rounded-md border border-white/8 bg-input px-2 py-1.5 font-mono text-body text-ink"
+        class="h-8 w-full rounded-md border border-white/8 bg-input px-2 py-1.5 font-mono text-body text-ink"
       >
         <option value="" selected={is_nil(@selected)}>Qualquer tom</option>
         <option :for={w <- @wedges} value={w.code} selected={w.code == @selected}>{w.code}</option>

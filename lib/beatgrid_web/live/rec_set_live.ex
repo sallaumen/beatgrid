@@ -1620,7 +1620,7 @@ defmodule BeatgridWeb.RecSetLive do
             <span class="min-w-0 [overflow-wrap:anywhere]">{f.display_name}</span>
             <select
               name={"style_tier[#{f.key}]"}
-              class="rounded-md border border-white/8 bg-input px-1 py-0.5 text-[11px] focus:border-primary/50 focus:outline-none"
+              class="h-8 rounded-md border border-white/8 bg-input px-2 text-[11px] focus:border-primary/50 focus:outline-none"
             >
               <option value="">—</option>
               <option value="primary" selected={f.key in @prefill.allow_styles}>Principal</option>
