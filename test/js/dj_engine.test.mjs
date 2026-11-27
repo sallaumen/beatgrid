@@ -961,3 +961,24 @@ test("an early bass swap rescue leaves the incoming deck ready to play with flat
   assert.equal(b.paused, false)
   assert.equal(engine.decks.b.bass.gain.value, 0)
 })
+
+for (const type of ["crossfade", "fade", "filter", "lowpass", "echo", "bass_swap", "brake"]) {
+  test(`holding CUE on the same outgoing record survives ${type} cleanup`, t => {
+    const {engine, a, b, hint, tick} = booth(t)
+    hint(null)
+    assert.equal(engine.fireManual(type).ok, true)
+    engine.cueButton("a", true)
+    engine.cueButton("a", false)
+    engine.cueButton("a", true)
+    assert.equal(a.paused, false)
+    engine.setRate("a", 1.06)
+    tick(12_000)
+    tick(1000)
+    assert.equal(a.paused, false)
+    assert.equal(a.playbackRate, 1.06)
+    assert.equal(b.paused, false)
+    engine.cueButton("a", false)
+    assert.equal(a.paused, true)
+    assert.equal(engine.sessionDeck(), "b")
+  })
+}

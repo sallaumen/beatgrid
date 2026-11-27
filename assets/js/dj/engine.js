@@ -733,6 +733,19 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     return token === state.transitionToken && outgoing?.deck === deck.id && outgoing.load === deck.loadToken
   }
 
+  function finishOutgoing(deck, token) {
+    if (!ownsOutgoing(deck, token)) return
+    if (deck.cueState === "preview") {
+      // The old effect can end, but CUE now owns playback and pitch.
+      deck.stopBrake?.()
+      settleTransitionParams(deck)
+      neutralizeIncoming(deck, "cut")
+    } else {
+      deck.pause()
+      resetChain(deck)
+    }
+  }
+
   function handoff(from, to, event) {
     state.activeDeck = to.id
     state.hint = null
@@ -840,11 +853,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     startIncoming(to, toMs)
     setXfadeTo(sideOf(to.id), outS)
 
-    after(outS + 0.1, () => {
-      if (!ownsOutgoing(from, token)) return
-      from.pause()
-      resetChain(from)
-    })
+    after(outS + 0.1, () => finishOutgoing(from, token))
   }
 
   function crossfade(from, to, toMs, token) {
@@ -856,8 +865,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     setXfadeTo(sideOf(to.id), xfS)
 
     after(xfS + 0.2, () => {
-      if (!ownsOutgoing(from, token)) return
-      from.pause()
+      if (ownsOutgoing(from, token) && from.cueState !== "preview") from.pause()
     })
   }
 
@@ -914,11 +922,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       const end = ctx.currentTime
       from.settleGain(from.echoSend)
       from.echoSend.gain.linearRampToValueAtTime(0, end + dur(0.6))
-      after(dur(0.7), () => {
-        if (!ownsOutgoing(from, token)) return
-        from.pause()
-        resetChain(from)
-      })
+      after(dur(0.7), () => finishOutgoing(from, token))
     })
 
     const turnOff = () => {
@@ -945,11 +949,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     startIncoming(to, toMs)
     setXfadeTo(sideOf(to.id), s * 0.8)
 
-    after(s + 0.2, () => {
-      if (!ownsOutgoing(from, token)) return
-      from.pause()
-      resetChain(from)
-    })
+    after(s + 0.2, () => finishOutgoing(from, token))
   }
 
   // "Afunda": the mirror of the filter sweep — the outgoing track loses its
@@ -966,11 +966,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     startIncoming(to, toMs)
     setXfadeTo(sideOf(to.id), s * 0.8)
 
-    after(s + 0.2, () => {
-      if (!ownsOutgoing(from, token)) return
-      from.pause()
-      resetChain(from)
-    })
+    after(s + 0.2, () => finishOutgoing(from, token))
   }
 
   // Bass swap: the incoming track rides bodiless over the outgoing groove, then
@@ -1001,10 +997,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     })
     after(overlapS + dur(2.4), () => {
       if (token !== state.transitionToken) return
-      if (ownsOutgoing(from, token)) {
-        from.pause()
-        resetChain(from)
-      }
+      finishOutgoing(from, token)
       // The incoming deck keeps playing — only make sure its shelf sits flat.
       // (No resetChain: that would snap the SYNCed tempo back audibly.)
       to.settleParam(to.bass.gain)
@@ -1039,11 +1032,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       startIncoming(to, toMs)
       setXfadeTo(sideOf(to.id), 0.3)
     })
-    after(brakeS + 0.05, () => {
-      if (!ownsOutgoing(from, token)) return
-      from.pause()
-      resetChain(from)
-    })
+    after(brakeS + 0.05, () => finishOutgoing(from, token))
   }
 
   // Scratch DROP transitions: scratch the OUTGOING track (real worklet audio)
