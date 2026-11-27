@@ -2,12 +2,18 @@ import {createRecordRenderer} from "./record_source.js"
 
 // The audible recording owns both the clock and the samples. A new bend can
 // replace queued blocks, never the block coming out of the speakers.
-export function startLiveRecord(ctx, input, buffer, offset, mix, onEnd, onFailure) {
+export function startLiveRecord(ctx, input, buffer, offset, mix, onEnd, onFailure, fadeIn = 0, start = ctx.currentTime) {
   const output = ctx.createGain()
   output.connect(input)
   const sr = buffer.sampleRate
-  const start = ctx.currentTime
+  if (fadeIn) {
+    // A fractional buffer offset can start one sample before the timed ramp.
+    output.gain.value = 0
+    output.gain.setValueAtTime(0, start)
+    output.gain.linearRampToValueAtTime(1, start + fadeIn)
+  }
   const blocks = []
+  let silenceTail = null
   let direct = null, renderer = null, closed = false, lastBend = -Infinity
   let next = {when: start, frame: Math.round(offset * sr), rate: mix.rate, previous: null}
 
@@ -113,7 +119,9 @@ export function startLiveRecord(ctx, input, buffer, offset, mix, onEnd, onFailur
     voice.playbackRate.value = mix.rate
     voice.connect(output)
     voice.onended = () => {
+      if (closed || direct?.voice !== voice) return
       const finished = direct.until === Infinity
+      if (finished) { next.frame = buffer.length; next.rate = direct.rate }
       dispose(voice)
       direct = null
       if (finished) onEnd()
@@ -123,12 +131,38 @@ export function startLiveRecord(ctx, input, buffer, offset, mix, onEnd, onFailur
     try { queue() } catch (error) { stop(); throw error }
   }
 
-  function stop() {
-    if (closed) return
+  function stop(fade = 0, finished, when = ctx.currentTime) {
+    if (closed) {
+      if (!fade) silenceTail?.()
+      return
+    }
     closed = true
-    if (direct) dispose(direct.voice, true)
-    for (const block of blocks.splice(0)) dispose(block.voice, true)
-    output.disconnect()
+    const voices = new Set(blocks.splice(0).map(block => block.voice))
+    if (direct) voices.add(direct.voice)
+    function finish() {
+      silenceTail = null
+      output.disconnect()
+      finished?.()
+    }
+    function detach(voice, immediate) {
+      dispose(voice, immediate)
+      voices.delete(voice)
+      if (!voices.size) finish()
+    }
+    if (!voices.size) return finish()
+    const silence = () => { for (const voice of voices) detach(voice, true) }
+    if (!fade) return silence()
+
+    const until = when + fade
+    const level = fadeIn ? Math.max(0, Math.min(1, (when - start) / fadeIn)) : 1
+    output.gain.cancelScheduledValues(when)
+    output.gain.setValueAtTime(level, when)
+    output.gain.linearRampToValueAtTime(0, until)
+    silenceTail = silence
+    for (const voice of voices) {
+      voice.onended = () => detach(voice, false)
+      voice.stop(until)
+    }
   }
   return {position, rate: () => audibleSegment(ctx.currentTime)?.rate ?? next.rate, setRate, stop}
 }

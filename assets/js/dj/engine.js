@@ -282,7 +282,7 @@ class Deck {
       clearInterval(progressTimer)
       this.entry = null
       if (ended) this.recordEnded()
-    }, mix)
+    }, mix, () => this.wantsPlayback && this.loop.on && this.recordEnded())
     // Muted media can stall without a timeupdate while the record reaches its AUTO point.
     progressTimer = setInterval(this.recordProgress, 100)
   }
@@ -294,6 +294,13 @@ class Deck {
   useMedia(sync = true) {
     this.entry?.release(sync)
     this.entry = null
+  }
+
+  seek(seconds, positionAfter) {
+    const recording = this.entry
+    recording?.seek(seconds, positionAfter)
+    this.el.currentTime = seconds
+    if (recording && this.wantsPlayback && this.el.paused) this.el.play().catch(() => {})
   }
 
   pause() {
@@ -722,8 +729,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     deck.recordEnded = () => {
       if (!deck.wantsPlayback) return
       if (deck.loop.on) {
-        if (wrapLoop(deck)) deck.play()
-        return
+        const wrapped = wrapLoop(deck)
+        if (wrapped && !deck.entry && deck.el.paused) deck.play()
+        return wrapped
       }
       if (deck.id !== state.activeDeck || deck.cueState) return
       if (state.breatherGap) return state.breatherGap.beginGap()
@@ -1824,20 +1832,21 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       if (state.pendingEntry === deck.id) state.cancelEntry?.()
       passage.mixChanged()
     }
-    deck.useMedia(false)
     passage.seek(deck, targetMs)
     if (deck.loop.on && (targetMs < deck.loop.startMs || targetMs >= deck.loop.endMs)) clearLoop(deck)
     deck._cued = true
     deck._pendingSeekMs = targetMs
     if (deck._seekQueued) return
     deck._seekQueued = true
-    deck.whenReady(() => {
+    const seek = () => {
       deck._seekQueued = false
       if (deck._pendingSeekMs == null) return
       if (deck.id === state.activeDeck) deck._seekGuard = true
-      deck.el.currentTime = deck.clampPosition(deck._pendingSeekMs / 1000)
+      deck.seek(deck.clampPosition(deck._pendingSeekMs / 1000))
       deck._pendingSeekMs = null
-    })
+    }
+    if (deck.entry) seek()
+    else deck.whenReady(seek)
   }
 
   function platterWillResume(deck) {
@@ -2071,8 +2080,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     if (!on || endMs <= startMs || pos < endMs) return false
     // A late timer may have crossed more than one beat. Carry the overrun
     // into this pass so each repetition stays in phase with the other deck.
-    deck.useMedia(false)
-    deck.el.currentTime = (startMs + (pos - endMs) % (endMs - startMs)) / 1000
+    const positionAfter = seconds => (startMs + (pos - endMs + seconds * 1000) % (endMs - startMs)) / 1000
+    deck.seek(positionAfter(0), positionAfter)
     return true
   }
 

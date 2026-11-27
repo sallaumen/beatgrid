@@ -1681,7 +1681,8 @@ function preparePassage(rig, kind = "blend") {
   const {engine, hint} = rig
   hint({type: "echo", from_ms: 42_000, to_ms: 0})
   const pair = {from: "a", to: "b", fromLoad: engine.decks.a.loadToken, toLoad: engine.decks.b.loadToken}
-  return engine.armPassage(pair, {outgoing: {duration: 60}, incoming: {duration: 60}, outStart: 45, lead: 3, inStart: 2.5, blend: 2}, kind)
+  const audio = {duration: 60, sampleRate: engine.ctx.sampleRate, length: 60 * engine.ctx.sampleRate}
+  return engine.armPassage(pair, {outgoing: audio, incoming: audio, outStart: 45, lead: 3, inStart: 2.5, blend: 2}, kind)
 }
 
 test("arming reserves the pair without touching either transport, even at the AUTO boundary", t => {
@@ -1838,10 +1839,43 @@ test("reopening a confirmed version only withdraws its authorization when the dr
   assert.equal(rig.b.plays, 0)
 })
 
-for (const action of ["pitch", "vinyl", "jog", "loop", "pause", "destroy"]) {
+test("a loop and hot cues on the playing record reach their target before the native decoder delivers it", async t => {
+  const rig = booth(t)
+  const {engine, a, b, tick} = rig
+  preparePassage(rig, "cut")
+  engine.confirmPassage()
+  a.at(48)
+  await Promise.resolve()
+  const deck = engine.decks.b
+  engine.beatLoop("b", 2)
+  for (let lap = 0; lap < 3; lap++) {
+    engine.ctx.currentTime += lap === 0 ? 1 : .8
+    tick(20)
+    assert.ok(Math.abs(deck.positionMs() - 2500) <= 1000 * 256 / engine.ctx.sampleRate)
+    assert.equal(deck.mediaGain.gain.value, 0)
+    engine.ctx.currentTime += .2
+    assert.equal(deck.positionMs(), 2700, "sound is not waiting for the native seek")
+  }
+  engine.cueTo("b", 2750)
+  assert.ok(engine.loopState("b").on)
+  engine.ctx.currentTime += .16
+  assert.ok(deck.positionMs() > 2850 && deck.positionMs() <= 2910)
+  engine.cueTo("b", 6500)
+  assert.equal(engine.loopState("b").on, false)
+  engine.ctx.currentTime += .16
+  const heard = deck.positionMs()
+  assert.ok(heard > 6600 && heard <= 6660)
+  engine.pauseAll()
+  assert.equal(deck.mediaGain.gain.value, 1)
+  assert.equal(b.currentTime, heard / 1000)
+  tick(2000)
+  assert.deepEqual(rig.ends, [])
+})
+
+for (const action of ["pitch", "vinyl", "jog", "pause", "destroy"]) {
   test(action + " takes ownership from the rehearsed record at the audible position", async t => {
     const rig = booth(t)
-    const {engine, a, b, tick} = rig
+    const {engine, a, b} = rig
     preparePassage(rig, "cut")
     engine.confirmPassage()
     a.at(48)
@@ -1854,18 +1888,61 @@ for (const action of ["pitch", "vinyl", "jog", "loop", "pause", "destroy"]) {
     if (action === "pitch") engine.setRate("b", 1.06)
     if (action === "vinyl") engine.setVinylMode("b", true)
     if (action === "jog") engine.jogTouch("b", true)
-    if (action === "loop") {
-      engine.beatLoop("b", 1)
-      engine.ctx.currentTime += 0.52
-      tick(20)
-    }
     if (action === "pause") engine.pauseAll()
     if (action === "destroy") engine.destroy()
     assert.equal(deck.entry, null)
     assert.equal(deck.mediaGain.gain.value, 1)
-    assert.ok(Math.abs(b.currentTime - heard - (action === "loop" ? 0.02 : 0)) < 0.001)
+    assert.ok(Math.abs(b.currentTime - heard) < 0.001)
   })
 }
+
+test("a failed hot-cue voice resumes even when the muted media already reached EOF", async t => {
+  const rig = booth(t)
+  const {engine, a, b} = rig
+  preparePassage(rig, "cut")
+  engine.confirmPassage()
+  a.at(48)
+  await Promise.resolve()
+  b.end()
+  t.mock.method(engine.ctx, "createBufferSource", () => { throw Error("no voice available") })
+  engine.cueTo("b", 7250)
+  assert.equal(engine.decks.b.positionMs(), 7250)
+  assert.equal(engine.decks.b.mediaGain.gain.value, 1)
+  assert.equal(b.paused, false)
+  assert.deepEqual(rig.ends, [])
+})
+
+test("a recorded loop at EOF repeats when the audio finishes before the next timer", async t => {
+  const rig = booth(t)
+  const {engine, a, b, ends} = rig
+  const voices = []
+  const makeSource = engine.ctx.createBufferSource.bind(engine.ctx)
+  t.mock.method(engine.ctx, "createBufferSource", () => {
+    const source = makeSource()
+    voices.push(source)
+    return source
+  })
+  preparePassage(rig, "cut")
+  engine.confirmPassage()
+  a.at(48)
+  await Promise.resolve()
+  const deck = engine.decks.b
+  engine.cueTo("b", 59_000)
+  engine.beatLoop("b", 2)
+  engine.ctx.currentTime += 1
+  b.end()
+  const finished = voices.at(-1).onended
+  finished()
+  assert.equal(deck.positionMs(), 59_000)
+  assert.equal(deck.mediaGain.gain.value, 0)
+  assert.equal(b.paused, false)
+  engine.ctx.currentTime += .15
+  assert.equal(deck.positionMs(), 59_150)
+  finished()
+  assert.deepEqual(ends, [])
+  engine.stopAll()
+  assert.equal(b.paused, true)
+})
 
 test("the rehearsed record owns its natural end, even if the native ended event arrives twice", async t => {
   const rig = booth(t)
@@ -2143,7 +2220,7 @@ test("STOP and a new load cannot inherit a throttled jog or its last native rate
 })
 
 for (const from of ["a", "b"]) {
-  test("nudging a rehearsed record from " + from + " keeps its audible playhead until a real seek or stop", async t => {
+  test("nudging a rehearsed record from " + from + " keeps the audible playhead across a seek and releases it on STOP", async t => {
     const rig = booth(t)
     const {engine} = rig
     const to = from === "a" ? "b" : "a"
@@ -2179,7 +2256,8 @@ for (const from of ["a", "b"]) {
     assert.equal(deck.positionMs(), held)
     assert.equal(rig[to].currentTime, 3)
     engine.cueTo(to, 8200)
-    assert.equal(deck.entry, null)
+    assert.equal(deck.entry, recording)
+    assert.equal(deck.positionMs(), 8200)
     assert.equal(rig[to].currentTime, 8.2)
     engine.stopAll()
     rig.tick(3000)
