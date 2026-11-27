@@ -65,6 +65,22 @@ export function recordTime(plan, side, time) {
 // This transport has no references to live media elements or the master output.
 export function createRehearsal(ctx, phones, pfl) {
   let current = null, cancelMeasurement = null
+  const heardSplices = new WeakMap()
+
+  function saveSplices() {
+    if (!current?.outSource?.splices || ctx.currentTime < current.change) return
+    const saved = current.outSource.splices()
+    if (saved) {
+      const takes = heardSplices.get(current.plan) ?? {}
+      takes[current.kind] = saved
+      heardSplices.set(current.plan, takes)
+    }
+  }
+
+  function splices(plan, kind) {
+    if (current?.plan === plan && current.kind === kind) saveSplices()
+    return heardSplices.get(plan)?.[kind]
+  }
 
   function discardMeasurement() {
     cancelMeasurement?.()
@@ -75,6 +91,7 @@ export function createRehearsal(ctx, phones, pfl) {
     if (!completed) discardMeasurement()
     if (!keepPhones) pfl.gain.value = 1
     if (!current) return
+    saveSplices()
     const {sources, nodes, finish} = current
     current = null
     for (const source of sources) {
@@ -121,13 +138,14 @@ export function createRehearsal(ctx, phones, pfl) {
     monitor.connect(output)
     output.connect(phones)
     const ended = new Promise(finish => {
-      current = {start, plan, channels: {}, sources: [], nodes: [...buses, output], finish}
+      current = {start, change, plan, kind, channels: {}, sources: [], nodes: [...buses, output], finish}
     })
     try {
       const add = (side, buffer, at, end) => {
         if (end <= at) return null
         const mix = plan.mix[side]
-        const source = createRecordSource(ctx, buffer, mix)
+        const remember = side === "out" && kind !== "cut" && skip <= plan.lead
+        const source = createRecordSource(ctx, buffer, mix, remember ? plan.exit : undefined)
         const eq = createEq(ctx), channel = ctx.createGain(), fader = ctx.createGain()
         if (kind === "bass_swap") scheduleRehearsalBass(eq.bass.gain, side, change, fade, at)
         source.connect(eq.hpf)
@@ -151,7 +169,7 @@ export function createRehearsal(ctx, phones, pfl) {
         return source
       }
       pfl.gain.value = 0
-      add("out", plan.outgoing, now, change + fade)
+      const outgoing = add("out", plan.outgoing, now, change + fade)
       const last = add("into", plan.incoming, Math.max(now, change), finish)
       applyMix(current.channels, plan.mix, false)
       // A missing meter must never interrupt the audio already scheduled.
@@ -160,6 +178,7 @@ export function createRehearsal(ctx, phones, pfl) {
         catch { cancelMeasurement = null }
       }
       last.onended = () => { if (current?.sources.includes(last)) stop(true, keepPhones) }
+      current.outSource = outgoing
       return ended
     } catch (error) {
       stop()
@@ -183,5 +202,5 @@ export function createRehearsal(ctx, phones, pfl) {
     }
   }
 
-  return {play, edit, stop, elapsed: () => current ? ctx.currentTime - current.start : null}
+  return {play, edit, stop, splices, elapsed: () => current ? ctx.currentTime - current.start : null}
 }

@@ -87,7 +87,19 @@ export function createRecordRenderer(ctx, buffer, first, end) {
   return {render, hop}
 }
 
-export function createRecordSource(ctx, buffer, {rate, vinyl}) {
+// Only the grains around an accepted cue can be recalled. The sample data stays
+// in its original recording; the tiny list identifies the splice before each grain.
+export function recallSplice(saved, buffer, seconds, rate) {
+  if (!saved || rate !== saved.rate) return null
+  const output = Math.round((seconds * buffer.sampleRate - saved.first) / rate)
+  const grain = Math.floor(output / saved.hop)
+  const previous = saved.prior[grain - saved.begin]
+  if (previous === undefined) return null
+  return {first: saved.first, end: saved.end, previous, skip: output % saved.hop,
+    frame: saved.first + grain * saved.hop * rate}
+}
+
+export function createRecordSource(ctx, buffer, {rate, vinyl}, cue) {
   if (rate === 1 || vinyl) {
     const source = ctx.createBufferSource()
     source.buffer = buffer
@@ -98,13 +110,24 @@ export function createRecordSource(ctx, buffer, {rate, vinyl}) {
   const output = ctx.createGain()
   const sr = buffer.sampleRate
   const voices = new Set()
-  let at, first, length, renderer, written = 0, previous, stopped = false, ended = false
+  let at, first, length, renderer, memory, written = 0, previous, stopped = false, ended = false
+  if (Number.isFinite(cue)) {
+    output.splices = () => memory?.prior.length ? {...memory, prior: memory.prior.slice()} : null
+  }
 
   function queue() {
     if (written >= length || stopped) return
     const frames = Math.min(renderer.hop * 24, length - written)
     const when = at + written / sr
-    const rendered = renderer.render(first + written * rate, rate, previous, frames)
+    const grain = written / renderer.hop
+    const collect = memory && grain <= memory.last && grain + frames / renderer.hop > memory.begin
+    const points = collect ? [] : null
+    const rendered = renderer.render(first + written * rate, rate, previous, frames, points)
+    if (points) {
+      for (let i = Math.max(0, memory.begin - grain); i < points.length && grain + i <= memory.last; i++) {
+        memory.prior[grain + i - memory.begin] = i ? points[i - 1] : previous ?? null
+      }
+    }
     previous = rendered.previous
     written += frames
     const voice = ctx.createBufferSource()
@@ -125,6 +148,11 @@ export function createRecordSource(ctx, buffer, {rate, vinyl}) {
     first = Math.round(offset * sr)
     const end = Math.min(buffer.length, first + Math.round(seconds * sr))
     renderer = createRecordRenderer(ctx, buffer, first, end)
+    if (Number.isFinite(cue)) {
+      const grainAt = seconds => Math.floor((seconds * sr - first) / (rate * renderer.hop))
+      memory = {rate, first, end, hop: renderer.hop, begin: Math.max(0, grainAt(cue - .005)),
+        last: grainAt(cue + .105), prior: []}
+    }
     length = Math.max(1, Math.round((end - first) / rate))
     queue()
     queue()

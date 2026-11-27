@@ -28,6 +28,7 @@
 // Touch main = 1/2, phones = 3/4) or via a routable MediaStream element.
 
 import {applyFilter, applyTone, createEq, neutralMix, setMixParam, syncedRate} from "./deck_mix.js"
+import {recallSplice} from "./record_source.js"
 import {startDecodedEntry} from "./decoded_entry.js"
 import {createPassage} from "./passage.js"
 import {createProgramMeter, observeRoomPassage} from "./passage_meter.js"
@@ -284,7 +285,11 @@ class Deck {
     this.mediaGain.gain.setValueAtTime(0, this.ctx.currentTime)
   }
 
-  playDecoded(buffer, offset, mix) {
+  playDecoded(buffer, offset, mix, splice) {
+    if (splice && this.entry) {
+      this.entry.recall(buffer, offset, mix, splice)
+      return
+    }
     if (this.dropCue !== null) {
       this.dropCue = null
       this._cued = false
@@ -297,7 +302,7 @@ class Deck {
       clearInterval(progressTimer)
       this.entry = null
       if (ended) this.recordEnded()
-    }, mix, () => this.wantsPlayback && this.loop.on && this.recordEnded())
+    }, mix, () => this.wantsPlayback && this.loop.on && this.recordEnded(), splice)
     // Muted media can stall without a timeupdate while the record reaches its AUTO point.
     progressTimer = setInterval(this.recordProgress, 100)
   }
@@ -711,8 +716,10 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         canRecallPassage(from, to, plan, kind)
       if (!complete(owned, () => {
         to.playDecoded(plan.incoming, plan.inStart, mix.into)
-        if (from.playbackRate !== mix.out.rate || from.vinylMode !== mix.out.vinyl) {
-          from.playDecoded(plan.outgoing, from.platterTime(), mix.out)
+        const head = from.platterTime()
+        const splice = recallSplice(choice.splices, plan.outgoing, head, mix.out.rate)
+        if (splice || from.playbackRate !== mix.out.rate || from.vinylMode !== mix.out.vinyl) {
+          from.playDecoded(plan.outgoing, head, mix.out, splice)
         }
       })) return
       const token = interruptTransition()
@@ -2436,7 +2443,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     deckMix,
     canRecallBass: pair => bassReady(decks[pair.from], decks[pair.to]),
     canMeasureBlend: (pair, mix) => canMeasureBlend(decks[pair.from], decks[pair.to], mix),
-    armPassage: passage.arm,
+    armPassage: (pair, plan, kind, reference) => passage.arm(pair, plan, kind, reference, rehearsal.splices(plan, kind)),
     confirmPassage: passage.confirm,
     setRoomOutputAvailable(available) {
       if (roomAvailable === available) return

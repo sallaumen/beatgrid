@@ -2,20 +2,26 @@ import {createRecordRenderer} from "./record_source.js"
 
 // The audible recording owns both the clock and the samples. A new bend can
 // replace queued blocks, never the block coming out of the speakers.
-export function startLiveRecord(ctx, input, buffer, offset, mix, onEnd, onFailure, fadeIn = 0, start = ctx.currentTime) {
+export function startLiveRecord(ctx, input, buffer, offset, mix, onEnd, onFailure, fadeIn = 0, start = ctx.currentTime, saved) {
   const output = ctx.createGain()
   output.connect(input)
   const sr = buffer.sampleRate
+  let fadeAt = start
   if (fadeIn) {
     // A fractional buffer offset can start one sample before the timed ramp.
     output.gain.value = 0
-    output.gain.setValueAtTime(0, start)
-    output.gain.linearRampToValueAtTime(1, start + fadeIn)
   }
   const blocks = []
   let silenceTail = null
   let direct = null, renderer = null, closed = false, lastBend = -Infinity
   let next = {when: start, frame: Math.round(offset * sr), rate: mix.rate, previous: null}
+  let renderEnd = buffer.length, skip = 0
+  if (saved) {
+    skip = saved.skip
+    renderEnd = saved.end
+    renderer = createRecordRenderer(ctx, buffer, saved.first, renderEnd)
+    next = {when: start - skip / sr, frame: saved.frame, rate: mix.rate, previous: saved.previous}
+  }
 
   function dispose(voice, stop = false) {
     voice.onended = null
@@ -39,10 +45,15 @@ export function startLiveRecord(ctx, input, buffer, offset, mix, onEnd, onFailur
     // Keep the full 960 ms runway of the rehearsal when steady. While the
     // wheel moves, precompute 240 ms and replace only its unplayed blocks.
     const grains = ctx.currentTime - lastBend < 0.24 ? 6 : 24
-    const horizon = ctx.currentTime + 2 * grains * renderer.hop / sr
+    const horizon = ctx.currentTime + (2 * grains * renderer.hop - skip) / sr
     while (!closed && next.when < horizon - 1e-8 && next.frame < buffer.length) {
       const {when, frame, rate, previous} = next
-      const frames = Math.max(1, Math.min(grains * renderer.hop, Math.round((buffer.length - frame) / rate)))
+      if (frame >= renderEnd - rate / 2 && renderEnd < buffer.length) {
+        // A rescue may let the deck run beyond the outgoing audio heard privately.
+        renderEnd = buffer.length
+        renderer = createRecordRenderer(ctx, buffer, saved.first, renderEnd)
+      }
+      const frames = Math.max(1, Math.min(grains * renderer.hop, Math.round((renderEnd - frame) / rate)))
       const splices = []
       const rendered = renderer.render(frame, rate, previous, frames, splices)
       const voice = ctx.createBufferSource()
@@ -59,7 +70,9 @@ export function startLiveRecord(ctx, input, buffer, offset, mix, onEnd, onFailur
         try { queue() } catch { onFailure(); return }
         if (!closed && !blocks.length) onEnd()
       }
-      try { voice.start(when) } catch (error) { dispose(voice); throw error }
+      const audibleAt = saved ? Math.max(when + skip / sr, ctx.currentTime) : when
+      try { voice.start(audibleAt, Math.max(0, audibleAt - when)) } catch (error) { dispose(voice); throw error }
+      skip = 0
       blocks.push(block)
     }
   }
@@ -130,6 +143,12 @@ export function startLiveRecord(ctx, input, buffer, offset, mix, onEnd, onFailur
   } else {
     try { queue() } catch (error) { stop(); throw error }
   }
+  if (fadeIn) {
+    // Keep the existing head audible if preparing the new one took a render quantum.
+    fadeAt = Math.max(start, ctx.currentTime)
+    output.gain.setValueAtTime(0, fadeAt)
+    output.gain.linearRampToValueAtTime(1, fadeAt + fadeIn)
+  }
 
   function stop(fade = 0, finished, when = ctx.currentTime) {
     if (closed) {
@@ -154,7 +173,7 @@ export function startLiveRecord(ctx, input, buffer, offset, mix, onEnd, onFailur
     if (!fade) return silence()
 
     const until = when + fade
-    const level = fadeIn ? Math.max(0, Math.min(1, (when - start) / fadeIn)) : 1
+    const level = fadeIn ? Math.max(0, Math.min(1, (when - fadeAt) / fadeIn)) : 1
     output.gain.cancelScheduledValues(when)
     output.gain.setValueAtTime(level, when)
     output.gain.linearRampToValueAtTime(0, until)
@@ -164,5 +183,5 @@ export function startLiveRecord(ctx, input, buffer, offset, mix, onEnd, onFailur
       voice.stop(until)
     }
   }
-  return {position, rate: () => audibleSegment(ctx.currentTime)?.rate ?? next.rate, setRate, stop}
+  return {position, rate: () => audibleSegment(ctx.currentTime)?.rate ?? next.rate, setRate, stop, fadeAt}
 }

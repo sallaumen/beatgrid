@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import {startLiveRecord} from "../../assets/js/dj/live_record.js"
-import {createRecordSource} from "../../assets/js/dj/record_source.js"
+import {createRecordSource, recallSplice} from "../../assets/js/dj/record_source.js"
 
 function recording(seconds = 3) {
   const sr = 16_000
@@ -99,3 +99,49 @@ for (const vinyl of [false, true]) {
     assert.equal(ended, 1)
   })
 }
+
+test("an outgoing pitch-locked record restarts on the exact samples heard in the middle of a rehearsal grain", () => {
+  const rate = 1.065, mix = {rate, vinyl: false}
+  const rehearsal = recording(4)
+  const first = .117, cue = 1.841
+  const src = createRecordSource(rehearsal.ctx, rehearsal.input, mix, cue)
+  src.start(0, first, 3.68)
+  const reference = rehearsal.run(2.8)
+  for (const late of [0, .0013, .045, .097]) {
+    const live = recording(4), saved = src.splices()
+    const at = cue + late
+    const head = startLiveRecord(live.ctx, live.ctx.createGain(), live.input, at, mix,
+      () => {}, () => {}, 0, live.ctx.currentTime, recallSplice(saved, live.input, at, rate))
+    const samples = live.run(.55)
+    const offset = Math.round((at - first) * rehearsal.ctx.sampleRate / rate)
+    for (const side of ["left", "right"]) {
+      for (let i = 0; i < samples[side].length; i++) {
+        assert.ok(Math.abs(samples[side][i] - reference[side][offset + i]) < .00001, side + " sample " + i)
+      }
+    }
+    head.stop()
+  }
+})
+
+test("the jog owns the recalled tempo and a rescued track plays beyond the headphone excerpt", () => {
+  const take = recording(4), room = recording(4), rate = 1.06, cue = .95
+  const source = createRecordSource(take.ctx, take.input, {rate, vinyl: false}, cue)
+  source.start(0, .06, 1.57)
+  take.run(1.7)
+  let ends = 0
+  const live = startLiveRecord(room.ctx, room.ctx.createGain(), room.input, cue,
+    {rate, vinyl: false}, () => ends++, () => {}, 0, 0, recallSplice(source.splices(), room.input, cue, rate))
+  const samples = room.run(1.8, (frame, time) => {
+    if (frame === 960) {
+      const at = live.position()
+      live.setRate(.94)
+      assert.equal(live.position(), at)
+    }
+    if (time > .16) assert.equal(live.rate(), .94)
+  })
+  assert.ok(Math.abs(hz(samples.left, room.ctx.sampleRate, .9, 1.7) - 55) < .2)
+  assert.ok(live.position() > 2.6)
+  assert.equal(ends, 0)
+  room.run(2)
+  assert.equal(ends, 1)
+})
