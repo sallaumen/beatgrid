@@ -2829,12 +2829,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
             })
           },
 
-          applyPitch(d, v) {
+          applyPitch(d, v, midiStep = 0) {
             // v ∈ [0,1] → rate ∈ [0.80, 1.20] = ±20% (bem lento a bem rápido).
             const rate = 0.8 + v * 0.4
-            this.engine.setRate(d, rate)
+            this.engine.setRate(d, rate, midiStep * 0.4)
             const lab = byId(`dj-pitchlab-${d}`)
-            if (lab) lab.textContent = `${((rate - 1) * 100).toFixed(1)}%`
+            if (lab) lab.textContent = `${((this.engine.decks[d].baseRate - 1) * 100).toFixed(1)}%`
           },
 
           applySync(d) {
@@ -3044,7 +3044,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 if (a.pressed) this.applySync(a.deck)
                 break
               case "pitch":
-                this.applyPitch(a.deck, a.value)
+                this.applyPitch(a.deck, a.value, 1 / 126)
                 break
               case "level": {
                 // Volume saiu dos knobs de level (fica no talo; a mixagem é no
@@ -3057,7 +3057,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 break
               }
               case "crossfader":
-                this.engine.setCrossfader(a.value)
+                this.engine.setCrossfader(a.value, 1 / 127)
                 break
               case "master_gain":
                 this.engine.setMasterLevel(a.value * 1.2)

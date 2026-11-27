@@ -1340,3 +1340,128 @@ test("the next AUTO window follows the audible recording when the muted media cl
   tick(250)
   assert.deepEqual(advances.map(x => x.toTrackId), ["two", "three"])
 })
+
+for (const action of ["crossfader", "touch outgoing", "touch incoming", "nudge outgoing", "seek incoming", "cue incoming", "cue outgoing"]) {
+  test(action + " withdraws an old confirmation and keeps the recorded choice", async t => {
+    const rig = booth(t)
+    const {engine, a, b, tick, advances} = rig
+    engine.setAuto(false)
+    preparePassage(rig)
+    const saved = engine.passage()
+    assert.ok(engine.confirmPassage().ok)
+    a.at(40)
+    if (action === "crossfader") engine.setCrossfader(0.5)
+    if (action.startsWith("touch")) {
+      const deck = action.endsWith("incoming") ? "b" : "a"
+      engine.jogTouch(deck, true)
+      engine.jogTouch(deck, false)
+    }
+    if (action === "nudge outgoing") engine.jogTurn("a", 1)
+    if (action === "seek incoming") engine.jogTurn("b", 1)
+    if (action.startsWith("cue")) {
+      const deck = action.endsWith("incoming") ? "b" : "a"
+      engine.cueButton(deck, true)
+      engine.cueButton(deck, false)
+      if (deck === "a") engine.playPause(deck)
+    }
+    assert.equal(engine.passage(), saved)
+    assert.equal(saved.phase, "armed")
+    a.at(48)
+    tick(100)
+    await Promise.resolve()
+    assert.deepEqual(advances, [])
+    assert.equal(b.paused, true)
+    assert.ok(engine.confirmPassage().ok)
+    await Promise.resolve()
+    assert.equal(advances.length, 1)
+    assert.equal(b.currentTime, 2.5)
+  })
+}
+
+test("one MIDI step of fader or pitch chatter keeps the confirmation until movement accumulates", async t => {
+  const rig = booth(t)
+  const {engine, a, advances} = rig
+  preparePassage(rig)
+  engine.confirmPassage()
+  for (const step of [1, 0, 1]) {
+    engine.setCrossfader(step / 127, 1 / 127)
+    engine.setRate("b", 1 + step * .4 / 126, .4 / 126)
+    assert.equal(engine.passage().phase, "confirmed")
+  }
+  engine.setCrossfader(2 / 127, 1 / 127)
+  assert.equal(engine.passage().phase, "armed")
+  engine.confirmPassage()
+  engine.setRate("b", 1 + 2 * .4 / 126, .4 / 126)
+  assert.equal(engine.passage().phase, "armed")
+  a.at(48)
+  await Promise.resolve()
+  assert.deepEqual(advances, [])
+})
+
+test("a repeated MIDI position during decoder startup cannot unmute or cancel the saved entry", async t => {
+  const rig = booth(t)
+  const {engine, a, b, advances} = rig
+  let started
+  b.play = () => new Promise(done => { started = done })
+  preparePassage(rig)
+  engine.confirmPassage()
+  a.at(48)
+  for (const step of [0, 1, 0]) engine.setCrossfader(step / 127, 1 / 127)
+  assert.equal(engine.passage().phase, "starting")
+  started()
+  await Promise.resolve()
+  assert.equal(advances.length, 1)
+})
+
+test("the next playing notification cannot undo a manual takeover during decoder startup", async t => {
+  const rig = booth(t)
+  const {engine, a, b, advances} = rig
+  let started
+  b.play = () => new Promise(done => { started = done })
+  preparePassage(rig)
+  engine.confirmPassage()
+  a.at(48)
+  engine.setCrossfader(0.4)
+  started()
+  await Promise.resolve()
+  assert.equal(engine.passage().phase, "armed")
+  assert.deepEqual(advances, [])
+  assert.equal(engine.snapshot().xfadePos, 0.4)
+})
+
+test("CUE past the rehearsed exit leaves the record paused at its cue and the saved passage missed", async t => {
+  const rig = booth(t)
+  const {engine, a, b, tick, advances} = rig
+  preparePassage(rig)
+  const saved = engine.passage()
+  engine.decks.a.cueMs = 49_000
+  assert.ok(engine.confirmPassage().ok)
+  a.at(40)
+  engine.cueButton("a", true)
+  assert.equal(engine.confirmPassage().ok, false)
+  engine.cueButton("a", false)
+  tick(20_000)
+  await Promise.resolve()
+  assert.equal(a.paused, true)
+  assert.equal(a.currentTime, 49)
+  assert.equal(engine.passage(), saved)
+  assert.equal(saved.phase, "missed")
+  assert.equal(saved.plan.inStart, 2.5)
+  assert.equal(engine.confirmPassage().ok, false)
+  assert.equal(b.plays, 0)
+  assert.deepEqual(advances, [])
+})
+
+test("the screen still accepts precise crossfader and pitch changes within one MIDI step", t => {
+  const rig = booth(t)
+  const {engine} = rig
+  preparePassage(rig)
+  assert.ok(engine.confirmPassage().ok)
+  engine.setCrossfader(0.002)
+  assert.equal(engine.snapshot().xfadePos, 0.002)
+  assert.equal(engine.passage().phase, "armed")
+  assert.ok(engine.confirmPassage().ok)
+  engine.setRate("b", 1.001)
+  assert.equal(engine.deckMix("b").rate, 1.001)
+  assert.equal(engine.passage().phase, "armed")
+})
