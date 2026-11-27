@@ -37,9 +37,15 @@ export function recordTime(plan, side, time) {
 
 // This transport has no references to live media elements or the master output.
 export function createRehearsal(ctx, phones, pfl) {
-  let current = null
+  let current = null, cancelMeasurement = null
 
-  function stop() {
+  function discardMeasurement() {
+    cancelMeasurement?.()
+    cancelMeasurement = null
+  }
+
+  function stop(completed = false) {
+    if (!completed) discardMeasurement()
     if (!current) return
     const {sources, nodes} = current
     current = null
@@ -59,7 +65,7 @@ export function createRehearsal(ctx, phones, pfl) {
     }
   }
 
-  function play(plan, kind, pan, skip = 0) {
+  function play(plan, kind, pan, skip = 0, observe) {
     stop()
     if (skip >= plan.duration) return
     const now = ctx.currentTime
@@ -104,7 +110,12 @@ export function createRehearsal(ctx, phones, pfl) {
       add("out", plan.outgoing, now, change + fade, 1, 0)
       const last = add("into", plan.incoming, Math.max(now, change), finish, 0, 1)
       applyMix(current.channels, plan.mix, false)
-      last.onended = () => { if (current?.sources.includes(last)) stop() }
+      // A missing meter must never interrupt the audio already scheduled.
+      if (observe) {
+        try { cancelMeasurement = observe(level, {start, change, end: finish, overlap: fade, kind}) }
+        catch { cancelMeasurement = null }
+      }
+      last.onended = () => { if (current?.sources.includes(last)) stop(true) }
     } catch (error) {
       stop()
       throw error
@@ -112,6 +123,7 @@ export function createRehearsal(ctx, phones, pfl) {
   }
 
   function edit(plan, kind, pan) {
+    discardMeasurement()
     if (!current) return
     const before = current.plan
     if (["out", "into"].some(s => before.mix[s].rate !== plan.mix[s].rate || before.mix[s].vinyl !== plan.mix[s].vinyl)) {

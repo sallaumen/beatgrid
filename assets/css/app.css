@@ -34,6 +34,7 @@
 
 /* ── Beatgrid design tokens (from the Claude Design handoff) ───────────────── */
 @import "./tokens.css";
+@import "./passage_score.css";
 
 /* Expose the Beatgrid palette / fonts / radii as Tailwind v4 utilities
    (bg-surface, text-ink-muted, font-mono, rounded-xl, …). */

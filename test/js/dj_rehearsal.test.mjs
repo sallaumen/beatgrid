@@ -42,7 +42,14 @@ test("auditions schedule independent sources only into phones and restore PFL on
   const phones = node(), pfl = node()
   const preview = createRehearsal(ctx, phones, pfl)
   const plan = planRehearsal({duration: 14}, {duration: 8}, 12, 5, 120)
-  preview.play(plan, "blend", -1)
+  let canceled = 0
+  const observe = (level, times) => {
+    assert.equal(level.next.next, phones)
+    assert.equal(times.change, 13)
+    assert.equal(times.end, 16)
+    return () => { canceled++ }
+  }
+  preview.play(plan, "blend", -1, 0, observe)
   const [a, b] = sources
   assert.equal(a.buffer, plan.outgoing)
   assert.equal(b.buffer, plan.incoming)
@@ -56,7 +63,8 @@ test("auditions schedule independent sources only into phones and restore PFL on
   }
   assert.equal(pfl.gain.value, 0)
   const staleEnd = b.onended
-  preview.play(plan, "cut", 1)
+  preview.play(plan, "cut", 1, 0, observe)
+  assert.equal(canceled, 1)
   assert.ok(a.stopped && b.stopped)
   staleEnd()
   assert.equal(preview.elapsed(), 0)
@@ -64,6 +72,12 @@ test("auditions schedule independent sources only into phones and restore PFL on
   assert.equal(pfl.gain.value, 1)
   assert.equal(preview.elapsed(), null)
   assert.ok(sources.every(s => s.stopped && !s.next))
+  assert.equal(canceled, 1, "natural completion lets the last meter window arrive")
+  preview.stop()
+  assert.equal(canceled, 2)
+  preview.play(plan, "cut", 0, 0, () => { throw new Error("observer unavailable") })
+  assert.equal(preview.elapsed(), 0)
+  preview.stop()
 })
 
 
