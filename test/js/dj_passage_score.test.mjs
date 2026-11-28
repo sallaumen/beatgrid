@@ -30,6 +30,20 @@ function metric(report, id) {
   return report.metrics.find(metric => metric.id === id)
 }
 
+test("starting the observation on a sustained sound cannot supply the third attack of a beat grid", () => {
+  const take = passage({kind: "cut"})
+  const before = take.frames.slice(0, take.changeAt / dt)
+  for (const [i, frame] of before.entries()) {
+    frame.onset = [0, 50, 100].includes(i) ? 0.25 : 0
+    frame.rms = i === 50 || i === 100 ? 0.3 : 0.12
+  }
+  const uncertain = scorePassage(take)
+  assert.equal(uncertain.score, null)
+  assert.equal(metric(uncertain, "pulse").state, "unknown")
+  before[150].onset = 0.25
+  assert.notEqual(scorePassage(take).score, null)
+})
+
 for (const kind of ["cut", "blend"]) {
   test(kind + " finds a steady pulse from audio with a missing or stale catalog BPM", () => {
     for (const bpm of [null, 65, 190]) {

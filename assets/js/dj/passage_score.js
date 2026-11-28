@@ -238,8 +238,13 @@ export function scorePassage({frames, frameSeconds: dt, changeAt, overlap, kind,
   }
   const level = levelMetric(before, middle, after, dt, kind, descriptive)
   const missingEntry = ["silent_entry", "silent_tail", "silent_ends"].includes(level.finding)
-  const pulse = gesture ? null : missingEntry ? unknown("pulse", "Sem referência no fim da entrada")
-    : pulseMetric(before, after, middle, start, end, dt, kind, bpm, descriptive)
+  const readPulse = lead => pulseMetric(lead, after, middle, start, end, dt, kind, bpm, descriptive)
+  let pulse = gesture ? null : missingEntry ? unknown("pulse", "Sem referência no fim da entrada") : readPulse(before)
+  // A take can start on an already sustained note. Its first level alone cannot establish an attack.
+  if (pulse && pulse.state !== "unknown" && start === before.length && before[0].onset > 0) {
+    const checked = readPulse(before.slice(1))
+    if (checked.state !== pulse.state || checked.finding !== pulse.finding) pulse = unknown("pulse", "Batidas sem referência firme")
+  }
   const headroom = headroomMetric(gesture ? middle : [...before.slice(-Math.ceil(0.25 / dt)), ...middle, ...after.slice(0, Math.ceil(0.75 / dt))])
   if (gesture) headroom.label = "Pico do efeito"
   const metrics = pulse ? [pulse, level, headroom] : [level, headroom]
