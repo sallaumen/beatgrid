@@ -165,6 +165,13 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert has_element?(view, "#dj-rehearse-dialog [data-cue-try][hidden]", "Experimentar ajuste")
     assert has_element?(view, "#dj-rehearse-dialog [data-cue-restore][hidden]", "Restaurar CUE")
     assert has_element?(view, "#dj-rehearse-dialog [data-cue-note][aria-live=polite]")
+
+    assert has_element?(
+             view,
+             "#dj-rehearse-dialog details [data-sync-hint][hidden]",
+             "O SYNC precisa do BPM dos dois decks."
+           )
+
     manual = "#dj-rehearse-dialog details:not([open]) [data-side=into] [data-cue-manual]"
     assert has_element?(view, manual <> " button[data-cue-step=earlier]", "25 ms mais cedo")
     assert has_element?(view, manual <> " button[data-cue-step=later]", "25 ms mais tarde")
