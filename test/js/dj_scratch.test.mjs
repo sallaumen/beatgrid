@@ -1,7 +1,7 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import vm from "node:vm"
-import {SCRATCH_WORKLET} from "../../assets/js/dj/scratch.js"
+import {ensureScratchModule, SCRATCH_WORKLET} from "../../assets/js/dj/scratch.js"
 
 function loadRecord(sampleRate, toneHz) {
   let Processor
@@ -132,4 +132,24 @@ test("slow ticks and a late MIDI packet keep the record audible between movement
     const audio = handRecording(moves, t + 25)
     for (const [at] of moves.slice(4)) assert.ok(peakBetween(audio, at - 20, at) > .005)
   }
+})
+
+test("the scratch module reports an absent worklet without allocating a URL", async t => {
+  const urls = t.mock.method(URL, "createObjectURL")
+  assert.equal(await ensureScratchModule({}), false)
+  assert.equal(urls.mock.callCount(), 0)
+})
+
+test("a refused scratch installation frees its URL and can retry on the next mount", async t => {
+  const revoked = t.mock.method(URL, "revokeObjectURL")
+  let calls = 0
+  const ctx = {audioWorklet: {addModule() {
+    calls++
+    return calls === 1 ? Promise.reject(new Error("not available yet")) : Promise.resolve()
+  }}}
+  assert.equal(await ensureScratchModule(ctx), false)
+  assert.equal(await ensureScratchModule(ctx), true)
+  assert.equal(await ensureScratchModule(ctx), true)
+  assert.equal(calls, 2)
+  assert.equal(revoked.mock.callCount(), 2)
 })

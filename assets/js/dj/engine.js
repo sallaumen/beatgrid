@@ -1973,7 +1973,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   const autoScratch = {a: null, b: null}
 
   ensureScratchModule(ctx)
-    .then(() => {
+    .then(ready => {
+      if (!ready || mediaEvents.signal.aborted) return
       for (const id of ["a", "b"]) {
         const node = new AudioWorkletNode(ctx, "scratch-processor", {
           numberOfInputs: 0,
@@ -3111,6 +3112,12 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         // Scratch timers outlive the hook otherwise (setInterval keeps posting
         // to a torn-down worklet after unmount).
         if (autoScratch[d]) clearInterval(autoScratch[d].timer)
+        const node = scratch[d].node
+        if (node) {
+          node.port.close()
+          node.disconnect()
+          scratch[d].node = null
+        }
       }
       decks.a.pause()
       decks.b.pause()

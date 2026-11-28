@@ -3666,3 +3666,50 @@ for (const missing of ["processor", "samples"]) {
     assert.ok(Math.abs(deck.platterTime() - 1.7) < .001)
   })
 }
+
+test("scratch ports belong only to a mounted booth, even if its module arrives late", async t => {
+  const nodes = []
+  globalThis.AudioWorkletNode = class extends AudioNodeStub {
+    constructor(ctx, name) {
+      super()
+      if (name === "scratch-processor") nodes.push(this)
+    }
+    port = {close: () => { this.closed = true }, postMessage() {}}
+    disconnect() { this.disconnected = true }
+  }
+  t.after(() => { delete globalThis.AudioWorkletNode })
+  const {engine} = booth(t)
+  engine.destroy()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(nodes.length, 0)
+
+  const next = createEngine({deckElA: new Media(), deckElB: new Media()})
+  t.after(() => next.destroy())
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(nodes.length, 2)
+  next.destroy()
+  assert.ok(nodes.every(n => n.closed && n.disconnected))
+})
+
+test("the booth transports both decks with no scratch worklet on the device", async t => {
+  const {engine: probe} = booth(t)
+  const ctx = probe.ctx, defaultWorklet = ctx.audioWorklet
+  probe.destroy()
+  ctx.audioWorklet = undefined
+  t.after(() => { ctx.audioWorklet = defaultWorklet })
+  const a = new Media(), b = new Media()
+  const engine = createEngine({deckElA: a, deckElB: b})
+  t.after(() => engine.destroy())
+  await new Promise(resolve => setImmediate(resolve))
+  engine.loadDeck("a", {id: "room", src: "room"}, {autoplay: true})
+  engine.loadDeck("b", {id: "phones", src: "phones"})
+  engine.setCrossfader(0)
+  engine.togglePfl("b")
+  engine.cueButton("b", true)
+  assert.equal(a.paused, false)
+  assert.equal(b.paused, false)
+  assert.equal(engine.scratchReady("b"), false)
+  engine.cueButton("b", false)
+  assert.equal(b.paused, true)
+  assert.equal(a.paused, false)
+})
