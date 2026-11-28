@@ -1152,6 +1152,34 @@ defmodule BeatgridWeb.DiscotecagemLive do
               <label class="mt-2 flex items-center gap-2 text-body">
                 <input type="checkbox" data-mix="vinyl" /> Vinil (muda a afinação)
               </label>
+              <div
+                :if={side == "into"}
+                data-cue-manual
+                role="group"
+                aria-label="Ataque da entrada no fone"
+                aria-describedby="dj-cue-offset"
+                class="mt-3"
+              >
+                <div class="flex flex-wrap items-baseline justify-between gap-x-2">
+                  <span class="text-body font-semibold text-ink">Ataque da entrada</span>
+                  <span
+                    id="dj-cue-offset"
+                    data-cue-offset
+                    class="font-mono text-body-sm tabular-nums text-ink-secondary"
+                  ></span>
+                </div>
+                <div class="mt-1 flex flex-wrap gap-2">
+                  <button
+                    :for={
+                      {step, label} <- [{"earlier", "25 ms mais cedo"}, {"later", "25 ms mais tarde"}]
+                    }
+                    type="button"
+                    data-cue-step={step}
+                    disabled
+                    class="min-h-9 rounded-md border border-white/10 px-2 text-body text-ink-secondary hover:border-primary/50 disabled:opacity-40 aria-disabled:opacity-40"
+                  >{label}</button>
+                </div>
+              </div>
             </fieldset>
           </div>
           <button
