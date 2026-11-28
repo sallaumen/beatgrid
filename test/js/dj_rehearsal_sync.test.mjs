@@ -152,7 +152,7 @@ function interactiveTake(t, fixture) {
   t.after(() => { delete globalThis.document })
   const select = kind => {
     dialog.querySelector('input[name="dj-rehearse-kind"]:checked').value = kind
-    dialog.onchange({target: {matches: () => false}})
+    dialog.onchange({target: {name: "dj-rehearse-kind", matches: () => false}})
   }
   const adjust = value => strip.oninput({target: {dataset: {mix: "level"}, value}})
   const listen = dialog.querySelector("[data-listen]"), replay = dialog.querySelector("[data-replay-final]")
@@ -240,4 +240,56 @@ test("a keyboard replay moves focus to the adjacent arm button only if its own b
     assert.equal(replay.hidden, true)
     assert.equal(document.activeElement, focus === replay ? arm : focus)
   }
+})
+
+test("a completed headphone comparison lets the DJ pick either heard version before updating the reservation", async t => {
+  const fixture = await privateTake(t)
+  const {dialog, engine, saved} = fixture
+  const {plays, finish, select, adjust, message, settle} = interactiveTake(t, fixture)
+  const other = dialog.querySelector("[data-select-compared]")
+  const second = dialog.querySelector("[data-compare-with]")
+  const selected = dialog.querySelector('input[name="dj-rehearse-kind"]:checked')
+  const arm = dialog.querySelector("[data-arm]")
+  const applied = []
+  engine.armPassage = (_pair, _plan, kind) => { applied.push(kind); return {ok: true} }
+  engine.canRecallBass = () => true
+  for (const kind of ["cut", "bass_swap"]) dialog.querySelector(`input[value="${kind}"]`).click = () => select(kind)
+  second.value = "bass_swap"
+  const original = saved.plan
+  const pairing = dialog.querySelector("[data-listen-both]").onclick()
+  await settle()
+  const duringFirst = other.hidden
+  finish()
+  await settle()
+  const duringSecond = other.hidden
+  finish()
+  await pairing
+  assert.equal(arm.textContent, "Atualizar com Corte")
+  assert.equal(duringFirst, true)
+  assert.equal(duringSecond, true)
+  assert.equal(other.hidden, false)
+  assert.equal(other.textContent, "Escolher Troca de graves")
+  const comparison = message()
+  const stopAudio = t.mock.method(engine.rehearsal, "stopListening")
+  other.onclick()
+  assert.equal(selected.value, "bass_swap")
+  assert.equal(second.value, "cut")
+  assert.equal(message(), comparison)
+  assert.equal(arm.textContent, "Atualizar com Troca de graves")
+  assert.equal(other.textContent, "Escolher Corte")
+  other.onclick()
+  assert.equal(selected.value, "cut")
+  select("bass_swap") // The ordinary radio has the same effect as the shortcut.
+  assert.equal(arm.textContent, "Atualizar com Troca de graves")
+  assert.deepEqual(plays.map(p => p.kind), ["cut", "bass_swap"])
+  assert.equal(stopAudio.mock.callCount(), 0)
+  assert.equal(saved.phase, "confirmed")
+  assert.equal(saved.plan, original)
+  assert.deepEqual(applied, [])
+  arm.onclick()
+  assert.deepEqual(applied, ["bass_swap"])
+  dialog.open = true
+  adjust(81)
+  fixture.panel.update()
+  assert.equal(other.hidden, true)
 })

@@ -1171,12 +1171,22 @@ defmodule BeatgridWeb.DiscotecagemLive do
           aria-describedby="dj-rehearse-status"
           class="mt-4 min-h-9 rounded-md border border-white/10 px-3 text-body font-semibold text-ink-secondary hover:border-primary/50 hover:text-ink disabled:opacity-40"
         >Ouvir do início no fone</button>
-        <button
-          type="button"
-          data-arm
-          disabled
-          class="mt-4 min-h-9 rounded-md border border-primary/40 px-3 text-body font-semibold text-ink hover:border-primary disabled:opacity-40"
-        >Armar esta passagem</button>
+        <div class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <button
+            id="dj-rehearsal-arm"
+            type="button"
+            data-arm
+            disabled
+            class="min-h-9 rounded-md border border-primary/40 px-3 text-body font-semibold text-ink hover:border-primary disabled:opacity-40"
+          >Armar esta passagem</button>
+          <button
+            type="button"
+            data-select-compared
+            hidden
+            aria-controls="dj-rehearsal-arm"
+            class="min-h-11 text-body font-semibold text-primary-soft hover:underline"
+          ></button>
+        </div>
         <p id="dj-rehearse-status" role="status" class="mt-2 text-body text-ink-muted"></p>
       </.rehearsal_dialog>
     </div>

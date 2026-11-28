@@ -39,7 +39,7 @@ export function mountPassageComparison(details, labels, selected, name, showDiff
   const heard = new Map()
   const unavailable = new Set()
   let key = null, settingsKey = null, active = null, pairSummary = ""
-  let lastPair, lastPlan, lastBpm
+  let lastPair, lastPlan, lastBpm, comparedKinds
 
   function render(restored, showDetail = true) {
     for (const label of labels) {
@@ -63,11 +63,18 @@ export function mountPassageComparison(details, labels, selected, name, showDiff
   function clearSummary() {
     if (pairSummary) showDifferences(null)
     pairSummary = ""
+    comparedKinds = null
   }
 
-  function select() {
+  function alternative() {
+    if (!comparedKinds) return null
+    const current = selected()
+    return comparedKinds.includes(current) ? comparedKinds.find(kind => kind !== current) : null
+  }
+
+  function select(keepComparison = false) {
     active = null
-    clearSummary()
+    if (!keepComparison || !alternative()) clearSummary()
     render(true)
   }
 
@@ -113,6 +120,7 @@ export function mountPassageComparison(details, labels, selected, name, showDiff
   }
 
   function finishPair(kinds) {
+    comparedKinds = kinds
     pairSummary = kinds.map(kind => {
       const value = unavailable.has(kind) ? "sem medição" : scoreLabel(heard.get(kind), false).toLowerCase()
       return name(kind) + " " + value
@@ -127,5 +135,5 @@ export function mountPassageComparison(details, labels, selected, name, showDiff
     return unavailable.has(kind) ? null : heard.get(kind) ?? null
   }
 
-  return {select, bind, begin, reading, finishPair, settingsKey: () => settingsKey, summary: () => pairSummary, clearSummary}
+  return {select, bind, begin, reading, finishPair, alternative, settingsKey: () => settingsKey, summary: () => pairSummary, clearSummary}
 }

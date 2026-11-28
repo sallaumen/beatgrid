@@ -234,6 +234,11 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
 
     assert has_element?(
              view,
+             "#dj-rehearse-dialog [data-arm] + button[data-select-compared][hidden][aria-controls=dj-rehearsal-arm]"
+           )
+
+    assert has_element?(
+             view,
              "[data-reservation][hidden] [data-confirm][disabled]",
              "Confirmar para a pista"
            )

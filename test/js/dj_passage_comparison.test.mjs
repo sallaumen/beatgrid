@@ -22,7 +22,7 @@ function setup(kinds = ["cut", "blend"]) {
     ({cut: short ? "Corte" : "Corte na entrada", blend: short ? "Mistura" : "Mistura de quatro tempos",
       bass_swap: "Troca de graves"})[kind], value => differences.push(value))
   view.bind(pair, plan, 120)
-  return {view, labels, events, differences, select(kind) { selected = kind; view.select() }}
+  return {view, labels, events, differences, select(kind, keepComparison) { selected = kind; view.select(keepComparison) }}
 }
 
 test("changing kind and headphone side retains each completed score, including unscored audio", () => {
@@ -215,6 +215,25 @@ test("two ungraded listens show only the measured differences and leave the chos
   view.finishPair(["cut", "blend"])
   assert.equal(differences.at(-1), null)
   assert.deepEqual(view.reading(), first)
+})
+
+test("switching between two ungraded takes retains their measured contrast until the pair changes", () => {
+  const {view, differences, select} = setup(["cut", "blend", "bass_swap"])
+  const cut = sustained("cut"), bass = sustained("bass_swap", 0.25)
+  view.begin("cut").finish(cut)
+  view.begin("bass_swap").finish(bass)
+  view.finishPair(["cut", "bass_swap"])
+  const summary = view.summary(), contrast = differences.at(-1)
+  assert.equal(view.alternative(), "bass_swap")
+  select("bass_swap", true)
+  assert.equal(view.reading(), bass)
+  assert.equal(view.alternative(), "cut")
+  assert.equal(view.summary(), summary)
+  assert.equal(differences.at(-1), contrast)
+  select("blend", true)
+  assert.equal(view.alternative(), null)
+  assert.equal(view.summary(), "")
+  assert.equal(differences.at(-1), null)
 })
 
 test("distinct findings at the same severity compare, equivalent diagnoses and missing readings stay quiet", () => {
