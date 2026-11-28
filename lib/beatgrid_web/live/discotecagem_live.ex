@@ -1952,6 +1952,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
         import {tripVersionPath, tripTransportLabel, tripTransitionLabel} from "@/js/dj/trip_identity.js"
         import {hotCues} from "@/js/dj/hot_cues.js"
         import {mountRehearsal} from "@/js/dj/rehearsal_panel.js"
+        import {mountBoothKeyboard} from "@/js/dj/booth_keyboard.js"
         import {wireJogDrag} from "@/js/dj/jog_drag.js"
         import {mountPassageScore} from "@/js/dj/passage_score_view.js"
         import {scorePassage} from "@/js/dj/passage_score.js"
@@ -2617,31 +2618,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             }
             window.addEventListener("beatgrid:playing", this.onForeignPlay)
 
-            // Teclado da viagem: mão no volante, olho na pista. Nunca rouba
-            // teclas de quem está digitando num campo.
-            this.onKeys = (e) => {
-              if (byId("dj-rehearse-dialog").open || e.metaKey || e.ctrlKey || e.altKey) return
-              const t = e.target
-              if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return
-              const k = e.key.toLowerCase()
-              if (k === "t") {
-                this.actFire()
-              } else if (k === "w") {
-                // +1s por toque; SEGURAR acumula pelo repeat do teclado.
-                this.actPostpone(1_000)
-              } else if (k === "x") {
-                this.actCancel()
-              } else if (k === "a") {
-                this.actAuto()
-              } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-                const pos = this.engine.snapshot().xfadePos
-                this.engine.setCrossfader(Math.min(1, Math.max(0, pos + (e.key === "ArrowRight" ? 0.06 : -0.06))))
-              } else {
-                return
-              }
-              e.preventDefault()
-            }
-            window.addEventListener("keydown", this.onKeys)
+            this.releaseKeyboard = mountBoothKeyboard(this, byId("dj-rehearse-dialog"))
 
             // Modo Viagem: mesmo engine, tela limpa — os botões gigantes chamam
             // as MESMAS ações do teclado (o botão de adiar salta 15s; a tecla W
@@ -2665,20 +2642,12 @@ defmodule BeatgridWeb.DiscotecagemLive do
             }
             document.addEventListener("click", this.onTripClick)
 
-            // O seletor de set e os sliders não podem sequestrar o teclado:
-            // escolher o set (o último clique antes de tocar!) e soltar um
-            // fader devolvem o foco à página — senão os atalhos morrem mudos.
+            // Return focus to the booth shortcuts after picking the set.
             // Delegado no document para sobreviver aos patches do LiveView.
             this.onSetPicked = (e) => {
               if (e.target && e.target.name === "set_id") e.target.blur()
             }
             document.addEventListener("change", this.onSetPicked)
-            this.onSliderDone = (e) => {
-              const t = e.target
-              if (t && t.tagName === "INPUT" && t.type === "range") t.blur()
-            }
-            document.addEventListener("pointerup", this.onSliderDone)
-
             // Loop de pintura: SÓ espelha a UI — o áudio nunca depende dele.
             const tick = () => {
               this.raf = requestAnimationFrame(tick)
@@ -2738,10 +2707,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
             window.removeEventListener("dj:midi", this.onMidi)
             window.removeEventListener("dj:pfl-sync", this.onPflSync)
             window.removeEventListener("beatgrid:playing", this.onForeignPlay)
-            window.removeEventListener("keydown", this.onKeys)
+            this.releaseKeyboard()
             document.removeEventListener("click", this.onTripClick)
             document.removeEventListener("change", this.onSetPicked)
-            document.removeEventListener("pointerup", this.onSliderDone)
             // End a scratch drag in flight and drop the pad's global listener so
             // neither leaks across a LiveView reconnect.
             for (const release of this.jogDrags) release()
