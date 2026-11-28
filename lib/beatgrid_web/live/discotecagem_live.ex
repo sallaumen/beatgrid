@@ -2044,6 +2044,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               })
             }
 
+            const masterPeak = byId("dj-master-peak")
             this.engine = createEngine({
               deckElA: byId("dj-audio-a"),
               deckElB: byId("dj-audio-b"),
@@ -2070,6 +2071,14 @@ defmodule BeatgridWeb.DiscotecagemLive do
                     this.toast(arrival)
                   } else this.toast(`${mode === "auto" ? "AUTO: " : "▶ "}${name} → deck ${deck.toUpperCase()}`)
                   window.dispatchEvent(new CustomEvent("beatgrid:playing", {detail: {source: "dj-console"}}))
+                },
+                programPeak: db => {
+                  if (db === null) {
+                    masterPeak.textContent = ""
+                  } else {
+                    const reading = db === 0 ? "> 0" : `+${db.toLocaleString("pt-BR", {minimumFractionDigits: 1})}`
+                    masterPeak.textContent = `Pico na pista ${reading} dBTP`
+                  }
                 },
                 programScore: ({data, kind, mode, names}) => {
                   const button = this.fireBtns.find(btn => btn.dataset.djFire === kind)
@@ -4238,21 +4247,30 @@ defmodule BeatgridWeb.DiscotecagemLive do
       style="background:linear-gradient(180deg,#11131a,#0e0f15)"
     >
       <div id="dj-mixer" phx-update="ignore" class="flex flex-1 flex-col items-center gap-2.5">
-        <div class="flex items-end justify-center gap-3">
-          <div
-            :for={{id, lab} <- [{"dj-meter-a", "A"}, {"dj-meter-m", "MST"}, {"dj-meter-b", "B"}]}
-            class="flex flex-col items-center gap-0.5"
-          >
-            <div class="flex h-14 w-2.5 items-end overflow-hidden rounded-sm bg-base">
-              <div
-                id={id}
-                class="w-full"
-                style="height:0%;background:linear-gradient(180deg,#ff5d6c,#ffb020 30%,#5ad1a0 60%)"
-              >
+        <div class="flex flex-col items-center">
+          <div class="flex items-end justify-center gap-3">
+            <div
+              :for={{id, lab} <- [{"dj-meter-a", "A"}, {"dj-meter-m", "MST"}, {"dj-meter-b", "B"}]}
+              class="flex flex-col items-center gap-0.5"
+            >
+              <div class="flex h-14 w-2.5 items-end overflow-hidden rounded-sm bg-base">
+                <div
+                  id={id}
+                  class="w-full"
+                  style="height:0%;background:linear-gradient(180deg,#ff5d6c,#ffb020 30%,#5ad1a0 60%)"
+                >
+                </div>
               </div>
+              <span class="text-[8px] font-bold uppercase tracking-wider text-ink-faint">{lab}</span>
             </div>
-            <span class="text-[8px] font-bold uppercase tracking-wider text-ink-faint">{lab}</span>
           </div>
+          <p
+            id="dj-master-peak"
+            aria-live="off"
+            title="Maior pico estimado da pista nos últimos 4 segundos"
+            class="min-h-4 text-center font-mono text-body-sm leading-4 font-semibold tabular-nums text-coral-soft"
+          >
+          </p>
         </div>
 
         <div class="flex justify-center gap-6">

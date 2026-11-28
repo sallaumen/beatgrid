@@ -46,6 +46,7 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
     assert html =~ "Crossfader"
     assert html =~ "Controladora MIDI"
     assert html =~ "Escolher set…"
+    assert has_element?(view, "#dj-mixer #dj-master-peak[aria-live=off]", ~r/^\s*$/)
 
     # headphone cue: per-deck PFL buttons + the routable phones output block
     for deck <- ["a", "b"] do
