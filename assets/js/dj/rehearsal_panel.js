@@ -1,5 +1,6 @@
 import {createBlendReview} from "./blend_measurement.js"
 import {mountCueAssist} from "./cue_assist.js"
+import {prepareCompressorDelay} from "./compressor_delay.js"
 import {measurePassage, preparePassageMeter} from "./passage_meter.js"
 import {mountPassageComparison, rehearsalKey} from "./passage_comparison.js"
 import {scorePassage} from "./passage_score.js"
@@ -400,6 +401,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
   }
   open.onclick = () => {
     preparePassageMeter(engine.ctx)
+    prepareCompressorDelay(engine.ctx)
     pair = null
     // WebKit does not focus a clicked button. Give the native dialog its return target.
     open.focus({preventScroll: true})

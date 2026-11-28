@@ -111,3 +111,20 @@ test("the final grade stays readable when revisiting a score without another liv
   view.show({...result, score: null})
   assert.equal(nodes.readable.textContent, "Sem nota")
 })
+
+test("a different room excerpt keeps the private reading available when announced and restored", () => {
+  const metric = {id: "level", state: "good", label: "Nível", value: "Variação de 0,1 dB"}
+  const room = {score: 45, summary: "Entrada mais baixa", metrics: []}
+  for (const restored of [false, true]) {
+    const {view, nodes} = fixture()
+    view.show(room, {restored, reference: {hearing: {score: 90, metrics: [metric]}, differentWindow: true}})
+    assert.equal(nodes.reference.hidden, false)
+    assert.equal(nodes["reference-label"].textContent, "No fone · 90/100 · trecho diferente")
+    assert.equal(nodes["reference-metrics"].children[0].value.textContent, metric.value)
+    if (restored) assert.equal(nodes.announce.textContent, "")
+    else assert.match(nodes.announce.textContent, /45 de 100.*No fone · 90\/100 · trecho diferente/)
+    view.show({...room}, {reference: {hearing: {score: 90, metrics: [metric]}}})
+    assert.equal(nodes["reference-label"].textContent, "No fone · 90/100")
+    assert.doesNotMatch(nodes.announce.textContent, /trecho diferente/)
+  }
+})
