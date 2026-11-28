@@ -237,3 +237,22 @@ test("distinct findings at the same severity compare, equivalent diagnoses and m
   view.bind(pair, {...plan, inStart: 7}, 120)
   assert.equal(differences.at(-1), null)
 })
+
+test("the comparison names which take kept its level through a measured dip", () => {
+  const {view} = setup(["cut", "blend", "bass_swap"])
+  const cut = sustained("cut"), quiet = sustained("bass_swap", 0.2)
+  view.begin("cut").finish(cut)
+  view.begin("bass_swap").finish(quiet)
+  for (const kinds of [["cut", "bass_swap"], ["bass_swap", "cut"]]) {
+    view.finishPair(kinds)
+    assert.match(view.summary(), /Corte sustentou melhor o volume no meio da passagem\./)
+    assert.equal(view.reading(), cut)
+  }
+  view.begin("bass_swap").finish(sustained("bass_swap", 1.1))
+  view.finishPair(["cut", "bass_swap"])
+  assert.doesNotMatch(view.summary(), /sustentou melhor/)
+  view.begin("bass_swap").finish(quiet)
+  view.begin("cut").unavailable()
+  view.finishPair(["cut", "bass_swap"])
+  assert.doesNotMatch(view.summary(), /sustentou melhor/)
+})
