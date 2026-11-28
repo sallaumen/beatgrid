@@ -3703,7 +3703,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
       </script>
 
       <script :type={Phoenix.LiveView.ColocatedHook} name=".DjMidi">
-        import {decode, describe, isControllerPort} from "@/js/dj/midi_map.js"
+        import {decode, describe, isControllerPort, repeatedFader} from "@/js/dj/midi_map.js"
 
         export default {
           mounted() {
@@ -3780,7 +3780,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
             for (const input of inputs) {
               if (this.inputs.has(input)) continue
               const held = new Map()
-              const listener = (msg) => this.handle(Array.from(msg.data), held, msg.timeStamp)
+              const faders = new Map()
+              const listener = (msg) => this.handle(Array.from(msg.data), held, faders, msg.timeStamp)
               this.inputs.set(input, {listener, held})
               input.addEventListener("midimessage", listener)
             }
@@ -3796,7 +3797,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             }
           },
 
-          handle(data, held, inputTime) {
+          handle(data, held, faders, inputTime) {
             if (data.length < 3) return
             const action = decode(data)
             if (!action) {
@@ -3805,6 +3806,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               )
               return
             }
+            if (repeatedFader(action, faders)) return
             if (action.type === "jog_touch" || action.type === "jog_turn") action.inputTime = inputTime
             if (action.type === "cue" || action.type === "jog_touch") {
               const key = action.type + action.deck

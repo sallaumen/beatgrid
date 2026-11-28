@@ -63,6 +63,15 @@ export function isControllerPort(port) {
   return /\bdj[\s_-]*2[\s_-]*go[\s_-]*2(?:[\s_-]*touch)?\b/i.test(port.name || "")
 }
 
+// A stationary hardware fader may repeat its last position after the software has moved it.
+export function repeatedFader(action, positions) {
+  if (action.type !== "pitch" && action.type !== "crossfader") return false
+  const key = action.deck ?? "crossfader"
+  if (positions.get(key) === action.value) return true
+  positions.set(key, action.value)
+  return false
+}
+
 export function decode([status, data1, data2]) {
   const kind = status >> 4
   const channel = status & 0x0f
