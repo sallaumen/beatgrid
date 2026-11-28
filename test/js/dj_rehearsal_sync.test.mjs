@@ -45,7 +45,7 @@ async function privateTake(t, outBpm = 133.01, intoBpm = 133.01) {
     passage: () => saved, canMeasureBlend: () => false,
     editPassageMix() { saved.phase = "armed" },
     armPassage(_pair, plan) { saved.plan = plan; return {ok: true} },
-    rehearsal: {elapsed: () => null, stop() {}, edit(plan) { heard.push(plan) }, play(plan) { auditions.push(plan); return Promise.resolve(true) }}}
+    rehearsal: {elapsed: () => null, stop() {}, stopListening() {}, edit(plan) { heard.push(plan) }, play(plan) { auditions.push(plan); return Promise.resolve(true) }}}
   const panel = mountRehearsal({root, engine, waves, tracks: {a, b}, hint: () => null, hasPhones: () => phones, waitingForNext: () => waiting})
   dialog.open = true
   panel.update()

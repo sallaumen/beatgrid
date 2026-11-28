@@ -53,12 +53,13 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
     value => renderPassageDifferences(differenceTable, value))
   const assist = mountCueAssist(dialog.querySelector("[data-cue-assist]"), {audition: tryEntry, refresh: update})
 
-  function stop() {
+  function stop(byHand = false) {
     request++
     const wasComparing = sequence !== null
     sequence = null
     pending = false
-    transport.stop()
+    if (byHand) transport.stopListening()
+    else transport.stop()
     comparison.select()
     if (wasComparing) draw()
   }
@@ -163,7 +164,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
     if (!next) return
     engine.editPassageMix()
     if (originalEntry != null) originalAudition = {key: draftKey(), curve: plan.blendCurve}
-    stop()
+    stop(true)
     plan = next
     if (originalEntry == null && originalAudition?.key === draftKey()) {
       blendReview.lock()
@@ -361,11 +362,11 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
     update()
   }
   dialog.querySelector("[data-close]").onclick = () => dialog.close()
-  dialog.onclose = () => { blendReview.lock(); stop(); assist.reset(); pair = plan = null }
+  dialog.onclose = () => { blendReview.lock(); stop(true); assist.reset(); pair = plan = null }
   dialog.onchange = e => {
     if (e.target.matches("[data-mix]")) return
     if (e.target === second) { comparison.clearSummary(); update(); return }
-    stop(); failure = ""; draw(); update()
+    stop(true); failure = ""; draw(); update()
   }
   for (const strip of strips) {
     const side = strip.dataset.side
@@ -414,7 +415,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
   }
 
   async function play(compare = false) {
-    if (sequence || transport.elapsed() !== null) { stop(); update(); return }
+    if (sequence || transport.elapsed() !== null) { stop(true); update(); return }
     failure = ""
     update()
     if (listen.disabled) return
@@ -448,7 +449,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
         pending = false
         if (sequence) {
           sequence = null
-          transport.stop()
+          transport.stopListening()
           if (compared) comparison.finishPair(kinds)
           else comparison.select()
           draw()
