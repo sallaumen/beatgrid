@@ -287,7 +287,10 @@ class Deck {
     this.wantsPlayback = true
     this.playPending = false
     this._pendingSeekMs = null
-    if (this.el.error) return
+    if (this.el.error) {
+      this._seekQueued = false
+      return
+    }
     this.whenReady(() => {
       if (this.playToken !== token || this.entry !== owner || this.el.error) return
       const head = owner.position()
@@ -2108,7 +2111,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     if (deck.loop.on && (targetMs < deck.loop.startMs || targetMs >= deck.loop.endMs)) clearLoop(deck)
     deck._cued = true
     deck._pendingSeekMs = targetMs
-    if (deck._seekQueued) return
+    // Keep a stopped record parked at its cue until a voice takes it.
+    // A failed media element will not send canplay for this load.
+    if ((!deck.entry && deck.el.error) || deck._seekQueued) return
     deck._seekQueued = true
     const seek = () => {
       deck._seekQueued = false
@@ -2836,9 +2841,14 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         deck._cued = true
       } else {
         this.resume()
+        if (deck.el.error) {
+          if (!playCachedCue(deck, deck.clampPosition(deck.cueMs / 1000))) return
+          deck.followRecording()
+        } else {
+          resumePlatter(deck, deck.resumeFromRecording, deck.cueMs)
+        }
         deck.cueState = "preview"
         deck._cued = true
-        resumePlatter(deck, deck.resumeFromRecording, deck.cueMs)
       }
     },
 
