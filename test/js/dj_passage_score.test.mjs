@@ -280,3 +280,19 @@ test("the silence of an effect and brief rests in an otherwise audible entry kee
     assert.notEqual(metric(result, "level").finding, "silent_tail")
   }
 })
+
+test("a soft passage reports its duration without calling the remaining music silent", () => {
+  const data = passage({kind: "cut", pause: 0.5})
+  const quiet = data.frames.filter(frame => frame.peak === 0)
+  for (const frame of quiet) Object.assign(frame, {rms: 0.003, peak: 0.009})
+  const measure = () => metric(scorePassage(data), "level")
+  assert.equal(measure().finding, "quiet_section")
+  assert.match(measure().value, /baixo por 500 ms/)
+  assert.equal(measure().state, "poor")
+
+  // A real mute surrounded by two quiet tails has its own, shorter duration.
+  for (const frame of quiet.slice(10, 36)) Object.assign(frame, {rms: 0, peak: 0})
+  assert.equal(measure().finding, "gap")
+  assert.equal(measure().value, "Silêncio de 260 ms")
+  assert.equal(measure().state, "watch")
+})
