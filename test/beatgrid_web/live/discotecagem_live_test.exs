@@ -105,6 +105,22 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
            )
   end
 
+  test "the rehearsal title and close button stay outside the scrolling controls", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/discotecagem")
+
+    dialog = "dialog#dj-rehearse-dialog[aria-labelledby=dj-rehearse-title]"
+    assert has_element?(view, "#{dialog} > header #dj-rehearse-title", "Ensaiar a próxima")
+
+    assert has_element?(
+             view,
+             ~s(#{dialog} > header button[data-close][aria-label="Fechar ensaio"])
+           )
+
+    assert has_element?(view, "#{dialog} > .overflow-y-auto canvas[data-wave=out]")
+    assert has_element?(view, "#{dialog} > .overflow-y-auto button[data-replay-final]")
+    assert has_element?(view, "#{dialog} > .overflow-y-auto button[data-arm]")
+  end
+
   test "rehearsing opens a private comparison without binding a live transition", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/discotecagem")
 
