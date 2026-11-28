@@ -53,7 +53,9 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
   const differenceTable = dialog.querySelector("#dj-heard-differences")
   const comparison = mountPassageComparison(score, [...dialog.querySelectorAll("[data-score-for]")], kind, name,
     value => renderPassageDifferences(differenceTable, value))
-  const assist = mountCueAssist(dialog.querySelector("[data-cue-assist]"), {audition: tryEntry, refresh: update})
+  const assist = mountCueAssist(dialog.querySelector("[data-cue-assist]"), {
+    manual: dialog.querySelector("[data-cue-manual]"), audition: tryEntry, refresh: update
+  })
 
   // At most one small revision marker per transition; never retain its decoded audio.
   const edited = new Map()
@@ -172,7 +174,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
     const next = withEntry(entry, originalEntry)
     if (!next) return
     engine.editPassageMix()
-    if (originalEntry != null) originalAudition = {key: draftKey(), curve: plan.blendCurve}
+    if (originalEntry != null && plan.originalEntry == null) originalAudition = {key: draftKey(), curve: plan.blendCurve}
     stop(true)
     plan = next
     if (originalEntry == null && originalAudition?.key === draftKey()) {

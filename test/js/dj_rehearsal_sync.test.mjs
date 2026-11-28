@@ -16,7 +16,7 @@ function control() {
     }}
 }
 
-async function privateTake(t, outBpm = 133.01, intoBpm = 133.01) {
+async function privateTake(t, outBpm = 133.01, intoBpm = 133.01, analysisAudio = null) {
   const root = control(), dialog = root.querySelector("dialog"), strip = control()
   const second = dialog.querySelector("[data-compare-with]")
   second.options = [["cut", "Corte"], ["blend", "Mistura"], ["bass_swap", "Troca de graves"]]
@@ -29,15 +29,16 @@ async function privateTake(t, outBpm = 133.01, intoBpm = 133.01) {
   globalThis.ResizeObserver = class { observe() {} disconnect() {} }
   t.after(() => { delete globalThis.ResizeObserver; delete globalThis.window })
   t.mock.method(globalThis, "fetch", async () => new Response(new ArrayBuffer(1)))
-  const audio = {duration: 12, numberOfChannels: 1, sampleRate: 50, getChannelData: () => new Float32Array(600)}
+  const audio = analysisAudio ?? {duration: 12, numberOfChannels: 1, sampleRate: 50, getChannelData: () => new Float32Array(600)}
   const decode = {decodeAudioData: async () => audio}
-  const a = {id: "sync-out"}, b = {id: "sync-in"}
+  const prefix = analysisAudio ? "analysis" : "sync"
+  const a = {id: prefix + "-out"}, b = {id: prefix + "-in"}
   const waves = {a: await loadPeaks(a.id, a.id, decode), b: await loadPeaks(b.id, b.id, decode)}
   const deck = (playing, bpm) => ({bpm, el: {}, loadToken: 1, audible: () => playing,
     positionMs: () => 1000, platterTime: () => 1, ready: () => true})
   const mix = {out: {...neutralMix, rate: .97}, into: {...neutralMix, rate: .97}}
   const saved = {pair: {from: "a", to: "b", fromLoad: 1, toLoad: 1}, kind: "cut",
-    phase: "confirmed", exitMs: 7000, plan: planRehearsal(audio, audio, 7, 1, 133.01, mix)}
+    phase: "confirmed", exitMs: 7000, plan: planRehearsal(audio, audio, 7, 1, outBpm, mix)}
   const heard = [], auditions = []
   let phones = true, waiting = false
   const engine = {ctx: {resume: async () => {}}, decks: {a: deck(true, outBpm), b: deck(false, intoBpm)}, audibleDeck: () => "a",
@@ -292,4 +293,71 @@ test("a completed headphone comparison lets the DJ pick either heard version bef
   adjust(81)
   fixture.panel.update()
   assert.equal(other.hidden, true)
+})
+
+test("repeated private attack edits keep the audible deck, saved CUE and original blend curve", async t => {
+  const {panel, dialog, engine, saved, auditions, setWaiting} = await privateTake(t, null, null)
+  const original = saved.plan
+  const curve = {correlation: .35, maxGain: 1.12}
+  saved.plan = {...original, blendCurve: curve}
+  setWaiting(true)
+  setWaiting(false)
+  const manual = dialog.querySelector("[data-cue-manual]")
+  const earlier = manual.querySelector("[data-cue-step=earlier]")
+  const later = manual.querySelector("[data-cue-step=later]")
+  const originalCue = engine.decks.b.platterTime()
+  for (let i = 0; i < 3; i++) earlier.onclick()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(auditions.length, 1)
+  assert.ok(Math.abs(auditions[0].inStart - original.inStart - 3 * .025 * original.mix.into.rate) < 1e-12)
+  assert.equal(saved.plan.inStart, original.inStart)
+  assert.equal(saved.plan.blendCurve, curve)
+  assert.equal(engine.decks.b.platterTime(), originalCue)
+  for (let i = 0; i < 3; i++) later.onclick()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(auditions.length, 2)
+  assert.equal(auditions.at(-1).inStart, original.inStart)
+  assert.equal(auditions.at(-1).blendCurve, curve)
+  assert.equal(auditions.at(-1).originalEntry, undefined)
+  earlier.onclick()
+  await new Promise(resolve => setImmediate(resolve))
+  panel.update()
+  dialog.querySelector("[data-arm]").onclick()
+  assert.equal(saved.plan.inStart, auditions.at(-1).inStart)
+  assert.equal(engine.decks.b.platterTime(), originalCue)
+})
+
+test("refining an automatic CUE during playback returns to the saved curve on restore", async t => {
+  const samples = new Float32Array(16 * 12000)
+  const audio = {duration: 16, numberOfChannels: 1, sampleRate: 12000, length: samples.length,
+    getChannelData: () => samples, copyFromChannel: (dest, _, start) => dest.set(samples.subarray(start, start + dest.length))}
+  globalThis.Worker = class {
+    postMessage() { queueMicrotask(() => this.onmessage({data: {entry: 1.1, wallDelta: .1}})) }
+    terminate() {}
+  }
+  t.after(() => { delete globalThis.Worker })
+  const fixture = await privateTake(t, 120, 120, audio)
+  const {dialog, saved} = fixture
+  const {plays, listen, settle} = interactiveTake(t, fixture)
+  const curve = saved.plan.blendCurve = {gain: 1.2}
+  const assist = dialog.querySelector("[data-cue-assist]")
+  assist.querySelector("[data-cue-check]").onclick()
+  await settle()
+  assist.querySelector("[data-cue-try]").onclick()
+  await settle()
+  assert.equal(plays.at(-1).plan.inStart, 1.1)
+  const earlier = dialog.querySelector("[data-cue-manual]").querySelector("[data-cue-step=earlier]")
+  earlier.onclick()
+  earlier.onclick()
+  earlier.onclick()
+  await settle()
+  assert.equal(plays.length, 2)
+  assert.equal(plays.at(-1).plan.originalEntry, 1)
+  assert.equal(saved.plan.inStart, 1)
+  assist.querySelector("[data-cue-restore]").onclick()
+  await settle()
+  assert.equal(plays.length, 3)
+  assert.equal(plays.at(-1).plan.inStart, 1)
+  assert.equal(plays.at(-1).plan.blendCurve, curve)
+  await listen.onclick()
 })
