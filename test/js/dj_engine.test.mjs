@@ -138,6 +138,65 @@ for (const [fromId, mode] of [["a", "auto"], ["b", "manual"]]) {
   })
 }
 
+for (const [i, type] of ["bass_swap", "crossfade", "fade", "echo", "filter", "lowpass"].entries()) {
+  test(`${type} plays the cached incoming cue when the native clock stops after play`, async t => {
+    const id = "stalled-cue-" + type
+    const {engine, a, b, hint, advances} = await scratchBooth(t, id, 2)
+    const toId = i % 2 ? "a" : "b"
+    const from = toId === "b" ? a : b
+    if (toId === "a") {
+      engine.stopAll()
+      engine.loadDeck("b", {id: "out", src: "out", bpm: 120}, {autoplay: true})
+    }
+    hint({type, from_ms: 48_000, to_ms: 740}, id)
+    if (i % 2) {
+      engine.cueTo(toId, 1880)
+      assert.equal(engine.fireManual(type).ok, true)
+    } else from.at(48)
+    await Promise.resolve()
+    const cue = i % 2 ? 1880 : 740
+    assert.equal(engine.decks[toId].el.currentTime, cue / 1000)
+    const now = engine.ctx.currentTime
+    engine.ctx.currentTime = now + 0.4
+    assert.equal(engine.decks[toId].positionMs(), cue + 400)
+    engine.ctx.currentTime = now
+    assert.equal(advances.length, 1)
+    assert.equal(advances[0].type, type)
+  })
+}
+
+test("ordinary transitions keep the accepted native entry if its cached source cannot start", async t => {
+  const id = "declined-warm-effect"
+  const {engine, hint, b, advances} = await scratchBooth(t, id)
+  hint({type: "bass_swap", from_ms: 48_000, to_ms: 740}, id)
+  t.mock.method(engine.ctx, "createBufferSource", () => { throw Error("audio allocation refused") })
+  engine.fireManual("bass_swap")
+  await Promise.resolve()
+  b.at(1.35)
+  assert.equal(engine.decks.b.positionMs(), 1350)
+  assert.equal(engine.decks.b.audible(), true)
+  assert.equal(engine.decks.b.mediaGain.gain.value, 1)
+  assert.deepEqual(advances.map(e => e.type), ["bass_swap"])
+})
+
+test("a breather keeps its silence and then plays the cached cue if the native clock stalls", async t => {
+  const id = "stalled-breather-cue"
+  const {engine, a, b, hint, breath, advances, tick} = await scratchBooth(t, id)
+  hint(breath, id)
+  a.end()
+  tick(2499)
+  assert.equal(b.plays, 0)
+  assert.equal(engine.decks.b.entry, null)
+  tick(1)
+  await Promise.resolve()
+  const now = engine.ctx.currentTime
+  engine.ctx.currentTime = now + .5
+  assert.equal(engine.decks.b.positionMs(), 1000)
+  engine.ctx.currentTime = now
+  assert.equal(b.currentTime, .5)
+  assert.deepEqual(advances.map(e => e.toTrackId), [id])
+})
+
 test("a cold native cut keeps the outgoing signal through its fader ramp, including a musical rest", async t => {
   const {engine, a, b, hint, tick, advances} = booth(t)
   hint({type: "cut", from_ms: 48_000}, "no-decoded-stereo")
