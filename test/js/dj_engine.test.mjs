@@ -3753,7 +3753,23 @@ for (const id of ["a", "b"]) {
     engine.jogTurn(id, 5, 112)
     engine.jogTurn(id, -9, 124)
     const underHand = engine.scratchPosSec(id)
+    let entryGain, voiceStart
+    const create = engine.ctx.createBufferSource.bind(engine.ctx)
+    t.mock.method(engine.ctx, "createBufferSource", () => {
+      const source = create()
+      source.connect = output => {
+        entryGain = output.gain
+        t.mock.method(entryGain, "setValueAtTime")
+        t.mock.method(entryGain, "linearRampToValueAtTime")
+      }
+      source.start = (when, offset) => { voiceStart = {when, offset} }
+      return source
+    })
     engine.jogTouch(id, false, 136)
+    const now = engine.ctx.currentTime
+    assert.deepEqual(voiceStart, {when: now, offset: underHand})
+    assert.deepEqual(entryGain.setValueAtTime.mock.calls.map(call => call.arguments), [[0, now]])
+    assert.deepEqual(entryGain.linearRampToValueAtTime.mock.calls.map(call => call.arguments), [[1, now + .004]])
     assert.equal(commands.at(-1).type, "stop")
     assert.ok(Math.abs(deck.platterTime() - underHand) < .001)
     engine.ctx.currentTime += .25
