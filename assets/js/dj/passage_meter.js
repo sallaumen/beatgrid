@@ -33,11 +33,14 @@ function copyRing(ring, from, length) {
 class PassageMeter extends AudioWorkletProcessor {
   constructor(options) {
     super()
-    const {start, end, historySeconds} = options.processorOptions
+    const {start, end, historySeconds, monitorPeak} = options.processorOptions
     this.rolling = historySeconds > 0
     this.start = this.rolling ? currentFrame : Math.round(start * sampleRate)
     this.end = this.rolling ? Infinity : Math.round(end * sampleRate)
     this.hop = Math.max(1, Math.round(sampleRate / 100))
+    this.peakPeriod = this.rolling && monitorPeak ? Math.max(1, Math.round(sampleRate / this.hop / 2)) : 0
+    this.peakSince = 0
+    this.lastPeakDbtp = null
     const samples = this.rolling ? historySeconds * sampleRate : this.end - this.start
     this.frames = new Float32Array(3 * Math.ceil(samples / this.hop))
     this.truePeaks = new Float32Array(this.frames.length / 3)
@@ -51,7 +54,10 @@ class PassageMeter extends AudioWorkletProcessor {
     this.window = null
     this.port.onmessage = ({data}) => {
       if (!this.rolling || data === "stop") this.finished = true
-      else this.window = data
+      else if (data === "resetPeak") {
+        this.peakSince = this.used / 3
+        this.lastPeakDbtp = null
+      } else this.window = data
     }
   }
 
@@ -86,6 +92,7 @@ class PassageMeter extends AudioWorkletProcessor {
         this.truePeaks[k / 3] = Math.max(this.peak, this.truePeak)
         this.frames[k + 2] = Math.max(0, rms - this.lastRms) + 2 * Math.max(0, high - this.lastHigh)
         this.used += 3
+        if (this.peakPeriod && this.used / 3 % this.peakPeriod === 0) this.publishRecentPeak()
         this.lastRms = rms
         this.lastHigh = high
         this.count = this.power = this.high = this.peak = this.truePeak = 0
@@ -102,6 +109,19 @@ class PassageMeter extends AudioWorkletProcessor {
       truePeaks: this.truePeaks.subarray(0, this.used / 3), frameSeconds: this.hop / sampleRate},
       [this.frames.buffer, this.truePeaks.buffer])
     return false
+  }
+
+  // Reuse the stereo peaks already in the ring. Update at most twice a second,
+  // holding a brief over long enough to read without repeating a steady value.
+  publishRecentPeak() {
+    const end = this.used / 3
+    const from = Math.max(this.peakSince, end - Math.min(8 * this.peakPeriod, this.truePeaks.length))
+    let peak = 0
+    for (let i = from; i < end; i++) peak = Math.max(peak, this.truePeaks[i % this.truePeaks.length])
+    const peakDbtp = peak > 1 ? Math.round(200 * Math.log10(peak)) / 10 : null
+    if (peakDbtp === this.lastPeakDbtp) return
+    this.lastPeakDbtp = peakDbtp
+    this.port.postMessage({peakDbtp})
   }
 
   publishWindow() {
@@ -179,8 +199,19 @@ export function measurePassage(ctx, input, window, report) {
 
 // Keep 10 ms summaries in the render thread so a manual cut can look back at
 // the music already heard. The longest crossfade is 20 s, with 4 s on each side.
-export function createProgramMeter(ctx, input) {
-  let node, opening, pending, serial = 0
+export function createProgramMeter(ctx, input, onPeak) {
+  let node, opening, pending, serial = 0, recentPeak = null
+
+  function showPeak(value) {
+    if (value === recentPeak) return
+    recentPeak = value
+    onPeak?.(value)
+  }
+
+  function onClockChange() {
+    if (ctx.state === "running") node?.port.postMessage("resetPeak")
+    else showPeak(null)
+  }
 
   function cancel() {
     if (!pending) return
@@ -200,8 +231,10 @@ export function createProgramMeter(ctx, input) {
 
   function stop() {
     cancel()
+    showPeak(null)
     opening = null
     if (!node) return
+    if (onPeak) ctx.removeEventListener("statechange", onClockChange)
     try { input.disconnect(node) } catch { /* The device may have detached the input. */ }
     node.port.postMessage("stop")
     node.port.close()
@@ -214,10 +247,16 @@ export function createProgramMeter(ctx, input) {
     const scheduled = preparePassageMeter(ctx).then(available => {
       if (!available || opening !== scheduled) return
       node = new AudioWorkletNode(ctx, "beatgrid-passage-meter", {numberOfInputs: 1, numberOfOutputs: 0,
-        processorOptions: {historySeconds: 32}})
-      node.port.onmessage = ({data}) => { if (pending?.id === data.id) finish(data) }
+        processorOptions: {historySeconds: 32, monitorPeak: Boolean(onPeak)}})
       const active = node
+      node.port.onmessage = ({data}) => {
+        if (node !== active) return
+        if ("peakDbtp" in data) {
+          if (ctx.state === "running") showPeak(data.peakDbtp)
+        } else if (pending?.id === data.id) finish(data)
+      }
       node.onprocessorerror = () => { if (node === active) { finish(null); stop() } }
+      if (onPeak) ctx.addEventListener("statechange", onClockChange)
       input.connect(node)
     }).catch(() => { if (opening === scheduled) stop() }).finally(() => {
       if (opening === scheduled) opening = null

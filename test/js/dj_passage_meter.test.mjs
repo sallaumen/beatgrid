@@ -108,3 +108,57 @@ test("both the private and rolling meters see an inter-sample over on either cle
     assert.ok(Array.from(result.truePeaks).every(p => 20 * Math.log10(p) > 1.1 && 20 * Math.log10(p) < 1.55))
   }
 })
+
+test("only the room announces recent true peaks, coalescing steady overs and clearing after four seconds", () => {
+  for (const channel of [0, 1]) {
+    let Meter
+    const reports = []
+    const sampleRate = 48000
+    const scope = {sampleRate, currentFrame: 0, AudioWorkletProcessor: class {
+      port = {postMessage(value) { reports.push({at: scope.currentFrame / sampleRate, ...value}) }}
+    }, registerProcessor(_, type) { Meter = type }}
+    vm.runInNewContext(METER_PROCESSOR, scope)
+    const tap = new Meter({processorOptions: {historySeconds: 32, monitorPeak: true}})
+    const signal = [new Float32Array(128), new Float32Array(128)]
+    // Sample peaks stay below 0 dBFS. Only one side has a reconstructed over.
+    for (let at = 0; at < sampleRate * 7; at += 128) {
+      scope.currentFrame = at
+      for (let i = 0; i < 128; i++) signal[channel][i] =
+        (.25 + .91 * Math.max(0, Math.min(1, (2 - (at + i) / sampleRate) * 100))) * Math.sin(Math.PI / 2 * (at + i + .5))
+      tap.process([signal])
+    }
+    assert.equal(reports.length, 2, "one warning and one recovery, including sustained overs")
+    assert.ok(reports[0].peakDbtp > 1 && reports[0].peakDbtp < 1.6)
+    assert.ok(reports[0].at < 0.51)
+    assert.equal(reports[1].peakDbtp, null)
+    assert.ok(reports[1].at >= 5.9 && reports[1].at < 6.52)
+  }
+})
+
+test("resuming the room forgets the old warning but preserves the score window and hears another over", () => {
+  let Meter
+  const messages = []
+  const scope = {sampleRate: 1000, currentFrame: 0, AudioWorkletProcessor: class {
+    port = {postMessage(value) { messages.push(value) }}
+  }, registerProcessor(_, type) { Meter = type }}
+  vm.runInNewContext(METER_PROCESSOR, scope)
+  const tap = new Meter({processorOptions: {historySeconds: 32, monitorPeak: true}})
+  function renderUntil(at, amplitude) {
+    while (scope.currentFrame < at) {
+      const s = new Float32Array(10).fill(amplitude)
+      tap.process([[s]])
+      scope.currentFrame += 10
+    }
+  }
+  renderUntil(400, 1.1)
+  renderUntil(500, 0)
+  assert.ok(messages[0].peakDbtp > 0)
+  tap.port.onmessage({data: {id: 2, start: 0, end: .75}})
+  tap.port.onmessage({data: "resetPeak"})
+  renderUntil(1200, 0)
+  assert.equal(messages.length, 2, "nothing from the old room is announced after resume")
+  assert.equal(messages[1].id, 2)
+  assert.ok(Math.max(...messages[1].truePeaks) > 1, "the pending score preserves its original peaks")
+  renderUntil(1600, 1.1)
+  assert.ok(messages[2].peakDbtp > 0)
+})

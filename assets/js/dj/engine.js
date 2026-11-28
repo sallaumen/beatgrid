@@ -673,7 +673,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
   let roomAvailable = true
   let roomEnd = null // a single unheard boundary, cleared when the DJ takes over
-  const programMeter = callbacks.programScore && createProgramMeter(ctx, masterAnalyser)
+  const programMeter = (callbacks.programScore || callbacks.programPeak) &&
+    createProgramMeter(ctx, masterAnalyser, callbacks.programPeak)
   let roomReading = null
   function cancelRoomReading() {
     roomReading?.cancel()

@@ -3895,3 +3895,36 @@ test("a failed CUE voice can be released and retried on the same cached record",
   engine.cueButton("b", false)
   assert.deepEqual(errors, [{trackId: id, deck: "b", wasPlaying: false}])
 })
+
+test("a room over clears on unplug, pause and stop without returning on a stale device packet", async t => {
+  const notices = [], taps = []
+  class Tap extends AudioNodeStub {
+    port = {postMessage() {}, close() {}}
+    constructor(ctx, name, options) {
+      super()
+      if (options.processorOptions?.monitorPeak) taps.push(this)
+    }
+  }
+  const previous = globalThis.AudioWorkletNode
+  globalThis.AudioWorkletNode = Tap
+  t.after(() => { if (previous) globalThis.AudioWorkletNode = previous; else delete globalThis.AudioWorkletNode })
+  const {a, engine} = booth(t, {programPeak: peak => notices.push(peak)})
+  engine.ctx.state = "running"
+  a.dispatchEvent(new Event("playing"))
+  await new Promise(resolve => setImmediate(resolve))
+  const oldRoom = taps[0].port.onmessage
+  const over = {data: {peakDbtp: 1.7}}
+  oldRoom(over)
+  engine.setRoomOutputAvailable(false)
+  oldRoom(over)
+  engine.setRoomOutputAvailable(true)
+  await new Promise(resolve => setImmediate(resolve))
+  taps[1].port.onmessage(over)
+  engine.pauseAll()
+  engine.playPause("a")
+  a.dispatchEvent(new Event("playing"))
+  await new Promise(resolve => setImmediate(resolve))
+  taps[2].port.onmessage(over)
+  engine.stopAll()
+  assert.deepEqual(notices, [1.7, null, 1.7, null, 1.7, null])
+})

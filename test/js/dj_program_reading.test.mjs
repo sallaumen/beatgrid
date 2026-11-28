@@ -75,3 +75,41 @@ test("a route removed during registration never connects a tap to the old output
   history.read("cut", .008, 120, data => { reading = data })
   assert.equal(reading, null)
 })
+
+test("room peak changes survive a score request and clear immediately when its route closes", async t => {
+  let tap
+  const previous = globalThis.AudioWorkletNode
+  globalThis.AudioWorkletNode = class {
+    port = {postMessage() {}, close() {}}
+    constructor(_, name, options) { tap = this; this.options = options }
+    disconnect() {}
+  }
+  t.after(() => { if (previous) globalThis.AudioWorkletNode = previous; else delete globalThis.AudioWorkletNode })
+  const shown = [], readings = []
+  const ctx = Object.assign(new EventTarget(), {state: "running", currentTime: 10, audioWorklet: {addModule: async () => {}}})
+  const history = createProgramMeter(ctx, {connect() {}, disconnect() {}}, db => shown.push(db))
+  await history.start()
+  assert.equal(tap.options.processorOptions.monitorPeak, true)
+  const first = tap.port.onmessage
+  history.read("cut", .01, 120, result => readings.push(result))
+  first({data: {peakDbtp: 1.2}})
+  first({data: {peakDbtp: .4}})
+  history.cancel()
+  assert.deepEqual(readings, [])
+  assert.deepEqual(shown, [1.2, .4])
+  history.stop()
+  history.stop()
+  await history.start()
+  first({data: {peakDbtp: 2.1}})
+  assert.deepEqual(shown, [1.2, .4, null], "late packets from the former room must stay silent")
+  tap.port.onmessage({data: {peakDbtp: .1}})
+  ctx.state = "interrupted"
+  ctx.dispatchEvent(new Event("statechange"))
+  tap.port.onmessage({data: {peakDbtp: 2.1}})
+  assert.deepEqual(shown, [1.2, .4, null, .1, null], "an interrupted audio clock cannot keep or replay an old warning")
+  ctx.state = "running"
+  ctx.dispatchEvent(new Event("statechange"))
+  tap.port.onmessage({data: {peakDbtp: .1}})
+  tap.onprocessorerror()
+  assert.deepEqual(shown, [1.2, .4, null, .1, null, .1, null])
+})
