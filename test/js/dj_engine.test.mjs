@@ -3626,3 +3626,43 @@ test("a replacement track keeps its own CUE transport and a missed recording all
   assert.equal(deck.entry, null)
   assert.equal(b.paused, false)
 })
+
+for (const id of ["a", "b"]) {
+  test(`the scratch pad returns deck ${id} to its recording even when its backup was paused`, async t => {
+    const track = "pad-owner-" + id
+    const {engine} = await scratchBooth(t, track, 2)
+    engine.stopAll()
+    engine.loadDeck(id, {id: track, src: track}, {autoplay: true})
+    const deck = engine.decks[id]
+    deck.playDecoded(getDeckAudio(track), 1.2)
+    deck.el.pause()
+    engine.ctx.currentTime += .45
+    const center = deck.platterTime()
+    assert.deepEqual(engine.startAutoScratch(id, "baby"), {ok: true})
+    assert.equal(engine.scratchPosSec(id), center)
+    engine.ctx.currentTime += .3
+    engine.stopAutoScratch(id)
+    engine.ctx.currentTime += .25
+    assert.ok(Math.abs(deck.platterTime() - center - .25) < .001)
+    assert.equal(deck.mediaGain.gain.value, 0)
+  })
+}
+
+for (const missing of ["processor", "samples"]) {
+  test(`a pad waiting for its ${missing} leaves the current recording playing`, async t => {
+    const cached = "pad-arriving-" + missing
+    const {engine} = await scratchBooth(t, cached, 2, {}, () => {
+      if (missing === "processor") delete globalThis.AudioWorkletNode
+    })
+    const id = missing === "samples" ? "waiting-waveform" : cached
+    engine.loadDeck("b", {id, src: id}, {autoplay: true})
+    const deck = engine.decks.b
+    deck.playDecoded(getDeckAudio(cached), 1)
+    deck.el.pause()
+    const voice = deck.entry
+    assert.deepEqual(engine.startAutoScratch("b", "baby"), {ok: false, reason: "not_ready"})
+    assert.equal(deck.entry, voice)
+    engine.ctx.currentTime += .7
+    assert.ok(Math.abs(deck.platterTime() - 1.7) < .001)
+  })
+}

@@ -1997,19 +1997,20 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     const s = scratch[deckId]
     const deck = decks[deckId]
     s.fromRecording = fromRecording
-    deck.useMedia()
     if (!s.node || deck.trackId == null) return false
     // Every arm begins with a stop: if any race ever ate a session's "stop",
     // the worklet would still hold its stale read head — this guarantees the
     // arming scrub lands on an inactive worklet and resets the head. (Callers
     // must only arm decks they own; a live session's audio dies here.)
     s.node.port.postMessage({type: "stop"})
-    if (s.loaded === deck.trackId) return true
-    const pcm = getScratchPcm(deck.trackId)
-    if (!pcm) return false // not decoded yet — the waveform load fills the cache
-    const copy = pcm.slice()
-    s.node.port.postMessage({type: "load", pcm: copy}, [copy.buffer])
-    s.loaded = deck.trackId
+    if (s.loaded !== deck.trackId) {
+      const pcm = getScratchPcm(deck.trackId)
+      if (!pcm) return false // the waveform load fills the cache
+      const copy = pcm.slice()
+      s.node.port.postMessage({type: "load", pcm: copy}, [copy.buffer])
+      s.loaded = deck.trackId
+    }
+    deck.useMedia()
     return true
   }
 
@@ -2214,6 +2215,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     // (mid-run its outgoing deck is paused, so the pad's "idle deck" pick can
     // land here). Refuse — arming would kill its audio and split its fader.
     if (scratch[deckId].active) return {ok: false, reason: "busy"}
+    const wasPlaying = deck.audible()
     if (!scratchArm(deckId)) return {ok: false, reason: "not_ready"}
     const s = scratch[deckId]
     const center = deck.platterTime() * sr
@@ -2225,7 +2227,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       lastT: ctx.currentTime,
       savedXfade: xfade.pos,
       faderVersion,
-      wasPlaying: deck.audible(),
+      wasPlaying,
       timer: null,
     }
     autoScratch[deckId] = a
