@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import {decode, isControllerPort} from "../../assets/js/dj/midi_map.js"
+import {decode, isControllerPort, repeatedFader} from "../../assets/js/dj/midi_map.js"
 
 test("both tempo faders have exact neutral at the middle and keep their direction", () => {
   for (const [ch, deck] of [[0xb0, "a"], [0xb1, "b"]]) {
@@ -33,5 +33,24 @@ test("LOAD and CUE each route presses and both MIDI release encodings to the cor
   }
   for (const value of [0, 64, 127]) {
     assert.deepEqual(decode([0xbf, 8, value]), {type: "crossfader", value: value / 127})
+  }
+})
+
+test("resting faders repeat a position per input, while turns and button edges remain gestures", () => {
+  const port = new Map()
+  const repeats = (...bytes) => repeatedFader(decode(bytes), port)
+  assert.equal(repeats(0xb0, 9, 64), false)
+  assert.equal(repeats(0xb1, 9, 64), false)
+  assert.equal(repeats(0xb0, 9, 63), true)
+  assert.equal(repeats(0xb1, 9, 64), true)
+  assert.equal(repeats(0xb0, 9, 60), false)
+  assert.equal(repeats(0xb0, 9, 64), false)
+  assert.equal(repeats(0xbf, 8, 0), false)
+  assert.equal(repeats(0xbf, 8, 0), true)
+  assert.equal(repeats(0xbf, 8, 1), false)
+  assert.equal(repeatedFader(decode([0xbf, 8, 1]), new Map()), false)
+  for (const msg of [[0xb0, 6, 2], [0x90, 1, 127], [0x80, 1, 0], [0xbf, 0x0c, 64]]) {
+    assert.equal(repeats(...msg), false)
+    assert.equal(repeats(...msg), false)
   }
 })
