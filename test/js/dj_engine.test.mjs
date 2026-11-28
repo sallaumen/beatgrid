@@ -477,7 +477,8 @@ test("a breather echo leaves headroom when every delayed repeat lands in phase",
 })
 
 test("a breather echo closes the old delay before counting the full silence", async t => {
-  const {engine, a, b, hint, breath, tick, advances} = booth(t)
+  const readings = []
+  const {engine, a, b, hint, breath, tick, advances} = booth(t, {programScore: data => readings.push(data)})
   hint(breath)
   a.at(56)
   const previousDelay = engine.decks.a.delay
@@ -492,6 +493,7 @@ test("a breather echo closes the old delay before counting the full silence", as
   assert.equal(b.plays, 1)
   await Promise.resolve()
   assert.deepEqual(advances.map(x => x.toTrackId), ["two"])
+  assert.deepEqual(readings, [])
 })
 
 test("an already ringing deck also clears its echoes when the AUTO window was missed", t => {
