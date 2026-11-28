@@ -178,20 +178,33 @@ export function createRehearsal(ctx, phones, pfl) {
     return schedule(plan, kind, pan, skip, observe, keepPhones, null)
   }
 
+  function heardPosition(take, side, time) {
+    const channel = take?.channels[side]
+    if (!channel || time < channel.at) return null
+    return channel.offset + (time - channel.at) * take.plan.mix[side].rate
+  }
+
+  function editedTime(previous, plan, kind, at) {
+    if (at < previous.change) {
+      return (heardPosition(previous, "out", at) - plan.outStart) / plan.mix.out.rate
+    }
+    // Keep the faders at the fraction already heard. After the overlap, only
+    // the incoming deck remains, even if the new pitch made the blend longer.
+    const elapsed = at - previous.change
+    const before = rehearsalOverlap(previous.plan, previous.kind)
+    const after = rehearsalOverlap(plan, kind)
+    if (elapsed >= before) return plan.lead + after + (elapsed - before)
+    return plan.lead + after * elapsed / before
+  }
+
   function schedule(plan, kind, pan, skip, observe, keepPhones, previous, retryLead = null) {
     try {
       // Both sources and their automation must reach the render thread before their shared start.
       const setupStart = ctx.currentTime
       const guard = 256 / ctx.sampleRate // Two render quanta left for the audio thread.
       const playAt = setupStart + (retryLead ?? 3 * guard)
-      let from = Math.max(0, skip)
-      if (previous) {
-        const before = previous.plan, position = Math.max(previous.from, playAt - previous.start)
-        from = position < before.lead
-          ? (recordTime(before, "out", position) - plan.outStart) / plan.mix.out.rate
-          : plan.lead + (recordTime(before, "into", position) - plan.inStart) / plan.mix.into.rate
-        from = Math.max(0, from)
-      }
+      const handoff = previous ? Math.max(playAt, previous.playAt) : playAt
+      const from = previous ? editedTime(previous, plan, kind, handoff) : Math.max(0, skip)
       if (from >= plan.duration || (kind === "bass_swap" && !plan.fullBlend)) {
         release(previous)
         stop()
@@ -233,14 +246,14 @@ export function createRehearsal(ctx, phones, pfl) {
         eq.toneTreble.connect(channel)
         channel.connect(fader)
         fader.connect(level)
-        current.channels[side] = {eq, level: channel}
         const gain = rehearsalGains(plan, kind, at - start)[side === "out" ? 0 : 1]
         fader.gain.setValueAtTime(gain, at)
         if (change + fade > at) {
           scheduleBlend(fader.gain, kind === "blend" && plan.blendCurve, side === "out" ? 0 : 1, change, fade, at)
         }
         current.nodes.push(source, ...Object.values(eq), channel, fader)
-        const offset = Math.max(0, recordTime(plan, side, at - start))
+        const offset = heardPosition(previous, side, handoff) ?? Math.max(0, recordTime(plan, side, at - start))
+        current.channels[side] = {eq, level: channel, at, offset}
         if (oneEar) {
           const fold = connectHeadphoneFold(ctx, fader, monitor, buffer, at, offset, end - at, mix.rate)
           current.nodes.push(...fold)
@@ -281,7 +294,7 @@ export function createRehearsal(ctx, phones, pfl) {
   }
 
   function elapsed() {
-    return current ? Math.max(current.from, ctx.currentTime - current.start) : null
+    return current ? Math.max(0, current.from, ctx.currentTime - current.start) : null
   }
 
   function edit(plan, kind, pan) {
