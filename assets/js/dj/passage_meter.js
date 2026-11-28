@@ -245,10 +245,11 @@ export function observeRoomPassage(ctx, input, choice, deck, report, measure = m
   const now = ctx.currentTime
   const change = now + Math.max(0, choice.exitMs - deck.positionMs()) / (1000 * deck.playbackRate)
   const overlap = rehearsalOverlap(plan, kind)
+  const tail = plan.duration - plan.lead
   // Allow startup buffering on the media clock, then keep only what actually played.
   const guard = 1
   const window = {kind, change, overlap, bpm: deck.bpm * (plan.mix?.out.rate ?? deck.playbackRate),
-    start: Math.max(now, change - plan.lead - guard), end: change + overlap + 2 + guard}
+    start: Math.max(now, change - plan.lead - guard), end: change + tail + guard}
   let arrived = null, completed = false, stopped = false, capture
 
   function publish() {
@@ -260,7 +261,9 @@ export function observeRoomPassage(ctx, input, choice, deck, report, measure = m
     const wanted = arrived - plan.lead
     // A last-moment confirmation can only hear from the first quantum after it.
     const from = wanted <= now ? 0 : Math.round((wanted - first) / dt)
-    const to = Math.round((arrived + overlap + 2 - first) / dt)
+    // The headphone meter emits only whole frames of the audition, even for a short file.
+    const lead = Math.min(plan.lead, arrived - first)
+    const to = from + Math.floor((lead + tail) / dt + 1e-9)
     if (from < 0 || to > capture.frames.length || to <= from) return report(null)
     report({...capture, frames: capture.frames.slice(from, to), changeAt: arrived - (first + from * dt)})
   }
