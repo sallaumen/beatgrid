@@ -278,6 +278,21 @@ class Deck {
     })
   }
 
+  // The recording already owns audible playback. A buffering or stalled native
+  // backup can join silently at its current head while this load still owns it.
+  followRecording() {
+    const owner = this.entry, token = ++this.playToken
+    this.wantsPlayback = true
+    this.playPending = false
+    this._pendingSeekMs = null
+    this.whenReady(() => {
+      if (this.playToken !== token || this.entry !== owner) return
+      const head = owner.position()
+      if (this.el.currentTime !== head) this.el.currentTime = head
+      if (this.el.paused) this.el.play().catch(() => {})
+    })
+  }
+
   // The native transport opens behind both buses. Keep the platter parked at
   // the chosen cue while the outgoing record performs its gesture.
   primeDrop(cue) {
@@ -1970,10 +1985,11 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     .catch(() => {}) // no worklet → the jog falls back to the silent scrub below
 
   // Ship the current track's PCM to the deck's scratch node (once per track).
-  function scratchArm(deckId) {
-    decks[deckId].useMedia()
+  function scratchArm(deckId, fromRecording = !!decks[deckId].entry) {
     const s = scratch[deckId]
     const deck = decks[deckId]
+    s.fromRecording = fromRecording
+    deck.useMedia()
     if (!s.node || deck.trackId == null) return false
     // Every arm begins with a stop: if any race ever ate a session's "stop",
     // the worklet would still hold its stale read head — this guarantees the
@@ -2001,7 +2017,12 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       t: Number.isFinite(inputTime) ? inputTime : performance.now()})
   }
 
-  // Stop scratching: hand the position back to the media element and (maybe) run.
+  function resumeAfterScratch(deck) {
+    if (scratch[deck.id].fromRecording && playCachedCue(deck, deck.platterTime())) deck.followRecording()
+    else deck.play()
+  }
+
+  // Return the platter to the head last held by this load.
   function scratchEnd(deckId, resume) {
     const s = scratch[deckId]
     const deck = decks[deckId]
@@ -2010,7 +2031,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     if (s.node) s.node.port.postMessage({type: "stop"})
     if (s.token === deck.loadToken && deck.trackId != null) {
       placePlatter(deck, s.pos / sr)
-      if (resume) deck.play()
+      if (resume) resumeAfterScratch(deck)
     }
   }
 
@@ -2110,11 +2131,12 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       cancelBend(deckId)
       applyRate(deck)
       stopAutoScratch(deckId)
+      const fromRecording = !!deck.entry
       if (deck.audible() || deck.playPending) {
         deck.pause()
         j.resumeToken = deck.playToken
       }
-      if (scratchArm(deckId)) {
+      if (scratchArm(deckId, fromRecording)) {
         s.active = true
         s.token = deck.loadToken
         scratchScrub(deckId, deck.platterTime() * sr, inputTime)
@@ -2130,7 +2152,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       if (s.active) {
         scratchEnd(deckId, resume)
       } else if (resume) {
-        deck.play()
+        resumeAfterScratch(deck)
       }
       releaseDeck(deck)
     }

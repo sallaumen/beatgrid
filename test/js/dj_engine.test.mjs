@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import {createEngine} from "../../assets/js/dj/engine.js"
-import {loadPeaks} from "../../assets/js/dj/waveform.js"
+import {getDeckAudio, loadPeaks} from "../../assets/js/dj/waveform.js"
 import {watchRoomOutput} from "../../assets/js/dj/outputs.js"
 
 // Media events and the clock are controlled independently: decoding can stall
@@ -3478,4 +3478,78 @@ test("a fresh queue hint that lands after the audio beat cannot reset the incomi
   assert.equal(engine.decks.b.trackId, "two")
   tick(100)
   assert.equal(hint({type: "cut"}, "third"), "a")
+})
+
+for (const id of ["a", "b"]) {
+  test(`releasing the jog on deck ${id} resumes the audible record at the position under the hand`, async t => {
+    const track = "jog-resume-" + id
+    const {engine, commands} = await scratchBooth(t, track, 2)
+    engine.stopAll()
+    engine.loadDeck(id, {id: track, src: "music"}, {autoplay: true})
+    const deck = engine.decks[id]
+    engine.setVinylMode(id, true)
+    engine.setRate(id, 1.06)
+    deck.playDecoded(getDeckAudio(track), 2, engine.deckMix(id))
+    engine.ctx.currentTime += .5
+    const before = deck.platterTime()
+    assert.equal(deck.el.currentTime, 0)
+    engine.jogTouch(id, true, 100)
+    assert.ok(Math.abs(engine.scratchPosSec(id) - before) < .001)
+    engine.jogTurn(id, 5, 112)
+    engine.jogTurn(id, -9, 124)
+    const underHand = engine.scratchPosSec(id)
+    engine.jogTouch(id, false, 136)
+    assert.equal(commands.at(-1).type, "stop")
+    assert.ok(Math.abs(deck.platterTime() - underHand) < .001)
+    engine.ctx.currentTime += .25
+    assert.ok(Math.abs(deck.platterTime() - underHand - .25 * 1.06) < .001)
+    assert.equal(deck.mediaGain.gain.value, 0)
+  })
+}
+
+test("the released platter can play while its native backup buffers, and a late canplay follows its current head", async t => {
+  const id = "jog-buffering"
+  const {engine, b} = await scratchBooth(t, id)
+  engine.loadDeck("b", {id, src: "music"}, {autoplay: true})
+  const deck = engine.decks.b
+  deck.playDecoded(getDeckAudio(id), 2)
+  engine.jogTouch("b", true)
+  engine.jogTurn("b", 3)
+  const head = engine.scratchPosSec("b")
+  b.readyState = 2
+  engine.jogTouch("b", false)
+  engine.ctx.currentTime += .5
+  assert.ok(Math.abs(deck.platterTime() - head - .5) < .001)
+  b.ready()
+  assert.ok(Math.abs(b.currentTime - head - .5) < .001)
+  assert.equal(deck.mediaGain.gain.value, 0)
+
+  engine.jogTouch("b", true)
+  b.readyState = 2
+  engine.jogTouch("b", false)
+  engine.stopAll()
+  const plays = b.plays
+  b.ready()
+  assert.equal(b.plays, plays)
+  assert.equal(deck.entry, null)
+})
+
+test("a jogged native player stays native and an unavailable return voice falls back to it", async t => {
+  const id = "jog-native-backup"
+  const {engine, b} = await scratchBooth(t, id)
+  engine.loadDeck("b", {id, src: "music"}, {autoplay: true})
+  const deck = engine.decks.b
+  for (const wasDecoded of [false, true]) {
+    if (wasDecoded) {
+      deck.playDecoded(getDeckAudio(id), 2)
+      t.mock.method(engine.ctx, "createBufferSource", () => { throw new Error("voice unavailable") })
+    }
+    engine.jogTouch("b", true)
+    engine.jogTurn("b", 7)
+    const head = engine.scratchPosSec("b")
+    engine.jogTouch("b", false)
+    assert.equal(deck.entry, null)
+    assert.equal(b.paused, false)
+    assert.equal(b.currentTime, head)
+  }
 })
