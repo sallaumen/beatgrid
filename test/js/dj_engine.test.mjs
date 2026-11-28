@@ -1121,6 +1121,23 @@ test("a vinyl brake slows the audible recording and rescue keeps it off stalled 
   assert.ok(deck.platterTime() > 12.5)
 })
 
+test("toggling key lock twice keeps the on-air recording and its cue position", t => {
+  const {engine, a} = booth(t)
+  const deck = engine.decks.a, sr = engine.ctx.sampleRate
+  const buffer = {duration: 60, sampleRate: sr, length: 60 * sr}
+  deck.playDecoded(buffer, 12, engine.deckMix("a"))
+  for (const vinyl of [true, false]) {
+    engine.ctx.currentTime += .5
+    const position = deck.platterTime()
+    engine.setVinylMode("a", vinyl)
+    assert.ok(deck.entry)
+    assert.equal(a.preservesPitch, !vinyl)
+    engine.ctx.currentTime += .1
+    assert.ok(Math.abs(deck.platterTime() - (position + .1)) < .001)
+    assert.equal(a.currentTime, 0)
+  }
+})
+
 test("rescuing a bass swap restores the outgoing low end after the bass has crossed", async t => {
   const {engine, a, b, hint, tick} = booth(t)
   hint(null)
@@ -2484,7 +2501,7 @@ test("a loop and hot cues on the playing record reach their target before the na
   assert.deepEqual(rig.ends, [])
 })
 
-for (const action of ["pitch", "vinyl", "jog", "pause", "destroy"]) {
+for (const action of ["pitch", "unavailable vinyl voice", "jog", "pause", "destroy"]) {
   test(action + " takes ownership from the rehearsed record at the audible position", async t => {
     const rig = booth(t)
     const {engine, a, b} = rig
@@ -2498,7 +2515,10 @@ for (const action of ["pitch", "vinyl", "jog", "pause", "destroy"]) {
     assert.equal(b.currentTime, 2.5)
     const heard = deck.positionMs() / 1000
     if (action === "pitch") engine.setRate("b", 1.06)
-    if (action === "vinyl") engine.setVinylMode("b", true)
+    if (action === "unavailable vinyl voice") {
+      t.mock.method(engine.ctx, "createBufferSource", () => { throw Error("voice unavailable") })
+      engine.setVinylMode("b", true)
+    }
     if (action === "jog") engine.jogTouch("b", true)
     if (action === "pause") engine.pauseAll()
     if (action === "destroy") engine.destroy()
