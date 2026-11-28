@@ -76,3 +76,42 @@ test("the headphone side selector keeps the current comparison running", t => {
   }
   assert.deepEqual(selected, [1, 0, -1])
 })
+
+test("the blend label counts measured beats and gives seconds for an unknown tempo or a short record", async t => {
+  globalThis.ResizeObserver = class { observe() {} disconnect() {} }
+  globalThis.window = {devicePixelRatio: 1}
+  globalThis.document = {activeElement: null}
+  t.after(() => { delete globalThis.ResizeObserver; delete globalThis.window; delete globalThis.document })
+  const audio = {duration: 12, length: 240, sampleRate: 20, numberOfChannels: 1, getChannelData: () => new Float32Array(240)}
+  const tracks = {a: {id: "name-out"}, b: {id: "name-in"}}, waves = {}
+  t.mock.method(globalThis, "fetch", async () => new Response(new ArrayBuffer(1)))
+  for (const side of ["a", "b"]) waves[side] = await loadPeaks(tracks[side].id, side, {decodeAudioData: async () => audio})
+  let entry = 0
+  const deck = live => ({bpm: null, el: {}, loadToken: 1, audible: () => live, ready: () => true, platterTime: () => live ? 0 : entry, positionMs: () => 0})
+  const decks = {a: deck(true), b: deck(false)}, el = panelElements()
+  const engine = {decks, ctx: {}, passage: () => null, deckMix: () => neutralMix, audibleDeck: () => "a", canMeasureBlend: () => false,
+    rehearsal: {elapsed: () => null, stopListening() {}, stop() {}}}
+  const panel = mountRehearsal({root: el("root"), engine, tracks, waves, hasPhones: () => true, hint: () => null})
+  t.after(() => panel.destroy())
+  el('input[name="dj-rehearse-kind"]:checked').value = "bass_swap"
+  el("[aria-haspopup=dialog]").onclick()
+  const label = () => el("[data-blend-name]").textContent
+  const option = () => el("[data-compare-with]").options.find(o => o.value === "blend").text
+  assert.equal(label(), "Mistura de 2 s")
+  assert.equal(option(), label())
+  assert.doesNotMatch(el("[data-timing]").textContent, /3º tempo/)
+  decks.a.bpm = 80
+  decks.a.loadToken++
+  panel.update()
+  assert.equal(label(), "Mistura de quatro tempos")
+  assert.equal(option(), label())
+  assert.match(el("[data-timing]").textContent, /3º tempo/)
+  entry = 11.25
+  panel.update()
+  assert.equal(label(), "Mistura de 0,75 s")
+  assert.equal(option(), label())
+  assert.equal(el('input[value="bass_swap"]').disabled, true)
+  entry = 11.997
+  panel.update()
+  assert.equal(label(), "Mistura de menos de 10 ms")
+})
