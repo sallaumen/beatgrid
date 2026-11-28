@@ -2892,11 +2892,11 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       deck.stopBrake?.()
       if (deck.vinylMode !== on) {
         passage.mixChanged()
-        deck.useMedia()
+        deck.entry?.setMode(on, deck.playbackRate)
       }
       deck.vinylMode = on
       deck.el.preservesPitch = !on
-      applyRate(deck)
+      applyRate(deck, "pitch")
     },
 
     // Ejeta um deck parado: solta a mídia e zera a cadeia. Recusado no ar.
