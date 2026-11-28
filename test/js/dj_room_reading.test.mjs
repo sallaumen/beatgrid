@@ -1,11 +1,14 @@
 import assert from "node:assert/strict"
 import test from "node:test"
+import {planRehearsal} from "../../assets/js/dj/rehearsal.js"
 import {observeRoomPassage} from "../../assets/js/dj/passage_meter.js"
 
-function booth(positionMs = 8000) {
+const fullPlan = {lead: 3, blend: 2, duration: 7, mix: {out: {rate: 1.05}}}
+
+function booth(positionMs = 8000, kind = "blend", plan = fullPlan) {
   const ctx = {currentTime: 10}, input = {}, results = []
   let capture, deliver, cancels = 0
-  const choice = {kind: "blend", exitMs: 18000, plan: {lead: 3, blend: 2, mix: {out: {rate: 1.05}}}}
+  const choice = {kind, exitMs: 18000, plan}
   const deck = {bpm: 110, positionMs: () => positionMs, playbackRate: 1.25}
   const read = observeRoomPassage(ctx, input, choice, deck, value => results.push(value), (clock, bus, window, report) => {
     assert.equal(clock, ctx)
@@ -101,4 +104,23 @@ test("drafting after confirmation releases the room tap and keeps the armed plan
     assert.equal(armed.review, "draft")
     assert.deepEqual(observed, [["confirmed", armed], ["abandoned", armed]])
   } finally { p.disarm() }
+})
+
+test("the room measures the same excerpt heard in the headphones for every kind and file ending", () => {
+  for (const incoming of [{duration: 8}, {duration: 2.3091}]) {
+    for (const kind of ["cut", "blend", "bass_swap"]) {
+      const plan = planRehearsal({duration: 23}, incoming, 18, 1, 120)
+      if (kind === "bass_swap" && !plan.fullBlend) continue
+      const b = booth(8000, kind, plan)
+      const arrived = 18.25
+      b.read.arrive(arrived)
+      b.deliver(recording(b.capture))
+      const [take] = b.results
+      assert.ok(take)
+      const fullFrames = Math.floor(plan.duration * 100)
+      assert.equal(take.frames.length, fullFrames, kind)
+      assert.equal(take.changeAt, plan.lead)
+      assert.equal(take.frames.at(-1).time.toFixed(2), (arrived - plan.lead + (fullFrames - 1) / 100).toFixed(2))
+    }
+  }
 })
