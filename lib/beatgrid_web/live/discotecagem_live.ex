@@ -929,27 +929,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
         title="Último ensaio levado à pista"
         compare
       />
-      <dialog
-        id="dj-rehearse-dialog"
-        aria-labelledby="dj-rehearse-title"
-        class="fixed inset-0 m-auto max-h-[90dvh] w-[min(94vw,40rem)] overflow-y-auto rounded-xl border border-white/10 bg-surface p-5 text-ink shadow-2xl backdrop:bg-black/70"
-      >
-        <div class="flex items-start justify-between gap-3">
-          <div>
-            <h2 id="dj-rehearse-title" class="text-title font-semibold">Ensaiar a próxima</h2>
-            <p class="mt-1 text-body text-ink-muted">
-              Compare a mesma entrada com as faixas dos decks.
-            </p>
-          </div>
-          <button
-            type="button"
-            data-close
-            aria-label="Fechar ensaio"
-            class="min-h-9 rounded-md border border-white/10 px-3 text-body font-semibold text-ink-secondary hover:border-primary/50 hover:text-ink"
-          >
-            <.icon name="hero-x-mark" class="size-4" />
-          </button>
-        </div>
+      <.rehearsal_dialog>
         <fieldset class="my-3 grid gap-x-4 text-body sm:grid-cols-3">
           <legend class="sr-only">Transição do ensaio</legend>
           <label
@@ -1198,8 +1178,36 @@ defmodule BeatgridWeb.DiscotecagemLive do
           class="mt-4 min-h-9 rounded-md border border-primary/40 px-3 text-body font-semibold text-ink hover:border-primary disabled:opacity-40"
         >Armar esta passagem</button>
         <p id="dj-rehearse-status" role="status" class="mt-2 text-body text-ink-muted"></p>
-      </dialog>
+      </.rehearsal_dialog>
     </div>
+    """
+  end
+
+  slot :inner_block, required: true
+
+  defp rehearsal_dialog(assigns) do
+    ~H"""
+    <dialog
+      id="dj-rehearse-dialog"
+      aria-labelledby="dj-rehearse-title"
+      class="fixed inset-0 m-auto hidden max-h-[90dvh] w-[min(94vw,40rem)] flex-col overflow-hidden rounded-xl border border-white/10 bg-surface text-ink shadow-2xl open:flex backdrop:bg-black/70"
+    >
+      <header class="flex shrink-0 items-center justify-between gap-3 border-b border-white/8 px-4 py-1 sm:px-5">
+        <h2 id="dj-rehearse-title" class="text-title font-semibold">Ensaiar a próxima</h2>
+        <button
+          type="button"
+          data-close
+          aria-label="Fechar ensaio"
+          class="grid size-11 shrink-0 place-items-center rounded-md text-ink-secondary hover:bg-input hover:text-ink"
+        >
+          <.icon name="hero-x-mark" class="size-4" />
+        </button>
+      </header>
+      <div class="min-h-0 overflow-y-auto overscroll-contain px-4 pt-3 pb-5 sm:px-5">
+        <p class="text-body text-ink-muted">Compare a mesma entrada com as faixas dos decks.</p>
+        {render_slot(@inner_block)}
+      </div>
+    </dialog>
     """
   end
 
