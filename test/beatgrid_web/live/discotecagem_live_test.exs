@@ -195,6 +195,14 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
 
     assert has_element?(
              view,
+             "#dj-rehearse-dialog [data-replay-final][hidden][disabled][aria-describedby=dj-rehearse-status]",
+             "Ouvir do início no fone"
+           )
+
+    assert has_element?(view, "#dj-rehearse-status[role=status]")
+
+    assert has_element?(
+             view,
              "#dj-rehearse-dialog [data-listen-both][aria-controls=dj-heard-differences]"
            )
 

@@ -378,3 +378,24 @@ test("a slower edit retains audio before the new preview window and never revive
     preview.stop()
   }
 })
+
+test("restarting the final audition releases the first take softly and keeps the live cue closed", async () => {
+  const {preview, plan, ctx, pfl, sources} = rehearsalFixture()
+  const cue = [], edge = []
+  pfl.gain.linearRampToValueAtTime = value => cue.push(value)
+  let envelope
+  const first = preview.play(plan, "cut", 0, 0, tap => { envelope = tap.gain })
+  const oldSource = sources.at(-1)
+  ctx.currentTime += .6
+  envelope.linearRampToValueAtTime = (level, time) => edge.push([level, time])
+  const second = preview.play(plan, "cut", 0)
+  assert.deepEqual(edge, [[1, ctx.currentTime], [0, ctx.currentTime + .006]])
+  assert.deepEqual(cue, [0])
+  assert.equal(oldSource.stopAt, ctx.currentTime + .006)
+  assert.equal(sources.at(-2).args[1], plan.outStart)
+  oldSource.onended()
+  assert.equal(await first, false)
+  sources.at(-1).onended()
+  assert.equal(await second, true)
+  assert.deepEqual(cue, [0, 1])
+})

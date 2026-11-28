@@ -8,7 +8,7 @@ import {loadPeaks} from "../../assets/js/dj/waveform.js"
 function control() {
   const children = new Map()
   const context = {scale() {}, fillRect() {}, setLineDash() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}}
-  return {dataset: {}, style: {}, clientWidth: 2, clientHeight: 8, setAttribute() {}, focus() {}, close() { this.open = false; this.onclose?.() },
+  return {dataset: {}, style: {}, clientWidth: 2, clientHeight: 8, replaceChildren() {}, setAttribute() {}, focus() {}, close() { this.open = false; this.onclose?.() },
     getContext: () => context, querySelectorAll: () => [],
     querySelector(key) {
       if (!children.has(key)) children.set(key, control())
@@ -124,4 +124,120 @@ test("auditioning an already matched private pulse keeps the confirmed version",
   await strip.querySelector("[data-pulse-sync]").onclick()
   assert.deepEqual(auditions, [saved.plan])
   assert.equal(saved.phase, "confirmed")
+})
+
+function interactiveTake(t, fixture) {
+  const {engine, dialog, strip, panel} = fixture
+  const plays = []
+  let current
+  Object.assign(engine.rehearsal, {
+    elapsed: () => current ? 1.5 : null,
+    stop() { if (current) finish(false) },
+    stopListening() { this.stop() },
+    play(plan, kind, pan, skip, observe) {
+      if (current) finish(false)
+      const cancel = observe({}, {start: 0, change: 3, end: 7, overlap: 2, kind})
+      const audio = new Promise(resolve => { current = {resolve, cancel} })
+      plays.push({kind, plan, skip})
+      return audio
+    }
+  })
+  function finish(complete = true) {
+    const take = current
+    current = null
+    if (!complete) take.cancel()
+    take.resolve(complete)
+  }
+  globalThis.document = {activeElement: null}
+  t.after(() => { delete globalThis.document })
+  const select = kind => {
+    dialog.querySelector('input[name="dj-rehearse-kind"]:checked').value = kind
+    dialog.onchange({target: {matches: () => false}})
+  }
+  const adjust = value => strip.oninput({target: {dataset: {mix: "level"}, value}})
+  const listen = dialog.querySelector("[data-listen]"), replay = dialog.querySelector("[data-replay-final]")
+  const message = () => dialog.querySelector("[role=status]").textContent
+  const settle = async () => { await new Promise(resolve => setImmediate(resolve)); panel.update() }
+  return {plays, finish, select, adjust, listen, replay, message, settle}
+}
+
+test("only a complete listen to the final settings of the edited transition dismisses its replay", async t => {
+  const fixture = await privateTake(t)
+  const {plays, finish, select, adjust, listen, replay, message, settle} = interactiveTake(t, fixture)
+  const {dialog, saved} = fixture
+  const original = saved.plan
+  adjust(84) // Editing a stopped draft does not ask for a replay.
+  assert.equal(replay.hidden, true)
+  await listen.onclick()
+  adjust(62)
+  assert.equal(replay.hidden, false)
+  assert.match(message(), /ajustes.*desde o início/i)
+  assert.equal(dialog.querySelector("[data-arm]").disabled, false)
+  await replay.onclick()
+  assert.equal(plays.at(-1).skip, 0)
+  assert.equal(plays.at(-1).plan.mix.into.level, .62)
+  await listen.onclick() // Stop midway.
+  await settle()
+  assert.equal(replay.hidden, false)
+  select("blend")
+  assert.equal(replay.hidden, true)
+  await listen.onclick()
+  finish()
+  await settle()
+  select("cut")
+  assert.equal(replay.hidden, false)
+  await replay.onclick()
+  adjust(51)
+  finish() // The pre-edit take finished, but its beginning had different settings.
+  await settle()
+  assert.equal(replay.hidden, false)
+  assert.equal(saved.plan, original)
+  const both = dialog.querySelector("[data-listen-both]")
+  const comparison = both.onclick()
+  await settle()
+  assert.equal(plays.at(-1).kind, "cut")
+  finish()
+  await settle()
+  assert.equal(plays.at(-1).kind, "blend")
+  finish()
+  await comparison
+  assert.equal(replay.hidden, true)
+  assert.doesNotMatch(message(), /ajustes.*desde o início/i)
+  assert.equal(saved.plan, original)
+})
+
+test("the replay follows the headphone route and can be skipped when explicitly arming", async t => {
+  const fixture = await privateTake(t)
+  const {adjust, listen, replay, message, settle} = interactiveTake(t, fixture)
+  const {dialog, saved, setPhones} = fixture
+  const original = saved.plan
+  await listen.onclick()
+  adjust(89)
+  setPhones(false)
+  await settle()
+  assert.equal(replay.disabled, true)
+  assert.match(message(), /saída separada/)
+  assert.match(message(), /ajustes.*desde o início/i)
+  assert.equal(saved.plan, original)
+  assert.equal(dialog.querySelector("[data-arm]").disabled, false)
+  dialog.querySelector("[data-arm]").onclick()
+  assert.equal(saved.plan.mix.into.level, .89)
+})
+
+test("a keyboard replay moves focus to the adjacent arm button only if its own button still holds focus", async t => {
+  const fixture = await privateTake(t)
+  const {adjust, listen, replay, finish, settle} = interactiveTake(t, fixture)
+  const arm = fixture.dialog.querySelector("[data-arm]")
+  arm.focus = () => { document.activeElement = arm }
+  for (const [level, focus] of [[74, replay], [55, fixture.strip]]) {
+    await listen.onclick()
+    adjust(level)
+    document.activeElement = replay
+    await replay.onclick()
+    document.activeElement = focus
+    finish()
+    await settle()
+    assert.equal(replay.hidden, true)
+    assert.equal(document.activeElement, focus === replay ? arm : focus)
+  }
 })
