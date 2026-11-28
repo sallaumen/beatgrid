@@ -259,7 +259,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
       draw()
     }
     const ready = waves[from]?.peaks && waves[to]?.peaks
-    if (!plan && ready && out && into && !a.el.error && !b.el.error) {
+    if (!plan && ready && out && into) {
       const outgoing = getDeckAudio(out.id), incoming = getDeckAudio(into.id)
       if (outgoing && incoming) {
         const armed = hint()?.deck === to && hint()?.track.id === into.id
@@ -300,7 +300,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
     let message = failure
     if (waiting) message = "A próxima faixa precisa estar no deck para ensaiar."
     else if (!out || !into) message = "Carregue uma faixa em cada deck para ensaiar."
-    else if (a.el.error || b.el.error || waves[from]?.failed || waves[to]?.failed) message = "Não foi possível ler o áudio de um dos decks."
+    else if (waves[from]?.failed || waves[to]?.failed) message = "Não foi possível ler o áudio de um dos decks."
     else if (!ready) message = "Preparando as ondas para liberar os ajustes e a escuta no fone…"
     else if (!plan) message = "Reposicione o deck de entrada antes do fim da faixa."
     else if (shortBass) message = "Escolha corte ou mistura, ou reposicione a entrada para caberem quatro tempos."
@@ -312,7 +312,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
     const review = choice?.review === "draft" ? " A versão anterior está salva e aguarda confirmação." : ""
     const finalMix = editedVersion(kind()) ? "Ao armar, estes ajustes valem desde o início da passagem." : ""
 
-    const unavailable = !plan || shortBass || !phones || !!a.el.error || !!b.el.error
+    const unavailable = !plan || shortBass || !phones
     listen.disabled = unavailable || pending || !!sequence
     replay.hidden = !finalMix
     replay.disabled = !finalMix || unavailable || !!sequence
@@ -323,7 +323,8 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
     if (plan && a.audible() && a.positionMs() > plan.exit * 1000 && !playing && !sequence) {
       message = "O ponto ensaiado já passou nesta faixa."
     }
-    text(status, [message || listening + review, !message && mixNote, finalMix].filter(Boolean).join(" "))
+    const reload = plan && b.el.error ? "Recarregue o deck " + to.toUpperCase() + " para armar a passagem." : ""
+    text(status, [message || listening + review, !message && reload, !message && mixNote, finalMix].filter(Boolean).join(" "))
     text(arm, choice ? "Atualizar passagem" : "Armar esta passagem")
     text(listen, playing && !sequence ? "Parar ensaio" : "Ouvir no fone")
     cursor.hidden = !playing
