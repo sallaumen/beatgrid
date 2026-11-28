@@ -772,9 +772,10 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         }
         if (!callbacks.roomScore) return
         cancelRoomReading()
-        roomReading = observeRoomPassage(ctx, masterAnalyser, choice, decks[choice.pair.from], data => {
+        roomReading = observeRoomPassage(ctx, masterAnalyser, choice, decks[choice.pair.from], (data, comparable = true) => {
           roomReading = null
-          emit("roomScore", {data, reference: choice.reference})
+          const reference = comparable ? choice.reference : {...choice.reference, differentWindow: true}
+          emit("roomScore", {data, reference})
         })
       },
       abandoned(choice) {

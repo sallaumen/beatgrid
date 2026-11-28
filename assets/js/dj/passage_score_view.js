@@ -77,16 +77,18 @@ export function mountPassageScore(root) {
       pair.textContent = reference?.pair ?? ""
       pair.hidden = !pair.textContent
     }
+    const hearing = reference?.hearing
+    const label = hearing ? "No fone · " + (hearing.score == null ? "sem nota" : hearing.score + "/100") : ""
+    const differentExcerpt = hearing && reference.differentWindow ? label + " · trecho diferente" : null
     if (referencePanel) {
-      const hearing = reference?.hearing
       referencePanel.open = false
       referencePanel.hidden = !hearing
-      part("reference-label").textContent = hearing ? "No fone · " + (hearing.score == null ? "sem nota" : hearing.score + "/100") : ""
+      part("reference-label").textContent = differentExcerpt ?? label
       part("reference-metrics").replaceChildren(...(hearing?.metrics ?? []).map(reading))
     }
     const grade = scored ? `${result.score} de 100` : "Sem nota"
     part("readable").textContent = grade
-    announce.textContent = announcement ?? (restored ? "" : [part("title").textContent, reference?.pair, result.descriptive ? null : grade, result.summary].filter(Boolean).join(". "))
+    announce.textContent = announcement ?? (restored ? "" : [part("title").textContent, reference?.pair, result.descriptive ? null : grade, result.summary, differentExcerpt].filter(Boolean).join(". "))
   }
 
   function clear() {

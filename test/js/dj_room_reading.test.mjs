@@ -124,3 +124,57 @@ test("the room measures the same excerpt heard in the headphones for every kind 
     }
   }
 })
+
+test("a decoded platter measures the rehearsed sample after the measured room delay", () => {
+  const sr = 48000, now = 10, point = 18.00041, head = 8.00017, rate = 1.052
+  const target = now + (point - head) / rate, delay = 288 / sr
+  const plan = {...fullPlan, exit: point}, choice = {kind: "blend", exitMs: Math.round(point * 1000), plan}
+  const deck = {playbackRate: rate, bpm: 110, positionMs: () => Math.round(head * 1000),
+    entry: {position: at => head + (at - now) * rate}}
+  for (const late of [0, .03465]) {
+    let window, deliver, results = []
+    const read = observeRoomPassage({currentTime: now, sampleRate: sr}, {}, choice, deck,
+      (data, comparable) => results.push({data, comparable}), (ctx, input, w, done) => {
+        window = w; deliver = done; return () => {}
+      }, delay)
+    assert.equal(Math.round(window.start * sr), Math.round((target + delay - 3) * sr))
+    const first = Math.round(window.start * sr) / sr
+    const measured = recording({...window, start: first})
+    deliver(measured)
+    assert.equal(results.length, 0)
+    read.arrive(target + late)
+    assert.equal(results.length, 1)
+    assert.equal(results[0].comparable, late === 0)
+    assert.equal(results[0].data.frames.length, 700)
+    assert.ok(Math.abs(results[0].data.changeAt - 3) <= (late ? .005 : 1 / sr))
+  }
+})
+
+test("a queued tempo change or late confirmation keeps the guarded room reading", () => {
+  const sr = 48000, now = 10
+  for (const [head, queuedChange] of [[8.1234, true], [17.9, false]]) {
+    const position = at => head + (at - now) + (queuedChange && at > now + .5 ? .120 : 0)
+    const plan = {...fullPlan, exit: 18.0004}
+    const choice = {kind: "cut", exitMs: 18000, plan}
+    const deck = {playbackRate: 1, bpm: 120, positionMs: () => Math.round(head * 1000), entry: {position}}
+    let window
+    observeRoomPassage({currentTime: now, sampleRate: sr}, {}, choice, deck, () => {},
+      (_ctx, _input, w) => { window = w; return () => {} }, .006)
+    assert.equal(window.start, Math.max(now, now + (18000 - deck.positionMs()) / 1000 - 4))
+  }
+})
+
+test("a late opening still measures the music it heard without comparing it to the complete headphones", () => {
+  const ctx = {currentTime: 1, sampleRate: 48000}
+  const choice = {kind: "cut", exitMs: 10000, plan: {...fullPlan, exit: 10}}
+  const deck = {playbackRate: 1, bpm: 120, positionMs: () => 1000, entry: {position: at => at}}
+  let capture, deliver, result
+  const read = observeRoomPassage(ctx, {}, choice, deck, (value, comparable) => { result = {value, comparable} },
+    (_clock, _bus, window, done) => { capture = window; deliver = done; return () => {} }, .006)
+  const first = capture.start + .024
+  read.arrive(10)
+  deliver(recording({...capture, start: first}))
+  assert.equal(result.comparable, false)
+  assert.equal(result.value.frames.length, 697)
+  assert.ok(Math.abs(result.value.changeAt - 2.976) < 1e-6)
+})
