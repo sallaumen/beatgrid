@@ -22,6 +22,30 @@ test("the meter windows actual stereo samples on the audio clock and sees opposi
   assert.equal(data.frames.length, 9)
 })
 
+test("the same audible attack has the same weight on different sound cards", () => {
+  // The first 10 ms of a 0.5-amplitude 12 kHz sine on the right. Its stereo RMS
+  // is 0.25 and its attack at the meter's reference spacing is sqrt(2) times that.
+  const expectedOnset = 0.25 * (1 + 2 * Math.SQRT2)
+  for (const sampleRate of [48000, 96000, 44100, 88200, 192000]) {
+    let Meter, result
+    const scope = {sampleRate, currentFrame: 0, AudioWorkletProcessor: class {
+      port = {postMessage(value) { result = value }}
+    }, registerProcessor(_, type) { Meter = type }}
+    vm.runInNewContext(METER_PROCESSOR, scope)
+    const tap = new Meter({processorOptions: {start: 0, end: 0.02}})
+    const onsetFrame = sampleRate / 100
+    for (let at = 0; at < 2 * onsetFrame; at += 128) {
+      scope.currentFrame = at
+      const right = Float32Array.from({length: 128}, (_, i) =>
+        at + i < onsetFrame ? 0 : 0.5 * Math.sin(2 * Math.PI * 12000 * (at + i - onsetFrame) / sampleRate))
+      tap.process([[new Float32Array(128), right]])
+    }
+    assert.deepEqual(Array.from(result.frames.subarray(0, 3)), [0, 0, 0])
+    assert.ok(Math.abs(result.frames[3] - 0.25) < 1e-6, `RMS at ${sampleRate} Hz`)
+    assert.ok(Math.abs(result.frames[5] - expectedOnset) < 0.03, `onset ${result.frames[5]} at ${sampleRate} Hz`)
+  }
+})
+
 test("a final render quantum after transfer cannot publish the same recording twice", () => {
   let Meter
   const messages = []
