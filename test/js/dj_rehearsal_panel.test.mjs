@@ -60,3 +60,19 @@ test("decoded headphone auditions survive a media error while arming still requi
   assert.equal(el("[data-listen]").disabled, true)
   assert.match(el("[role=status]").textContent, /ler o áudio/)
 })
+
+test("the headphone side selector keeps the current comparison running", t => {
+  globalThis.ResizeObserver = class { observe() {} disconnect() {} }
+  t.after(() => { delete globalThis.ResizeObserver })
+  const selected = []
+  const transport = {setPan(side) { selected.push(side); return side }, stopListening: () => assert.fail("changing ears stopped the audition")}
+  const el = panelElements()
+  mountRehearsal({root: el("root"), engine: {rehearsal: transport}, hasPhones: () => true})
+  const selector = el("[data-pan]")
+  selector.matches = () => false
+  for (const side of ["1", "0", "-1"]) {
+    selector.value = side
+    el("dialog").onchange({target: selector})
+  }
+  assert.deepEqual(selected, [1, 0, -1])
+})
