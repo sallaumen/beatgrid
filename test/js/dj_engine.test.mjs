@@ -3713,3 +3713,98 @@ test("the booth transports both decks with no scratch worklet on the device", as
   assert.equal(b.paused, true)
   assert.equal(a.paused, false)
 })
+
+for (const id of ["a", "b"]) {
+  test(`the recording on deck ${id} survives an error on its muted media, seeks and ends once`, async t => {
+    const track = "media-backup-" + id, errors = [], voices = []
+    const {engine, ends} = await scratchBooth(t, track, 2, {deckError: e => errors.push(e)})
+    engine.stopAll()
+    engine.loadDeck(id, {id: track, src: track}, {autoplay: true})
+    const deck = engine.decks[id], media = deck.el
+    const create = engine.ctx.createBufferSource.bind(engine.ctx)
+    t.mock.method(engine.ctx, "createBufferSource", () => {
+      const node = create()
+      voices.push(node)
+      return node
+    })
+    deck.playDecoded(getDeckAudio(track), 2)
+    media.pause()
+    media.duration = NaN
+    media.readyState = 0
+    media.error = {code: 3}
+    media.dispatchEvent(new Event("error"))
+    assert.deepEqual(errors, [])
+    assert.equal(engine.snapshot()[id].playing, true)
+    assert.equal(engine.snapshot()[id].durMs, 8000)
+    assert.equal(engine.loadDeck(id, {id: "other", src: "other"}), false)
+
+    engine.cueTo(id, 4000)
+    engine.ctx.currentTime += .5
+    assert.ok(deck.platterTime() > 4.4 && deck.platterTime() <= 4.5)
+    const eof = voices.at(-1).onended
+    engine.ctx.currentTime += 4
+    eof()
+    assert.equal(media.currentTime, 8)
+    media.dispatchEvent(new Event("ended"))
+    assert.deepEqual(ends.map(e => e.trackId), [track])
+    assert.deepEqual(errors, [])
+    assert.equal(engine.loadDeck(id, {id: "replacement", src: "replacement"}), true)
+  })
+}
+
+test("the deck reports a real failure if it loses the recording as well as the media backup", async t => {
+  const track = "both-paths-failed", errors = []
+  const {engine, b} = await scratchBooth(t, track, 2, {deckError: e => errors.push(e)})
+  engine.loadDeck("b", {id: track, src: track}, {autoplay: true})
+  const deck = engine.decks.b
+  deck.playDecoded(getDeckAudio(track), 1)
+  b.error = {code: 3}
+  b.pause()
+  b.dispatchEvent(new Event("error"))
+  assert.deepEqual(errors, [])
+  t.mock.method(engine.ctx, "createBufferSource", () => { throw Error("device refused the next voice") })
+  engine.cueTo("b", 3000)
+  assert.equal(deck.entry, null)
+  assert.deepEqual(errors, [{trackId: track, deck: "b", wasPlaying: true}])
+})
+
+test("the DJ can pause and resume the recording when the backup has lost its metadata", async t => {
+  const track = "paused-with-failed-backup", errors = []
+  const {engine, b} = await scratchBooth(t, track, 2, {deckError: e => errors.push(e)})
+  engine.loadDeck("b", {id: track, src: track}, {autoplay: true})
+  const deck = engine.decks.b
+  deck.playDecoded(getDeckAudio(track), 2)
+  b.error = {code: 3}
+  b.readyState = 0
+  b.duration = NaN
+  b.pause()
+  b.dispatchEvent(new Event("error"))
+  engine.ctx.currentTime += .25
+  engine.playPause("b")
+  assert.equal(deck.audible(), false)
+  engine.playPause("b")
+  engine.ctx.currentTime += .25
+  assert.ok(Math.abs(deck.platterTime() - 2.5) < .001)
+  assert.deepEqual(errors, [])
+})
+
+test("sequential AUTO still advances once at the end of a recording with a dead backup", async t => {
+  const errors = []
+  const {engine, a, hint, advances} = await scratchBooth(t, "one", 2, {deckError: e => errors.push(e)})
+  const create = engine.ctx.createBufferSource.bind(engine.ctx)
+  let voice
+  t.mock.method(engine.ctx, "createBufferSource", () => (voice = create()))
+  engine.decks.a.playDecoded(getDeckAudio("one"), 7)
+  hint(null)
+  a.pause()
+  a.error = {code: 3}
+  a.duration = NaN
+  a.dispatchEvent(new Event("error"))
+  assert.deepEqual(advances, [])
+  engine.ctx.currentTime += 1
+  voice.onended()
+  await Promise.resolve()
+  a.dispatchEvent(new Event("ended"))
+  assert.deepEqual(errors, [])
+  assert.deepEqual(advances.map(e => e.toTrackId), ["two"])
+})

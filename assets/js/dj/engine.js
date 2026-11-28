@@ -214,7 +214,7 @@ class Deck {
     this.playPending = false
     this.wantsPlayback = false
     this.cueState = null
-    this.cueFromRecording = false
+    this.resumeFromRecording = false
     const markers = (track.markers || []).filter(m =>
       m.type !== "outro" && Number.isFinite(m.ms) && m.ms >= 0)
     this.cueMs = markers.length ? Math.min(...markers.map(m => m.ms)) : atMs
@@ -258,7 +258,7 @@ class Deck {
   }
 
   play(atMs = null, started, failed) {
-    this.cueFromRecording = false
+    this.resumeFromRecording = false
     this.wantsPlayback = true
     if (atMs != null) this._pendingSeekMs = atMs
     const token = ++this.playToken
@@ -287,8 +287,9 @@ class Deck {
     this.wantsPlayback = true
     this.playPending = false
     this._pendingSeekMs = null
+    if (this.el.error) return
     this.whenReady(() => {
-      if (this.playToken !== token || this.entry !== owner) return
+      if (this.playToken !== token || this.entry !== owner || this.el.error) return
       const head = owner.position()
       if (this.el.currentTime !== head) this.el.currentTime = head
       if (this.el.paused) this.el.play().catch(() => {})
@@ -322,12 +323,15 @@ class Deck {
     let progressTimer
     const entry = startDecodedEntry(this.ctx, this.el, buffer, offset, this.hpf, this.mediaGain, ended => {
       clearInterval(progressTimer)
+      if (this.entry !== entry) return // a deliberate handoff or stop already took ownership
       this.entry = null
       if (ended) this.recordEnded()
+      else if (this.el.error && this.wantsPlayback) this.recordError()
     }, mix, () => this.wantsPlayback && this.loop.on && this.recordEnded(), stage)
     // Muted media can stall without a timeupdate while the record reaches its AUTO point.
     const own = () => {
       this.entry = entry
+      this.durationMs = buffer.duration * 1000
       progressTimer = setInterval(this.recordProgress, 100)
     }
     if (stage) return {launch(when, head) { entry.launch(when, head); own() }, discard: entry.discard}
@@ -339,8 +343,9 @@ class Deck {
   }
 
   useMedia(sync = true) {
-    this.entry?.release(sync)
+    const previous = this.entry
     this.entry = null
+    previous?.release(sync)
   }
 
   seek(seconds, positionAfter) {
@@ -359,10 +364,11 @@ class Deck {
       }
     }
     this.el.currentTime = seconds
-    if (recording && this.wantsPlayback && this.el.paused) this.el.play().catch(() => {})
+    if (recording && this.wantsPlayback && this.el.paused && !this.el.error) this.el.play().catch(() => {})
   }
 
   pause() {
+    if (this.entry && this.el.error) this.resumeFromRecording = true
     this.wantsPlayback = false
     this.playToken++
     this.playPending = false
@@ -376,7 +382,8 @@ class Deck {
   }
 
   audible() {
-    return this.dropCue === null && (!!this.entry || (!this.el.paused && !this.el.ended)) && !this.el.error && this.trackId != null
+    if (this.dropCue !== null || this.trackId == null) return false
+    return !!this.entry || (!this.el.error && !this.el.paused && !this.el.ended)
   }
 
   seeking() {
@@ -395,8 +402,12 @@ class Deck {
     return this._pendingSeekMs == null ? (this.dropCue ?? this.entry?.position() ?? this.el.currentTime) : this._pendingSeekMs / 1000
   }
 
+  get duration() {
+    return this.el.error && this.durationMs ? this.durationMs / 1000 : this.el.duration
+  }
+
   clampPosition(seconds) {
-    const duration = this.el.duration
+    const duration = this.duration
     return Math.max(duration ? Math.min(seconds, duration - 0.001) : seconds, 0)
   }
 
@@ -949,10 +960,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         emit("loopTooLong", {deck: deck.id, beats})
       }
     })
-    listen("error", () => {
-      if (deck.trackId == null) return
-      // A fatally-errored element must not keep reading as "audible" — pause it
-      // so the deck frees up (deckFreed) and recovery loads are not refused.
+    deck.recordError = () => {
+      // A failed backup cannot skip a recording that is still on either bus.
+      if (deck.trackId == null || deck.entry) return
       // Capture transport intent before pause() clears it. A media failure on
       // a manually paused source must not command playback of the other deck.
       const trackId = deck.trackId
@@ -961,7 +971,8 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       const wasPlaying = state.activeDeck === deck.id && Boolean(deck.wantsPlayback || sessionDeck() === deck.id)
       deck.pause()
       emit("deckError", {deck: deck.id, trackId, wasPlaying})
-    })
+    }
+    listen("error", deck.recordError)
   }
 
   function retryReadyHint(deck) {
@@ -1055,7 +1066,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   function firePoint(transition, deck) {
-    const duration = deck.el.duration
+    const duration = deck.duration
     const mark = transition.breather && Number.isFinite(duration) && duration > 0
       ? (duration - RAMP.breatherMaxTailS) * 1000
       : transition.from_ms
@@ -1065,7 +1076,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // The server already clamped against its known duration; re-clamp against the
   // REAL media duration (never-again #4 applies twice).
   function clampFromMs(fromMs, deck) {
-    const durMs = (deck.el.duration || 0) * 1000
+    const durMs = (deck.duration || 0) * 1000
     if (!durMs) return fromMs ?? Infinity
     const fallback = durMs - 8000
     return Math.max(Math.min(fromMs ?? fallback, durMs - 1500), durMs / 2, 0)
@@ -1225,7 +1236,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // Coarse on purpose (REF_LEN_S approximates every type's longest ramp).
   function fitScale(from, hint, toMs) {
     const caps = []
-    const durS = from.el.duration
+    const durS = from.duration
     if (durS && from.trackId != null) {
       caps.push(Math.max(durS - from.positionMs() / 1000 - 0.3, 0.4))
     }
@@ -1709,7 +1720,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       from.settleGain(from.echoSend)
       from.echoSend.gain.linearRampToValueAtTime(mix * (1 - feedback), now + 0.5)
     } else if (style === "fade") {
-      const restS = Math.max((from.el.duration || 0) - from.positionMs() / 1000, 0.5)
+      const restS = Math.max((from.duration || 0) - from.positionMs() / 1000, 0.5)
       from.gain.gain.linearRampToValueAtTime(0, now + restS)
     }
     // qualquer outro estilo: a música simplesmente acaba, seca — também é lindo
@@ -1765,7 +1776,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
     if (from.ended()) {
       gap.beginGap()
-    } else if (event.mode === "manual" && from.el.duration - from.positionMs() / 1000 > RAMP.breatherMaxTailS + 1) {
+    } else if (event.mode === "manual" && from.duration - from.positionMs() / 1000 > RAMP.breatherMaxTailS + 1) {
       // An explicit early fire shortens the current phrase. AUTO always waits
       // for the playing source to end, even if its tempo changes.
       gap.timer = setTimeout(() => {
@@ -2021,7 +2032,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     const s = scratch[deckId]
     // Clamp inside the track: scratching past the end must never let the release
     // seek fire `ended` and advance the set.
-    const maxPos = (decks[deckId].el.duration || 0) * sr
+    const maxPos = (decks[deckId].duration || 0) * sr
     s.pos = Math.min(Math.max(posSamples, 0), maxPos > 0 ? maxPos : posSamples)
     if (s.node) s.node.port.postMessage({type: "scrub", position: s.pos,
       t: Number.isFinite(inputTime) ? inputTime : performance.now()})
@@ -2353,7 +2364,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   }
 
   function loopFits(deck, endMs) {
-    return !Number.isFinite(deck.el.duration) || endMs <= deck.el.duration * 1000
+    return !Number.isFinite(deck.duration) || endMs <= deck.duration * 1000
   }
 
   function restartingLoop(deck) {
@@ -2790,7 +2801,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         deck.hpf.frequency.linearRampToValueAtTime(10, now + 0.15)
         deck.lpf.frequency.linearRampToValueAtTime(20_000, now + 0.15)
         if (!latchPreview || (!deck.audible() && !deck.playPending)) {
-          resumePlatter(deck, deck.cueFromRecording)
+          resumePlatter(deck, deck.resumeFromRecording)
         }
         state.activeDeck = deckId
         if (state.hint?.deck === deckId) state.hint = null
@@ -2817,7 +2828,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       deck.cueState = "held"
       const atMs = Math.round(deck.platterTime() * 1000)
       if (deck.audible() || deck.playPending) {
-        deck.cueFromRecording = !!deck.entry
+        deck.resumeFromRecording = !!deck.entry
         pauseTransport(deck)
         this.cueTo(deckId, deck.cueMs)
       } else if ((deck._cued || deck._pendingSeekMs == null) && Math.abs(atMs - deck.cueMs) > 20) {
@@ -2827,7 +2838,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         this.resume()
         deck.cueState = "preview"
         deck._cued = true
-        resumePlatter(deck, deck.cueFromRecording, deck.cueMs)
+        resumePlatter(deck, deck.resumeFromRecording, deck.cueMs)
       }
     },
 
@@ -3064,7 +3075,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       const deckSnap = (deck) => ({
         trackId: deck.trackId,
         posMs: deck.positionMs(),
-        durMs: (deck.el.duration || 0) * 1000,
+        durMs: (deck.duration || 0) * 1000,
         playing: deck.audible(),
       })
 
