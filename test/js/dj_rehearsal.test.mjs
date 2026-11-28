@@ -328,3 +328,53 @@ test("the four-beat bass exchange opens the incoming shelf on beat three before 
     assert.ok(events.slice(1).every((x,i) => x[1] > events[i][1]))
   }
 })
+
+test("changing either pitch during the overlap keeps both records and the faders at their heard positions", () => {
+  for (const progress of [.35, .71]) {
+    const {preview, plan, ctx, sources, pfl} = rehearsalFixture()
+    let clock
+    preview.play(plan, "blend", 0, 0, (_tap, timing) => { clock = timing })
+    let before = plan, pair = sources.slice(), fadeAt = clock.change
+    ctx.currentTime = fadeAt + progress * plan.blend
+    for (const [side, rate, wait] of [["out", 1.03, .004], ["into", .92, .008], ["out", .97, .013], ["into", 1.08, .007]]) {
+      const mix = {...before.mix, [side]: {...before.mix[side], rate, vinyl: true}}
+      const next = planRehearsal(plan.outgoing, plan.incoming, plan.exit, plan.inStart, 120, mix)
+      preview.edit(next, "blend", 0)
+      const replacements = sources.slice(-2)
+      const at = replacements[0].args[0]
+      const phase = (at - fadeAt) / before.blend
+      for (const [i, deck] of ["out", "into"].entries()) {
+        const [started, record] = pair[i].args
+        assert.ok(Math.abs(replacements[i].args[1] - (record + (at - started) * before.mix[deck].rate)) < 1e-8, deck)
+      }
+      assert.ok(Math.abs((preview.elapsed() - next.lead) / next.blend - phase) < 1e-8, "gain envelope")
+      fadeAt = at - phase * next.blend
+      before = next
+      pair = replacements
+      ctx.currentTime += wait
+    }
+    assert.equal(pfl.gain.value, 0)
+    preview.stop()
+  }
+})
+
+test("a slower edit retains audio before the new preview window and never revives a finished deck", () => {
+  for (const elapsed of [.1, 5.1]) {
+    const {preview, plan, ctx, sources} = rehearsalFixture()
+    let start
+    preview.play(plan, "blend", 0, 0, (_tap, timing) => { start = timing.start })
+    ctx.currentTime = start + elapsed
+    const next = planRehearsal(plan.outgoing, plan.incoming, plan.exit, plan.inStart, 120,
+      {...plan.mix, out: {...plan.mix.out, rate: .8, vinyl: true}})
+    preview.edit(next, "blend", 0)
+    if (elapsed < 1) {
+      const [at, offset] = sources[2].args
+      assert.ok(Math.abs(offset - (plan.outStart + at - start)) < 1e-8)
+      assert.equal(preview.elapsed(), 0)
+      assert.ok(Math.abs(sources[3].args[0] - at - (plan.exit - offset) / .8) < 1e-8)
+    } else {
+      assert.deepEqual(sources.slice(2).map(s => s.buffer), [plan.incoming])
+    }
+    preview.stop()
+  }
+})
