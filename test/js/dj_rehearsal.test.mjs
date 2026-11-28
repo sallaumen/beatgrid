@@ -35,8 +35,9 @@ test("a fractional BPM fits a full four-beat fallback, but a missing audio frame
 
 function rehearsalFixture() {
   const sources = [], splitters = [], routed = []
-  const preparationDelays = []
-  const param = () => ({value: 1, setValueAtTime(v) { this.value = v }, linearRampToValueAtTime() {}, cancelScheduledValues() {}})
+  const preparationDelays = [], targets = []
+  const param = () => ({value: 1, setValueAtTime(v) { this.value = v }, linearRampToValueAtTime() {},
+    cancelScheduledValues() {}, setTargetAtTime(value) { targets.push({param: this, value}) }})
   const node = () => ({
     connections: [],
     connect(next, output = 0) { this.connections.push({next, output}) },
@@ -77,7 +78,7 @@ function rehearsalFixture() {
     return {duration, length: left.length, sampleRate: 1000, numberOfChannels: 2, getChannelData: ch => [left, right][ch]}
   }
   const plan = planRehearsal(track(14, 1), track(8, -1), 12, 5, 120)
-  return {preview, plan, ctx, phones, pfl, sources, splitters, routed, preparationDelays}
+  return {preview, plan, ctx, phones, pfl, sources, splitters, routed, preparationDelays, targets}
 }
 
 test("the live cue fades before an audition and returns smoothly when the DJ stops listening", async () => {
@@ -238,6 +239,21 @@ test("resuming a private take keeps its record position while the start is queue
   assert.equal(preview.elapsed(), 2.5)
   ctx.currentTime = origin + 2.75
   assert.equal(preview.elapsed(), 2.75)
+  preview.stop()
+})
+
+test("moving the opposite deck's filter leaves a running channel gain ramp alone", () => {
+  const {preview, plan, ctx, targets} = rehearsalFixture()
+  void preview.play(plan, "blend", 0)
+  ctx.currentTime += plan.lead + .25
+  const lower = {...plan, mix: {...plan.mix, out: {...plan.mix.out, level: .4}}}
+  preview.edit(lower, "blend", 0)
+  const gain = targets.find(change => change.value === .4).param
+  targets.length = 0
+  ctx.currentTime += .01
+  preview.edit({...lower, mix: {...lower.mix, into: {...lower.mix.into, filter: .5}}}, "blend", 0)
+  assert.ok(targets.some(change => change.value > 10), "the incoming filter moved")
+  assert.ok(!targets.some(change => change.param === gain), "the outgoing gain continued its first ramp")
   preview.stop()
 })
 

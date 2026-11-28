@@ -165,11 +165,13 @@ export function createRehearsal(ctx, phones, pfl) {
     if (!keepPhones) fadePfl(1, now + edgeSeconds)
   }
 
-  function applyMix(channels, mix, smooth) {
-    for (const [side, channel] of Object.entries(channels)) {
-      applyFilter(channel.eq, mix[side].filter, ctx.currentTime, smooth)
-      applyTone(channel.eq, mix[side].tone, ctx.currentTime, smooth)
-      setMixParam(channel.level.gain, mix[side].level, ctx.currentTime, smooth)
+  function applyMix(channels, mix, before) {
+    const now = ctx.currentTime
+    for (const [side, {eq, level}] of Object.entries(channels)) {
+      const next = mix[side], previous = before?.[side]
+      if (next.filter !== previous?.filter) applyFilter(eq, next.filter, now, !!previous)
+      if (next.tone !== previous?.tone) applyTone(eq, next.tone, now, !!previous)
+      if (next.level !== previous?.level) setMixParam(level.gain, next.level, now, !!previous)
     }
   }
 
@@ -265,7 +267,7 @@ export function createRehearsal(ctx, phones, pfl) {
       }
       const outgoing = add("out", plan.outgoing, playAt, change + fade)
       const last = add("into", plan.incoming, Math.max(playAt, change), finish)
-      applyMix(current.channels, plan.mix, false)
+      applyMix(current.channels, plan.mix)
       if (ctx.currentTime + guard > playAt) {
         // Nothing was routed. Retry a slow setup once with its measured cost in reserve.
         if (retryLead !== null) throw new Error("Headphone playback missed its scheduled start")
@@ -308,7 +310,7 @@ export function createRehearsal(ctx, phones, pfl) {
       current = null
       schedule(plan, kind, pan, 0, null, false, previous)
     } else {
-      applyMix(current.channels, plan.mix, true)
+      applyMix(current.channels, plan.mix, before.mix)
       current.plan = plan
     }
   }
