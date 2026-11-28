@@ -257,6 +257,30 @@ test("moving the opposite deck's filter leaves a running channel gain ramp alone
   preview.stop()
 })
 
+test("an edit too late for the outgoing fade leaves the incoming record in flight", () => {
+  for (const [kind, afterFade] of [["cut", -.004], ["blend", .08], ["bass_swap", -.004]]) {
+    const {preview, plan, ctx, sources} = rehearsalFixture()
+    const settings = (out, into) => planRehearsal(plan.outgoing, plan.incoming, plan.exit, plan.inStart, 120,
+      {out: {...plan.mix.out, ...out}, into: {...plan.mix.into, ...into}})
+    const original = settings({rate: 1.055})
+    let clock
+    void preview.play(original, kind, 0, original.lead - .1, (_tap, times) => { clock = times })
+    ctx.currentTime = clock.change + clock.overlap + afterFade
+    const before = sources.length, slower = {rate: .80, vinyl: true}
+    const revised = settings(slower)
+    preview.edit(revised, kind, 0)
+    assert.equal(sources.length, before, "the incoming audio kept its current voice")
+    if (kind !== "cut") {
+      assert.ok(preview.splices(original, kind), "the previous audition kept its pitch memory")
+      assert.equal(preview.splices(revised, kind), undefined, "the new outgoing pitch was not heard")
+    }
+    preview.edit(settings(slower, {rate: .99, vinyl: true}), kind, 0)
+    assert.deepEqual(sources.slice(before).map(source => source.buffer), [plan.incoming],
+      "editing the audible record did not bring the faded record back")
+    preview.stop()
+  }
+})
+
 test("rapid pitch edits keep the playing source until each replacement reaches the same record position", () => {
   const {preview, plan, ctx, pfl, sources} = rehearsalFixture()
   let originalStart
@@ -389,7 +413,8 @@ test("a slower edit retains audio before the new preview window and never revive
       assert.equal(preview.elapsed(), 0)
       assert.ok(Math.abs(sources[3].args[0] - at - (plan.exit - offset) / .8) < 1e-8)
     } else {
-      assert.deepEqual(sources.slice(2).map(s => s.buffer), [plan.incoming])
+      assert.equal(sources.length, 2, "the outgoing record stayed finished")
+      assert.equal(sources[1].stopped, undefined, "the incoming record kept playing")
     }
     preview.stop()
   }

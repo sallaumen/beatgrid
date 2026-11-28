@@ -65,6 +65,8 @@ export function recordTime(plan, side, time) {
 // This transport has no references to live media elements or the master output.
 export function createRehearsal(ctx, phones, pfl) {
   const edgeSeconds = 0.006
+  const guard = 256 / ctx.sampleRate // Two render quanta for the audio thread.
+  const startLead = 3 * guard
   let current = null, cancelMeasurement = null, pflTarget = 1
   const heardSplices = new WeakMap()
   const fading = new Set()
@@ -194,7 +196,7 @@ export function createRehearsal(ctx, phones, pfl) {
     // Keep the faders at the fraction already heard. After the overlap, only
     // the incoming deck remains, even if the new pitch made the blend longer.
     const elapsed = at - previous.change
-    const before = rehearsalOverlap(previous.plan, previous.kind)
+    const before = previous.overlap
     const after = rehearsalOverlap(plan, kind)
     if (elapsed >= before) return plan.lead + after + (elapsed - before)
     return plan.lead + after * elapsed / before
@@ -204,8 +206,7 @@ export function createRehearsal(ctx, phones, pfl) {
     try {
       // Both sources and their automation must reach the render thread before their shared start.
       const setupStart = ctx.currentTime
-      const guard = 256 / ctx.sampleRate // Two render quanta left for the audio thread.
-      const playAt = setupStart + (retryLead ?? 3 * guard)
+      const playAt = setupStart + (retryLead ?? startLead)
       const handoff = previous ? Math.max(playAt, previous.playAt) : playAt
       const from = previous ? editedTime(previous, plan, kind, handoff) : Math.max(0, skip)
       if (from >= plan.duration || (kind === "bass_swap" && !plan.fullBlend)) {
@@ -236,7 +237,7 @@ export function createRehearsal(ctx, phones, pfl) {
       }
       monitor.connect(output)
       const ended = new Promise(resolve => {
-        current = {start, change, from, playAt, end: finish, edge, buses, plan, kind, channels: {}, sources: [], nodes: [...buses, output], finish: resolve}
+        current = {start, change, overlap: fade, from, playAt, end: finish, edge, buses, plan, kind, channels: {}, sources: [], nodes: [...buses, output], finish: resolve}
       })
       const add = (side, buffer, at, end) => {
         if (end <= at) return null
@@ -304,12 +305,20 @@ export function createRehearsal(ctx, phones, pfl) {
     discardMeasurement()
     if (!current) return
     const before = current.plan
-    if ((kind === "blend" && before.blendCurve !== plan.blendCurve) || ["out", "into"].some(s => before.mix[s].rate !== plan.mix[s].rate || before.mix[s].vinyl !== plan.mix[s].vinyl)) {
+    const speedChanged = side => before.mix[side].rate !== plan.mix[side].rate || before.mix[side].vinyl !== plan.mix[side].vinyl
+    const handoff = Math.max(ctx.currentTime + startLead, current.playAt)
+    const stillMixing = handoff < current.change + current.overlap
+    const curveChanged = kind === "blend" && before.blendCurve !== plan.blendCurve
+    if (speedChanged("into") || (stillMixing && (speedChanged("out") || curveChanged))) {
       const previous = current
       saveSplices()
       current = null
       schedule(plan, kind, pan, 0, null, false, previous)
     } else {
+      if (speedChanged("out")) {
+        saveSplices()
+        current.outSource = null // The revised outgoing grains were never heard.
+      }
       applyMix(current.channels, plan.mix, before.mix)
       current.plan = plan
     }
