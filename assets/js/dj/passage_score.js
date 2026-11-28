@@ -138,10 +138,10 @@ function pulseMetric(before, after, middle, start, end, dt, kind, bpm, descripti
   return metric("pulse", "good", "Pulso regular antes e depois")
 }
 
-function longestQuiet(frames, floor) {
+function longestRun(frames, matches) {
   let longest = 0, run = 0
-  for (const {rms} of frames) {
-    run = rms < floor ? run + 1 : 0
+  for (const frame of frames) {
+    run = matches(frame) ? run + 1 : 0
     longest = Math.max(longest, run)
   }
   return longest
@@ -183,10 +183,14 @@ function levelMetric(before, middle, after, dt, kind, descriptive) {
   const guard = Math.round(0.75 / dt)
   const center = [...before.slice(-guard), ...middle, ...after.slice(0, guard)]
   const floor = Math.max(0.0001, Math.min(out, into) / 16)
-  const quiet = longestQuiet(center, floor) * dt
-  const rest = Math.max(longestQuiet(before.slice(0, -guard), floor), longestQuiet(after.slice(guard), floor)) * dt
-  if (quiet > Math.max(0.18, rest + 0.12)) {
-    return metric("level", quiet >= 0.32 ? "poor" : "watch", `Silêncio de ${Math.round(quiet * 1000)} ms`, "gap")
+  const low = frame => frame.rms < floor
+  const quiet = longestRun(center, low) * dt
+  const rest = Math.max(longestRun(before.slice(0, -guard), low), longestRun(after.slice(guard), low)) * dt
+  const unusual = Math.max(0.18, rest + 0.12)
+  if (quiet > unusual) {
+    const silence = longestRun(center, frame => !hasSignal(frame)) * dt
+    if (silence > unusual) return metric("level", silence >= 0.32 ? "poor" : "watch", `Silêncio de ${Math.round(silence * 1000)} ms`, "gap")
+    return metric("level", quiet >= 0.32 ? "poor" : "watch", `Nível baixo por ${Math.round(quiet * 1000)} ms`, "quiet_section")
   }
   if (ends.state !== "good") return ends
   const width = Math.max(1, Math.round(0.45 / dt))
