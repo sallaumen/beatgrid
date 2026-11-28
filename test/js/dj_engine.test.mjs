@@ -97,7 +97,7 @@ async function scratchBooth(t, ids, channels = 1, callbacks = {}, beforeDecode) 
   const samples = new Float32Array(8 * 8000)
   for (const id of [ids].flat()) {
     await loadPeaks(id, id, {decodeAudioData: async () => ({
-      sampleRate: 8000, duration: 8, numberOfChannels: channels, getChannelData: () => samples
+      length: samples.length, sampleRate: 8000, duration: 8, numberOfChannels: channels, getChannelData: () => samples
     })})
   }
   return {...rig, commands}
@@ -2827,6 +2827,87 @@ for (const [id, vinyl] of [["a", false], ["b", true]]) {
     assert.equal(deck.el.preservesPitch, !vinyl)
   })
 }
+
+for (const [id, control] of [["a", "pitch"], ["b", "sync"]]) {
+  test(`a playing native record keeps advancing when its first ${control} gesture stalls the media`, async t => {
+    const track = "live-native-" + control
+    const {engine, advances} = await scratchBooth(t, track, 2)
+    engine.stopAll()
+    engine.loadDeck(id, {id: track, src: track, bpm: 120}, {autoplay: true})
+    const deck = engine.decks[id]
+    engine.ctx.createBuffer = (n, length, sampleRate) => {
+      const channels = Array.from({length: n}, () => new Float32Array(length))
+      return {numberOfChannels: n, length, sampleRate, duration: length / sampleRate, getChannelData: i => channels[i]}
+    }
+    deck.el.at(2.132)
+    engine.setVinylMode(id, true)
+    engine.setVinylMode(id, false)
+    assert.equal(deck.entry, null, "a pitch-mode toggle at unity keeps the healthy media voice")
+    const rate = 1 + 13 * .4 / 126
+    if (control === "pitch") engine.setRate(id, rate)
+    else {
+      engine.loadDeck("a", {id: "tempo-reference", src: "tempo-reference", bpm: 120 * rate})
+      assert.ok(engine.sync(id))
+    }
+    engine.ctx.currentTime += .2
+    assert.ok(Math.abs(deck.platterTime() - (2.132 + .2 * rate)) < .001)
+    assert.equal(deck.el.currentTime, 2.132, "the native backup is still frozen")
+    assert.equal(deck.mediaGain.gain.value, 0)
+    engine.setVinylMode(id, true)
+    engine.setVinylMode(id, false)
+    engine.setRate(id, 1)
+    engine.ctx.currentTime += .25
+    assert.ok(Math.abs(deck.platterTime() - (2.382 + .2 * rate)) < .004)
+    assert.equal(deck.audible(), true)
+    assert.deepEqual(advances, [])
+    engine.pauseAll()
+    assert.equal(deck.audible(), false)
+  })
+}
+
+test("the jog edge bends a cached native record without stalling or changing its permanent pitch", async t => {
+  const id = "live-native-edge"
+  const {engine, a, tick} = await scratchBooth(t, id)
+  engine.stopAll()
+  engine.loadDeck("a", {id, src: id, bpm: 120}, {autoplay: true})
+  engine.setVinylMode("a", true)
+  a.at(3)
+  for (const turn of [2, 3, 2, -2, -3, -2]) {
+    engine.jogTurn("a", turn)
+    engine.ctx.currentTime += .022
+    tick(22)
+  }
+  assert.ok(engine.decks.a.platterTime() > 3.125)
+  const deck = engine.decks.a
+  assert.equal(deck.baseRate, 1)
+  assert.equal(a.playbackRate, 1, "the media backup keeps the permanent pitch")
+  tick(4000)
+  engine.ctx.currentTime += .3
+  assert.ok(deck.platterTime() > 3.4)
+  assert.equal(deck.playbackRate, 1)
+  assert.equal(a.currentTime, 3)
+})
+
+test("an uncached record or refused tempo voice leaves the native deck playing at the requested speed", async t => {
+  const track = "refused-native-tempo"
+  const {engine, a} = await scratchBooth(t, track)
+  const allocate = t.mock.method(engine.ctx, "createBufferSource", () => { throw Error("no audio voice") })
+  for (const id of ["uncached-native-tempo", track]) {
+    engine.stopAll()
+    engine.loadDeck("a", {id, src: id, bpm: 120}, {autoplay: true})
+    a.at(3.125)
+    engine.setVinylMode("a", true)
+    engine.setRate("a", 1.04)
+    assert.equal(engine.decks.a.entry, null)
+    assert.equal(engine.decks.a.mediaGain.gain.value, 1)
+    assert.equal(a.playbackRate, 1.04)
+    assert.equal(a.currentTime, 3.125)
+    assert.equal(a.paused, false)
+    a.at(3.541)
+    assert.equal(engine.decks.a.positionMs(), 3541)
+  }
+  assert.equal(allocate.mock.callCount(), 1)
+})
 
 test("a refused pitch buffer returns the current position and new speed to the native player", t => {
   const {engine, deck} = spinningDeck(t, "a", false)

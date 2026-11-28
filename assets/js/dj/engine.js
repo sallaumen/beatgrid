@@ -351,20 +351,27 @@ class Deck {
     previous?.release(sync)
   }
 
+  // A native tempo change can stall even a ready media element.
+  // Bridge to the cached stereo record before changing its backup. A seek has
+  // a fixed target; a running platter advances while the new voice is prepared.
+  takeCachedRecord(mix, target) {
+    if (this.entry || !this.wantsPlayback || !this.audible() || this.stopBrake) return
+    const buffer = getDeckAudio(this.trackId)
+    const head = target ?? this.el.currentTime
+    if (!buffer || head >= buffer.duration) return
+    let prepared
+    try {
+      prepared = this.preparePassageAudio(buffer, head, mix, true)
+      prepared.launch(this.ctx.currentTime, target ?? this.el.currentTime)
+    } catch { prepared?.discard() }
+  }
+
   seek(seconds, positionAfter) {
     const recording = this.entry
     if (recording) {
       recording.seek(seconds, positionAfter)
-    } else if (this.wantsPlayback && this.audible() && !this.stopBrake && seconds !== this.el.currentTime) {
-      const buffer = getDeckAudio(this.trackId)
-      if (buffer && seconds < buffer.duration) {
-        // A compressed media seek can report the requested time while playing a different sample.
-        let prepared
-        try {
-          prepared = this.preparePassageAudio(buffer, seconds, {rate: this.playbackRate, vinyl: this.vinylMode}, true)
-          prepared.launch(this.ctx.currentTime, seconds)
-        } catch { prepared?.discard() }
-      }
+    } else if (seconds !== this.el.currentTime) {
+      this.takeCachedRecord({rate: this.playbackRate, vinyl: this.vinylMode}, seconds)
     }
     this.el.currentTime = seconds
     if (recording && this.wantsPlayback && this.el.paused && !this.el.error) this.el.play().catch(() => {})
@@ -421,10 +428,15 @@ class Deck {
     const rate = targetBpm / this.bpm
     this.baseRate = syncedRate(this.baseRate, this.bpm, targetBpm)
     // Keep the audible platter. A refused PCM allocation returns its head to media.
-    this.entry?.nudge(this.baseRate)
+    this.retuneRecording(this.baseRate)
     if (this.el.preservesPitch !== !this.vinylMode) this.el.preservesPitch = !this.vinylMode
     if (this.el.playbackRate !== this.baseRate) this.el.playbackRate = this.baseRate
     return Math.abs(this.baseRate - rate) < 1e-9
+  }
+
+  retuneRecording(rate) {
+    if (!this.entry && this.playbackRate !== rate) this.takeCachedRecord({rate, vinyl: this.vinylMode})
+    return this.entry?.nudge(rate)
   }
 
   resetRate() {
@@ -2061,7 +2073,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     const hand = jog[deck.id]
     const rate = Math.max(deck.baseRate * (1 + hand.bend), 0.0625)
     if (!nudge || !hand.bend) hand.rateSample = null
-    if (gesture && deck.entry?.nudge(rate)) {
+    if (gesture && deck.retuneRecording(rate)) {
       // A persistent pitch setting also belongs to the native backup.
       if (!nudge && deck.el.playbackRate !== deck.baseRate) deck.el.playbackRate = deck.baseRate
       return
@@ -2949,7 +2961,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         deck.entry?.setMode(on, deck.playbackRate)
       }
       deck.vinylMode = on
-      deck.el.preservesPitch = !on
+      if (deck.el.preservesPitch !== !on) deck.el.preservesPitch = !on
       applyRate(deck, "pitch")
     },
 
