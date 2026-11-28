@@ -2211,6 +2211,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             this.rehearsal = mountRehearsal({
               root: byId("dj-rehearsal"), engine: this.engine, tracks: this.tracks, waves: this.waves,
               hint: () => this.hint,
+              waitingForNext: () => !!this.pendingHint || (!!this.setId && this.engine.awaitingNextLoad()),
               hasPhones: () => {
                 if (this.movingOutput || this.roomOutput?.missing) return false
                 if (this.engine.cueMode().mode === "quad") return true
