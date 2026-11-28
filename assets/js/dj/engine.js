@@ -2013,11 +2013,16 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     }
   }
 
-  function applyRate(deck, nudge = false) {
+  function applyRate(deck, gesture) {
+    const nudge = gesture === "bend"
     const hand = jog[deck.id]
     const rate = Math.max(deck.baseRate * (1 + hand.bend), 0.0625)
     if (!nudge || !hand.bend) hand.rateSample = null
-    if (nudge && deck.entry?.nudge(rate)) return
+    if (gesture && deck.entry?.nudge(rate)) {
+      // A persistent pitch setting also belongs to the native backup.
+      if (!nudge && deck.el.playbackRate !== deck.baseRate) deck.el.playbackRate = deck.baseRate
+      return
+    }
     if (deck.playbackRate === rate) return
 
     // Some native decoders restart on each new rate. The first nudge is
@@ -2157,7 +2162,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     const bend = Math.min(Math.max(j.bend + delta * RAMP.bendStep, -RAMP.bendMax), RAMP.bendMax)
     if (bend !== j.bend) passage.mixChanged()
     j.bend = bend
-    applyRate(deck, true)
+    applyRate(deck, "bend")
     if (!j.decay) {
       j.decay = setInterval(() => {
         j.bend *= RAMP.bendDecay
@@ -2166,7 +2171,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
           clearInterval(j.decay)
           j.decay = null
         }
-        applyRate(deck, true)
+        applyRate(deck, "bend")
       }, 60)
     }
   }
@@ -2843,7 +2848,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       deck.stopBrake?.()
       if (deck.baseRate !== next) passage.mixChanged()
       deck.baseRate = next
-      applyRate(deck)
+      applyRate(deck, "pitch")
     },
 
     // ── efeitos de performance (coisas que a controladora não tem) ─────────────
