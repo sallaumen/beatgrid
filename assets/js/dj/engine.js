@@ -214,6 +214,7 @@ class Deck {
     this.playPending = false
     this.wantsPlayback = false
     this.cueState = null
+    this.stoppedRecordingState = null
     this.resumeFromRecording = false
     const markers = (track.markers || []).filter(m =>
       m.type !== "outro" && Number.isFinite(m.ms) && m.ms >= 0)
@@ -235,8 +236,11 @@ class Deck {
     this._cued = false
     this._seekGuard = false
     this._seekQueued = false
+    const failedBackup = this.el.error
     this.el.src = track.src
     this.el.load()
+    // WebKit can carry a seek made without metadata into the next resource.
+    if (failedBackup) this.el.currentTime = Math.max(0, atMs / 1000)
     this._pendingSeekMs = atMs
     this._readyToken = token
     retainScratch(this, track.id)
@@ -258,6 +262,7 @@ class Deck {
   }
 
   play(atMs = null, started, failed) {
+    this.stoppedRecordingState = null
     this.resumeFromRecording = false
     this.wantsPlayback = true
     if (atMs != null) this._pendingSeekMs = atMs
@@ -328,11 +333,14 @@ class Deck {
       clearInterval(progressTimer)
       if (this.entry !== entry) return // a deliberate handoff or stop already took ownership
       this.entry = null
+      // The final PCM sample can arrive after the silent backup has already failed.
+      this.stoppedRecordingState = ended ? "ended" : null
       if (ended) this.recordEnded()
       else if (this.el.error && this.wantsPlayback) this.recordError()
     }, mix, () => this.wantsPlayback && this.loop.on && this.recordEnded(), stage)
     // Muted media can stall without a timeupdate while the record reaches its AUTO point.
     const own = () => {
+      this.stoppedRecordingState = null
       this.entry = entry
       this.durationMs = buffer.duration * 1000
       progressTimer = setInterval(this.recordProgress, 100)
@@ -386,7 +394,10 @@ class Deck {
   }
 
   pause() {
-    if (this.entry && this.el.error) this.resumeFromRecording = true
+    if (this.entry && this.el.error) {
+      this.resumeFromRecording = true
+      this.stoppedRecordingState = getDeckAudio(this.trackId) ? "ready" : null
+    }
     this.wantsPlayback = false
     this.playToken++
     this.playPending = false
@@ -2145,6 +2156,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
 
   // Keep the latest hand position through buffering, PLAY and the next AUTO fire.
   function placePlatter(deck, seconds) {
+    if (deck.stoppedRecordingState === "ended") deck.stoppedRecordingState = null
     const targetMs = deck.clampPosition(seconds) * 1000
     if (Math.abs(deck.platterTime() * 1000 - targetMs) > 1) {
       if (roomEnd?.deck === deck) roomEnd = null

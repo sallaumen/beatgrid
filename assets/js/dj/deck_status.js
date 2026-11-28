@@ -11,11 +11,14 @@ const LABELS = {
 
 function mediaState(deck, scratchPosition) {
   if (deck.trackId == null) return "empty"
-  if (deck.el.error) return "error"
   // The worklet owns the platter while scratching, even though the media is paused.
   if (scratchPosition != null) return "scratch"
-  if (deck.el.ended) return "ended"
-  if (!deck.ready()) return "loading"
+  if (!deck.entry) {
+    if (deck.stoppedRecordingState) return deck.stoppedRecordingState
+    if (deck.el.error) return "error"
+    if (deck.ended()) return "ended"
+    if (!deck.ready()) return "loading"
+  }
   if (!deck.audible()) return "ready"
   return deck.cueState === "preview" ? "preview" : "playing"
 }

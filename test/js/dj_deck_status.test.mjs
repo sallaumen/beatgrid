@@ -3,7 +3,7 @@ import test from "node:test"
 import {paintDeckStatus, paintLoopRegion, paintPitchWait, syncFeedback} from "../../assets/js/dj/deck_status.js"
 
 test("each waveform follows the mounted deck across loading, preview, scratch and eject", () => {
-  const deck = {trackId: null, el: {}, ready: () => false, audible: () => false}
+  const deck = {trackId: null, el: {}, ended() { return this.el.ended }, ready: () => false, audible: () => false}
   const readout = {dataset: {}}
   const state = (scratchPosition = null) => {
     paintDeckStatus(readout, deck, scratchPosition)
@@ -32,7 +32,7 @@ test("each waveform follows the mounted deck across loading, preview, scratch an
 })
 
 test("the animation loop only announces an actual state change", () => {
-  const deck = {trackId: "intro", el: {}, ready: () => false}
+  const deck = {trackId: "intro", el: {}, ended: () => false, ready: () => false}
   let writes = 0
   const readout = {dataset: {}, set textContent(value) { writes++ }}
   paintDeckStatus(readout, deck, null)
