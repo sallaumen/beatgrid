@@ -34,7 +34,7 @@ import {createPassage} from "./passage.js"
 import {createProgramMeter, observeRoomPassage} from "./passage_meter.js"
 import {scheduleBlend} from "./blend_curve.js"
 import {createRehearsal, CUT_OVERLAP_S, rehearsalOverlap, scheduleRehearsalBass} from "./rehearsal.js"
-import {getDeckAudio, getScratchPcm, retainScratch} from "./waveform.js"
+import {audioDecodeFailed, getDeckAudio, getScratchPcm, pendingAudioDecode, retainScratch} from "./waveform.js"
 import {ensureScratchModule, scratchPattern} from "./scratch.js"
 
 const RAMP = Object.freeze({
@@ -341,6 +341,14 @@ class Deck {
     own()
   }
 
+  get pitchPending() {
+    return this.pendingRate?.token === this.playToken && this.baseRate !== this.playbackRate
+  }
+
+  get pitchOnResume() {
+    return this.pendingRate?.ready === null
+  }
+
   get playbackRate() {
     return this.entry?.rate() ?? this.el.playbackRate
   }
@@ -383,6 +391,12 @@ class Deck {
     this.playToken++
     this.playPending = false
     this.el.pause()
+    if (this.pendingRate) {
+      // Carry the fader setting into the next PLAY while the backup is silent.
+      this.pendingRate = null
+      if (this.el.playbackRate !== this.baseRate) this.el.playbackRate = this.baseRate
+      if (this.el.preservesPitch !== !this.vinylMode) this.el.preservesPitch = !this.vinylMode
+    }
     if (this.dropCue !== null) {
       this.el.currentTime = this.dropCue
       this.dropCue = null
@@ -421,21 +435,9 @@ class Deck {
     return Math.max(duration ? Math.min(seconds, duration - 0.001) : seconds, 0)
   }
 
-  // SYNC: match this deck's tempo to `targetBpm`; the rate KEEPS for the rest of
-  // the track (the old engine's snap-back at handoff was audible), reset on load.
-  syncTo(targetBpm) {
-    if (!this.bpm || !targetBpm) return false
-    const rate = targetBpm / this.bpm
-    this.baseRate = syncedRate(this.baseRate, this.bpm, targetBpm)
-    // Keep the audible platter. A refused PCM allocation returns its head to media.
-    this.retuneRecording(this.baseRate)
-    if (this.el.preservesPitch !== !this.vinylMode) this.el.preservesPitch = !this.vinylMode
-    if (this.el.playbackRate !== this.baseRate) this.el.playbackRate = this.baseRate
-    return Math.abs(this.baseRate - rate) < 1e-9
-  }
-
   retuneRecording(rate) {
-    if (!this.entry && this.playbackRate !== rate) this.takeCachedRecord({rate, vinyl: this.vinylMode})
+    const changingMode = rate !== 1 && this.el.preservesPitch !== !this.vinylMode
+    if (!this.entry && (this.playbackRate !== rate || changingMode)) this.takeCachedRecord({rate, vinyl: this.vinylMode})
     return this.entry?.nudge(rate)
   }
 
@@ -2068,12 +2070,37 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     }
   }
 
+  function deferRateWhileDecoding(deck) {
+    if (deck.entry || !deck.wantsPlayback || !deck.audible()) return false
+    const ready = pendingAudioDecode(deck.trackId)
+    if (!ready && !audioDecodeFailed(deck.trackId)) return false
+    const token = deck.playToken, load = deck.loadToken
+    if (deck.pendingRate?.token !== token || deck.pendingRate.ready !== ready) {
+      const request = deck.pendingRate = {token, ready}
+      // An unavailable waveform leaves the fader ready for the next explicit PLAY.
+      if (!ready) return true
+      const finish = () => {
+        if (deck.pendingRate !== request) return
+        deck.pendingRate = null
+        if (deck.playToken !== token || deck.loadToken !== load || deck.entry || deck.stopBrake ||
+            !deck.wantsPlayback || !deck.audible() || deckHeld(deck.id)) return
+        applyRate(deck, jog[deck.id].bend ? "bend" : "pitch")
+      }
+      ready.then(finish, finish)
+    }
+    return true
+  }
+
   function applyRate(deck, gesture) {
     const nudge = gesture === "bend"
     const hand = jog[deck.id]
     const rate = Math.max(deck.baseRate * (1 + hand.bend), 0.0625)
     if (!nudge || !hand.bend) hand.rateSample = null
-    if (gesture && deck.retuneRecording(rate)) {
+    const changesNative = deck.el.playbackRate !== rate || deck.el.preservesPitch !== !deck.vinylMode
+    if (gesture && changesNative && deferRateWhileDecoding(deck)) return
+    const recording = gesture && deck.retuneRecording(rate)
+    if (gesture && !nudge && deck.el.preservesPitch !== !deck.vinylMode) deck.el.preservesPitch = !deck.vinylMode
+    if (recording) {
       // A persistent pitch setting also belongs to the native backup.
       if (!nudge && deck.el.playbackRate !== deck.baseRate) deck.el.playbackRate = deck.baseRate
       return
@@ -2110,7 +2137,10 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     if (!(deck.bpm > 0 && reference.bpm > 0)) return false
     deck.stopBrake?.()
     cancelBend(deck.id)
-    return deck.syncTo(reference.bpm * reference.baseRate)
+    const targetBpm = reference.bpm * reference.baseRate
+    deck.baseRate = syncedRate(deck.baseRate, deck.bpm, targetBpm)
+    applyRate(deck, "pitch")
+    return Math.abs(deck.baseRate - targetBpm / deck.bpm) < 1e-9
   }
 
   // Keep the latest hand position through buffering, PLAY and the next AUTO fire.
@@ -2961,7 +2991,6 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         deck.entry?.setMode(on, deck.playbackRate)
       }
       deck.vinylMode = on
-      if (deck.el.preservesPitch !== !on) deck.el.preservesPitch = !on
       applyRate(deck, "pitch")
     },
 
