@@ -35,6 +35,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
   const lanes = [...dialog.querySelectorAll("canvas[data-wave]")]
   const gains = dialog.querySelector("[data-gains]")
   const arm = dialog.querySelector("[data-arm]")
+  const pickOther = dialog.querySelector("[data-select-compared]")
   const reservation = root.querySelector("[data-reservation]")
   const confirm = root.querySelector("[data-confirm]")
   const passageState = root.querySelector("[data-passage-state]")
@@ -294,7 +295,9 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
     const shortBass = kind() === "bass_swap" && !fullBlend
     bassChoice.disabled = !fullBlend
     bassLimit.hidden = !plan || fullBlend
+    const other = comparison.alternative()
     updateComparisonChoice(second, kind(), fullBlend)
+    if (other && second.value !== other) second.value = other
     second.disabled = !plan || !!sequence
     const elapsed = transport.elapsed()
     let message = failure
@@ -325,10 +328,19 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
     }
     const reload = plan && b.el.error ? "Recarregue o deck " + to.toUpperCase() + " para armar a passagem." : ""
     text(status, [message || listening + review, !message && reload, !message && mixNote, finalMix].filter(Boolean).join(" "))
-    text(arm, choice ? "Atualizar passagem" : "Armar esta passagem")
+    pickOther.hidden = !other
+    if (other) {
+      text(pickOther, "Escolher " + name(other, true))
+      text(arm, (choice ? "Atualizar com " : "Armar ") + name(kind(), true))
+    } else text(arm, choice ? "Atualizar passagem" : "Armar esta passagem")
     text(listen, playing && !sequence ? "Parar ensaio" : "Ouvir no fone")
     cursor.hidden = !playing
     if (playing) cursor.style.left = Math.min(100, 100 * elapsed / plan.duration) + "%"
+  }
+
+  pickOther.onclick = () => {
+    const other = comparison.alternative()
+    if (other) dialog.querySelector(`input[value="${other}"]`).click()
   }
 
   arm.onclick = () => {
@@ -385,7 +397,11 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
   dialog.onchange = e => {
     if (e.target.matches("[data-mix]")) return
     if (e.target === second) { comparison.clearSummary(); update(); return }
-    stop(true); failure = ""; draw(); update()
+    if (e.target.name === "dj-rehearse-kind" && comparison.alternative()) comparison.select(true)
+    else stop(true)
+    failure = ""
+    draw()
+    update()
   }
   for (const strip of strips) {
     const side = strip.dataset.side
@@ -448,6 +464,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
     update()
     if (listen.disabled) return
     keepDraft()
+    comparison.clearSummary()
     const id = ++request
     const first = kind()
     const kinds = compare ? [first, second.value] : [first]
