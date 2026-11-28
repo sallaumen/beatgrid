@@ -228,3 +228,55 @@ test("the peak margin grades reconstructed overs and labels sample-only readings
   assert.equal(measured.state, "poor")
   assert.match(measured.value, /1,3 dBTP/)
 })
+
+test("an entry that goes silent after its first beats cannot earn a steady reading", () => {
+  for (const kind of ["cut", "blend", "bass_swap", "brake"]) {
+    const data = passage({kind})
+    const end = Math.round((data.changeAt + data.overlap) / dt)
+    data.frames = [...data.frames.slice(0, end), ...data.frames.slice(0, 200),
+      ...Array.from({length: 200}, () => ({rms: 0, peak: 0, onset: 0}))]
+    const result = scorePassage({...data, descriptive: kind === "bass_swap" || kind === "brake"})
+    assert.equal(result.score, null)
+    assert.equal(metric(result, "level").finding, "silent_tail")
+    assert.match(result.summary, /2 s.*sem sinal/i)
+    if (kind !== "brake") assert.equal(metric(result, "pulse").state, "unknown")
+  }
+})
+
+test("quiet but measurable music is compared in dB and each side can still carry sound", () => {
+  const data = passage({nextLevel: .004})
+  const end = Math.round((data.changeAt + data.overlap) / dt)
+  for (const f of data.frames.slice(end)) f.peak = .004
+  const result = scorePassage(data)
+  assert.equal(metric(result, "level").finding, "quieter_entry")
+  assert.match(metric(result, "level").value, /dB abaixo/)
+})
+
+test("the summary identifies a fully silent recording even when a gesture or pulse has no reference", () => {
+  for (const kind of ["cut", "echo", "chirp"]) {
+    const result = scorePassage({...passage({kind, silent: true}), descriptive: kind !== "cut"})
+    assert.equal(result.score, null)
+    assert.match(result.summary, /sem sinal.*(lados|antes e depois)/i)
+  }
+})
+
+test("a clipped effect still reports a silent entry, with its peak available separately", () => {
+  for (const kind of ["echo", "brake", "chirp"]) {
+    const data = passage({kind, nextLevel: 0})
+    data.frames[350].peak = 1.12
+    const result = scorePassage({...data, descriptive: true})
+    assert.equal(metric(result, "headroom").state, "poor")
+    assert.equal(result.summary, "Entrada em silêncio")
+  }
+})
+
+test("the silence of an effect and brief rests in an otherwise audible entry keep their context", () => {
+  const data = passage({kind: "brake", pause: 1.5})
+  const end = Math.round((data.changeAt + data.overlap) / dt)
+  const quiet = {rms: 0, peak: 0, onset: 0}
+  for (const start of [end, data.frames.length - 99]) {
+    const frames = data.frames.map((f, i) => i >= start && i < start + 99 ? quiet : f)
+    const result = scorePassage({...data, frames, descriptive: true})
+    assert.notEqual(metric(result, "level").finding, "silent_tail")
+  }
+})

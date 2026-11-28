@@ -162,9 +162,19 @@ function levelWindows(frames, width) {
 
 function levelMetric(before, middle, after, dt, kind, descriptive) {
   const out = rms(before), into = rms(after)
-  if (out < 0.001 && into < 0.001) return unknown("level", "Sem sinal nos dois lados")
-  if (into < 0.001) return metric("level", "poor", "Entrada em silêncio", "silent_entry")
-  if (out < 0.001) return metric("level", "poor", "Saída em silêncio", "silent_exit")
+  // A loud pickup can hide a stopped entry in the RMS average. Require both
+  // channels to stay below one 16-bit step, preserving measurable quiet music.
+  const hasSignal = frame => frame.peak >= 1 / 32768
+  const silentExit = out < 0.001 && !before.some(hasSignal)
+  const lastSignal = after.findLastIndex(hasSignal)
+  if (lastSignal < 0) {
+    if (silentExit) return metric("level", "unknown", "Sem sinal antes e depois da troca", "silent_ends")
+    return metric("level", "poor", "Entrada em silêncio", "silent_entry")
+  }
+  const quietTail = (after.length - 1 - lastSignal) * dt
+  if (quietTail >= 1) return metric("level", "poor", `Fim da entrada com ${decimal(quietTail)} s sem sinal`, "silent_tail")
+  if (silentExit) return metric("level", "poor", "Saída em silêncio", "silent_exit")
+  if (out < 0.001 && into < 0.001) return unknown("level", "Sinal muito baixo nos dois lados")
   const jump = db(into / out), change = Math.abs(jump)
   const ends = change > 3.5
     ? metric("level", change >= 8 ? "poor" : "watch", `Entrada ${decimal(change)} dB ${jump > 0 ? "acima" : "abaixo"}`, jump > 0 ? "louder_entry" : "quieter_entry")
@@ -222,11 +232,14 @@ export function scorePassage({frames, frameSeconds: dt, changeAt, overlap, kind,
     if (!f || !Number.isFinite(f.rms) || f.rms < 0 || !Number.isFinite(f.peak) || f.peak < 0 ||
         (f.onset != null && (!Number.isFinite(f.onset) || f.onset < 0))) return incomplete()
   }
-  const pulse = gesture ? null : pulseMetric(before, after, middle, start, end, dt, kind, bpm, descriptive)
   const level = levelMetric(before, middle, after, dt, kind, descriptive)
+  const missingEntry = ["silent_entry", "silent_tail", "silent_ends"].includes(level.finding)
+  const pulse = gesture ? null : missingEntry ? unknown("pulse", "Sem referência no fim da entrada")
+    : pulseMetric(before, after, middle, start, end, dt, kind, bpm, descriptive)
   const headroom = headroomMetric(gesture ? middle : [...before.slice(-Math.ceil(0.25 / dt)), ...middle, ...after.slice(0, Math.ceil(0.75 / dt))])
   if (gesture) headroom.label = "Pico do efeito"
   const metrics = pulse ? [pulse, level, headroom] : [level, headroom]
+  if (missingEntry) return {score: null, descriptive, metrics, summary: level.value}
   const issue = metrics.find(m => m.state === "poor") ?? metrics.find(m => m.state === "watch")
   if (descriptive) {
     const reading = gesture ? level.value : pulse.state === "unknown" ? pulse.value : steadyEnds
