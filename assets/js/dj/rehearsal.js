@@ -152,7 +152,7 @@ export function createRehearsal(ctx, phones, pfl) {
   }
 
   // A deliberate stop can finish its headphone edge. A lost route still disconnects at once.
-  function stopListening() {
+  function stopListening(keepPhones = false) {
     const now = ctx.currentTime
     discardMeasurement()
     saveSplices()
@@ -162,7 +162,7 @@ export function createRehearsal(ctx, phones, pfl) {
       current = null
     }
     for (const take of fading) fadeUntil(take, now, edgeSeconds)
-    fadePfl(1, now + edgeSeconds)
+    if (!keepPhones) fadePfl(1, now + edgeSeconds)
   }
 
   function applyMix(channels, mix, smooth) {
@@ -174,7 +174,8 @@ export function createRehearsal(ctx, phones, pfl) {
   }
 
   function play(plan, kind, pan, skip = 0, observe, keepPhones = false) {
-    if (current || !fading.size) stop(false, true)
+    if (current) stopListening(true)
+    else if (!fading.size) stop(false, true)
     return schedule(plan, kind, pan, skip, observe, keepPhones, null)
   }
 

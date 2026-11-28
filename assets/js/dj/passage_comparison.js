@@ -1,10 +1,10 @@
 // Compare the sound that was heard. The headphone pan and transition kind are
 // intentionally outside the identity. The latter selects one of the two takes.
-export function rehearsalKey(pair, plan, bpm) {
+export function rehearsalKey(pair, plan, bpm, curve = plan?.blendCurve) {
   if (!plan) return null
   const controls = ({rate, vinyl, filter, tone, level}) => [rate, vinyl, filter, tone, level]
   return JSON.stringify([pair.from, pair.to, pair.fromLoad, pair.toLoad, bpm, plan.exit, plan.inStart,
-    plan.lead, plan.blend, plan.duration, controls(plan.mix.out), controls(plan.mix.into), plan.blendCurve ?? null])
+    plan.lead, plan.blend, plan.duration, controls(plan.mix.out), controls(plan.mix.into), curve ?? null])
 }
 
 function scoreLabel(result, unavailable) {
@@ -26,7 +26,7 @@ function differences(first, second) {
 export function mountPassageComparison(details, labels, selected, name, showDifferences = () => {}) {
   const heard = new Map()
   const unavailable = new Set()
-  let key = null, active = null, pairSummary = ""
+  let key = null, settingsKey = null, active = null, pairSummary = ""
   let lastPair, lastPlan, lastBpm
 
   function render(restored, showDetail = true) {
@@ -69,6 +69,7 @@ export function mountPassageComparison(details, labels, selected, name, showDiff
     const next = rehearsalKey(pair, plan, bpm)
     if (next === key) return
     key = next
+    settingsKey = plan?.blendCurve ? rehearsalKey(pair, plan, bpm, null) : next
     heard.clear()
     unavailable.clear()
     select()
@@ -117,5 +118,5 @@ export function mountPassageComparison(details, labels, selected, name, showDiff
     return unavailable.has(kind) ? null : heard.get(kind) ?? null
   }
 
-  return {select, bind, begin, reading, finishPair, summary: () => pairSummary, clearSummary}
+  return {select, bind, begin, reading, finishPair, settingsKey: () => settingsKey, summary: () => pairSummary, clearSummary}
 }

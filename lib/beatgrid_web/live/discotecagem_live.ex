@@ -1185,11 +1185,19 @@ defmodule BeatgridWeb.DiscotecagemLive do
         </details>
         <button
           type="button"
+          data-replay-final
+          hidden
+          disabled
+          aria-describedby="dj-rehearse-status"
+          class="mt-4 min-h-9 rounded-md border border-white/10 px-3 text-body font-semibold text-ink-secondary hover:border-primary/50 hover:text-ink disabled:opacity-40"
+        >Ouvir do início no fone</button>
+        <button
+          type="button"
           data-arm
           disabled
           class="mt-4 min-h-9 rounded-md border border-primary/40 px-3 text-body font-semibold text-ink hover:border-primary disabled:opacity-40"
         >Armar esta passagem</button>
-        <p role="status" class="mt-2 text-body text-ink-muted"></p>
+        <p id="dj-rehearse-status" role="status" class="mt-2 text-body text-ink-muted"></p>
       </dialog>
     </div>
     """

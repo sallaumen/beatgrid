@@ -18,6 +18,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
   const dialog = root.querySelector("dialog")
   const listen = dialog.querySelector("[data-listen]")
   const both = dialog.querySelector("[data-listen-both]")
+  const replay = dialog.querySelector("[data-replay-final]")
   const status = dialog.querySelector("[role=status]")
   const seconds = n => n.toLocaleString("pt-BR", {maximumFractionDigits: 2}) + " s"
   const timing = dialog.querySelector("[data-timing]")
@@ -52,6 +53,13 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
   const comparison = mountPassageComparison(score, [...dialog.querySelectorAll("[data-score-for]")], kind, name,
     value => renderPassageDifferences(differenceTable, value))
   const assist = mountCueAssist(dialog.querySelector("[data-cue-assist]"), {audition: tryEntry, refresh: update})
+
+  // At most one small revision marker per transition; never retain its decoded audio.
+  const edited = new Map()
+  function editedVersion(transition) {
+    const marker = edited.get(transition)
+    return marker?.key === comparison.settingsKey() ? marker : null
+  }
 
   function stop(byHand = false) {
     request++
@@ -93,7 +101,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
     drawRehearsalWaves(lanes, gains, [waves[pair.from], waves[pair.to]], plan, transition, window.devicePixelRatio || 1)
   }
 
-  const draftKey = () => rehearsalKey(pair, {...plan, blendCurve: null}, engine.decks[pair.from].bpm)
+  const draftKey = () => rehearsalKey(pair, plan, engine.decks[pair.from].bpm, null)
 
   function keepDraft() {
     blendReview.lock()
@@ -178,6 +186,8 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
 
   function editMix(next) {
     if (!plan) return
+    const transition = kind()
+    const before = transport.elapsed() !== null || editedVersion(transition) ? draftKey() : null
     if (sequence) stop()
     engine.editPassageMix()
     failure = mixNote = ""
@@ -191,6 +201,10 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
       failure = "Não foi possível ouvir este ajuste. Tente novamente."
     }
     prepareDraft()
+    if (plan && before) {
+      const key = draftKey()
+      if (key !== before) edited.set(transition, {key})
+    }
     paintMix()
     draw()
     update()
@@ -296,16 +310,20 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
     const comparisonStatus = sequence && `${sequence.index + 1} de 2 no fone · ${name(sequence.kind)}.`
     const listening = comparisonStatus || (playing ? "Tocando só no fone." : pending ? "Abrindo o fone…" : comparison.summary() || "Pronto para ouvir no fone.")
     const review = choice?.review === "draft" ? " A versão anterior está salva e aguarda confirmação." : ""
-    text(status, message || [listening + review, mixNote].filter(Boolean).join(" "))
+    const finalMix = editedVersion(kind()) ? "Ao armar, estes ajustes valem desde o início da passagem." : ""
+
     const unavailable = !plan || shortBass || !phones || !!a.el.error || !!b.el.error
     listen.disabled = unavailable || pending || !!sequence
+    replay.hidden = !finalMix
+    replay.disabled = !finalMix || unavailable || !!sequence
     both.disabled = unavailable || (!sequence && (pending || playing))
     text(both, sequence ? "Parar comparação" : "Ouvir as duas")
     arm.disabled = !!sequence || shortBass || !plan || !a.audible() || b.audible() || !b.ready() || !!b.el.error ||
       a.positionMs() > Math.round(plan.exit * 1000) || choice?.phase === "starting"
     if (plan && a.audible() && a.positionMs() > plan.exit * 1000 && !playing && !sequence) {
-      text(status, "O ponto ensaiado já passou nesta faixa.")
+      message = "O ponto ensaiado já passou nesta faixa."
     }
+    text(status, [message || listening + review, !message && mixNote, finalMix].filter(Boolean).join(" "))
     text(arm, choice ? "Atualizar passagem" : "Armar esta passagem")
     text(listen, playing && !sequence ? "Parar ensaio" : "Ouvir no fone")
     cursor.hidden = !playing
@@ -398,6 +416,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
   function playTake(transition, id, keepPhones) {
     let measured
     const reading = new Promise(resolve => { measured = resolve })
+    const marker = editedVersion(transition)
     const audio = transport.play(plan, transition, Number(pan.value), 0, (node, timing) => {
       const take = comparison.begin(transition)
       const bpm = engine.decks[pair.from].bpm * plan.mix.out.rate
@@ -409,13 +428,21 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
         measured(true)
       })
       return () => { cancel(); take.cancel(); measured(false) }
-    }, keepPhones)
+    }, keepPhones).then(ended => {
+      if (ended && marker && dialog.open && id === request && marker === editedVersion(transition)) {
+        const focused = document.activeElement === replay
+        edited.delete(transition)
+        update()
+        if (focused) (arm.disabled ? listen : arm).focus()
+      }
+      return ended
+    })
     // The render thread may deliver its last reading just after the sound ends.
     return Promise.all([audio, reading]).then(([ended, reported]) => ended && reported)
   }
 
-  async function play(compare = false) {
-    if (sequence || transport.elapsed() !== null) { stop(true); update(); return }
+  async function play(compare = false, restart = false) {
+    if (sequence || (!restart && transport.elapsed() !== null)) { stop(true); update(); return }
     failure = ""
     update()
     if (listen.disabled) return
@@ -460,6 +487,9 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
   }
   listen.onclick = () => play()
   both.onclick = () => play(true)
+  replay.onclick = () => {
+    if (!replay.hidden && !replay.disabled && !pending) return play(false, true)
+  }
   const resize = new ResizeObserver(() => { if (dialog.open) draw() })
   resize.observe(lanes[0])
   return {update, stop, name, destroy() { blendReview.lock(); stop(); assist.reset(); score.destroy(); resize.disconnect(); if (dialog.open) dialog.close() }}
