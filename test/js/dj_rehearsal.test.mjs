@@ -35,13 +35,13 @@ test("a fractional BPM fits a full four-beat fallback, but a missing audio frame
 
 function rehearsalFixture() {
   const sources = [], splitters = [], routed = []
-  const preparationDelays = [], targets = []
-  const param = () => ({value: 1, setValueAtTime(v) { this.value = v }, linearRampToValueAtTime() {},
+  const preparationDelays = [], targets = [], clocks = []
+  const param = () => ({value: 1, points: [], setValueAtTime(v, t) { this.value = v; this.points.push([v, t]) }, linearRampToValueAtTime() {},
     cancelScheduledValues() {}, setTargetAtTime(value) { targets.push({param: this, value}) }})
   const node = () => ({
     connections: [],
     connect(next, output = 0) { this.connections.push({next, output}) },
-    disconnect() { this.connections.length = 0 },
+    disconnect(target) { this.connections = target ? this.connections.filter(edge => edge.next !== target) : [] },
     frequency: param(), gain: param()
   })
   const ctx = {
@@ -55,6 +55,11 @@ function rehearsalFixture() {
       routed.push(ctx.currentTime)
     }}),
     createGain: node, createBiquadFilter: node,
+    createConstantSource() {
+      const clock = {...node(), offset: param(), start() {}, stop(when) { this.stopAt = when }}
+      clocks.push(clock)
+      return clock
+    },
     createChannelSplitter() {
       const splitter = node()
       splitters.push(splitter)
@@ -78,11 +83,11 @@ function rehearsalFixture() {
     return {duration, length: left.length, sampleRate: 1000, numberOfChannels: 2, getChannelData: ch => [left, right][ch]}
   }
   const plan = planRehearsal(track(14, 1), track(8, -1), 12, 5, 120)
-  return {preview, plan, ctx, phones, pfl, sources, splitters, routed, preparationDelays, targets}
+  return {preview, plan, ctx, phones, pfl, sources, splitters, routed, preparationDelays, targets, clocks}
 }
 
 test("the live cue fades before an audition and returns smoothly when the DJ stops listening", async () => {
-  const {preview, plan, ctx, pfl, sources} = rehearsalFixture()
+  const {preview, plan, ctx, pfl, sources, clocks} = rehearsalFixture()
   const ramps = []
   pfl.gain.linearRampToValueAtTime = function(value, time) { this.value = value; ramps.push({value, time}) }
   let start, envelope
@@ -99,7 +104,8 @@ test("the live cue fades before an audition and returns smoothly when the DJ sto
   assert.deepEqual(privateEdge, [{value: 1, time: ctx.currentTime}, {value: 0, time: ramps.at(-1).time}])
   assert.equal(ramps.at(-1).time, sources.at(-1).stopAt)
   assert.ok(sources.at(-1).stopAt > ctx.currentTime)
-  sources.at(-1).onended()
+  assert.equal(clocks.at(-1).stopAt, sources.at(-1).stopAt)
+  clocks.at(-1).onended()
   assert.equal(await ended, false)
   assert.ok(sources.every(s => !s.connections.length))
 })
@@ -275,10 +281,70 @@ test("an edit too late for the outgoing fade leaves the incoming record in fligh
       assert.equal(preview.splices(revised, kind), undefined, "the new outgoing pitch was not heard")
     }
     preview.edit(settings(slower, {rate: .99, vinyl: true}), kind, 0)
-    assert.deepEqual(sources.slice(before).map(source => source.buffer), [plan.incoming],
+    assert.deepEqual(sources.slice(before).flatMap(source => source.buffer ? [source.buffer] : []), [plan.incoming],
       "editing the audible record did not bring the faded record back")
     preview.stop()
   }
+})
+
+test("editing a single transport keeps the opposite record and its filter running", async () => {
+  for (const [kind, time, side] of [["cut", -.55, "into"], ["blend", .6, "into"], ["bass_swap", .45, "out"]]) {
+    const {preview, plan, ctx, sources} = rehearsalFixture()
+    let clock
+    const take = preview.play(plan, kind, 0, 0, (_tap, timing) => { clock = timing })
+    const [out, into] = sources, kept = side === "out" ? into : out
+    const initialFilter = kept.connections[0].next
+    ctx.currentTime = clock.change + time
+    // Changing the incoming pitch (or the outgoing vinyl switch) preserves the other record's clock.
+    const mix = {...plan.mix, [side]: {...plan.mix[side], rate: side === "into" ? 1.04 : 1, vinyl: true}}
+    const revision = planRehearsal(plan.outgoing, plan.incoming, plan.exit, plan.inStart, 120, mix)
+    preview.edit(revision, kind, 0)
+    assert.equal(kept.stopped, undefined, "the opposite record was never stopped")
+    assert.equal(kept.connections[0].next, initialFilter)
+    let level = initialFilter
+    while (level.connections.length === 1) level = level.connections[0].next
+    const replacementBus = level.connections.at(-1).next.connections[0].next
+    assert.deepEqual(replacementBus.gain.points[0], [0, ctx.currentTime], "a live voice was muted until its new edge")
+    assert.equal(sources.filter(source => source.buffer).length, 3, "only the edited transport was prepared")
+    preview.stop()
+    assert.equal(await take, false)
+    assert.ok(sources.every(source => source.stopped && !source.connections.length))
+  }
+})
+
+test("a retained voice keeps its heard grains and stale clocks cannot finish a different cue", async () => {
+  const {preview, plan, ctx, clocks, pfl, sources} = rehearsalFixture()
+  const mix = {...plan.mix, out: {...plan.mix.out, rate: .92}}
+  const pair = (entry, settings) => planRehearsal(plan.outgoing, plan.incoming, plan.exit, entry, 120, settings)
+  const first = pair(.4, mix)
+  let timing
+  const ended = preview.play(first, "blend", 0, first.lead - .2, (_tap, value) => { timing = value })
+  const stale = clocks.at(-1).onended
+  ctx.currentTime = timing.change + .07
+  const grains = preview.splices(first, "blend")
+  assert.ok(grains?.prior.length)
+  const changed = pair(.4, {...mix, into: {...mix.into, rate: 1.02, vinyl: true}})
+  preview.edit(changed, "blend", 0)
+  assert.deepEqual(preview.splices(changed, "blend"), grains)
+  preview.stopListening(true)
+  const next = pair(1.2, mix)
+  const done = preview.play(next, "cut", -1, next.lead - .1)
+  stale()
+  assert.notEqual(preview.elapsed(), null)
+  assert.equal(preview.splices(next, "cut"), undefined)
+  assert.deepEqual(preview.splices(first, "blend"), grains)
+  const scheduled = clocks.at(-1)
+  assert.ok(scheduled.stopAt < ctx.currentTime + plan.incoming.duration, "the take ends before physical EOF")
+  ctx.currentTime = scheduled.stopAt
+  scheduled.onended()
+  assert.equal(await done, true)
+  assert.equal(await ended, false)
+  assert.equal(preview.elapsed(), null)
+  assert.equal(pfl.gain.value, 1)
+  assert.ok(clocks.every(clock => !clock.connections.length))
+  assert.ok(sources.every(source => source.stopped))
+  for (const grain of sources) grain.onended?.()
+  assert.ok(sources.every(source => !source.connections.length))
 })
 
 test("rapid pitch edits keep the playing source until each replacement reaches the same record position", () => {
@@ -380,12 +446,13 @@ test("changing either pitch during the overlap keeps both records and the faders
       const mix = {...before.mix, [side]: {...before.mix[side], rate, vinyl: true}}
       const next = planRehearsal(plan.outgoing, plan.incoming, plan.exit, plan.inStart, 120, mix)
       preview.edit(next, "blend", 0)
-      const replacements = sources.slice(-2)
-      const at = replacements[0].args[0]
+      const replacements = [plan.outgoing, plan.incoming].map(track => sources.findLast(s => s.buffer === track))
+      const at = Math.max(...replacements.map(source => source.args[0]))
       const phase = (at - fadeAt) / before.blend
       for (const [i, deck] of ["out", "into"].entries()) {
         const [started, record] = pair[i].args
-        assert.ok(Math.abs(replacements[i].args[1] - (record + (at - started) * before.mix[deck].rate)) < 1e-8, deck)
+        const [start, offset] = replacements[i].args
+        assert.ok(Math.abs(offset + (at - start) * mix[deck].rate - (record + (at - started) * before.mix[deck].rate)) < 1e-8, deck)
       }
       assert.ok(Math.abs((preview.elapsed() - next.lead) / next.blend - phase) < 1e-8, "gain envelope")
       fadeAt = at - phase * next.blend
@@ -421,7 +488,7 @@ test("a slower edit retains audio before the new preview window and never revive
 })
 
 test("restarting the final audition releases the first take softly and keeps the live cue closed", async () => {
-  const {preview, plan, ctx, pfl, sources} = rehearsalFixture()
+  const {preview, plan, ctx, pfl, sources, clocks} = rehearsalFixture()
   const cue = [], edge = []
   pfl.gain.linearRampToValueAtTime = value => cue.push(value)
   let envelope
@@ -434,7 +501,7 @@ test("restarting the final audition releases the first take softly and keeps the
   assert.deepEqual(cue, [0])
   assert.equal(oldSource.stopAt, ctx.currentTime + .006)
   assert.equal(sources.at(-2).args[1], plan.outStart)
-  oldSource.onended()
+  clocks.at(-1).onended()
   assert.equal(await first, false)
   sources.at(-1).onended()
   assert.equal(await second, true)

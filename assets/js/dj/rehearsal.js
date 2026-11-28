@@ -48,8 +48,9 @@ export function rehearsalBassDb(side, progress) {
   return cut <= 0 ? 0 : -BASS_DEPTH_DB * Math.min(1, cut)
 }
 
-export function scheduleRehearsalBass(param, side, change, fade, at) {
+export function scheduleRehearsalBass(param, side, change, fade, at, previousProgress) {
   param.cancelScheduledValues(at)
+  if (previousProgress !== undefined) param.linearRampToValueAtTime(rehearsalBassDb(side, previousProgress), at)
   param.setValueAtTime(rehearsalBassDb(side, (at - change) / fade), at)
   for (const p of [BASS_OPEN, BASS_SWAP, BASS_CLOSE]) {
     const time = change + p * fade
@@ -95,9 +96,18 @@ export function createRehearsal(ctx, phones, pfl) {
     if (!take || take.released) return
     take.released = true
     fading.delete(take)
-    for (const source of take.sources) {
-      source.onended = null
-      source.stop()
+    if (take.clock) {
+      take.clock.onended = null
+      take.clock.stop()
+      take.clock.disconnect()
+    }
+    for (const {record, fader} of Object.values(take.channels)) {
+      record.level.disconnect(fader)
+      if (--record.users === 0) {
+        record.source.onended = null
+        record.source.stop()
+        for (const node of [record.source, ...Object.values(record.eq), record.level]) node.disconnect()
+      }
     }
     for (const node of take.nodes) node.disconnect()
     take.finish(completed)
@@ -132,6 +142,18 @@ export function createRehearsal(ctx, phones, pfl) {
     for (const take of fading) release(take)
   }
 
+  function finishAt(take, when, callback) {
+    if (!take.clock) {
+      const clock = ctx.createConstantSource() // A silent marker on the same audio clock as the faders.
+      clock.offset.value = 0
+      clock.connect(take.buses[0])
+      clock.start()
+      take.clock = clock
+    }
+    take.clock.onended = callback
+    take.clock.stop(when)
+  }
+
   function fadeUntil(take, when, edge) {
     const end = when + edge
     if (take.released || take.stopAt <= end) return
@@ -149,8 +171,10 @@ export function createRehearsal(ctx, phones, pfl) {
     take.fadeLevel = level
     take.stopAt = end
     fading.add(take)
-    take.sources.at(-1).onended = () => release(take)
-    for (const source of take.sources) source.stop(end)
+    finishAt(take, end, () => release(take))
+    for (const {record} of Object.values(take.channels)) {
+      if (record.users === 1) record.source.stop(end)
+    }
   }
 
   // A deliberate stop can finish its headphone edge. A lost route still disconnects at once.
@@ -167,14 +191,15 @@ export function createRehearsal(ctx, phones, pfl) {
     if (!keepPhones) fadePfl(1, now + edgeSeconds)
   }
 
-  function applyMix(channels, mix, before) {
+  function applyMix({eq, level}, next, previous) {
     const now = ctx.currentTime
-    for (const [side, {eq, level}] of Object.entries(channels)) {
-      const next = mix[side], previous = before?.[side]
-      if (next.filter !== previous?.filter) applyFilter(eq, next.filter, now, !!previous)
-      if (next.tone !== previous?.tone) applyTone(eq, next.tone, now, !!previous)
-      if (next.level !== previous?.level) setMixParam(level.gain, next.level, now, !!previous)
-    }
+    if (next.filter !== previous?.filter) applyFilter(eq, next.filter, now, !!previous)
+    if (next.tone !== previous?.tone) applyTone(eq, next.tone, now, !!previous)
+    if (next.level !== previous?.level) setMixParam(level.gain, next.level, now, !!previous)
+  }
+
+  function speedChanged(before, next) {
+    return before.rate !== next.rate || before.vinyl !== next.vinyl
   }
 
   function play(plan, kind, pan, skip = 0, observe, keepPhones = false) {
@@ -230,6 +255,7 @@ export function createRehearsal(ctx, phones, pfl) {
       const edge = Math.min(edgeSeconds, (finish - playAt) / 3)
       const buses = oneEar ? [level, monitor] : [level]
       for (const bus of buses) {
+        bus.gain.setValueAtTime(0, setupStart) // A retained record already carries signal during preparation.
         bus.gain.setValueAtTime(0, playAt)
         bus.gain.linearRampToValueAtTime(1, playAt + edge)
         bus.gain.setValueAtTime(1, finish - edge)
@@ -237,38 +263,50 @@ export function createRehearsal(ctx, phones, pfl) {
       }
       monitor.connect(output)
       const ended = new Promise(resolve => {
-        current = {start, change, overlap: fade, from, playAt, end: finish, edge, buses, plan, kind, channels: {}, sources: [], nodes: [...buses, output], finish: resolve}
+        current = {start, change, overlap: fade, from, playAt, end: finish, edge, buses, plan, kind, channels: {}, nodes: [...buses, output], finish: resolve}
       })
+      const sample = 1 / ctx.sampleRate
       const add = (side, buffer, at, end) => {
         if (end <= at) return null
         const mix = plan.mix[side]
-        const remember = side === "out" && kind !== "cut" && from <= plan.lead
-        const source = createRecordSource(ctx, buffer, mix, remember ? plan.exit : undefined)
-        const eq = createEq(ctx), channel = ctx.createGain(), fader = ctx.createGain()
-        if (kind === "bass_swap") scheduleRehearsalBass(eq.bass.gain, side, change, fade, at)
-        source.connect(eq.hpf)
-        eq.toneTreble.connect(channel)
-        channel.connect(fader)
+        const old = previous?.channels[side]?.record
+        const offset = heardPosition(previous, side, handoff) ?? Math.max(0, recordTime(plan, side, at - start))
+        // Reuse the original filter history and grains only while their audio covers the new clock.
+        const audioEnd = side === "into" ? at + Math.max(0, buffer.duration - offset) / mix.rate : end
+        const keep = old && old.buffer === buffer && !speedChanged(previous.plan.mix[side], mix) && old.at <= at + sample &&
+          Math.abs(old.offset + (at - old.at) * mix.rate - offset) <= sample * mix.rate &&
+          Math.min(end, audioEnd) <= old.end + sample
+        let record = old
+        if (!keep) {
+          const remember = side === "out" && kind !== "cut" && from <= plan.lead
+          const source = createRecordSource(ctx, buffer, mix, remember ? plan.exit : undefined)
+          const eq = createEq(ctx), level = ctx.createGain()
+          source.connect(eq.hpf)
+          eq.toneTreble.connect(level)
+          if (kind === "bass_swap") scheduleRehearsalBass(eq.bass.gain, side, change, fade, at)
+          record = {source, eq, level, buffer, at, offset, end: audioEnd, users: 0}
+          applyMix(record, mix)
+        }
+        const fader = ctx.createGain()
+        record.level.connect(fader)
+        record.users++
+        current.channels[side] = {record, fader, at, offset}
         fader.connect(level)
         const gain = rehearsalGains(plan, kind, at - start)[side === "out" ? 0 : 1]
         fader.gain.setValueAtTime(gain, at)
         if (change + fade > at) {
           scheduleBlend(fader.gain, kind === "blend" && plan.blendCurve, side === "out" ? 0 : 1, change, fade, at)
         }
-        current.nodes.push(source, ...Object.values(eq), channel, fader)
-        const offset = heardPosition(previous, side, handoff) ?? Math.max(0, recordTime(plan, side, at - start))
-        current.channels[side] = {eq, level: channel, at, offset}
+        current.nodes.push(fader)
         if (oneEar) {
           const fold = connectHeadphoneFold(ctx, fader, monitor, buffer, at, offset, end - at, mix.rate)
           current.nodes.push(...fold)
         }
-        source.start(at, offset, (end - at) * mix.rate)
-        current.sources.push(source)
-        return source
+        if (!keep) record.source.start(at, offset, (audioEnd - at) * mix.rate)
+        return record.source
       }
       const outgoing = add("out", plan.outgoing, playAt, change + fade)
       const last = add("into", plan.incoming, Math.max(playAt, change), finish)
-      applyMix(current.channels, plan.mix)
       if (ctx.currentTime + guard > playAt) {
         // Nothing was routed. Retry a slow setup once with its measured cost in reserve.
         if (retryLead !== null) throw new Error("Headphone playback missed its scheduled start")
@@ -277,6 +315,12 @@ export function createRehearsal(ctx, phones, pfl) {
         return schedule(plan, kind, pan, skip, observe, keepPhones, previous, 2 * (ctx.currentTime - setupStart) + 3 * guard)
       }
       if (previous) {
+        const bassMoved = kind === "bass_swap" && (Math.abs(previous.change - change) > sample || Math.abs(previous.overlap - fade) > sample)
+        for (const [side, {record, at}] of Object.entries(current.channels)) {
+          if (record.users < 2) continue
+          applyMix(record, plan.mix[side], previous.plan.mix[side])
+          if (bassMoved) scheduleRehearsalBass(record.eq.bass.gain, side, change, fade, at, (at - previous.change) / previous.overlap)
+        }
         for (const take of fading) fadeUntil(take, playAt, edge)
         fadeUntil(previous, playAt, edge)
       }
@@ -287,7 +331,9 @@ export function createRehearsal(ctx, phones, pfl) {
         try { cancelMeasurement = observe(level, {start, change, end: finish, overlap: fade, kind}) }
         catch { cancelMeasurement = null }
       }
-      last.onended = () => { if (current?.sources.includes(last)) stop(true, keepPhones) }
+      const take = current
+      last.onended = () => { if (current === take) stop(true, keepPhones) }
+      if (take.channels.into.record.end > finish + sample) finishAt(take, finish, last.onended)
       current.outSource = outgoing
       return ended
     } catch (error) {
@@ -305,21 +351,21 @@ export function createRehearsal(ctx, phones, pfl) {
     discardMeasurement()
     if (!current) return
     const before = current.plan
-    const speedChanged = side => before.mix[side].rate !== plan.mix[side].rate || before.mix[side].vinyl !== plan.mix[side].vinyl
+    const outChanged = speedChanged(before.mix.out, plan.mix.out)
     const handoff = Math.max(ctx.currentTime + startLead, current.playAt)
     const stillMixing = handoff < current.change + current.overlap
     const curveChanged = kind === "blend" && before.blendCurve !== plan.blendCurve
-    if (speedChanged("into") || (stillMixing && (speedChanged("out") || curveChanged))) {
+    if (speedChanged(before.mix.into, plan.mix.into) || (stillMixing && (outChanged || curveChanged))) {
       const previous = current
       saveSplices()
       current = null
       schedule(plan, kind, pan, 0, null, false, previous)
     } else {
-      if (speedChanged("out")) {
+      if (outChanged) {
         saveSplices()
         current.outSource = null // The revised outgoing grains were never heard.
       }
-      applyMix(current.channels, plan.mix, before.mix)
+      for (const [side, {record}] of Object.entries(current.channels)) applyMix(record, plan.mix[side], before.mix[side])
       current.plan = plan
     }
   }
