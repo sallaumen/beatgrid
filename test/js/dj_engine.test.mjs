@@ -3553,3 +3553,76 @@ test("a jogged native player stays native and an unavailable return voice falls 
     assert.equal(b.currentTime, head)
   }
 })
+
+for (const id of ["a", "b"]) {
+  test(`CUE on deck ${id} returns, auditions and latches the same audible recording`, async t => {
+    const track = "audition-" + id
+    const {engine} = await scratchBooth(t, track, 2)
+    engine.stopAll()
+    engine.loadDeck(id, {id: track, src: track, markers: [{type: "intro", ms: 1250}]}, {autoplay: true})
+    const deck = engine.decks[id]
+    deck.playDecoded(getDeckAudio(track), 3)
+    engine.ctx.currentTime += .5
+    engine.cueButton(id, true)
+    engine.cueButton(id, false)
+    assert.equal(deck.audible(), false)
+    assert.equal(deck.platterTime(), 1.25)
+
+    for (const latch of [false, true]) {
+      engine.cueButton(id, true)
+      engine.ctx.currentTime += .4
+      assert.ok(Math.abs(deck.platterTime() - 1.65) < .001)
+      if (latch) engine.playPause(id)
+      engine.cueButton(id, false)
+      engine.ctx.currentTime += .25
+      const expected = latch ? 1.9 : 1.25
+      assert.ok(Math.abs(deck.platterTime() - expected) < .001)
+      assert.equal(deck.audible(), latch)
+    }
+  })
+}
+
+test("a direct PLAY after returning the recording to CUE starts at the marker, even before native canplay", async t => {
+  const track = "cue-then-play"
+  const {engine, b} = await scratchBooth(t, track, 2)
+  engine.loadDeck("b", {id: track, src: track}, {autoplay: true})
+  const deck = engine.decks.b
+  deck.playDecoded(getDeckAudio(track), 1.5)
+  b.readyState = 2
+  engine.cueButton("b", true)
+  engine.cueButton("b", false)
+  engine.playPause("b")
+  engine.ctx.currentTime += .5
+  assert.equal(deck.platterTime(), .5)
+  engine.stopAll()
+  const plays = b.plays
+  b.ready()
+  assert.equal(b.plays, plays)
+  assert.equal(deck.entry, null)
+})
+
+test("a replacement track keeps its own CUE transport and a missed recording allocation can still audition", async t => {
+  const track = "cue-previous-record", next = "cue-replacement"
+  const {engine, b} = await scratchBooth(t, [track, next])
+  engine.loadDeck("b", {id: track, src: track}, {autoplay: true})
+  const deck = engine.decks.b
+  deck.playDecoded(getDeckAudio(track), 1)
+  engine.cueButton("b", true)
+  engine.cueButton("b", false)
+
+  const refused = t.mock.method(engine.ctx, "createBufferSource", () => { throw new Error("voice unavailable") })
+  engine.cueButton("b", true)
+  assert.equal(deck.entry, null)
+  assert.equal(b.paused, false)
+  assert.equal(refused.mock.callCount(), 1)
+  engine.cueButton("b", false)
+  refused.mock.restore()
+
+  deck.playDecoded(getDeckAudio(track), 1)
+  engine.cueButton("b", true)
+  engine.cueButton("b", false)
+  assert.equal(engine.loadDeck("b", {id: next, src: next}), true)
+  engine.cueButton("b", true)
+  assert.equal(deck.entry, null)
+  assert.equal(b.paused, false)
+})
