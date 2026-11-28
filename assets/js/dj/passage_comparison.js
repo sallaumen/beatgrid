@@ -23,6 +23,18 @@ function differences(first, second) {
   })
 }
 
+function comparisonSummary(rows, kinds, name) {
+  if (rows.length === 1 && rows[0].first.id === "level") {
+    const levels = [rows[0].first, rows[0].second]
+    const dip = levels.findIndex(m => m.finding === "dip" && m.state === "poor")
+    if (dip >= 0 && levels[1 - dip].state === "good") {
+      return name(kinds[1 - dip], true) + " sustentou melhor o volume no meio da passagem."
+    }
+  }
+  const metrics = rows.map(({first}) => first.label.toLocaleLowerCase("pt-BR"))
+  return "Há diferenças de " + new Intl.ListFormat("pt-BR").format(metrics) + "."
+}
+
 export function mountPassageComparison(details, labels, selected, name, showDifferences = () => {}) {
   const heard = new Map()
   const unavailable = new Set()
@@ -106,10 +118,7 @@ export function mountPassageComparison(details, labels, selected, name, showDiff
       return name(kind) + " " + value
     }).join(" · ") + "."
     const rows = differences(...kinds.map(kind => unavailable.has(kind) ? null : heard.get(kind)))
-    if (rows.length) {
-      const metrics = rows.map(({first}) => first.label.toLocaleLowerCase("pt-BR"))
-      pairSummary += " Há diferenças de " + new Intl.ListFormat("pt-BR").format(metrics) + "."
-    }
+    if (rows.length) pairSummary += " " + comparisonSummary(rows, kinds, name)
     showDifferences(rows.length ? {names: kinds.map(kind => name(kind, true)), rows} : null)
   }
 
