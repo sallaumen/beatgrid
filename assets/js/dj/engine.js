@@ -311,7 +311,7 @@ class Deck {
     this.mediaGain.gain.setValueAtTime(0, this.ctx.currentTime)
   }
 
-  playDecoded(buffer, offset, mix) {
+  playDecoded(buffer, offset, mix, softenStart) {
     if (this.dropCue !== null) {
       this.dropCue = null
       this._cued = false
@@ -319,7 +319,7 @@ class Deck {
       if (this.el.paused) this.el.play().catch(() => {}) // the recording owns the audible start
     }
     this.useMedia(false)
-    this.decodedTransport(buffer, offset, mix)
+    this.decodedTransport(buffer, offset, mix, undefined, softenStart)
   }
 
   preparePassageAudio(buffer, offset, mix, outgoing = false, splice) {
@@ -327,7 +327,7 @@ class Deck {
     return this.decodedTransport(buffer, offset, mix, {outgoing, splice})
   }
 
-  decodedTransport(buffer, offset, mix, stage) {
+  decodedTransport(buffer, offset, mix, stage, softenStart) {
     let progressTimer
     const entry = startDecodedEntry(this.ctx, this.el, buffer, offset, this.hpf, this.mediaGain, ended => {
       clearInterval(progressTimer)
@@ -337,7 +337,7 @@ class Deck {
       this.stoppedRecordingState = ended ? "ended" : null
       if (ended) this.recordEnded()
       else if (this.el.error && this.wantsPlayback) this.recordError()
-    }, mix, () => this.wantsPlayback && this.loop.on && this.recordEnded(), stage)
+    }, mix, () => this.wantsPlayback && this.loop.on && this.recordEnded(), stage, softenStart)
     // Muted media can stall without a timeupdate while the record reaches its AUTO point.
     const own = () => {
       this.stoppedRecordingState = null
@@ -1328,11 +1328,11 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     to.gain.gain.linearRampToValueAtTime(1, now + riseEndS)
   }
 
-  function playCachedCue(to, cue) {
+  function playCachedCue(to, cue, softenStart) {
     const audio = cue == null ? null : getDeckAudio(to.trackId)
     if (!audio || cue >= audio.duration) return false
     try {
-      to.playDecoded(audio, cue)
+      to.playDecoded(audio, cue, undefined, softenStart)
       return true
     } catch {
       // The receiver already accepted play(); keep its media path if PCM allocation fails.
@@ -1340,9 +1340,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     }
   }
 
-  function resumePlatter(deck, fromRecording, atMs = null) {
+  function resumePlatter(deck, fromRecording, {atMs = null, softenStart = false} = {}) {
     const head = atMs == null ? deck.platterTime() : deck.clampPosition(atMs / 1000)
-    if (fromRecording && playCachedCue(deck, head)) deck.followRecording()
+    if (fromRecording && playCachedCue(deck, head, softenStart)) deck.followRecording()
     else deck.play(atMs)
   }
 
@@ -2077,7 +2077,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     if (s.node) s.node.port.postMessage({type: "stop"})
     if (s.token === deck.loadToken && deck.trackId != null) {
       placePlatter(deck, s.pos / sr)
-      if (resume) resumePlatter(deck, s.fromRecording)
+      if (resume) resumePlatter(deck, s.fromRecording, {softenStart: true})
     }
   }
 
@@ -2901,7 +2901,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
           if (!playCachedCue(deck, deck.clampPosition(deck.cueMs / 1000))) return
           deck.followRecording()
         } else {
-          resumePlatter(deck, deck.resumeFromRecording, deck.cueMs)
+          resumePlatter(deck, deck.resumeFromRecording, {atMs: deck.cueMs})
         }
         deck.cueState = "preview"
         deck._cued = true

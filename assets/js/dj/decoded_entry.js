@@ -4,7 +4,7 @@ const SEEK_RAMP_S = 0.004 // bridge unrelated waveform phases without delaying t
 
 // A media clock can advance before its decoder delivers the corresponding audio.
 // The rehearsed recording owns the sound and playhead across bends and seeks.
-export function startDecodedEntry(ctx, media, buffer, offset, input, mediaGain, onRelease, mix = {rate: media.playbackRate, vinyl: !media.preservesPitch}, repeatAtEnd, stage) {
+export function startDecodedEntry(ctx, media, buffer, offset, input, mediaGain, onRelease, mix = {rate: media.playbackRate, vinyl: !media.preservesPitch}, repeatAtEnd, stage, softenStart = false) {
   const start = ctx.currentTime
   const tails = new Set()
   function play(at, settings, fade = 0, when = ctx.currentTime, saved, recording = buffer, staged = false) {
@@ -13,7 +13,8 @@ export function startDecodedEntry(ctx, media, buffer, offset, input, mediaGain, 
     }, () => release(true), fade, when, saved, staged)
   }
   const bridge = stage?.outgoing
-  let source = play(offset, mix, bridge ? SEEK_RAMP_S : 0, start, stage?.splice, buffer, !!stage)
+  // A released scratch can land off zero while the worklet fades out.
+  let source = play(offset, mix, bridge || softenStart ? SEEK_RAMP_S : 0, start, stage?.splice, buffer, !!stage)
   function takeMedia(when) {
     mediaGain.gain.cancelScheduledValues(when)
     if (bridge) {
