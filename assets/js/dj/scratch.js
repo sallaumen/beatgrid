@@ -158,17 +158,22 @@ registerProcessor("scratch-processor", ScratchProcessor)
 
 let modulePromise = null
 
-// Load the worklet module once per context (idempotent).
+// Register scratch once on the booth’s shared audio context.
 export function ensureScratchModule(ctx) {
+  if (!ctx.audioWorklet) return Promise.resolve(false)
   if (!modulePromise) {
-    const url = URL.createObjectURL(new Blob([SCRATCH_WORKLET], {type: "application/javascript"}))
-    modulePromise = ctx.audioWorklet
-      .addModule(url)
-      .finally(() => URL.revokeObjectURL(url))
-      .catch((err) => {
-        modulePromise = null // let a later attempt retry
-        throw err
-      })
+    modulePromise = (async () => {
+      const url = URL.createObjectURL(new Blob([SCRATCH_WORKLET], {type: "application/javascript"}))
+      try {
+        await ctx.audioWorklet.addModule(url)
+        return true
+      } finally {
+        URL.revokeObjectURL(url)
+      }
+    })().catch(() => {
+      modulePromise = null // let a later mount retry
+      return false
+    })
   }
   return modulePromise
 }
