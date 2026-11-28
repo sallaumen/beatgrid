@@ -32,7 +32,9 @@ export function startDecodedEntry(ctx, media, buffer, offset, input, mediaGain, 
     if (!ended && !media.paused && media.playbackRate !== heardRate) media.playbackRate = heardRate
     source.stop()
     for (const tail of tails) tail.stop()
-    if (ended && !media.ended) media.currentTime = media.duration
+    if (ended && (!media.ended || media.error)) {
+      media.currentTime = !media.error && Number.isFinite(media.duration) ? media.duration : buffer.duration
+    }
     if (sync && Math.abs(media.currentTime - heard) > 0.02) media.currentTime = heard
     mediaGain.gain.cancelScheduledValues(ctx.currentTime)
     mediaGain.gain.setValueAtTime(1, ctx.currentTime)
