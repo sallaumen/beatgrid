@@ -214,6 +214,7 @@ class Deck {
     this.playPending = false
     this.wantsPlayback = false
     this.cueState = null
+    this.cueFromRecording = false
     const markers = (track.markers || []).filter(m =>
       m.type !== "outro" && Number.isFinite(m.ms) && m.ms >= 0)
     this.cueMs = markers.length ? Math.min(...markers.map(m => m.ms)) : atMs
@@ -257,6 +258,7 @@ class Deck {
   }
 
   play(atMs = null, started, failed) {
+    this.cueFromRecording = false
     this.wantsPlayback = true
     if (atMs != null) this._pendingSeekMs = atMs
     const token = ++this.playToken
@@ -1297,6 +1299,12 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     }
   }
 
+  function resumePlatter(deck, fromRecording, atMs = null) {
+    const head = atMs == null ? deck.platterTime() : deck.clampPosition(atMs / 1000)
+    if (fromRecording && playCachedCue(deck, head)) deck.followRecording()
+    else deck.play(atMs)
+  }
+
   function cut(from, to, cue, event) {
     const decoded = playCachedCue(to, cue)
     const overlap = decoded || cue == null ? CUT_OVERLAP_S : RAMP.nativeCutS
@@ -2017,11 +2025,6 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       t: Number.isFinite(inputTime) ? inputTime : performance.now()})
   }
 
-  function resumeAfterScratch(deck) {
-    if (scratch[deck.id].fromRecording && playCachedCue(deck, deck.platterTime())) deck.followRecording()
-    else deck.play()
-  }
-
   // Return the platter to the head last held by this load.
   function scratchEnd(deckId, resume) {
     const s = scratch[deckId]
@@ -2031,7 +2034,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
     if (s.node) s.node.port.postMessage({type: "stop"})
     if (s.token === deck.loadToken && deck.trackId != null) {
       placePlatter(deck, s.pos / sr)
-      if (resume) resumeAfterScratch(deck)
+      if (resume) resumePlatter(deck, s.fromRecording)
     }
   }
 
@@ -2152,7 +2155,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       if (s.active) {
         scratchEnd(deckId, resume)
       } else if (resume) {
-        resumeAfterScratch(deck)
+        resumePlatter(deck, s.fromRecording)
       }
       releaseDeck(deck)
     }
@@ -2783,7 +2786,9 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         deck.echoSend.gain.linearRampToValueAtTime(0, now + 0.2)
         deck.hpf.frequency.linearRampToValueAtTime(10, now + 0.15)
         deck.lpf.frequency.linearRampToValueAtTime(20_000, now + 0.15)
-        if (!latchPreview || (!deck.audible() && !deck.playPending)) deck.play()
+        if (!latchPreview || (!deck.audible() && !deck.playPending)) {
+          resumePlatter(deck, deck.cueFromRecording)
+        }
         state.activeDeck = deckId
         if (state.hint?.deck === deckId) state.hint = null
         state.firedForTrack = null
@@ -2809,6 +2814,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       deck.cueState = "held"
       const atMs = Math.round(deck.platterTime() * 1000)
       if (deck.audible() || deck.playPending) {
+        deck.cueFromRecording = !!deck.entry
         pauseTransport(deck)
         this.cueTo(deckId, deck.cueMs)
       } else if ((deck._cued || deck._pendingSeekMs == null) && Math.abs(atMs - deck.cueMs) > 20) {
@@ -2818,7 +2824,7 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
         this.resume()
         deck.cueState = "preview"
         deck._cued = true
-        deck.play(deck.cueMs)
+        resumePlatter(deck, deck.cueFromRecording, deck.cueMs)
       }
     },
 
