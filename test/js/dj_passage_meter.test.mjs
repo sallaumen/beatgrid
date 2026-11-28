@@ -1,7 +1,7 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import vm from "node:vm"
-import {METER_PROCESSOR} from "../../assets/js/dj/passage_meter.js"
+import {METER_PROCESSOR, measurePassage} from "../../assets/js/dj/passage_meter.js"
 
 test("the meter windows actual stereo samples on the audio clock and sees opposite polarity and digital overs", () => {
   let Meter, data
@@ -161,4 +161,34 @@ test("resuming the room forgets the old warning but preserves the score window a
   assert.ok(Math.max(...messages[1].truePeaks) > 1, "the pending score preserves its original peaks")
   renderUntil(1600, 1.1)
   assert.ok(messages[2].peakDbtp > 0)
+})
+
+test("completed, failed, cancelled and timed-out meters release both callbacks from the audio host", async t => {
+  t.mock.timers.enable({apis: ["setTimeout"]})
+  let node, closures = 0, reports = 0
+  globalThis.AudioWorkletNode = class {
+    constructor() {
+      node = this
+      this.port = {postMessage() {}, close() { closures++ }}
+    }
+    disconnect() {}
+  }
+  t.after(() => { delete globalThis.AudioWorkletNode })
+  const ctx = {currentTime: 0, audioWorklet: {async addModule() {}}}
+  const source = {connect() {}, disconnect() {}}
+  for (const end of ["complete", "failed", "cancelled", "timeout"]) {
+    const cancel = measurePassage(ctx, source, {start: 0, end: 1}, () => reports++)
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(typeof node.port.onmessage, "function")
+    assert.equal(typeof node.onprocessorerror, "function")
+    if (end === "complete") node.port.onmessage({data: {first: 0, frames: [1, 1, 1], frameSeconds: .01}})
+    if (end === "failed") node.onprocessorerror()
+    if (end === "cancelled") cancel()
+    if (end === "timeout") t.mock.timers.tick(3001)
+    assert.equal(node.port.onmessage, null, end)
+    assert.equal(node.onprocessorerror, null, end)
+    cancel()
+  }
+  assert.equal(reports, 3)
+  assert.equal(closures, 4)
 })

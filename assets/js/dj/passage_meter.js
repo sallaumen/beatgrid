@@ -171,6 +171,8 @@ export function measurePassage(ctx, input, window, report) {
     active = false
     clearTimeout(timeout)
     if (meter) {
+      meter.port.onmessage = null
+      meter.onprocessorerror = null
       try { input.disconnect(meter) } catch { /* The transport already disconnected its graph. */ }
       meter.port.postMessage("stop")
       meter.port.close()
