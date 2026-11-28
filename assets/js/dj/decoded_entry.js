@@ -28,7 +28,8 @@ export function startDecodedEntry(ctx, media, buffer, offset, input, mediaGain, 
     if (closed) return
     closed = true
     const heard = source.position(), heardRate = source.rate()
-    if (!ended && media.playbackRate !== heardRate) media.playbackRate = heardRate
+    // A paused player already holds the steady tempo chosen for the next PLAY.
+    if (!ended && !media.paused && media.playbackRate !== heardRate) media.playbackRate = heardRate
     source.stop()
     for (const tail of tails) tail.stop()
     if (ended && !media.ended) media.currentTime = media.duration
