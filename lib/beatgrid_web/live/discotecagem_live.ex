@@ -1902,7 +1902,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
         import {mountPassageScore} from "@/js/dj/passage_score_view.js"
         import {scorePassage} from "@/js/dj/passage_score.js"
         import {passageClock} from "@/js/dj/passage_clock.js"
-        import {loadPeaks, drawWave} from "@/js/dj/waveform.js"
+        import {loadPeaks, mountDeckWave} from "@/js/dj/waveform.js"
 
         const ACCENTS = {a: "#8b7bf0", b: "#2d9cff"}
         const WAVE_WINDOW_S = 16
@@ -1968,14 +1968,11 @@ defmodule BeatgridWeb.DiscotecagemLive do
             this.scratchDeck = null
 
             // ── formas de onda (estilo Serato: playhead fixo, a onda corre) ──
+            this.waveViews = {a: mountDeckWave(byId("dj-wave-a")), b: mountDeckWave(byId("dj-wave-b"))}
             this.sizeWaves = () => {
               const dpr = window.devicePixelRatio || 1
-              for (const d of ["a", "b"]) {
-                const c = byId(`dj-wave-${d}`)
-                if (!c) continue
-                c.width = Math.floor(c.clientWidth * dpr)
-                c.height = Math.floor(c.clientHeight * dpr)
-              }
+              this.waveViews.a.resize(dpr)
+              this.waveViews.b.resize(dpr)
             }
             this.sizeWaves()
             window.addEventListener("resize", this.sizeWaves)
@@ -2682,6 +2679,8 @@ defmodule BeatgridWeb.DiscotecagemLive do
             this.outputEvents.abort()
             this.disconnectHeadphones()
             window.removeEventListener("resize", this.sizeWaves)
+            this.waveViews.a.destroy()
+            this.waveViews.b.destroy()
             window.removeEventListener("dj:midi", this.onMidi)
             window.removeEventListener("dj:pfl-sync", this.onPflSync)
             window.removeEventListener("beatgrid:playing", this.onForeignPlay)
@@ -2868,18 +2867,16 @@ defmodule BeatgridWeb.DiscotecagemLive do
             const snap = this.engine.snapshot()
             const fireMs = snap.auto ? this.engine.firePointMs() : null
             for (const d of ["a", "b"]) {
-              const canvas = byId(`dj-wave-${d}`)
-              if (!canvas) continue
               const deck = this.engine.decks[d]
               const track = this.tracks[d]
-              const markers = (track && track.markers) || []
-              const intro = markers.find(m => m.type === "intro") || markers.find(m => m.type !== "outro")
+              const markers = track?.markers
+              const intro = markers?.find(m => m.type === "intro") || markers?.find(m => m.type !== "outro")
               const wave = this.waves[d]
               const failed = wave && wave.failed
               // Follow the scratch read-head so the wave scrolls WITH the scratch
               // (the media clock is frozen while scratching — the wave looked stuck).
               const scratchS = this.engine.scratchPosSec(d)
-              drawWave(canvas, {
+              this.waveViews[d].draw({
                 entry: failed ? null : wave,
                 posS: scratchS ?? deck.platterTime(),
                 playing: deck.audible() || scratchS != null,
