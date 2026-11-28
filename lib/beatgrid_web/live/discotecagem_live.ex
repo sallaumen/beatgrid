@@ -1951,7 +1951,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
       <script :type={Phoenix.LiveView.ColocatedHook} name=".DjConsole">
         import {createEngine} from "@/js/dj/engine.js"
         import {activateHeadphones, headphoneOutput, separateOutputs, unlockOutputNames, watchRoomOutput} from "@/js/dj/outputs.js"
-        import {paintDeckStatus, paintLoopRegion} from "@/js/dj/deck_status.js"
+        import {paintDeckStatus, paintLoopRegion, paintPitchWait, syncFeedback} from "@/js/dj/deck_status.js"
         import {tripVersionPath, tripTransportLabel, tripTransitionLabel} from "@/js/dj/trip_identity.js"
         import {hotCues} from "@/js/dj/hot_cues.js"
         import {mountRehearsal} from "@/js/dj/rehearsal_panel.js"
@@ -2010,6 +2010,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
             this.jogDrags = []
             this.reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)")
             this.mediaReadouts = {a: byId("dj-media-status-a"), b: byId("dj-media-status-b")}
+            this.pitchWaitLabels = {a: byId("dj-pitch-wait-a"), b: byId("dj-pitch-wait-b")}
             this.hint = null
             this.pendingHint = null
             this.cueAudio = byId("dj-cue-audio")
@@ -3110,10 +3111,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
               this.notice("O SYNC precisa de uma faixa com BPM em cada deck.")
               return
             }
-            const tempo = (deck.bpm * deck.baseRate).toFixed(1)
-            const target = (other.bpm * other.baseRate).toFixed(1)
-            if (matched) this.log(`SYNC no deck ${d.toUpperCase()} · ${tempo} BPM`)
-            else this.notice(`Deck ${d.toUpperCase()} em ${tempo} BPM. O alvo de ${target} BPM está fora do alcance de ±8% do SYNC.`)
+            const message = syncFeedback(deck, other, matched)
+            if (matched) this.log(message)
+            else this.notice(message)
           },
 
           setMeter(id, level) {
@@ -3129,6 +3129,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               : (track && track.duration_ms) || 0
             const scratchPosition = this.engine.scratchPosSec(d)
             paintDeckStatus(this.mediaReadouts[d], deck, scratchPosition)
+            paintPitchWait(this.pitchWaitLabels[d], deck)
             const posS = scratchPosition ?? deck.platterTime()
             const pos = posS * 1000
             const elapsed = byId(`dj-el-${d}`)
@@ -4050,11 +4051,17 @@ defmodule BeatgridWeb.DiscotecagemLive do
 
             <div class="flex w-full items-center justify-between font-mono text-[10px] text-ink-faint">
               <span id={"dj-el-#{@d}"}>0:00</span>
-              <span
-                id={"dj-target-#{@d}"}
-                class="text-[9px] text-ink-muted"
-                title="BPM ao vivo do outro deck"
-              ></span>
+              <span class="flex min-w-0 flex-wrap items-center justify-center gap-x-2 text-center">
+                <span
+                  id={"dj-target-#{@d}"}
+                  class="text-[9px] text-ink-muted"
+                  title="Andamento escolhido no outro deck para o SYNC"
+                ></span>
+                <span
+                  id={"dj-pitch-wait-#{@d}"}
+                  class="font-sans text-caption font-medium text-amber empty:hidden"
+                ></span>
+              </span>
               <span id={"dj-rem-#{@d}"}>−0:00</span>
             </div>
 
@@ -4102,6 +4109,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               <button
                 id={"dj-sync-#{@d}"}
                 type="button"
+                aria-describedby={"dj-pitch-wait-#{@d}"}
                 title="Igualar o BPM ao outro deck (até ±8%). Use a borda do jog para encaixar as batidas."
                 class="h-8 w-12 rounded-lg border border-white/10 bg-input text-[9px] font-bold uppercase tracking-wider text-ink-muted transition-colors hover:border-green/50 hover:text-green"
               >
@@ -4223,6 +4231,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                 step="0.25"
                 value="50"
                 aria-label={"Pitch do deck #{String.upcase(@d)}"}
+                aria-describedby={"dj-pitch-wait-#{@d}"}
                 class="h-24 w-5 cursor-pointer appearance-none bg-transparent"
                 style={"writing-mode:vertical-lr;direction:rtl;accent-color:#{@accent}"}
               />

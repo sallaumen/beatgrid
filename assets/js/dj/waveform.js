@@ -27,12 +27,11 @@ export function retainScratch(platter, trackId) {
 
 export function loadPeaks(trackId, src, ctx) {
   let clip = clips.get(trackId)
-  if (clip) {
-    clips.delete(trackId)
-  } else {
+  clips.delete(trackId)
+  if (!clip || clip.failed) {
     clip = {pcm: null, loading: new AbortController()}
     clip.ready = decode(clip, src, ctx).catch(error => {
-      if (clips.get(trackId) === clip) clips.delete(trackId)
+      if (clips.get(trackId) === clip) clips.set(trackId, {failed: true})
       throw error
     }).finally(() => { clip.loading = null })
   }
@@ -46,6 +45,16 @@ export function loadPeaks(trackId, src, ctx) {
     }
   }
   return clip.ready
+}
+
+// Only an existing decode may delay a live rate change. Never start a fetch here.
+export function pendingAudioDecode(trackId) {
+  const clip = clips.get(trackId)
+  return clip?.loading ? clip.ready : null
+}
+
+export function audioDecodeFailed(trackId) {
+  return clips.get(trackId)?.failed === true
 }
 
 export function getDeckAudio(trackId) {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import {paintDeckStatus, paintLoopRegion} from "../../assets/js/dj/deck_status.js"
+import {paintDeckStatus, paintLoopRegion, paintPitchWait, syncFeedback} from "../../assets/js/dj/deck_status.js"
 
 test("each waveform follows the mounted deck across loading, preview, scratch and eject", () => {
   const deck = {trackId: null, el: {}, ready: () => false, audible: () => false}
@@ -38,6 +38,38 @@ test("the animation loop only announces an actual state change", () => {
   paintDeckStatus(readout, deck, null)
   paintDeckStatus(readout, deck, null)
   assert.equal(writes, 1)
+})
+
+test("the pitch note changes only on entering or leaving the wait", () => {
+  let text = "", writes = 0
+  const label = {get textContent() { return text }, set textContent(value) { text = value; writes++ },
+    removeAttribute(key) { delete this[key] }}
+  const deck = {pitchPending: true}
+  paintPitchWait(label, deck)
+  paintPitchWait(label, deck)
+  assert.equal(text, "Pitch pendente")
+  assert.equal(writes, 1)
+  deck.pitchOnResume = true
+  paintPitchWait(label, deck)
+  assert.equal(text, "Pitch ao retomar")
+  assert.match(label.title, /próxima reprodução/)
+  deck.pitchPending = false
+  paintPitchWait(label, deck)
+  assert.equal(text, "")
+  assert.equal(label.title, undefined, "an empty description must not announce a pending change")
+  assert.equal(writes, 3)
+})
+
+test("SYNC describes a requested tempo while either deck still awaits its audio", () => {
+  const deck = {id: "b", bpm: 100, baseRate: 1.06, pitchPending: true}
+  const other = {id: "a", bpm: 106, baseRate: 1}
+  assert.match(syncFeedback(deck, other, true), /solicitado.*106,0 BPM/)
+  other.bpm = 130
+  assert.match(syncFeedback(deck, other, false), /solicitado.*106,0 BPM.*130,0 BPM.*±8%/)
+  deck.pitchPending = false
+  assert.match(syncFeedback(deck, other, false), /Deck B em 106,0 BPM/)
+  other.pitchPending = true
+  assert.match(syncFeedback(deck, other, true), /alvo.*pendente no deck A/i)
 })
 
 test("an armed loop region follows the playable duration as metadata arrives", () => {

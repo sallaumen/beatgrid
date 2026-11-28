@@ -281,6 +281,11 @@ defmodule BeatgridWeb.DiscotecagemLiveTest do
 
     for deck <- ["a", "b"] do
       assert has_element?(view, "#dj-waves #dj-media-status-#{deck}[role=status]", "Vazio")
+      wait = "dj-pitch-wait-#{deck}"
+      assert has_element?(view, "#dj-deck-#{deck} ##{wait}:empty")
+      assert has_element?(view, "#dj-pitch-#{deck}[aria-describedby='#{wait}']")
+      assert has_element?(view, "#dj-sync-#{deck}[aria-describedby='#{wait}']")
+      refute has_element?(view, "##{wait}[aria-live], ##{wait}[role=status], ##{wait}[title]")
 
       assert has_element?(
                view,

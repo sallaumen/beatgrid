@@ -2888,6 +2888,171 @@ test("the jog edge bends a cached native record without stalling or changing its
   assert.equal(a.currentTime, 3)
 })
 
+function decodingDeck(t, id, track) {
+  const {engine, tick} = booth(t)
+  engine.stopAll()
+  engine.loadDeck(id, {id: track, src: track, bpm: 120}, {autoplay: true})
+  const deck = engine.decks[id]
+  deck.el.at(1.7)
+  const response = Promise.withResolvers()
+  t.mock.method(globalThis, "fetch", () => response.promise)
+  const sr = engine.ctx.sampleRate
+  engine.ctx.createBuffer = (channels, length) => {
+    const data = Array.from({length: channels}, () => new Float32Array(length))
+    return {length, sampleRate: sr, duration: length / sr, numberOfChannels: channels, getChannelData: i => data[i]}
+  }
+  const wave = loadPeaks(track, track, {decodeAudioData: () => engine.ctx.createBuffer(2, 8 * sr)})
+  async function finish(ok = true) {
+    response.resolve({ok, status: ok ? 200 : 404, arrayBuffer: async () => new ArrayBuffer(1)})
+    if (ok) await wave
+    else await assert.rejects(wave)
+  }
+  return {engine, deck, tick, finish}
+}
+
+for (const [id, lastRate] of [["a", 1], ["b", 1.03]]) {
+  test(`a late waveform preserves the audible media and the last pitch of deck ${id}`, async t => {
+    const {engine, deck, finish} = decodingDeck(t, id, "busy-first-" + id)
+    engine.setRate(id, 1.041)
+    assert.equal(deck.pitchPending, true, "the fader changed before the sound")
+    assert.equal(deck.el.playbackRate, 1, "changing native rate before decoding can stall WebKit")
+    assert.equal(deck.mediaGain.gain.value, 1)
+    engine.setVinylMode(id, true)
+    assert.equal(deck.el.preservesPitch, true, "also keep the running native pitch mode")
+    engine.setVinylMode(id, false)
+    engine.setRate(id, lastRate)
+    assert.equal(deck.pitchPending, lastRate !== 1, "returning the fader clears the note immediately")
+    deck.el.at(2.53)
+    await finish()
+    assert.equal(deck.playbackRate, lastRate)
+    assert.equal(deck.pitchPending, false)
+    assert.equal(Boolean(deck.entry), lastRate !== 1, "returning to neutral keeps the uninterrupted media")
+    if (lastRate !== 1) {
+      engine.ctx.currentTime += .2
+      assert.ok(Math.abs(deck.platterTime() - (2.53 + .2 * lastRate)) < .001)
+    }
+  })
+}
+
+test("switching pitch mode on an already pitched native deck waits for its stereo recording", async t => {
+  const {engine, deck, finish} = decodingDeck(t, "b", "busy-pitch-mode")
+  engine.pauseAll()
+  engine.setRate("b", 1.04)
+  engine.playPause("b")
+  deck.el.at(2.73)
+  engine.setVinylMode("b", true)
+  assert.equal(deck.el.preservesPitch, true)
+  await finish()
+  assert.ok(deck.entry, "changing native pitch mode at speed can also interrupt playback")
+  assert.equal(deck.playbackRate, 1.04)
+  assert.equal(deck.el.preservesPitch, false)
+})
+
+for (const failedBeforeGesture of [false, true]) {
+  test(`the native song keeps its speed after a waveform error (failed before pitch: ${failedBeforeGesture})`, async t => {
+    const {engine, deck, finish} = decodingDeck(t, "a", "unavailable-" + failedBeforeGesture)
+    if (failedBeforeGesture) await finish(false)
+    engine.setRate("a", .95)
+    engine.setVinylMode("a", true)
+    engine.setRate("a", 1.024)
+    if (!failedBeforeGesture) await finish(false)
+    assert.equal(deck.el.playbackRate, 1)
+    assert.equal(deck.el.preservesPitch, true)
+    assert.ok(deck.pitchPending && deck.pitchOnResume)
+    assert.equal(deck.entry, null)
+    assert.equal(deck.audible(), true)
+    engine.setRate("a", 1)
+    assert.equal(deck.pitchPending, false)
+    engine.setRate("a", 1.02)
+    engine.playPause("a")
+    assert.equal(deck.audible(), false)
+    assert.equal(deck.pitchPending, false)
+    engine.playPause("a")
+    assert.equal(deck.el.playbackRate, 1.02)
+    assert.equal(deck.el.preservesPitch, false)
+    assert.equal(deck.audible(), true)
+  })
+}
+
+for (const action of ["pause", "stop", "replace", "scratch"]) {
+  test(`a late waveform cannot retake a deck after ${action}`, async t => {
+    const {engine, deck, finish} = decodingDeck(t, "a", "busy-cancel-" + action)
+    engine.setRate("a", 1.04)
+    if (action === "scratch") engine.jogTouch("a", true)
+    else if (action === "stop") engine.stopAll()
+    else engine.pauseAll()
+    if (action === "replace") engine.loadDeck("a", {id: "replacement", src: "replacement"}, {autoplay: true})
+    const plays = deck.el.plays
+    await finish(action !== "replace") // replacing the track aborts its fetch
+    assert.equal(deck.entry, null)
+    assert.equal(deck.el.plays, plays)
+    assert.equal(deck.audible(), action === "replace")
+    if (action === "pause") {
+      assert.equal(deck.el.playbackRate, 1.04, "the next explicit play keeps the pitch fader")
+      engine.playPause("a")
+      assert.equal(deck.playbackRate, 1.04)
+    }
+    if (action === "replace") assert.equal(deck.el.playbackRate, 1)
+  })
+}
+
+test("disarming a receiver wins over its late waveform and outstanding native play", async t => {
+  const track = "busy-disarmed"
+  const {engine, deck, finish} = decodingDeck(t, "a", track)
+  engine.pauseAll()
+  engine.loadDeck("b", {id: "on-air", src: "on-air", bpm: 120}, {autoplay: true})
+  engine.armHint({track: {id: track, src: track, bpm: 120}, transition: {type: "cut", from_ms: 48000, to_ms: 1500}})
+  const opening = Promise.withResolvers()
+  t.mock.method(deck.el, "play", () => { deck.el.paused = false; return opening.promise })
+  assert.equal(engine.fireHint().ok, true)
+  engine.setRate("a", 1.04)
+  assert.equal(deck.el.playbackRate, 1)
+  engine.clearHint()
+  await finish()
+  opening.resolve()
+  await Promise.resolve()
+  assert.equal(deck.entry, null)
+  assert.equal(deck.el.paused, true)
+  assert.equal(engine.sessionDeck(), "b")
+})
+
+test("a late waveform takes the current loop head with its boundaries intact", async t => {
+  const {engine, deck, finish} = decodingDeck(t, "a", "busy-loop")
+  engine.beatLoop("a", 2)
+  const loop = engine.loopState("a")
+  engine.setRate("a", 1.04)
+  deck.el.at(2.23)
+  await finish()
+  assert.ok(deck.entry)
+  assert.equal(deck.positionMs(), 2230)
+  assert.deepEqual(engine.loopState("a"), loop)
+})
+
+test("SYNC supersedes a queued pitch while an expired jog bend leaves no retune", async t => {
+  const {engine, deck, tick, finish} = decodingDeck(t, "b", "busy-sync-jog")
+  engine.jogTurn("b", 5)
+  assert.equal(deck.playbackRate, 1)
+  tick(4000)
+  engine.setRate("b", .98)
+  engine.loadDeck("a", {id: "sync-reference", src: "sync-reference", bpm: 126})
+  assert.ok(engine.sync("b"))
+  assert.equal(deck.el.playbackRate, 1)
+  deck.el.at(2.8)
+  await finish()
+  assert.equal(deck.playbackRate, 1.05)
+  assert.equal(deck.positionMs(), 2800)
+})
+
+test("a released jog bend during decoding keeps the neutral native source", async t => {
+  const {engine, deck, tick, finish} = decodingDeck(t, "a", "busy-transient-jog")
+  engine.jogTurn("a", 5)
+  tick(4000)
+  await finish()
+  assert.equal(deck.entry, null)
+  assert.equal(deck.playbackRate, 1)
+  assert.equal(deck.mediaGain.gain.value, 1)
+})
+
 test("an uncached record or refused tempo voice leaves the native deck playing at the requested speed", async t => {
   const track = "refused-native-tempo"
   const {engine, a} = await scratchBooth(t, track)

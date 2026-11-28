@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import {loadPeaks, getScratchPcm, mountDeckWave, retainScratch} from "../../assets/js/dj/waveform.js"
+import {audioDecodeFailed, loadPeaks, getScratchPcm, mountDeckWave, retainScratch} from "../../assets/js/dj/waveform.js"
 
 function audioFixture(t, left, right, sampleRate) {
   const fetch = t.mock.method(globalThis, "fetch", async () => new Response(new ArrayBuffer(0)))
@@ -19,6 +19,18 @@ test("short transients and the last samples land in their actual time bucket", a
   const {peaks} = await loadPeaks("percussion", "/percussion", ctx)
   assert.equal(peaks[0], 0.75)
   assert.equal(peaks[49], 0.5)
+})
+
+test("a later waveform request retries a failed track and clears its error", async t => {
+  const samples = new Float32Array(800)
+  const {ctx, fetch} = audioFixture(t, samples, samples, 8000)
+  fetch.mock.mockImplementationOnce(async () => new Response(null, {status: 503}))
+  await assert.rejects(loadPeaks("retry-wave", "/retry", ctx))
+  assert.equal(audioDecodeFailed("retry-wave"), true)
+  await loadPeaks("retry-wave", "/retry", ctx)
+  assert.equal(audioDecodeFailed("retry-wave"), false)
+  assert.ok(getScratchPcm("retry-wave"))
+  assert.equal(fetch.mock.callCount(), 2)
 })
 
 test("returning to a track restores scratch PCM and shares one decode between decks", async t => {
