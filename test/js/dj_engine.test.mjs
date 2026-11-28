@@ -197,6 +197,20 @@ test("a breather keeps its silence and then plays the cached cue if the native c
   assert.deepEqual(advances.map(e => e.toTrackId), [id])
 })
 
+test("a set rehearsal waits for the retired deck to receive its next track", async t => {
+  const {engine, hint, a, tick} = booth(t)
+  hint({type: "crossfade", from_ms: 48_000})
+  assert.equal(engine.awaitingNextLoad(), false)
+  a.at(48)
+  await Promise.resolve()
+  assert.equal(engine.awaitingNextLoad(), true)
+  assert.equal(hint(null, "three"), false)
+  tick(10_000)
+  assert.equal(engine.awaitingNextLoad(), true, "the retired track is still on the platter")
+  assert.equal(hint(null, "three"), "a")
+  assert.equal(engine.awaitingNextLoad(), false)
+})
+
 test("a cold native cut keeps the outgoing signal through its fader ramp, including a musical rest", async t => {
   const {engine, a, b, hint, tick, advances} = booth(t)
   hint({type: "cut", from_ms: 48_000}, "no-decoded-stereo")

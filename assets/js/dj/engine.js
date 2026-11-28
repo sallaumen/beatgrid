@@ -2633,6 +2633,11 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
       passage.disarm()
     },
     passage: passage.current,
+    awaitingNextLoad() {
+      const retired = state.rescue
+      return !!retired && state.activeDeck === otherId(retired.deck) &&
+        decks[retired.deck].loadToken === retired.load && state.hint?.deck !== retired.deck
+    },
     audibleDeck: audibleDeckId,
     sessionDeck,
 

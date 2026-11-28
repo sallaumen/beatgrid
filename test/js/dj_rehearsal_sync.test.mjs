@@ -39,17 +39,33 @@ async function privateTake(t, outBpm = 133.01, intoBpm = 133.01) {
   const saved = {pair: {from: "a", to: "b", fromLoad: 1, toLoad: 1}, kind: "cut",
     phase: "confirmed", exitMs: 7000, plan: planRehearsal(audio, audio, 7, 1, 133.01, mix)}
   const heard = [], auditions = []
-  let phones = true
+  let phones = true, waiting = false
   const engine = {ctx: {resume: async () => {}}, decks: {a: deck(true, outBpm), b: deck(false, intoBpm)}, audibleDeck: () => "a",
+    sessionDeck: () => "a", deckMix: () => neutralMix,
     passage: () => saved, canMeasureBlend: () => false,
     editPassageMix() { saved.phase = "armed" },
     armPassage(_pair, plan) { saved.plan = plan; return {ok: true} },
     rehearsal: {elapsed: () => null, stop() {}, edit(plan) { heard.push(plan) }, play(plan) { auditions.push(plan); return Promise.resolve(true) }}}
-  const panel = mountRehearsal({root, engine, waves, tracks: {a, b}, hint: () => null, hasPhones: () => phones})
+  const panel = mountRehearsal({root, engine, waves, tracks: {a, b}, hint: () => null, hasPhones: () => phones, waitingForNext: () => waiting})
   dialog.open = true
   panel.update()
-  return {strip, panel, engine, heard, saved, auditions, dialog, setPhones(value) { phones = value; panel.update() }}
+  return {strip, panel, engine, heard, saved, auditions, dialog, setWaiting(value) { waiting = value; panel.update() }, setPhones(value) { phones = value; panel.update() }}
 }
+
+test("a queued successor keeps the previous track out of the audition and its mix controls", async t => {
+  const {dialog, strip, auditions, setWaiting} = await privateTake(t)
+  setWaiting(true)
+  assert.match(dialog.querySelector("[data-in]").textContent, /aguardando a próxima faixa/)
+  assert.equal(strip.disabled, true)
+  for (const selector of ["[data-listen]", "[data-listen-both]", "[data-arm]"]) {
+    assert.equal(dialog.querySelector(selector).disabled, true)
+  }
+  await dialog.querySelector("[data-listen]").onclick()
+  assert.equal(auditions.length, 0)
+  setWaiting(false)
+  assert.equal(strip.disabled, false)
+  assert.equal(dialog.querySelector("[data-listen]").disabled, false)
+})
 
 test("SYNC keeps a confirmed private take until the rehearsal tempo actually changes", async t => {
   const {strip, saved, heard, engine} = await privateTake(t)

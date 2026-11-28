@@ -14,7 +14,7 @@ function text(el, value) {
   if (el.textContent !== value) el.textContent = value
 }
 
-export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
+export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, waitingForNext = () => false}) {
   const dialog = root.querySelector("dialog")
   const listen = dialog.querySelector("[data-listen]")
   const both = dialog.querySelector("[data-listen-both]")
@@ -215,18 +215,20 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
       }
     }
     if (!dialog.open) return
-    const from = engine.audibleDeck() || engine.snapshot().activeDeck || "a"
+    const waiting = waitingForNext()
+    const from = (waiting ? engine.sessionDeck() : engine.audibleDeck()) || engine.snapshot().activeDeck || "a"
     const to = from === "a" ? "b" : "a"
     const a = engine.decks[from], b = engine.decks[to]
-    const out = tracks[from], into = tracks[to]
-    const saved = choice?.pair.from === from && choice.pair.fromLoad === a.loadToken &&
+    const out = tracks[from], into = waiting ? null : tracks[to]
+    const toLoad = waiting ? null : b.loadToken
+    const saved = !waiting && choice?.pair.from === from && choice.pair.fromLoad === a.loadToken &&
       choice.pair.toLoad === b.loadToken ? choice : null
-    if (pair?.from !== from || pair.fromLoad !== a.loadToken || pair.toLoad !== b.loadToken) {
+    if (pair?.from !== from || pair.fromLoad !== a.loadToken || pair.toLoad !== toLoad) {
       stop()
       blendReview.lock()
       assist.reset()
       lastDeckCue = null
-      pair = {from, to, fromLoad: a.loadToken, toLoad: b.loadToken}
+      pair = {from, to, fromLoad: a.loadToken, toLoad}
       plan = null
       mix = saved?.plan.mix ?? boothMix()
       if (saved) {
@@ -238,7 +240,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
       text(timing, "")
       const label = (d, track) => "Deck " + d.toUpperCase() + " · " + (track?.title || "vazio")
       text(dialog.querySelector("[data-out]"), label(from, out))
-      text(dialog.querySelector("[data-in]"), label(to, into))
+      text(dialog.querySelector("[data-in]"), waiting ? "Deck " + to.toUpperCase() + " · aguardando a próxima faixa" : label(to, into))
       draw()
     }
     const ready = waves[from]?.peaks && waves[to]?.peaks
@@ -281,7 +283,8 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones}) {
     second.disabled = !plan || !!sequence
     const elapsed = transport.elapsed()
     let message = failure
-    if (!out || !into) message = "Carregue uma faixa em cada deck para ensaiar."
+    if (waiting) message = "A próxima faixa precisa estar no deck para ensaiar."
+    else if (!out || !into) message = "Carregue uma faixa em cada deck para ensaiar."
     else if (a.el.error || b.el.error || waves[from]?.failed || waves[to]?.failed) message = "Não foi possível ler o áudio de um dos decks."
     else if (!ready) message = "Preparando as ondas para liberar os ajustes e a escuta no fone…"
     else if (!plan) message = "Reposicione o deck de entrada antes do fim da faixa."
