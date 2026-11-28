@@ -11,6 +11,13 @@ const taps = Float32Array.from([
   -218, -477, -424, -161, 122, 271, 240, 90, -68, -155, -239, 14
 ], value => value / 8192)
 
+// Compare attacks over the same 1/48000 s on every output device. The mirrored
+// peak history also holds the neighboring samples for a fractional delay.
+const attackDelay = sampleRate / 48000
+const historySize = Math.max(12, Math.ceil(attackDelay) + 1)
+const attackOffset = historySize - Math.floor(attackDelay)
+const attackFraction = attackDelay % 1
+
 function interpolatedPeak(history, oldest) {
   let a = 0, b = 0, c = 0, d = 0
   for (let i = 0; i < 12; i++) {
@@ -45,11 +52,10 @@ class PassageMeter extends AudioWorkletProcessor {
     const samples = this.rolling ? historySeconds * sampleRate : this.end - this.start
     this.frames = new Float32Array(3 * Math.ceil(samples / this.hop))
     this.truePeaks = new Float32Array(this.frames.length / 3)
-    this.history = [new Float32Array(24), new Float32Array(24)]
+    this.history = [new Float32Array(2 * historySize), new Float32Array(2 * historySize)]
     this.cursor = this.warm = this.truePeak = 0
     this.used = this.count = this.power = this.high = this.peak = 0
     this.lastRms = this.lastHigh = 0
-    this.previous = [0, 0]
     this.first = null
     this.finished = false
     this.window = null
@@ -72,18 +78,19 @@ class PassageMeter extends AudioWorkletProcessor {
       if (this.first === null) this.first = currentFrame + i
       for (let c = 0; c < 2; c++) {
         const x = (c ? right : left)?.[i] || 0
-        const difference = x - this.previous[c]
-        this.previous[c] = x
+        const history = this.history[c]
+        history[this.cursor] = history[this.cursor + historySize] = x
+        const at = this.cursor + attackOffset
+        const past = history[at] + attackFraction * (history[at - 1] - history[at])
+        const difference = x - past
         this.power += x * x / 2
         this.high += difference * difference / 2
         this.peak = Math.max(this.peak, Math.abs(x))
-        const history = this.history[c]
-        history[this.cursor] = history[this.cursor + 12] = x
         if (this.warm === 11) {
-          this.truePeak = Math.max(this.truePeak, interpolatedPeak(history, this.cursor + 1))
+          this.truePeak = Math.max(this.truePeak, interpolatedPeak(history, this.cursor + historySize - 11))
         }
       }
-      if (++this.cursor === 12) this.cursor = 0
+      if (++this.cursor === historySize) this.cursor = 0
       if (this.warm < 11) this.warm++
       if (++this.count === this.hop) {
         const rms = Math.sqrt(this.power / this.hop), high = Math.sqrt(this.high / this.hop)
