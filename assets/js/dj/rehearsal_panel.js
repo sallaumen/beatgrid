@@ -45,6 +45,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
   const score = mountPassageScore(dialog.querySelector("#dj-rehearsal-score"))
   const strips = [...dialog.querySelectorAll("[data-side]")]
   const copyMix = dialog.querySelector("[data-copy-mix]")
+  const syncHint = dialog.querySelector("[data-sync-hint]")
   let lastChoice, lastPhase, lastEdit, lastAudition, originalAudition, mix, mixNote = ""
   let pair, plan, lastDeckCue, failure, pending = false, request = 0
   const kind = () => dialog.querySelector('input[name="dj-rehearse-kind"]:checked').value
@@ -140,12 +141,14 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
   }
 
   function paintMix() {
+    const syncReady = Boolean(engine.decks[pair.from].bpm && engine.decks[pair.to].bpm)
+    syncHint.hidden = syncReady || pair.toLoad == null || !tracks[pair.from] || !tracks[pair.to]
     for (const strip of strips) {
       const side = strip.dataset.side, settings = mix[side]
       const {id, reference, bpm, pulse} = syncTarget(side)
       text(strip.querySelector("[data-mix-deck]"), "Deck " + id.toUpperCase())
       text(strip.querySelector("[data-tempo]"), bpm ? (bpm * settings.rate).toLocaleString("pt-BR", {maximumFractionDigits: 1}) + " BPM" : "BPM desconhecido")
-      strip.querySelector("[data-sync]").disabled = !engine.decks[pair.from].bpm || !engine.decks[pair.to].bpm
+      strip.querySelector("[data-sync]").disabled = !syncReady
       const alternate = strip.querySelector("[data-pulse-sync]")
       alternate.hidden = !pulse
       if (pulse) {

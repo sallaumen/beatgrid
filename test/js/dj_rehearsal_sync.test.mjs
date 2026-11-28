@@ -111,6 +111,20 @@ for (const [out, into, multiplier, relation] of [
   })
 }
 
+for (const [out, into] of [[null, 120], [120, null], [null, null], [120, 120]]) {
+  test(`the private SYNC explains missing tempo only for a loaded pair (${out}/${into})`, async t => {
+    const {dialog, strip, setWaiting} = await privateTake(t, out, into)
+    const hint = dialog.querySelector("[data-sync-hint]")
+    const ready = Boolean(out && into)
+    assert.equal(hint.hidden, ready)
+    assert.equal(strip.querySelector("[data-sync]").disabled, !ready)
+    setWaiting(true)
+    assert.equal(hint.hidden, true)
+    setWaiting(false)
+    assert.equal(hint.hidden, ready)
+  })
+}
+
 test("ordinary SYNC never shows or invokes the alternate headphone count", async t => {
   const {strip, auditions, saved} = await privateTake(t)
   const choice = strip.querySelector("[data-pulse-sync]")

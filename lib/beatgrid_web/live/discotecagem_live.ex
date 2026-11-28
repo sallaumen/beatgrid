@@ -1098,6 +1098,9 @@ defmodule BeatgridWeb.DiscotecagemLive do
           <p class="mt-2 text-body text-ink-muted">
             Edite a cópia no fone. Ao confirmar, os dois decks usam os ajustes salvos no ponto da passagem.
           </p>
+          <p data-sync-hint hidden class="mt-2 text-body text-ink-secondary">
+            O SYNC precisa do BPM dos dois decks. Use o pitch para acertar o andamento de ouvido.
+          </p>
           <div class="mt-3 grid gap-4 sm:grid-cols-2">
             <fieldset
               :for={{side, label} <- [{"out", "Saída"}, {"into", "Entrada"}]}
@@ -1114,7 +1117,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
                   type="button"
                   data-sync
                   title="Igualar o BPM ao outro deck no fone e manter o CUE."
-                  class="min-h-9 rounded-md border border-white/10 px-2 text-body"
+                  class="min-h-9 rounded-md border border-white/10 px-2 text-body disabled:opacity-40"
                 >SYNC</button>
               </div>
               <button
