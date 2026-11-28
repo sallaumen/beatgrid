@@ -147,10 +147,11 @@ export function createRecordSource(ctx, buffer, {rate, vinyl}, cue) {
     at = when
     first = Math.round(offset * sr)
     const end = Math.min(buffer.length, first + Math.round(seconds * sr))
-    renderer = createRecordRenderer(ctx, buffer, first, end)
+    // Stopping an audition early must preserve the same grains as the running record.
+    renderer = createRecordRenderer(ctx, buffer, first, buffer.length)
     if (Number.isFinite(cue)) {
       const grainAt = seconds => Math.floor((seconds * sr - first) / (rate * renderer.hop))
-      memory = {rate, first, end, hop: renderer.hop, begin: Math.max(0, grainAt(cue - .005)),
+      memory = {rate, first, end: buffer.length, hop: renderer.hop, begin: Math.max(0, grainAt(cue - .005)),
         last: grainAt(cue + .105), prior: []}
     }
     length = Math.max(1, Math.round((end - first) / rate))

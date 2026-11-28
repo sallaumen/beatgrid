@@ -75,6 +75,65 @@ test("the room uses the same samples as the unedited rehearsal and keeps its sch
   }
 })
 
+test("a pitch-locked cut hears the last attack of the running record and stops at the chosen frame", () => {
+  for (const rate of [.92, 1.08]) {
+    const phones = recording(), room = recording(), recalled = recording()
+    const sr = phones.ctx.sampleRate, lead = .46, offset = .12
+    const frames = Math.round((lead + .008) * sr)
+    const cue = offset + lead * rate
+    const mix = {rate, vinyl: false}
+    for (const {input} of [phones, room, recalled]) {
+      for (let c = 0; c < 2; c++) {
+        const channel = input.getChannelData(c)
+        channel.fill(0)
+        const at = Math.round(cue * sr)
+        for (let i = 0; i < 32; i++) {
+          channel[at + i] = (c ? -.7 : 1) * Math.sin(2 * Math.PI * i / 10) * Math.sin(Math.PI * i / 32) ** 2
+        }
+      }
+    }
+    const take = createRecordSource(phones.ctx, phones.input, mix, cue)
+    take.start(0, offset, frames * rate / sr)
+    startLiveRecord(room.ctx, room.ctx.createGain(), room.input, offset, mix, () => {})
+    const heard = phones.run(.55), onAir = room.run(.55)
+    const splice = recallSplice(take.splices(), recalled.input, cue, rate)
+    assert.ok(splice)
+    startLiveRecord(recalled.ctx, recalled.ctx.createGain(), recalled.input, cue, mix,
+      () => {}, () => {}, 0, 0, splice)
+    const ending = recalled.run(.008)
+    for (const channel of ["left", "right"]) {
+      assert.ok(onAir[channel].slice(0, frames).some(v => Math.abs(v) > .2))
+      assert.ok(heard[channel].slice(0, frames).every((v, i) => v === onAir[channel][i]),
+        "the private excerpt must keep the live attack at " + rate + "×")
+      assert.deepEqual(ending[channel], heard[channel].slice(Math.round(lead * sr), frames))
+      assert.ok(heard[channel].slice(frames).every(v => v === 0))
+    }
+  }
+})
+
+test("recalling a pitch-locked excerpt near the end of the recording preserves its remaining audio and silence", () => {
+  const phones = recording(.6), room = recording(.6), rate = 1.08
+  const sr = phones.ctx.sampleRate, offset = .06, cue = offset + .46 * rate
+  const mix = {rate, vinyl: false}
+  const source = createRecordSource(phones.ctx, phones.input, mix, cue)
+  source.start(0, offset, 2)
+  const heard = phones.run(.75)
+  const saved = recallSplice(source.splices(), room.input, cue, rate)
+  assert.ok(saved)
+  let ended = 0
+  startLiveRecord(room.ctx, room.ctx.createGain(), room.input, cue, mix, () => ended++, () => {},
+    0, 0, saved)
+  const recalled = room.run(.2)
+  const remaining = Math.round((phones.input.duration - cue) / rate * sr)
+  for (const channel of ["left", "right"]) {
+    const original = heard[channel].slice(Math.round(.46 * sr))
+    assert.ok(original.slice(0, remaining).some(v => Math.abs(v) > .2))
+    assert.ok(recalled[channel].every((v, i) => Math.abs(v - original[i]) < .0001))
+    assert.ok(recalled[channel].slice(remaining).every(v => v === 0))
+  }
+  assert.equal(ended, 1)
+})
+
 for (const vinyl of [false, true]) {
   test("repeated live bends retain the record, " + (vinyl ? "transpose the note" : "lock its note") + " and end exactly once", () => {
     const {ctx, input, run, voices} = recording()
