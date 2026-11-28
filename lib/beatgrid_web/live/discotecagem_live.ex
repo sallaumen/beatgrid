@@ -882,7 +882,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
     assigns =
       assign(assigns, :kinds, [
         {"cut", "Corte na entrada", "Corte"},
-        {"blend", "Mistura de quatro tempos", "Mistura"},
+        {"blend", "Mistura", "Mistura"},
         {"bass_swap", "Troca de graves", "Troca de graves"}
       ])
 
@@ -944,7 +944,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
               disabled={kind == "bass_swap"}
               aria-describedby={kind == "bass_swap" && "dj-bass-availability"}
             />
-            <span>{name}</span>
+            <span data-blend-name={kind == "blend" && "true"}>{name}</span>
             <span
               data-score-for={kind}
               hidden
@@ -953,7 +953,7 @@ defmodule BeatgridWeb.DiscotecagemLive do
           </label>
         </fieldset>
         <p id="dj-bass-availability" data-bass-limit hidden class="mb-2 text-body-sm text-ink-muted">
-          A troca de graves precisa de quatro tempos inteiros.
+          O trecho é curto para a troca de graves.
         </p>
         <div class="relative overflow-hidden rounded-md border border-white/10 bg-base">
           <div class="px-2 pt-1 text-body text-amber">

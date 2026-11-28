@@ -30,6 +30,12 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
   const bassPlot = dialog.querySelector("[data-bass-plot]")
   const bass = dialog.querySelector("[data-bass]")
   const names = new Map([...second.options].map(option => [option.value, option]))
+  const blendLabel = dialog.querySelector("[data-blend-name]")
+  function blendName(plan) {
+    if (!plan) return "Mistura"
+    if (plan.beats) return "Mistura de quatro tempos"
+    return plan.blend < 0.01 ? "Mistura de menos de 10 ms" : "Mistura de " + seconds(plan.blend)
+  }
   const name = (kind, short = false) => short ? names.get(kind).dataset.short : names.get(kind).text
   const bassRecallHint = "Leve o crossfader até o deck que sai e espere o eco ou a troca de graves terminar."
   const lanes = [...dialog.querySelectorAll("canvas[data-wave]")]
@@ -78,6 +84,9 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
 
   function draw() {
     const transition = heardKind()
+    const label = blendName(plan)
+    text(blendLabel, label)
+    if (names.get("blend").text !== label) names.get("blend").text = label
     bassPlot.hidden = !(plan?.fullBlend && transition === "bass_swap")
     if (!plan) {
       for (const lane of [...lanes, gains]) lane.width = lane.width
@@ -91,7 +100,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
     if (!bassPlot.hidden) {
       const {start, swap, end} = rehearsalBassWindow(plan)
       const from = pair.from.toUpperCase(), to = pair.to.toUpperCase()
-      interval += " · Grave " + from + " → " + to + " em " + seconds(swap) + " (3º tempo)"
+      interval += " · Grave " + from + " → " + to + " em " + seconds(swap) + (plan.beats ? " (3º tempo)" : "")
       bass.setAttribute("aria-label", "O grave do deck " + to + " abre de " + seconds(start) + " a " +
         seconds(swap) + ". O grave do deck " + from + " recua até " + seconds(end) + ".")
       drawRehearsalBass(bass, plan, window.devicePixelRatio || 1)
@@ -230,7 +239,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
           missed: "O ponto ensaiado já passou", failed: "A entrada não ficou pronta"}
         const review = {live: "A cabine mudou. Confirme para usar os ajustes salvos", draft: "Versão salva · aguarda nova confirmação"}
         const label = phase === "armed" && choice.review ? review[choice.review] : state[phase]
-        text(passageState, label + " · " + name(kind, kind === "cut") + " · " + pair.from.toUpperCase() + " em " +
+        text(passageState, label + " · " + (kind === "blend" ? blendName(plan) : name(kind, true)) + " · " + pair.from.toUpperCase() + " em " +
           seconds(exitMs / 1000) + " → " + pair.to.toUpperCase() + " em " + seconds(plan.inStart))
         confirm.hidden = confirm.disabled = phase !== "armed"
       }
@@ -311,7 +320,7 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
     else if (waves[from]?.failed || waves[to]?.failed) message = "Não foi possível ler o áudio de um dos decks."
     else if (!ready) message = "Preparando as ondas para liberar os ajustes e a escuta no fone…"
     else if (!plan) message = "Reposicione o deck de entrada antes do fim da faixa."
-    else if (shortBass) message = "Escolha corte ou mistura, ou reposicione a entrada para caberem quatro tempos."
+    else if (shortBass) message = "Escolha Corte ou Mistura para este trecho."
     else if (!phones) message = "Escolha uma saída separada em Fone (cue) para ouvir."
     if (message && (elapsed !== null || pending || sequence)) stop()
     const playing = transport.elapsed() !== null

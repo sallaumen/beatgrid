@@ -18,7 +18,7 @@ export function planRehearsal(outgoing, incoming, exit, entry, bpm, mix = {out: 
   const duration = lead + Math.min(blend + 2, inTime)
   // Subtracting a fractional fallback cue from the record length can round down.
   const fullBlend = fourBeatTime - blend < 1e-9
-  return {outgoing, incoming, exit: point, outStart: point - lead * outRate, inStart, lead, blend, fullBlend, duration, mix}
+  return {outgoing, incoming, exit: point, outStart: point - lead * outRate, inStart, lead, blend, fullBlend, beats: bpm > 0 && fullBlend ? 4 : null, duration, mix}
 }
 
 export const CUT_OVERLAP_S = 0.008
