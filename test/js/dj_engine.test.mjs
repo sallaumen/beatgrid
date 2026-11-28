@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
+import {paintDeckStatus} from "../../assets/js/dj/deck_status.js"
 import {createEngine} from "../../assets/js/dj/engine.js"
 import {getDeckAudio, loadPeaks} from "../../assets/js/dj/waveform.js"
 import {watchRoomOutput} from "../../assets/js/dj/outputs.js"
@@ -61,6 +62,12 @@ class Context extends EventTarget {
   createGain() { return new AudioNodeStub() }
   createAnalyser() { return new AudioNodeStub() }
   createDelay() { return new AudioNodeStub() }
+}
+
+function waveformLabel(engine, id) {
+  const readout = {dataset: {}}
+  paintDeckStatus(readout, engine.decks[id], engine.scratchPosSec(id))
+  return readout.textContent
 }
 
 function booth(t, callbacks = {}) {
@@ -2589,7 +2596,9 @@ test("the rehearsed record owns its natural end, even if the native ended event 
   tick(20)
   b.end()
   assert.deepEqual(ends, [])
+  assert.equal(waveformLabel(engine, "b"), "Tocando")
   incoming.onended()
+  assert.equal(waveformLabel(engine, "b"), "Fim")
   b.end()
   assert.deepEqual(ends.map(event => event.trackId), ["two"])
 })
@@ -3977,9 +3986,11 @@ for (const id of ["a", "b"]) {
     media.pause()
     media.duration = NaN
     media.readyState = 0
+    assert.equal(waveformLabel(engine, id), "Tocando", "buffering backup")
     media.error = {code: 3}
     media.dispatchEvent(new Event("error"))
     assert.deepEqual(errors, [])
+    assert.equal(waveformLabel(engine, id), "Tocando", "failed backup")
     assert.equal(engine.snapshot()[id].playing, true)
     assert.equal(engine.snapshot()[id].durMs, 8000)
     assert.equal(engine.loadDeck(id, {id: "other", src: "other"}), false)
@@ -3991,10 +4002,36 @@ for (const id of ["a", "b"]) {
     engine.ctx.currentTime += 4
     eof()
     assert.equal(media.currentTime, 8)
+    assert.equal(waveformLabel(engine, id), "Fim")
     media.dispatchEvent(new Event("ended"))
     assert.deepEqual(ends.map(e => e.trackId), [track])
     assert.deepEqual(errors, [])
+    media.error = null
+    media.ready()
     assert.equal(engine.loadDeck(id, {id: "replacement", src: "replacement"}), true)
+    eof() // a late callback from the former track cannot relabel its replacement
+    assert.equal(waveformLabel(engine, id), "Pronto")
+    assert.ok(engine.eject(id))
+    assert.equal(waveformLabel(engine, id), "Vazio")
+  })
+}
+
+for (const [id, atMs] of [["a", 0], ["b", 740]]) {
+  test(`loading deck ${id} after a failed backup resets WebKit's next start position`, t => {
+    const {engine} = booth(t)
+    engine.stopAll()
+    const d = engine.decks[id], media = d.el
+    media.error = {code: 4}
+    media.currentTime = 188.6
+    t.mock.method(media, "load", () => {
+      media.error = null
+      media.readyState = 0
+    })
+    assert.ok(engine.loadDeck(id, {id: "replacement", src: "/replacement"}, {atMs}))
+    media.ready()
+    assert.equal(media.currentTime, atMs / 1000)
+    assert.equal(d.audible(), false)
+    assert.equal(waveformLabel(engine, id), "Pronto")
   })
 }
 
@@ -4011,6 +4048,7 @@ test("the deck reports a real failure if it loses the recording as well as the m
   t.mock.method(engine.ctx, "createBufferSource", () => { throw Error("device refused the next voice") })
   engine.cueTo("b", 3000)
   assert.equal(deck.entry, null)
+  assert.equal(waveformLabel(engine, "b"), "Erro de áudio")
   assert.deepEqual(errors, [{trackId: track, deck: "b", wasPlaying: true}])
 })
 
@@ -4028,10 +4066,12 @@ test("the DJ can pause and resume the recording when the backup has lost its met
   engine.ctx.currentTime += .25
   engine.playPause("b")
   assert.equal(deck.audible(), false)
+  assert.equal(waveformLabel(engine, "b"), "Pronto")
   engine.playPause("b")
   engine.ctx.currentTime += .25
   assert.ok(Math.abs(deck.platterTime() - 2.5) < .001)
   assert.deepEqual(errors, [])
+  assert.equal(waveformLabel(engine, "b"), "Tocando")
 })
 
 test("sequential AUTO still advances once at the end of a recording with a dead backup", async t => {
@@ -4072,6 +4112,7 @@ for (const id of ["a", "b"]) {
     media.dispatchEvent(new Event("error"))
     engine.cueButton(id, true)
     assert.equal(target.cueState, "preview")
+    assert.equal(waveformLabel(engine, id), "Pré-escuta")
     assert.equal(target.seeking(), false)
     engine.ctx.currentTime += .5
     assert.ok(Math.abs(target.platterTime() - 1.75) < .001)
@@ -4080,6 +4121,7 @@ for (const id of ["a", "b"]) {
     assert.equal(media.plays, nativePlays)
     engine.cueButton(id, false)
     assert.equal(target.audible(), false)
+    assert.equal(waveformLabel(engine, id), "Pronto")
     assert.equal(target.platterTime(), 1.25)
 
     engine.cueButton(id, true)
@@ -4118,6 +4160,7 @@ test("CUE cannot start a preview on failed media without a playable recording", 
   assert.notEqual(engine.decks.b.cueState, "preview")
   assert.equal(engine.decks.b.playPending, false)
   assert.equal(engine.decks.b.audible(), false)
+  assert.equal(waveformLabel(engine, "b"), "Erro de áudio")
   engine.cueButton("b", false)
   assert.deepEqual(errors, [{trackId: "missing-cue", deck: "b", wasPlaying: false}])
 })
