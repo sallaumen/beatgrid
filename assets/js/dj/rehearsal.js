@@ -227,6 +227,31 @@ export function createRehearsal(ctx, phones, pfl) {
     return plan.lead + after * elapsed / before
   }
 
+  function prepareFold(take) {
+    for (const [side, channel] of Object.entries(take.channels)) {
+      if (channel.folded) continue
+      const {record, fader, at, offset} = channel
+      const begin = Math.max(ctx.currentTime, at), end = side === "out" ? take.change + take.overlap : take.end
+      if (begin >= end) continue
+      const position = offset + (begin - at) * record.rate
+      take.nodes.push(...connectHeadphoneFold(ctx, fader, take.monitor, record.buffer, begin, position, end - begin, record.rate))
+      channel.folded = true
+    }
+  }
+
+  function setPan(pan) {
+    if (!current || pan === current.pan) return pan
+    if (pan) {
+      try { prepareFold(current) } catch { return current.pan }
+    }
+    const now = ctx.currentTime, tau = .002
+    if (pan) current.output.pan.setTargetAtTime(pan, now, tau)
+    current.stereo.gain.setTargetAtTime(pan ? 0 : 1, now, tau)
+    current.fold.gain.setTargetAtTime(pan ? 1 : 0, now, tau)
+    current.pan = pan
+    return pan
+  }
+
   function schedule(plan, kind, pan, skip, observe, keepPhones, previous, retryLead = null) {
     try {
       // Both sources and their automation must reach the render thread before their shared start.
@@ -247,13 +272,16 @@ export function createRehearsal(ctx, phones, pfl) {
       output.pan.value = pan
       const level = ctx.createGain()
       const oneEar = Math.abs(pan) === 1
-      const monitor = oneEar ? ctx.createGain() : level
-      if (oneEar) {
-        monitor.channelCount = 1
-        monitor.channelCountMode = "explicit"
-      }
+      const monitor = ctx.createGain(), stereo = ctx.createGain(), fold = ctx.createGain()
+      monitor.channelCount = 1
+      monitor.channelCountMode = "explicit"
+      stereo.gain.value = oneEar ? 0 : 1
+      fold.gain.value = oneEar ? 1 : 0
+      level.connect(stereo)
+      monitor.connect(fold)
+      fold.connect(output)
       const edge = Math.min(edgeSeconds, (finish - playAt) / 3)
-      const buses = oneEar ? [level, monitor] : [level]
+      const buses = [level, monitor]
       for (const bus of buses) {
         bus.gain.setValueAtTime(0, setupStart) // A retained record already carries signal during preparation.
         bus.gain.setValueAtTime(0, playAt)
@@ -261,9 +289,8 @@ export function createRehearsal(ctx, phones, pfl) {
         bus.gain.setValueAtTime(1, finish - edge)
         bus.gain.linearRampToValueAtTime(0, finish)
       }
-      monitor.connect(output)
       const ended = new Promise(resolve => {
-        current = {start, change, overlap: fade, from, playAt, end: finish, edge, buses, plan, kind, channels: {}, nodes: [...buses, output], finish: resolve}
+        current = {start, change, overlap: fade, from, playAt, end: finish, edge, buses, plan, kind, channels: {}, nodes: [...buses, stereo, fold, output], monitor, stereo, fold, output, pan, finish: resolve}
       })
       const sample = 1 / ctx.sampleRate
       const add = (side, buffer, at, end) => {
@@ -284,7 +311,7 @@ export function createRehearsal(ctx, phones, pfl) {
           source.connect(eq.hpf)
           eq.toneTreble.connect(level)
           if (kind === "bass_swap") scheduleRehearsalBass(eq.bass.gain, side, change, fade, at)
-          record = {source, eq, level, buffer, at, offset, end: audioEnd, users: 0}
+          record = {source, eq, level, buffer, at, offset, rate: mix.rate, end: audioEnd, users: 0}
           applyMix(record, mix)
         }
         const fader = ctx.createGain()
@@ -298,15 +325,12 @@ export function createRehearsal(ctx, phones, pfl) {
           scheduleBlend(fader.gain, kind === "blend" && plan.blendCurve, side === "out" ? 0 : 1, change, fade, at)
         }
         current.nodes.push(fader)
-        if (oneEar) {
-          const fold = connectHeadphoneFold(ctx, fader, monitor, buffer, at, offset, end - at, mix.rate)
-          current.nodes.push(...fold)
-        }
         if (!keep) record.source.start(at, offset, (audioEnd - at) * mix.rate)
         return record.source
       }
       const outgoing = add("out", plan.outgoing, playAt, change + fade)
       const last = add("into", plan.incoming, Math.max(playAt, change), finish)
+      if (oneEar) prepareFold(current)
       if (ctx.currentTime + guard > playAt) {
         // Nothing was routed. Retry a slow setup once with its measured cost in reserve.
         if (retryLead !== null) throw new Error("Headphone playback missed its scheduled start")
@@ -325,6 +349,7 @@ export function createRehearsal(ctx, phones, pfl) {
         fadeUntil(previous, playAt, edge)
       }
       output.connect(phones)
+      stereo.connect(phones)
       fadePfl(0, Math.min(playAt, ctx.currentTime + edgeSeconds))
       // A missing meter must never interrupt the audio already scheduled.
       if (observe) {
@@ -370,5 +395,5 @@ export function createRehearsal(ctx, phones, pfl) {
     }
   }
 
-  return {play, edit, stop, stopListening, splices, elapsed}
+  return {play, edit, setPan, stop, stopListening, splices, elapsed}
 }

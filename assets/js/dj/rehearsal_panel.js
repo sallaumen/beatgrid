@@ -398,6 +398,15 @@ export function mountRehearsal({root, engine, tracks, waves, hint, hasPhones, wa
   dialog.onclose = () => { blendReview.lock(); stop(true); assist.reset(); pair = plan = null }
   dialog.onchange = e => {
     if (e.target.matches("[data-mix]")) return
+    if (e.target === pan) {
+      const selected = Number(pan.value), actual = transport.setPan(selected)
+      if (selected !== actual || failure) {
+        pan.value = String(actual)
+        failure = selected === actual ? "" : "Não foi possível ouvir este ajuste. Tente novamente."
+        update()
+      }
+      return
+    }
     if (e.target === second) { comparison.clearSummary(); update(); return }
     if (e.target.name === "dj-rehearse-kind" && comparison.alternative()) comparison.select(true)
     else stop(true)

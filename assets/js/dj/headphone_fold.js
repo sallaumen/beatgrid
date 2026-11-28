@@ -111,11 +111,11 @@ export function connectHeadphoneFold(ctx, input, monitor, buffer, at, offset, du
     return []
   }
   const split = ctx.createChannelSplitter(2), left = ctx.createGain(), right = ctx.createGain()
+  scheduleHeadphoneFold(left.gain, right.gain, buffer, at, offset, duration, rate)
   input.connect(split)
   split.connect(left, 0)
   split.connect(right, 1)
   left.connect(monitor)
   right.connect(monitor)
-  scheduleHeadphoneFold(left.gain, right.gain, buffer, at, offset, duration, rate)
   return [split, left, right]
 }

@@ -50,7 +50,7 @@ function rehearsalFixture() {
       return {length: frames, sampleRate, numberOfChannels: channels, getChannelData: i => samples[i]}
     },
     currentTime: 10, sampleRate: 48000,
-    createStereoPanner: () => ({...node(), pan: {value: 0}, connect(dest) {
+    createStereoPanner: () => ({...node(), pan: param(), connect(dest) {
       this.connections.push({next: dest})
       routed.push(ctx.currentTime)
     }}),
@@ -133,7 +133,7 @@ test("auditions schedule independent sources only into phones and restore PFL on
   assert.ok(clock.start > ctx.currentTime)
   assert.equal(clock.change, clock.start + 3)
   assert.equal(clock.end, clock.start + 6)
-  assert.equal(stereoTap.connections.length, 0)
+  assert.equal(stereoTap.connections[0].next.gain.value, 0, "the stereo meter is isolated from one-ear monitoring")
   const [a, b] = sources
   assert.equal(a.buffer, plan.outgoing)
   assert.equal(b.buffer, plan.incoming)
@@ -150,7 +150,7 @@ test("auditions schedule independent sources only into phones and restore PFL on
     const monitor = left.next.connections[0].next
     assert.equal(right.next.connections[0].next, monitor)
     assert.equal(monitor.channelCount, 1)
-    const panner = monitor.connections[0].next
+    const panner = monitor.connections[0].next.connections[0].next
     assert.equal(panner.pan.value, -1)
     assert.equal(panner.connections[0].next, phones)
   }
@@ -245,6 +245,49 @@ test("resuming a private take keeps its record position while the start is queue
   assert.equal(preview.elapsed(), 2.5)
   ctx.currentTime = origin + 2.75
   assert.equal(preview.elapsed(), 2.75)
+  preview.stop()
+})
+
+test("changing ears keeps the take, its measurement and both record clocks running", async () => {
+  const {preview, plan, ctx, sources, splitters, pfl} = rehearsalFixture()
+  let canceled = 0, timing
+  const heard = preview.play(plan, "blend", 0, 0, (_tap, clocks) => {
+    timing = clocks
+    return () => { canceled++ }
+  })
+  assert.equal(splitters.length, 0, "a stereo audition can start before the fold is needed")
+  ctx.currentTime = timing.change + .4
+  const before = preview.elapsed()
+  for (const ear of [-1, 1, 0, -1]) {
+    preview.setPan(ear)
+    assert.equal(preview.elapsed(), before)
+    assert.equal(pfl.gain.value, 0)
+    assert.equal(sources.length, 2)
+    assert.equal(splitters.length, 2, "each record is folded only once")
+  }
+  assert.equal(canceled, 0)
+  sources.at(-1).onended()
+  assert.equal(await heard, true)
+  assert.equal(pfl.gain.value, 1)
+})
+
+test("a failed one-ear allocation keeps stereo playing and a retry folds each deck once", () => {
+  const {preview, plan, ctx, splitters, sources, pfl} = rehearsalFixture()
+  void preview.play(plan, "blend", 0)
+  ctx.currentTime += plan.lead + .25
+  const splitter = ctx.createChannelSplitter
+  let attempted = 0
+  ctx.createChannelSplitter = () => {
+    if (++attempted === 2) throw new Error("allocation refused")
+    return splitter()
+  }
+  const elapsed = preview.elapsed()
+  assert.equal(preview.setPan(1), 0)
+  assert.equal(preview.elapsed(), elapsed)
+  assert.equal(pfl.gain.value, 0)
+  assert.equal(preview.setPan(1), 1)
+  assert.equal(splitters.length, 2)
+  assert.ok(sources.every(source => !source.stopped))
   preview.stop()
 })
 
