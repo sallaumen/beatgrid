@@ -19,6 +19,17 @@ function entry(t, offset = 1.25) {
   return {ctx, media, source, gain: gain.gain, bridge, released, tick() { t.mock.timers.tick(25) }}
 }
 
+test("a refused vinyl voice returns the native deck to the audible head only once", t => {
+  const {ctx, bridge, media, gain, released} = entry(t)
+  ctx.currentTime += 2
+  ctx.createBufferSource = () => { throw Error("audio device refused a voice") }
+  assert.equal(bridge.setMode(true, 1), false)
+  assert.equal(media.currentTime, 3.25)
+  assert.equal(gain.value, 1)
+  assert.equal(bridge.setMode(false, 1), false)
+  assert.deepEqual(released, [false])
+})
+
 test("aligned media clocks cannot replace the rehearsed sound when a decoder starts late", t => {
   const {ctx, media, source, gain, bridge, released, tick} = entry(t)
   assert.deepEqual(source.started, [5, 1.25])

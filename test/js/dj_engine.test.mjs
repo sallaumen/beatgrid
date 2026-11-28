@@ -1099,6 +1099,28 @@ test("rescuing a vinyl brake restores the DJ's pitch and key-lock setting perman
   assert.equal(a.preservesPitch, false)
 })
 
+test("a vinyl brake slows the audible recording and rescue keeps it off stalled media", async t => {
+  const {engine, a, hint, tick} = await scratchBooth(t, "brake-receiver")
+  hint(null, "brake-receiver")
+  const deck = engine.decks.a, sr = engine.ctx.sampleRate
+  const buffer = {duration: 60, sampleRate: sr, length: 60 * sr}
+  deck.playDecoded(buffer, 12, engine.deckMix("a"))
+  assert.equal(engine.fireManual("brake").ok, true)
+  await Promise.resolve()
+  engine.ctx.currentTime = .25
+  tick(250)
+  assert.ok(deck.entry)
+  assert.ok(deck.playbackRate < .9)
+  assert.ok(deck.platterTime() > 12 && a.currentTime < 1)
+  assert.equal(engine.cancelTransition().ok, true)
+  engine.ctx.currentTime = .75
+  tick(500)
+  assert.ok(deck.entry)
+  assert.equal(deck.playbackRate, 1)
+  assert.equal(a.preservesPitch, true)
+  assert.ok(deck.platterTime() > 12.5)
+})
+
 test("rescuing a bass swap restores the outgoing low end after the bass has crossed", async t => {
   const {engine, a, b, hint, tick} = booth(t)
   hint(null)

@@ -1503,23 +1503,24 @@ export function createEngine({deckElA, deckElB, callbacks = {}}) {
   // track slams in. playbackRate is not an AudioParam, so the wind-down is a
   // JS interval — the final pause is timeout-guarded and lands regardless.
   function brake(from, to, {token, drop}) {
-    from.useMedia()
     const el = from.el
     const brakeS = dur(RAMP.brakeS)
     cancelBend(from.id) // the wind-down owns playbackRate — no bend ping-pong
     el.preservesPitch = false
-    const startRate = el.playbackRate
+    const startRate = from.playbackRate
+    from.entry?.setMode(true, startRate)
     const t0 = performance.now()
     const iv = setInterval(() => {
       const p = Math.min((performance.now() - t0) / (brakeS * 1000), 1)
-      el.playbackRate = Math.max(startRate * (1 - p) * (1 - p), 0.07)
+      const rate = Math.max(startRate * (1 - p) * (1 - p), 0.07)
+      if (!from.entry?.nudge(rate)) el.playbackRate = rate
       if (p >= 1) clearInterval(iv)
     }, 40)
     from.stopBrake = () => {
       clearInterval(iv)
       from.stopBrake = null
       el.preservesPitch = !from.vinylMode
-      applyRate(from)
+      if (!from.entry?.setMode(from.vinylMode, from.baseRate)) applyRate(from)
     }
 
     after(brakeS * 0.65, () => {

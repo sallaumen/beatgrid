@@ -96,7 +96,23 @@ export function startDecodedEntry(ctx, media, buffer, offset, input, mediaGain, 
       return false
     }
   }
+  function setMode(vinyl, rate) {
+    if (closed) return false
+    if (mix.vinyl === vinyl) return nudge(rate)
+    let replacement
+    try {
+      replacement = prepareRecall(buffer, source.position(), {vinyl, rate})
+      const when = ctx.currentTime + 256 / ctx.sampleRate
+      replacement.launch(when, source.position(when))
+      return true
+    } catch {
+      replacement?.discard()
+      release(true)
+      return false
+    }
+  }
+
   return {position: time => closed ? media.currentTime : source.position(time), rate: () => source.rate(),
-    nudge, seek, prepareRecall, release,
+    nudge, setMode, seek, prepareRecall, release,
     launch(when, head) { source.launch(when, head); takeMedia(when) }, discard: () => source.stop()}
 }
