@@ -3808,3 +3808,90 @@ test("sequential AUTO still advances once at the end of a recording with a dead 
   assert.deepEqual(errors, [])
   assert.deepEqual(advances.map(e => e.toTrackId), ["two"])
 })
+
+for (const id of ["a", "b"]) {
+  test(`holding CUE on idle deck ${id} auditions its cached record through a failed media player`, async t => {
+    const track = "idle-cue-" + id, other = id === "a" ? "b" : "a"
+    const errors = [], {engine, advances} = await scratchBooth(t, track, 2, {deckError: e => errors.push(e)})
+    engine.stopAll()
+    engine.loadDeck(other, {id: "room", src: "room"}, {autoplay: true})
+    engine.setCrossfader(other === "a" ? 0 : 1)
+    engine.loadDeck(id, {id: track, src: track}, {atMs: 1250})
+    engine.togglePfl(id)
+    const target = engine.decks[id], media = target.el
+    const nativePlays = media.plays
+    media.readyState = 0
+    engine.cueTo(id, 1250)
+    media.error = {code: 3}
+    media.dispatchEvent(new Event("error"))
+    engine.cueButton(id, true)
+    assert.equal(target.cueState, "preview")
+    assert.equal(target.seeking(), false)
+    engine.ctx.currentTime += .5
+    assert.ok(Math.abs(target.platterTime() - 1.75) < .001)
+    assert.equal(engine.snapshot().activeDeck, other)
+    assert.equal(engine.decks[other].audible(), true)
+    assert.equal(media.plays, nativePlays)
+    engine.cueButton(id, false)
+    assert.equal(target.audible(), false)
+    assert.equal(target.platterTime(), 1.25)
+
+    engine.cueButton(id, true)
+    engine.playPause(id)
+    engine.cueButton(id, false)
+    assert.equal(target.audible(), true)
+    assert.equal(target.seeking(), false)
+    engine.cueTo(id, 3250)
+    engine.ctx.currentTime += .25
+    const heard = target.platterTime()
+    assert.ok(heard > 3.25 && heard <= 3.5)
+    engine.ctx.currentTime += .25
+    assert.ok(Math.abs(target.platterTime() - heard - .25) < .001)
+    engine.stopAll()
+    media.error = null
+    assert.equal(engine.loadDeck(id, {id: "replacement", src: "replacement"}, {atMs: 400}), true)
+    media.ready()
+    engine.cueButton(id, true)
+    assert.equal(media.currentTime, .4)
+    assert.equal(media.paused, false)
+    assert.equal(target.entry, null)
+    engine.cueButton(id, false)
+    assert.equal(media.paused, true)
+    assert.deepEqual(errors, [{trackId: track, deck: id, wasPlaying: false}])
+    assert.deepEqual(advances, [])
+  })
+}
+
+test("CUE cannot start a preview on failed media without a playable recording", t => {
+  const errors = [], {engine, b} = booth(t, {deckError: e => errors.push(e)})
+  engine.loadDeck("b", {id: "missing-cue", src: "missing-cue"})
+  b.error = {code: 4}
+  b.readyState = 0
+  b.dispatchEvent(new Event("error"))
+  engine.cueButton("b", true)
+  assert.notEqual(engine.decks.b.cueState, "preview")
+  assert.equal(engine.decks.b.playPending, false)
+  assert.equal(engine.decks.b.audible(), false)
+  engine.cueButton("b", false)
+  assert.deepEqual(errors, [{trackId: "missing-cue", deck: "b", wasPlaying: false}])
+})
+
+test("a failed CUE voice can be released and retried on the same cached record", async t => {
+  const id = "retry-idle-cue", errors = []
+  const {engine, b} = await scratchBooth(t, id, 2, {deckError: e => errors.push(e)})
+  engine.loadDeck("b", {id, src: id})
+  b.error = {code: 3}
+  b.readyState = 0
+  b.dispatchEvent(new Event("error"))
+  const create = t.mock.method(engine.ctx, "createBufferSource", () => { throw Error("voice refused") })
+  engine.cueButton("b", true)
+  assert.equal(engine.decks.b.playPending, false)
+  assert.equal(engine.decks.b.audible(), false)
+  engine.cueButton("b", false)
+  create.mock.restore()
+  engine.cueButton("b", true)
+  assert.equal(engine.decks.b.audible(), true)
+  assert.equal(engine.snapshot().activeDeck, "a")
+  engine.cueButton("b", false)
+  assert.deepEqual(errors, [{trackId: id, deck: "b", wasPlaying: false}])
+})
