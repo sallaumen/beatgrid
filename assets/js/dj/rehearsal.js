@@ -64,7 +64,8 @@ export function recordTime(plan, side, time) {
 
 // This transport has no references to live media elements or the master output.
 export function createRehearsal(ctx, phones, pfl) {
-  let current = null, cancelMeasurement = null
+  const edgeSeconds = 0.006
+  let current = null, cancelMeasurement = null, pflTarget = 1
   const heardSplices = new WeakMap()
   const fading = new Set()
 
@@ -100,9 +101,29 @@ export function createRehearsal(ctx, phones, pfl) {
     take.finish(completed)
   }
 
+  function fadePfl(value, end) {
+    if (pflTarget === value) return
+    pflTarget = value
+    const now = ctx.currentTime, gain = pfl.gain
+    if (gain.cancelAndHoldAtTime) gain.cancelAndHoldAtTime(now)
+    else {
+      const held = gain.value
+      gain.cancelScheduledValues(now)
+      gain.setValueAtTime(held, now)
+    }
+    gain.linearRampToValueAtTime(value, end)
+  }
+
   function stop(completed = false, keepPhones = false) {
     if (!completed) discardMeasurement()
-    if (!keepPhones) pfl.gain.value = 1
+    if (!keepPhones) {
+      if (completed) fadePfl(1, ctx.currentTime + edgeSeconds)
+      else {
+        pflTarget = 1
+        pfl.gain.cancelScheduledValues(ctx.currentTime)
+        pfl.gain.setValueAtTime(1, ctx.currentTime)
+      }
+    }
     saveSplices()
     release(current, completed)
     current = null
@@ -113,19 +134,35 @@ export function createRehearsal(ctx, phones, pfl) {
     const end = when + edge
     if (take.released || take.stopAt <= end) return
     // Mirror the incoming six-millisecond edge while the current pitch keeps playing.
-    const level = Math.max(0, Math.min(1, (when - take.playAt) / take.edge, (take.end - when) / take.edge))
+    const level = take.fadeAt != null && when >= take.fadeAt
+      ? take.fadeLevel * Math.max(0, (take.stopAt - when) / (take.stopAt - take.fadeAt))
+      : Math.max(0, Math.min(1, (when - take.playAt) / take.edge, (take.end - when) / take.edge))
     for (const {gain} of take.buses) {
-      if (gain.cancelAndHoldAtTime) gain.cancelAndHoldAtTime(when)
-      else {
-        gain.cancelScheduledValues(when)
-        gain.linearRampToValueAtTime(level, when)
-      }
+      gain.cancelScheduledValues(when)
+      // Anchor the edge here; a ramp from the last attack would cut the sustain immediately.
+      gain.linearRampToValueAtTime(level, when)
       gain.linearRampToValueAtTime(0, end)
     }
+    take.fadeAt = when
+    take.fadeLevel = level
     take.stopAt = end
     fading.add(take)
     take.sources.at(-1).onended = () => release(take)
     for (const source of take.sources) source.stop(end)
+  }
+
+  // A deliberate stop can finish its headphone edge. A lost route still disconnects at once.
+  function stopListening() {
+    const now = ctx.currentTime
+    discardMeasurement()
+    saveSplices()
+    if (current) {
+      if (now < current.playAt || now >= current.end) release(current)
+      else fadeUntil(current, now, edgeSeconds)
+      current = null
+    }
+    for (const take of fading) fadeUntil(take, now, edgeSeconds)
+    fadePfl(1, now + edgeSeconds)
   }
 
   function applyMix(channels, mix, smooth) {
@@ -137,7 +174,7 @@ export function createRehearsal(ctx, phones, pfl) {
   }
 
   function play(plan, kind, pan, skip = 0, observe, keepPhones = false) {
-    stop(false, true)
+    if (current || !fading.size) stop(false, true)
     return schedule(plan, kind, pan, skip, observe, keepPhones, null)
   }
 
@@ -173,7 +210,7 @@ export function createRehearsal(ctx, phones, pfl) {
         monitor.channelCount = 1
         monitor.channelCountMode = "explicit"
       }
-      const edge = Math.min(0.006, (finish - playAt) / 3)
+      const edge = Math.min(edgeSeconds, (finish - playAt) / 3)
       const buses = oneEar ? [level, monitor] : [level]
       for (const bus of buses) {
         bus.gain.setValueAtTime(0, playAt)
@@ -227,7 +264,7 @@ export function createRehearsal(ctx, phones, pfl) {
         fadeUntil(previous, playAt, edge)
       }
       output.connect(phones)
-      pfl.gain.value = 0
+      fadePfl(0, Math.min(playAt, ctx.currentTime + edgeSeconds))
       // A missing meter must never interrupt the audio already scheduled.
       if (observe) {
         try { cancelMeasurement = observe(level, {start, change, end: finish, overlap: fade, kind}) }
@@ -262,5 +299,5 @@ export function createRehearsal(ctx, phones, pfl) {
     }
   }
 
-  return {play, edit, stop, splices, elapsed}
+  return {play, edit, stop, stopListening, splices, elapsed}
 }

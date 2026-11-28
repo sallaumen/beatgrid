@@ -69,6 +69,7 @@ function rehearsalFixture() {
     }
   }
   const phones = node(), pfl = node()
+  pfl.gain.linearRampToValueAtTime = function(value) { this.value = value }
   const preview = createRehearsal(ctx, phones, pfl)
   function track(duration, polarity) {
     const left = new Float32Array(duration * 1000).fill(0.5)
@@ -78,6 +79,40 @@ function rehearsalFixture() {
   const plan = planRehearsal(track(14, 1), track(8, -1), 12, 5, 120)
   return {preview, plan, ctx, phones, pfl, sources, splitters, routed, preparationDelays}
 }
+
+test("the live cue fades before an audition and returns smoothly when the DJ stops listening", async () => {
+  const {preview, plan, ctx, pfl, sources} = rehearsalFixture()
+  const ramps = []
+  pfl.gain.linearRampToValueAtTime = function(value, time) { this.value = value; ramps.push({value, time}) }
+  let start, envelope
+  const ended = preview.play(plan, "cut", 0, 0, (tap, times) => { envelope = tap.gain; start = times.start })
+  const privateEdge = []
+  envelope.cancelAndHoldAtTime = () => {}
+  envelope.linearRampToValueAtTime = (value, time) => privateEdge.push({value, time})
+  assert.equal(ramps.at(-1)?.value, 0)
+  assert.ok(ramps.at(-1).time > ctx.currentTime && ramps.at(-1).time <= start)
+  ctx.currentTime = start + .2
+  preview.stopListening()
+  assert.equal(preview.elapsed(), null)
+  assert.equal(ramps.at(-1).value, 1)
+  assert.deepEqual(privateEdge, [{value: 1, time: ctx.currentTime}, {value: 0, time: ramps.at(-1).time}])
+  assert.equal(ramps.at(-1).time, sources.at(-1).stopAt)
+  assert.ok(sources.at(-1).stopAt > ctx.currentTime)
+  sources.at(-1).onended()
+  assert.equal(await ended, false)
+  assert.ok(sources.every(s => !s.connections.length))
+})
+
+test("losing the output during a headphone fade releases every private source immediately", async () => {
+  const {preview, plan, ctx, sources} = rehearsalFixture()
+  const take = preview.play(plan, "blend", 0)
+  ctx.currentTime += .4
+  preview.stopListening()
+  assert.ok(sources.at(-1).stopAt > ctx.currentTime)
+  preview.stop()
+  assert.equal(await take, false)
+  assert.ok(sources.every(source => source.stopped && source.stopAt === undefined && !source.connections.length))
+})
 
 test("auditions schedule independent sources only into phones and restore PFL on stop or completion", async () => {
   const {preview, plan, ctx, phones, pfl, sources, splitters} = rehearsalFixture()
